@@ -185,27 +185,24 @@
 
 ### T7: SqliteStore.write [REQ-008, REQ-009, AC-001]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] `SqliteStore.write(ExtractionResult)` — 修改 — 保留签名;增加内部 PreparedStatement helper
-
-**Gate**: `mvn -q compile` — exit 0
+- [x] `write(ExtractionResult)` 接入 PreparedStatement helper
 
 #### Phase 2: DSL Test
 
-- [ ] `src/test/java/com/anatomist/store/SqliteStoreWriteTest.java#write_persistsNodesAndEdges` — 构造 ExtractionResult 含 2 Nodes(CLASS+METHOD)+ 1 CONTAINS Edge,写入临时 SQLite,断言 SELECT count 一致;断言 node_names FTS5 命中 label
-- [ ] 同文件 `#write_isAtomic` — 注入一个 violate CHECK 约束的 Edge(`is_external=0, target_id=null`),期望抛异常且事务回滚(写入前后 nodes 表为空)
-- [ ] 同文件 `#write_supportsIdempotentRewrite` — 同 ExtractionResult 写两次,期望第二次不抛(INSERT OR REPLACE),最终 nodes 数等于第一次
-
-**Gate**: `mvn -q test-compile && mvn -q test -Dtest=SqliteStoreWriteTest` — ① test-compile exit 0 ② 红灯
+- [x] `write_persistsNodesAndEdges` — nodes+edges 写入 + FTS5 命中 label
+- [x] `write_isAtomic` — CHECK 违例触发 rollback,nodes/edges 表均空
+- [x] `write_supportsIdempotentRewrite` — INSERT OR REPLACE 让重复写入幂等
 
 #### Phase 3: Implementation
 
-- [ ] `write`: 开事务,nodes/edges/annotations 用 `INSERT OR REPLACE` PreparedStatement + addBatch,commit;异常 rollback 再 rethrow
+- [x] write 开事务,nodes 用 `INSERT OR REPLACE` + addBatch,edges/annotations 用 `INSERT` + addBatch;异常 rollback 后 rethrow,finally 恢复 autoCommit
+- [x] 注意:FTS5 默认 tokenizer 会拆 `pkg.Class#method()`,测试用 `label MATCH` 而非全字段 MATCH
 
-**Gate**: `mvn -q test -Dtest=SqliteStoreWriteTest` — exit 0
+**Gate**: `mvn test -Dtest=SqliteStoreWriteTest` — exit 0, 3/3 green ✓
 
 ---
 
