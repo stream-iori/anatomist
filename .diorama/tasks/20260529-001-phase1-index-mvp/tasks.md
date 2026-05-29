@@ -77,31 +77,28 @@
 
 ### T3: ClasspathDetector + 降级 [REQ-002, REQ-010, REQ-012, AC-002]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] `src/main/java/com/anatomist/core/ClasspathDetector.java` — 修改 — `detect(Path)` 返回 `List<String>`(空表示无 classpath);`detectSourcePaths(Path)` 返回 `List<Path>`;新增 `boolean isMavenProject(Path)` private;允许通过 protected `runMvn(...)` seam 注入 mvn 调用,便于测试
+- [x] `ClasspathDetector` 字段/seam 就位:`detect`/`detectSourcePaths`/`isMavenProject`/`runMvn` (protected, 可 override)
 
-**Gate**: `mvn -q compile` — exit 0
+**Gate**: `mvn -q compile` — exit 0 ✓
 
 #### Phase 2: DSL Test
 
-- [ ] `src/test/java/com/anatomist/core/ClasspathDetectorTest.java#detect_returnsEmptyAndWarnsWhenMvnUnavailable` — 场景 AC-002,S2 — 子类化 ClasspathDetector,override `runMvn` 抛 IOException;期望 detect 返回空 List,捕获 stderr 含 `WARN` 且含 `mvn`
-- [ ] 同文件 `#detect_returnsEmptyForNonMavenProject` — 临时目录无 pom.xml,期望返回空
-- [ ] 同文件 `#detectSourcePaths_returnsSrcMainJavaForMavenProject` — 临时目录有 pom.xml 和 `src/main/java`,期望返回该路径
-- [ ] 同文件 `#detect_parsesClasspathFromMockedMvnOutput` — override runMvn,返回固定 `:` 分隔字符串(模拟 mvn 输出),期望解析为 List
-
-**Gate**: `mvn -q test-compile && mvn -q test -Dtest=ClasspathDetectorTest` — ① test-compile exit 0 ② 4 用例红灯
+- [x] `ClasspathDetectorTest#detect_returnsEmptyAndWarnsWhenMvnUnavailable`
+- [x] `#detect_returnsEmptyForNonMavenProject`
+- [x] `#detectSourcePaths_returnsSrcMainJavaForMavenProject`
+- [x] `#detect_parsesClasspathFromMockedMvnOutput`
 
 #### Phase 3: Implementation
 
-- [ ] `isMavenProject` = 存在 `pom.xml`
-- [ ] `detect`: 非 Maven 返回空;Maven 时通过 seam `runMvn(projectRoot, "dependency:build-classpath", "-DincludeScope=compile", "-q", "-Dmdep.outputFile=<tmp>")`,读 tmp 文件按 `File.pathSeparator` 拆分;捕获 `IOException` / 非零退出码 → stderr WARN + 返回空
-- [ ] `detectSourcePaths`: Maven 时返回 `[<root>/src/main/java]`(过滤不存在);非 Maven 暂返回 `[<root>]`(由 ProjectScanner 递归扫)
-- [ ] `runMvn` 默认实现用 `ProcessBuilder`,timeout 60s
+- [x] `isMavenProject` = pom.xml 存在
+- [x] `detect`: 调用 seam `runMvn`(timeout 60s),IOException/非零退出码 → stderr WARN + 返回空
+- [x] `detectSourcePaths`: Maven → `src/main/java`(若存在);非 Maven → projectRoot
 
-**Gate**: `mvn -q test -Dtest=ClasspathDetectorTest` — exit 0
+**Gate**: `mvn test -Dtest=ClasspathDetectorTest` — exit 0, 4/4 green ✓
 
 ---
 
