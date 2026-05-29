@@ -3,8 +3,8 @@
     "current_phase": "generate",
     "current_task": "20260529-001-phase1-index-mvp",
     "dirty": false,
-    "last_checkpoint_commit": "31aaa6ce50d40aed4135d2ddf7ceded2ecf7cf44",
-    "last_task_checkpoint": "31aaa6ce50d40aed4135d2ddf7ceded2ecf7cf44",
-    "last_updated_at": "2026-05-29T06:21:32.530764Z"
+    "last_checkpoint_commit": "9111510b41e361ac0be7dd8a1f1b3879ce0b21ae",
+    "last_task_checkpoint": "9111510b41e361ac0be7dd8a1f1b3879ce0b21ae",
+    "last_updated_at": "2026-05-29T06:22:54.543986Z"
   }
 }
