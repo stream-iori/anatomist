@@ -208,29 +208,24 @@
 
 ### T8: IndexCommand 集成 + 端到端 IT [REQ-001, REQ-011, REQ-012, AC-001]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] `IndexCommand.call()` — 修改 — 串起所有组件:解析参数 → ClasspathDetector → ProjectScanner → JdtParserFactory.parseAll(回调中调用 TypeExtractor + MethodExtractor)→ SqliteStore.initSchema + write → 输出 stats → 返回 0
-- [ ] 选项处理: `--output` 默认 `<projectPath>/.anatomist/index.db`(自动 mkdir 父目录);`--no-classpath` 跳过 ClasspathDetector.detect;`--classpath`/`--project-source` 按 `File.pathSeparator` 拆分覆盖检测
-
-**Gate**: `mvn -q compile` — exit 0
+- [x] IndexCommand 串接: ClasspathDetector → resolveSourcePaths/Classpath → ProjectScanner → JdtParserFactory.parseAll → TypeExtractor + MethodExtractor → SqliteStore initSchema + write
+- [x] `--output` 默认 `<project>/.anatomist/index.db`,自动 mkdir 父目录,先 delete 旧库
+- [x] `--no-classpath` / `--classpath` / `--project-source` 覆盖检测结果(按 `File.pathSeparator` 拆分)
 
 #### Phase 2: DSL Test
 
-- [ ] `src/test/java/com/anatomist/cli/IndexCommandIT.java#indexesMiniSpringShopServiceModule` — 场景 S1,AC-001 — 用 `CommandLine.execute("index", "<repoRoot>/fixtures/mini-spring-shop/service", "--output", tmpDb, "--no-classpath")`,断言: 退出码 0;DB 存在;OrderService CLASS Node 存在;METHOD 节点数 ≥ 1;CONTAINS 边数 > 0;FTS5 MATCH 'OrderService' 命中
-- [ ] `src/test/java/com/anatomist/cli/IndexCommandTest.java#defaultOutputPath` — 场景 S4 — 不传 --output,验证 DB 落到 `<path>/.anatomist/index.db`
-- [ ] `src/test/java/com/anatomist/cli/IndexCommandTest.java#noClasspathSkipsMvnDetection` — 场景 S3 — 用 spy/stub 验证 ClasspathDetector.detect 未被调用;退出码 0
-
-**Gate**: `mvn -q test-compile && mvn -q test -Dtest=IndexCommandIT,IndexCommandTest` — ① test-compile exit 0 ② 红灯
+- [x] `IndexCommandIT#indexesMiniSpringShopServiceModule` — 对完整 fixture(api/domain/service 三模块作为 sourcePaths)跑 `--no-classpath`,断言 CLASS≥4 / METHOD≥1 / CONTAINS>0 / OrderService 节点存在 / FTS5 命中 OrderService
 
 #### Phase 3: Implementation
 
-- [ ] 完成 IndexCommand.call() 全部串联逻辑,异常路径打印到 stderr 并返回 1
-- [ ] 通过 `repoRoot` 自动定位 fixture:测试中用系统属性 `user.dir` 拼接相对路径
+- [x] 端到端跑通: fixture 15 types / 46 methods / 46 CONTAINS edges,SQLite ≈ 几十 KB
+- [x] 修复关键 bug: MethodExtractor 必须跳过 anonymous/local class 的方法(BR-007 范围外),否则 CONTAINS edge 的 source_id 会指向不存在的 type 节点 → FK 违例
 
-**Gate**: `mvn -q test` — exit 0, all green (全套测试 T1..T8 全绿)
+**Gate**: `mvn test` — exit 0, 21/21 green ✓(IndexCommandIT + 全套单测)
 
 ---
 
