@@ -48,29 +48,10 @@
 
 ### T2: AnnotationExtractor [REQ-002, AC-002]
 
-**Status**: [ ] done
+**Status**: [x] done
 
-#### Phase 1: Skeleton
-
-- [ ] `AnnotationExtractor` 构造器 + ASTVisitor
-
-**Gate**: `mvn -q compile` — exit 0
-
-#### Phase 2: DSL Test
-
-- [ ] `AnnotationExtractorTest#extract_collectsClassMethodFieldParameterAnnotations` — AC-002
-
-**Gate**: `mvn -q test -Dtest=AnnotationExtractorTest` — 红灯
-
-#### Phase 3: Implementation
-
-- [ ] visit TypeDeclaration / MethodDeclaration / FieldDeclaration / SingleVariableDeclaration,遍历 `modifiers()` 过滤 `Annotation`
-- [ ] node_id = 对应宿主 Node 的 ID(类/方法/字段;参数注解归属其方法 ID + ":" + 参数索引??? — 简化:参数注解 node_id = 该方法 Node ID,attributes JSON 含 `{"_param": <idx>, "_name": <name>}` 标识)
-- [ ] annotation_fqn = `IAnnotationBinding.getAnnotationType().getQualifiedName()`
-- [ ] attributes JSON 收集 `MemberValuePair`,值用宽松实现(StringLiteral/NumberLiteral/Name → 字符串值;其它走 `toString()`)
-- [ ] null binding → 跳过
-
-**Gate**: `mvn -q test -Dtest=AnnotationExtractorTest` — exit 0
+- [x] 实现 + 测试,4 层级覆盖(类/字段/方法/参数);attributes JSON 含 `_param` / `_name` 标识参数注解
+- [x] Gate: `mvn test -Dtest=AnnotationExtractorTest` — 1/1 green ✓
 
 ---
 
