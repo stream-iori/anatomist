@@ -88,31 +88,12 @@
 
 ### T6: FieldAccessExtractor(仅项目内字段)[REQ-006, BR-EXT-3, AC-006, S4]
 
-**Status**: [ ] done
+**Status**: [x] done
 
-#### Phase 1: Skeleton
-
-- [ ] `FieldAccessExtractor` 构造器 + ASTVisitor
-
-#### Phase 2: DSL Test
-
-- [ ] `FieldAccessExtractorTest#extract_emitsWritesForAssignmentLhs` — `class A { int n; void f(){ n = 1; } }`
-- [ ] `FieldAccessExtractorTest#extract_emitsReadsForRhs` — `class A { int n; int g(){return n;} }`
-- [ ] `FieldAccessExtractorTest#extract_emitsBothForCompoundAssignment` — S4
-- [ ] `FieldAccessExtractorTest#extract_handlesIncrementDecrement` — `n++` / `++n` 各产 WRITES
-- [ ] `FieldAccessExtractorTest#extract_skipsLocalVariablesAndExternalFields` — 局部变量不产边
-
-**Gate**: `mvn -q test -Dtest=FieldAccessExtractorTest` — 红灯
-
-#### Phase 3: Implementation
-
-- [ ] visit Assignment:LHS 解析到 field binding → WRITES;若是复合赋值(getOperator() != ASSIGN)则 LHS 同时 READS
-- [ ] visit PrefixExpression/PostfixExpression:operator 为 `++`/`--` 且操作数是 field → WRITES
-- [ ] visit SimpleName / FieldAccess:解析到 field binding 且不在 LHS write 位置 → READS
-- [ ] **判断 LHS 位置**:在 visit Assignment 时把 LHS 的 SimpleName/FieldAccess 收集到 Set<ASTNode> writeSites,后续 visit 跳过 writeSites 内的
-- [ ] 仅项目内字段(`ctx.isProjectInternal(binding.getDeclaringClass())`)发射
-
-**Gate**: `mvn -q test -Dtest=FieldAccessExtractorTest` — exit 0
+- [x] 两遍 visitor:第一遍收集 LHS/前后置 inc/dec 的 write sites,第二遍发射边
+- [x] 复合赋值同时产 READS+WRITES
+- [x] 局部变量、外部字段(System.out)正确跳过
+- [x] 5/5 green
 
 ---
 
