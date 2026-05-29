@@ -43,7 +43,9 @@
       "plan"
     ],
     "current": "generate",
-    "task_checkpoints": {}
+    "task_checkpoints": {
+      "T1": "df02ba49fd1d1bc97c49325e23b77fa5a246bc64"
+    }
   },
   "task": {
     "base_branch": "main",
