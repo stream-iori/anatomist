@@ -80,4 +80,22 @@ class MethodExtractorTest {
         Node ctor = r.nodes.stream().filter(n -> n.id.equals("pkg.A#A()")).findFirst().orElseThrow();
         assertTrue(ctor.metadata.contains("\"isConstructor\":true"));
     }
+
+    @Test
+    void extract_handlesAnonymousMethods() {
+        // After TypeExtractor emits the ANONYMOUS_CLASS node, MethodExtractor
+        // should no longer skip its methods.
+        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
+                "package pkg; public class A {" +
+                        "  public void run(){ Runnable r = new Runnable(){ public void run(){} }; }" +
+                        "}");
+        ExtractionResult r = new ExtractionResult();
+        new TypeExtractor(ctx).extract(cu, r);
+        new MethodExtractor(ctx).extract(cu, r);
+
+        long anonMethods = r.nodes.stream()
+                .filter(n -> "METHOD".equals(n.kind) && "run".equals(n.label))
+                .count();
+        assertEquals(2, anonMethods, "expected outer A#run() + anon class run() ; got " + r.nodes);
+    }
 }

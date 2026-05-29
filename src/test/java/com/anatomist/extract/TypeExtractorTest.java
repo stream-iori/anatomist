@@ -74,6 +74,27 @@ class TypeExtractorTest {
         assertTrue(inner.isPresent());
     }
 
+    @Test
+    void extract_emitsAnonymousClass() {
+        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
+                "package pkg; public class A {" +
+                        "  public void run(){ Runnable r = new Runnable(){ public void run(){} }; }" +
+                        "}");
+        ExtractionResult r = new ExtractionResult();
+        new TypeExtractor(ctx).extract(cu, r);
+
+        // outer class + anonymous class
+        assertTrue(r.nodes.stream().anyMatch(n -> n.id.equals("pkg.A")));
+        long anon = r.nodes.stream().filter(n -> "ANONYMOUS_CLASS".equals(n.kind)).count();
+        assertEquals(1, anon, "expected one ANONYMOUS_CLASS node; got " + r.nodes);
+
+        // CONTAINS edge from enclosing method to anonymous class
+        boolean containsToAnon = r.edges.stream()
+                .filter(e -> "CONTAINS".equals(e.relation))
+                .anyMatch(e -> e.sourceId.startsWith("pkg.A#run("));
+        assertTrue(containsToAnon, "expected CONTAINS edge from enclosing method; got " + r.edges);
+    }
+
     private static Node byId(ExtractionResult r, String id) {
         return r.nodes.stream().filter(n -> n.id.equals(id)).findFirst()
                 .orElseThrow(() -> new AssertionError("no node with id " + id + "; got " + r.nodes));
