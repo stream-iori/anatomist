@@ -161,29 +161,25 @@
 
 ### T6: MethodExtractor + CONTAINS Edge [REQ-006, REQ-007, BR-002, BR-005, BR-007, AC-004]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] `src/main/java/com/anatomist/extract/MethodExtractor.java` — 修改 — 构造器 `MethodExtractor(ExtractionContext)`;`extract(unit, result)` 实现
-
-**Gate**: `mvn -q compile` — exit 0
+- [x] `MethodExtractor(ExtractionContext)` + ASTVisitor
 
 #### Phase 2: DSL Test
 
-- [ ] `src/test/java/com/anatomist/extract/MethodExtractorTest.java#extract_emitsMethodNodeAndContainsEdge` — 解析 `class A { void foo(){} }` → 1 个 METHOD Node + 1 条 CONTAINS Edge(A → A#foo())
-- [ ] 同文件 `#extract_distinguishesOverloads` — `void foo()` + `void foo(String s)` → 2 个 METHOD Node,id 分别 `pkg.A#foo()` 和 `pkg.A#foo(java.lang.String)`
-- [ ] 同文件 `#extract_handlesConstructorAndGenericList` — `class A { A(){} void bar(java.util.List<Integer> xs){} }` → 构造器 ID `pkg.A#A()`,bar 的 ID 含 `java.util.List`(擦除)
-
-**Gate**: `mvn -q test-compile && mvn -q test -Dtest=MethodExtractorTest` — ① test-compile exit 0 ② 红灯
+- [x] `extract_emitsMethodNodeAndContainsEdge`
+- [x] `extract_distinguishesOverloads`
+- [x] `extract_handlesConstructorAndGenericList`
 
 #### Phase 3: Implementation
 
-- [ ] ASTVisitor:`visit(MethodDeclaration)`,resolveBinding(),null → 跳过;否则用 `NodeIdGenerator.forMethod` 生成 ID
-- [ ] 同时写 CONTAINS Edge,source = decl class node id,target = method id,is_external=0,relation=CONTAINS
-- [ ] metadata JSON: returnType / parameters[{name,type}] / modifiers / isConstructor / signature (人类可读)
+- [x] visit(MethodDeclaration);null binding → 跳过
+- [x] METHOD Node + CONTAINS Edge(`is_external=0`, `call_kind=null`)
+- [x] metadata: returnType/parameters[{name,type}]/isStatic/isAbstract/isConstructor/modifiers/signature
 
-**Gate**: `mvn -q test -Dtest=MethodExtractorTest` — exit 0
+**Gate**: `mvn test -Dtest=MethodExtractorTest` — exit 0, 3/3 green ✓
 
 ---
 
