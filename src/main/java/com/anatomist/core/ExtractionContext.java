@@ -41,6 +41,14 @@ public class ExtractionContext {
 
     public boolean isProjectInternal(ITypeBinding binding) {
         if (binding == null) return false;
+        // Primary signal: JDT marks any binding it parsed from source as "from
+        // source". This is true both for test cases that parse in-memory
+        // snippets (no sourcePaths configured) and for real index runs (the
+        // file lives under sourcePaths). Anything from a classpath jar
+        // returns false here, which is exactly the External Dependency case.
+        if (binding.isFromSource()) return true;
+        // Fallback: explicit source path check for binary bindings that JDT
+        // somehow still surfaces with a source path (rare).
         try {
             String path = binding.getJavaElement() == null
                     ? null

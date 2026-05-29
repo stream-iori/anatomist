@@ -57,31 +57,11 @@
 
 ### T3: HierarchyExtractor [REQ-003, AC-003, S2]
 
-**Status**: [ ] done
+**Status**: [x] done
 
-#### Phase 1: Skeleton
-
-- [ ] `HierarchyExtractor` 构造器 + visit(TypeDeclaration)+ visit(EnumDeclaration)
-
-**Gate**: `mvn -q compile` — exit 0
-
-#### Phase 2: DSL Test
-
-- [ ] `HierarchyExtractorTest#extract_emitsInheritsAndImplements` — `class C extends P implements I,J {}`(P/I/J 内存源码内,项目内 target)
-- [ ] `HierarchyExtractorTest#extract_emitsExternalSuperclass` — `class C extends java.util.ArrayList<String> {}`,期望 INHERITS Edge `is_external=1, external_target_fqn='java.util.ArrayList'`
-- [ ] `HierarchyExtractorTest#extract_emitsOverrides` — `class C extends P { @Override public String toString(){return "";} }`(P 内存源码定义 toString)
-- [ ] `HierarchyExtractorTest#extract_distinguishesOverloadedOverride` — S2 场景
-
-**Gate**: `mvn -q test -Dtest=HierarchyExtractorTest` — 红灯
-
-#### Phase 3: Implementation
-
-- [ ] INHERITS: `binding.getSuperclass()` 非 `java.lang.Object` 即发射;接口的父接口也走 INHERITS
-- [ ] IMPLEMENTS: `binding.getInterfaces()` 每一个发射
-- [ ] OVERRIDES: 遍历子类方法,对父类/各级接口的所有方法做 `IMethodBinding.overrides(super)` 判断,匹配则发射
-- [ ] 项目内 → target_id;外部 → external_target_fqn + is_external=1
-
-**Gate**: `mvn -q test -Dtest=HierarchyExtractorTest` — exit 0
+- [x] INHERITS / IMPLEMENTS / OVERRIDES + 外部父类支持
+- [x] BFS 收集 super 方法链(类+所有级接口),`IMethodBinding.overrides` 判定
+- [x] 测试 4/4 green;过程中修复 `ExtractionContext.isProjectInternal`:加 `binding.isFromSource()` 主信号,让内存解析也能识别项目内 binding
 
 ---
 
