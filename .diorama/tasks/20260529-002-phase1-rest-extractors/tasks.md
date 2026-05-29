@@ -77,28 +77,12 @@
 
 ### T5: CallGraphExtractor(含外部)[REQ-005, BR-EXT-2, AC-005]
 
-**Status**: [ ] done
+**Status**: [x] done
 
-#### Phase 1: Skeleton
-
-- [ ] `CallGraphExtractor` 构造器 + ASTVisitor
-
-#### Phase 2: DSL Test
-
-- [ ] `CallGraphExtractorTest#extract_distinguishesCallKinds` — AC-005
-- [ ] `CallGraphExtractorTest#extract_emitsExternalEdgeForJdkCall` — `class A { void f(){ java.util.Objects.requireNonNull(this); } }`,期望 1 条 CALLS `is_external=1`、`call_kind=STATIC`、`external_target_fqn` 含 `java.util.Objects#requireNonNull(java.lang.Object)`
-
-**Gate**: `mvn -q test -Dtest=CallGraphExtractorTest` — 红灯
-
-#### Phase 3: Implementation
-
-- [ ] visit MethodInvocation:resolveMethodBinding,跳 null;归类 INSTANCE/STATIC/INTERFACE
-- [ ] visit ClassInstanceCreation → CONSTRUCTOR(target = 构造函数 ID,即 `<class>#<className>(...)`)
-- [ ] visit SuperMethodInvocation → SUPER
-- [ ] source_id:向上找 MethodDeclaration(或 FieldDeclaration 的 initializer 的 enclosing method;找不到时跳过)
-- [ ] 外部 binding(`!ctx.isProjectInternal(declClass)`) → external_target_fqn,否则 target_id
-
-**Gate**: `mvn -q test -Dtest=CallGraphExtractorTest` — exit 0
+- [x] 5 种 call_kind 全覆盖
+- [x] 外部 binding → external_target_fqn
+- [x] 修复 `HierarchyExtractor.externalMethodFqn` 用 `getMethodDeclaration()` 取原始擦除签名,避免泛型实参污染(如 `Objects.requireNonNull(this)` 不再返回 `(pkg.A)` 而是 `(java.lang.Object)`)
+- [x] 2/2 green
 
 ---
 

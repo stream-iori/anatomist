@@ -128,15 +128,16 @@ public class HierarchyExtractor implements Extractor {
     }
 
     static String externalMethodFqn(IMethodBinding m) {
-        ITypeBinding decl = m.getDeclaringClass();
-        String classFqn = decl == null ? "<unknown>" : decl.getErasure().getQualifiedName();
+        IMethodBinding decl = m.getMethodDeclaration();
+        ITypeBinding declClass = decl.getDeclaringClass();
+        String classFqn = declClass == null ? "<unknown>" : declClass.getErasure().getQualifiedName();
         StringBuilder params = new StringBuilder();
-        ITypeBinding[] pts = m.getParameterTypes();
+        ITypeBinding[] pts = decl.getParameterTypes();
         for (int i = 0; i < pts.length; i++) {
             if (i > 0) params.append(',');
             params.append(pts[i].getErasure().getQualifiedName());
         }
-        return classFqn + "#" + m.getName() + "(" + params + ")";
+        return classFqn + "#" + decl.getName() + "(" + params + ")";
     }
 
     private static String sourceFileOf(CompilationUnit unit) {
