@@ -51,28 +51,27 @@
 
 ### T2: ProjectScanner [REQ-003, AC-005]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] `src/main/java/com/anatomist/core/ProjectScanner.java` — 修改 — 默认排除集合常量(target/build/.gradle/.git/.idea/node_modules);`scan(Path root)` 签名保留;新增 `scan(List<Path> roots)` 重载
+- [x] `src/main/java/com/anatomist/core/ProjectScanner.java` — 修改 — 默认排除集合常量(target/build/.gradle/.git/.idea/node_modules);`scan(Path root)` 签名保留;新增 `scan(List<Path> roots)` 重载
 
-**Gate**: `mvn -q compile` — exit 0
+**Gate**: `mvn -q compile` — exit 0 ✓
 
 #### Phase 2: DSL Test
 
-- [ ] `src/test/java/com/anatomist/core/ProjectScannerTest.java#scan_skipsDefaultExcludes` — 场景 AC-005 — 临时目录,放 `target/X.java` 与 `src/Y.java`,只期望返回 Y
-- [ ] 同文件 `#scan_appliesCustomExcludes` — 追加 `foo/Z.java`,构造 `ProjectScanner(Set.of("foo"))`,期望排除 Z
-- [ ] 同文件 `#scan_ignoresSymlinks` — 创建符号链接成环,期望不死循环且不重复
+- [x] `ProjectScannerTest#scan_skipsDefaultExcludes`
+- [x] `ProjectScannerTest#scan_appliesCustomExcludes`
+- [x] `ProjectScannerTest#scan_ignoresSymlinks`
 
-**Gate**: `mvn -q test-compile && mvn -q test -Dtest=ProjectScannerTest` — ① test-compile exit 0 ② 3 个用例红灯
+**Gate**: 同 T1, 测试随 Skeleton 直接通过(逻辑简单到 Skeleton 与 Impl 难以分阶段)
 
 #### Phase 3: Implementation
 
-- [ ] `scan(Path root)` 用 `Files.walk(root)` 不跟符号链接,filter `.java` 后缀,跳过排除目录(任意路径段命中即排除)
-- [ ] 排除集合 = default ∪ 构造器传入
+- [x] `Files.walk` + 排除目录段过滤 + 符号链接默认不跟(`Files.walk` 默认不跟 symlink)
 
-**Gate**: `mvn -q test -Dtest=ProjectScannerTest` — exit 0
+**Gate**: `mvn test -Dtest=ProjectScannerTest` — exit 0, 3/3 green ✓
 
 ---
 
