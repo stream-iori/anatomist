@@ -34,7 +34,7 @@
   "phase": {
     "checkpoints": {
       "consolidate": "",
-      "generate": "",
+      "generate": "fd78520eb03e4b4219f348cd73cfdcc92f18e6a7",
       "plan": "dd8e2971f4f99256f79d6443513fa8c7ffa3d1d0",
       "specify": "fe1ae02234711c69bedafda73459b2bc3ea782c1"
     },
