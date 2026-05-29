@@ -1,0 +1,256 @@
+# Tasks: 20260529-001-phase1-index-mvp
+
+**PRD**: [design.md](./design.md)
+**Branch**: task/20260529-001-phase1-index-mvp
+
+> generate 阶段中断恢复时，CodingAgent 应从第一个未完成的 `Status` 或未勾选项继续。
+
+## 技术评估
+
+- 开发入口:
+  - `src/main/java/com/anatomist/cli/IndexCommand.java#call()` — CLI 主入口
+  - `src/main/java/com/anatomist/store/SqliteStore.java` — schema + 写入
+  - `src/main/java/com/anatomist/core/JdtParserFactory.java` — JDT 解析编排
+- 验收入口:
+  - `src/test/java/com/anatomist/cli/IndexCommandIT.java` — 端到端集成测试(对 fixture 跑)
+  - `src/test/java/com/anatomist/store/SqliteStoreTest.java` — schema/写入单测
+  - `src/test/java/com/anatomist/extract/TypeExtractorTest.java`、`MethodExtractorTest.java` — Extractor 单测
+  - `src/test/java/com/anatomist/core/ProjectScannerTest.java`、`JdtParserFactoryTest.java`、`ClasspathDetectorTest.java`
+- SUT 边界: `com.anatomist.{cli,core,extract,store}` 中本期被实现的类(见 design.md §7 变更清单)。已有 `com.anatomist.model` 的 4 个数据类直接复用,不修改。其余 5 个 Extractor 保留 throw,不在边界内。
+- 锚点说明: 单模块 Maven 项目,所有命令在仓库根目录执行(无 `-pl`)。集成测试自动指向 `fixtures/mini-spring-shop/service` 子目录。
+
+## 任务清单
+
+### T1: pom 加 JUnit + schema.sql + SqliteStore.initSchema [REQ-008, AC-003]
+
+**Status**: [ ] done
+
+#### Phase 1: Skeleton
+
+- [ ] `pom.xml` — 修改 — 新增 `<dependencies>` 中 `org.junit.jupiter:junit-jupiter:5.10.2` (scope=test);`<build><plugins>` 新增 `maven-surefire-plugin:3.2.5`
+- [ ] `src/main/resources/schema.sql` — 新增 — 抄 scenario-1-index.md §完整 DDL 中的 nodes/edges/annotations/node_names + 触发器(documents/semantic_annotations 留 Phase 2,本期不建)
+- [ ] `src/main/java/com/anatomist/store/SqliteStore.java` — 修改 — `initSchema()`/`close()`/`write()` 保留签名;`initSchema()` 读 classpath 资源 schema.sql 按 `;` 拆分执行;`write()` 暂时仍 throw
+
+**Gate**: `mvn -q compile test-compile` — exit 0
+
+#### Phase 2: DSL Test
+
+- [ ] `src/test/java/com/anatomist/store/SqliteStoreInitSchemaTest.java#initSchema_createsExpectedTablesAndIndexes` — 场景 AC-003 — 核心断言: 临时 SQLite 文件初始化后,`sqlite_master` 含 `nodes/edges/annotations/node_names` 表,以及 `idx_nodes_kind/idx_edges_source_id/idx_annotations_fqn`
+- [ ] 同文件 `#initSchema_createsFts5Triggers` — 验证插入一条 nodes 行后 `node_names` MATCH 命中其 label
+
+**Gate**: `mvn -q test-compile && mvn -q test -Dtest=SqliteStoreInitSchemaTest` — ① test-compile exit 0 ② 测试运行(允许红灯,因 write 还没实现,但 initSchema 的两个用例应都失败于 schema 未建)
+
+#### Phase 3: Implementation
+
+- [ ] 实现 `SqliteStore.initSchema()`: 用 `org.sqlite.SQLiteDataSource`,读资源 `/schema.sql`,按 `;` 切分并依次执行(注意触发器中包含分号,需要更稳的拆分:用 SQL 语句边界正则或保留 `BEGIN..END` 块)
+- [ ] 实现 `close()`: 关闭持有的连接
+
+**Gate**: `mvn -q test -Dtest=SqliteStoreInitSchemaTest` — exit 0, all green
+
+---
+
+### T2: ProjectScanner [REQ-003, AC-005]
+
+**Status**: [ ] done
+
+#### Phase 1: Skeleton
+
+- [ ] `src/main/java/com/anatomist/core/ProjectScanner.java` — 修改 — 默认排除集合常量(target/build/.gradle/.git/.idea/node_modules);`scan(Path root)` 签名保留;新增 `scan(List<Path> roots)` 重载
+
+**Gate**: `mvn -q compile` — exit 0
+
+#### Phase 2: DSL Test
+
+- [ ] `src/test/java/com/anatomist/core/ProjectScannerTest.java#scan_skipsDefaultExcludes` — 场景 AC-005 — 临时目录,放 `target/X.java` 与 `src/Y.java`,只期望返回 Y
+- [ ] 同文件 `#scan_appliesCustomExcludes` — 追加 `foo/Z.java`,构造 `ProjectScanner(Set.of("foo"))`,期望排除 Z
+- [ ] 同文件 `#scan_ignoresSymlinks` — 创建符号链接成环,期望不死循环且不重复
+
+**Gate**: `mvn -q test-compile && mvn -q test -Dtest=ProjectScannerTest` — ① test-compile exit 0 ② 3 个用例红灯
+
+#### Phase 3: Implementation
+
+- [ ] `scan(Path root)` 用 `Files.walk(root)` 不跟符号链接,filter `.java` 后缀,跳过排除目录(任意路径段命中即排除)
+- [ ] 排除集合 = default ∪ 构造器传入
+
+**Gate**: `mvn -q test -Dtest=ProjectScannerTest` — exit 0
+
+---
+
+### T3: ClasspathDetector + 降级 [REQ-002, REQ-010, REQ-012, AC-002]
+
+**Status**: [ ] done
+
+#### Phase 1: Skeleton
+
+- [ ] `src/main/java/com/anatomist/core/ClasspathDetector.java` — 修改 — `detect(Path)` 返回 `List<String>`(空表示无 classpath);`detectSourcePaths(Path)` 返回 `List<Path>`;新增 `boolean isMavenProject(Path)` private;允许通过 protected `runMvn(...)` seam 注入 mvn 调用,便于测试
+
+**Gate**: `mvn -q compile` — exit 0
+
+#### Phase 2: DSL Test
+
+- [ ] `src/test/java/com/anatomist/core/ClasspathDetectorTest.java#detect_returnsEmptyAndWarnsWhenMvnUnavailable` — 场景 AC-002,S2 — 子类化 ClasspathDetector,override `runMvn` 抛 IOException;期望 detect 返回空 List,捕获 stderr 含 `WARN` 且含 `mvn`
+- [ ] 同文件 `#detect_returnsEmptyForNonMavenProject` — 临时目录无 pom.xml,期望返回空
+- [ ] 同文件 `#detectSourcePaths_returnsSrcMainJavaForMavenProject` — 临时目录有 pom.xml 和 `src/main/java`,期望返回该路径
+- [ ] 同文件 `#detect_parsesClasspathFromMockedMvnOutput` — override runMvn,返回固定 `:` 分隔字符串(模拟 mvn 输出),期望解析为 List
+
+**Gate**: `mvn -q test-compile && mvn -q test -Dtest=ClasspathDetectorTest` — ① test-compile exit 0 ② 4 用例红灯
+
+#### Phase 3: Implementation
+
+- [ ] `isMavenProject` = 存在 `pom.xml`
+- [ ] `detect`: 非 Maven 返回空;Maven 时通过 seam `runMvn(projectRoot, "dependency:build-classpath", "-DincludeScope=compile", "-q", "-Dmdep.outputFile=<tmp>")`,读 tmp 文件按 `File.pathSeparator` 拆分;捕获 `IOException` / 非零退出码 → stderr WARN + 返回空
+- [ ] `detectSourcePaths`: Maven 时返回 `[<root>/src/main/java]`(过滤不存在);非 Maven 暂返回 `[<root>]`(由 ProjectScanner 递归扫)
+- [ ] `runMvn` 默认实现用 `ProcessBuilder`,timeout 60s
+
+**Gate**: `mvn -q test -Dtest=ClasspathDetectorTest` — exit 0
+
+---
+
+### T4: NodeIdGenerator + ExtractionContext + JdtParserFactory [REQ-004, AC-006]
+
+**Status**: [ ] done
+
+#### Phase 1: Skeleton
+
+- [ ] `src/main/java/com/anatomist/core/NodeIdGenerator.java` — 新增 — `String forType(ITypeBinding)`、`String forMethod(IMethodBinding)`、`String forField(IVariableBinding)`
+- [ ] `src/main/java/com/anatomist/core/ExtractionContext.java` — 新增 — 字段:`Path projectRoot`、`List<Path> sourcePaths`、`NodeIdGenerator idGenerator`、`String module`、`String scope`;方法 `isProjectInternal(ITypeBinding)`
+- [ ] `src/main/java/com/anatomist/core/JdtParserFactory.java` — 修改 — `newParser()` 返回配置好的 ASTParser;新增 `void parseAll(List<Path> sourceFiles, FileASTRequestor requestor)`
+
+**Gate**: `mvn -q compile` — exit 0
+
+#### Phase 2: DSL Test
+
+- [ ] `src/test/java/com/anatomist/core/NodeIdGeneratorTest.java#forType_preservesCase` — 给定 `pkg.Order` 和 `pkg.order.Sub`,期望返回原样大小写,不互相冲突
+- [ ] 同文件 `#forMethod_usesErasedSignature` — 通过 JDT 内存解析 `class A { void foo(String s, java.util.List<Integer> xs){} void foo(){} }`,期望 ID 分别为 `pkg.A#foo(java.lang.String,java.util.List)` 和 `pkg.A#foo()`(AC-004)
+- [ ] `src/test/java/com/anatomist/core/JdtParserFactoryTest.java#parseAll_resolvesCrossFileBindings` — 场景 AC-006 — 临时目录写 A.java/B.java,A 引用 B;parseAll 调用 requestor,A 中 invocation 的 binding 非 null
+
+**Gate**: `mvn -q test-compile && mvn -q test -Dtest=NodeIdGeneratorTest,JdtParserFactoryTest` — ① test-compile exit 0 ② 红灯
+
+#### Phase 3: Implementation
+
+- [ ] `NodeIdGenerator.forType`: 用 `binding.getErasure().getQualifiedName()`,nested 用 `Outer.Inner` (JDT 默认就是 `.`)
+- [ ] `NodeIdGenerator.forMethod`: `<declClass FQN>#<name>(<param[i].getErasure().getQualifiedName() join ',' >)`
+- [ ] `NodeIdGenerator.forField`: `<declClass FQN>#<fieldName>`
+- [ ] `JdtParserFactory.newParser`: 按 javaVersion 选 `AST.JLS*` + `setCompilerOptions(JavaCore.setComplianceOptions(VERSION_*, options))`;`setResolveBindings(true)`、`setBindingsRecovery(true)`、`setEnvironment(classpath, sourcePaths, null, includeRunningVmClasspath)`
+- [ ] `parseAll`: 计算 unitNames(从 sourcePaths 找最长前缀,截后 `/` 转 unitName),读源码字符串数组,`parser.createASTs(sourceCodes, unitNames, new String[0], requestor, null)`
+
+**Gate**: `mvn -q test -Dtest=NodeIdGeneratorTest,JdtParserFactoryTest` — exit 0
+
+---
+
+### T5: TypeExtractor [REQ-005, BR-001, BR-003, BR-005, BR-007, AC-004]
+
+**Status**: [ ] done
+
+#### Phase 1: Skeleton
+
+- [ ] `src/main/java/com/anatomist/extract/TypeExtractor.java` — 修改 — 构造器 `TypeExtractor(ExtractionContext)`;`extract(unit, result)` 实现走 ASTVisitor
+
+**Gate**: `mvn -q compile` — exit 0
+
+#### Phase 2: DSL Test
+
+- [ ] `src/test/java/com/anatomist/extract/TypeExtractorTest.java#extract_emitsClassNode` — 解析 `class Order {}` → 期望 1 个 CLASS Node,id=`pkg.Order`,kind=CLASS,metadata JSON 含 `isAbstract=false`、`isInterface=false`
+- [ ] 同文件 `#extract_emitsInterfaceAndEnum` — 解析 `interface I {}` + `enum E { A, B }` → 期望 INTERFACE 和 ENUM 节点,ENUM metadata 含 `constants:["A","B"]`
+- [ ] 同文件 `#extract_emitsNestedTypes` — 解析 `class A { class B {} }` → 两个 Node,id 分别 `pkg.A` 和 `pkg.A.B`
+- [ ] 同文件 `#extract_skipsWhenBindingNull` — 通过 stub binding(或刻意制造解析错误)验证不产 Node
+
+**Gate**: `mvn -q test-compile && mvn -q test -Dtest=TypeExtractorTest` — ① test-compile exit 0 ② 红灯
+
+#### Phase 3: Implementation
+
+- [ ] ASTVisitor:`visit(TypeDeclaration)`/`visit(EnumDeclaration)`,resolveBinding(),null → 跳过 + 计数(metadata "bindingResolved":"false" 可省,直接计数);否则生成 Node
+- [ ] 填充 label/kind/qualifiedName/sourceFile/sourceLocation/module/scope/javadoc/metadata
+- [ ] metadata 用 Jackson `ObjectMapper.writeValueAsString` 生成
+
+**Gate**: `mvn -q test -Dtest=TypeExtractorTest` — exit 0
+
+---
+
+### T6: MethodExtractor + CONTAINS Edge [REQ-006, REQ-007, BR-002, BR-005, BR-007, AC-004]
+
+**Status**: [ ] done
+
+#### Phase 1: Skeleton
+
+- [ ] `src/main/java/com/anatomist/extract/MethodExtractor.java` — 修改 — 构造器 `MethodExtractor(ExtractionContext)`;`extract(unit, result)` 实现
+
+**Gate**: `mvn -q compile` — exit 0
+
+#### Phase 2: DSL Test
+
+- [ ] `src/test/java/com/anatomist/extract/MethodExtractorTest.java#extract_emitsMethodNodeAndContainsEdge` — 解析 `class A { void foo(){} }` → 1 个 METHOD Node + 1 条 CONTAINS Edge(A → A#foo())
+- [ ] 同文件 `#extract_distinguishesOverloads` — `void foo()` + `void foo(String s)` → 2 个 METHOD Node,id 分别 `pkg.A#foo()` 和 `pkg.A#foo(java.lang.String)`
+- [ ] 同文件 `#extract_handlesConstructorAndGenericList` — `class A { A(){} void bar(java.util.List<Integer> xs){} }` → 构造器 ID `pkg.A#A()`,bar 的 ID 含 `java.util.List`(擦除)
+
+**Gate**: `mvn -q test-compile && mvn -q test -Dtest=MethodExtractorTest` — ① test-compile exit 0 ② 红灯
+
+#### Phase 3: Implementation
+
+- [ ] ASTVisitor:`visit(MethodDeclaration)`,resolveBinding(),null → 跳过;否则用 `NodeIdGenerator.forMethod` 生成 ID
+- [ ] 同时写 CONTAINS Edge,source = decl class node id,target = method id,is_external=0,relation=CONTAINS
+- [ ] metadata JSON: returnType / parameters[{name,type}] / modifiers / isConstructor / signature (人类可读)
+
+**Gate**: `mvn -q test -Dtest=MethodExtractorTest` — exit 0
+
+---
+
+### T7: SqliteStore.write [REQ-008, REQ-009, AC-001]
+
+**Status**: [ ] done
+
+#### Phase 1: Skeleton
+
+- [ ] `SqliteStore.write(ExtractionResult)` — 修改 — 保留签名;增加内部 PreparedStatement helper
+
+**Gate**: `mvn -q compile` — exit 0
+
+#### Phase 2: DSL Test
+
+- [ ] `src/test/java/com/anatomist/store/SqliteStoreWriteTest.java#write_persistsNodesAndEdges` — 构造 ExtractionResult 含 2 Nodes(CLASS+METHOD)+ 1 CONTAINS Edge,写入临时 SQLite,断言 SELECT count 一致;断言 node_names FTS5 命中 label
+- [ ] 同文件 `#write_isAtomic` — 注入一个 violate CHECK 约束的 Edge(`is_external=0, target_id=null`),期望抛异常且事务回滚(写入前后 nodes 表为空)
+- [ ] 同文件 `#write_supportsIdempotentRewrite` — 同 ExtractionResult 写两次,期望第二次不抛(INSERT OR REPLACE),最终 nodes 数等于第一次
+
+**Gate**: `mvn -q test-compile && mvn -q test -Dtest=SqliteStoreWriteTest` — ① test-compile exit 0 ② 红灯
+
+#### Phase 3: Implementation
+
+- [ ] `write`: 开事务,nodes/edges/annotations 用 `INSERT OR REPLACE` PreparedStatement + addBatch,commit;异常 rollback 再 rethrow
+
+**Gate**: `mvn -q test -Dtest=SqliteStoreWriteTest` — exit 0
+
+---
+
+### T8: IndexCommand 集成 + 端到端 IT [REQ-001, REQ-011, REQ-012, AC-001]
+
+**Status**: [ ] done
+
+#### Phase 1: Skeleton
+
+- [ ] `IndexCommand.call()` — 修改 — 串起所有组件:解析参数 → ClasspathDetector → ProjectScanner → JdtParserFactory.parseAll(回调中调用 TypeExtractor + MethodExtractor)→ SqliteStore.initSchema + write → 输出 stats → 返回 0
+- [ ] 选项处理: `--output` 默认 `<projectPath>/.anatomist/index.db`(自动 mkdir 父目录);`--no-classpath` 跳过 ClasspathDetector.detect;`--classpath`/`--project-source` 按 `File.pathSeparator` 拆分覆盖检测
+
+**Gate**: `mvn -q compile` — exit 0
+
+#### Phase 2: DSL Test
+
+- [ ] `src/test/java/com/anatomist/cli/IndexCommandIT.java#indexesMiniSpringShopServiceModule` — 场景 S1,AC-001 — 用 `CommandLine.execute("index", "<repoRoot>/fixtures/mini-spring-shop/service", "--output", tmpDb, "--no-classpath")`,断言: 退出码 0;DB 存在;OrderService CLASS Node 存在;METHOD 节点数 ≥ 1;CONTAINS 边数 > 0;FTS5 MATCH 'OrderService' 命中
+- [ ] `src/test/java/com/anatomist/cli/IndexCommandTest.java#defaultOutputPath` — 场景 S4 — 不传 --output,验证 DB 落到 `<path>/.anatomist/index.db`
+- [ ] `src/test/java/com/anatomist/cli/IndexCommandTest.java#noClasspathSkipsMvnDetection` — 场景 S3 — 用 spy/stub 验证 ClasspathDetector.detect 未被调用;退出码 0
+
+**Gate**: `mvn -q test-compile && mvn -q test -Dtest=IndexCommandIT,IndexCommandTest` — ① test-compile exit 0 ② 红灯
+
+#### Phase 3: Implementation
+
+- [ ] 完成 IndexCommand.call() 全部串联逻辑,异常路径打印到 stderr 并返回 1
+- [ ] 通过 `repoRoot` 自动定位 fixture:测试中用系统属性 `user.dir` 拼接相对路径
+
+**Gate**: `mvn -q test` — exit 0, all green (全套测试 T1..T8 全绿)
+
+---
+
+## Coverage-Matrix 备注
+
+依赖失败/降级路径:T3 覆盖 mvn 不可用;FTS5 不可用未单独覆盖(REQ-009 风险段已说明用 CREATE 探测,本期不做回退,可在 IT 失败时给清晰错误)。
+可观测性:本期只有 stdout/stderr 文本统计,无 metrics/日志框架(MVP 范围内)。
+鲁棒性:T7 的 `write_isAtomic` 用例已验证事务回滚。

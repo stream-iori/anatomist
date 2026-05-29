@@ -1,7 +1,31 @@
 {
   "anchors": {
-    "acceptance_entries": [],
-    "dev_entries": []
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java",
+      "src/test/java/com/anatomist/cli/IndexCommandTest.java",
+      "src/test/java/com/anatomist/store/SqliteStoreInitSchemaTest.java",
+      "src/test/java/com/anatomist/store/SqliteStoreWriteTest.java",
+      "src/test/java/com/anatomist/extract/TypeExtractorTest.java",
+      "src/test/java/com/anatomist/extract/MethodExtractorTest.java",
+      "src/test/java/com/anatomist/core/ProjectScannerTest.java",
+      "src/test/java/com/anatomist/core/JdtParserFactoryTest.java",
+      "src/test/java/com/anatomist/core/NodeIdGeneratorTest.java",
+      "src/test/java/com/anatomist/core/ClasspathDetectorTest.java"
+    ],
+    "dev_entries": [
+      "src/main/java/com/anatomist/cli/IndexCommand.java",
+      "src/main/java/com/anatomist/cli/AnatomistCli.java",
+      "src/main/java/com/anatomist/core/ProjectScanner.java",
+      "src/main/java/com/anatomist/core/ClasspathDetector.java",
+      "src/main/java/com/anatomist/core/JdtParserFactory.java",
+      "src/main/java/com/anatomist/core/NodeIdGenerator.java",
+      "src/main/java/com/anatomist/core/ExtractionContext.java",
+      "src/main/java/com/anatomist/extract/TypeExtractor.java",
+      "src/main/java/com/anatomist/extract/MethodExtractor.java",
+      "src/main/java/com/anatomist/store/SqliteStore.java",
+      "src/main/resources/schema.sql",
+      "pom.xml"
+    ]
   },
   "consolidate": {
     "noop": false,
