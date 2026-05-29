@@ -47,10 +47,10 @@ public class MethodExtractor implements Extractor {
         if (binding == null) return;
         ITypeBinding declClass = binding.getDeclaringClass();
         if (declClass == null) return;
-        // Phase 1 MVP does not emit anonymous / local class nodes (BR-007),
-        // so skip methods declared inside them to avoid CONTAINS edges with
-        // dangling source_id.
-        if (declClass.isAnonymous() || declClass.isLocal()) return;
+        // Local classes still lack a corresponding CLASS node in this phase.
+        // Anonymous classes are now emitted by TypeExtractor, so methods
+        // declared in them are safe to extract.
+        if (declClass.isLocal() && !declClass.isAnonymous()) return;
 
         String methodId = ctx.idGenerator().forMethod(binding);
         String classId = ctx.idGenerator().forType(declClass);

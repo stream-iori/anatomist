@@ -57,7 +57,19 @@ class IndexCommandIT {
              Statement st = c.createStatement()) {
             int classes = scalar(st, "SELECT count(*) FROM nodes WHERE kind='CLASS'");
             int methods = scalar(st, "SELECT count(*) FROM nodes WHERE kind='METHOD'");
+            int fields = scalar(st, "SELECT count(*) FROM nodes WHERE kind='FIELD'");
             int contains = scalar(st, "SELECT count(*) FROM edges WHERE relation='CONTAINS'");
+            int inherits = scalar(st, "SELECT count(*) FROM edges WHERE relation='INHERITS'");
+            int impls = scalar(st, "SELECT count(*) FROM edges WHERE relation='IMPLEMENTS'");
+            int overrides = scalar(st, "SELECT count(*) FROM edges WHERE relation='OVERRIDES'");
+            int callsAll = scalar(st, "SELECT count(*) FROM edges WHERE relation='CALLS'");
+            int callsInternal = scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='CALLS' AND is_external=0");
+            int references = scalar(st, "SELECT count(*) FROM edges WHERE relation='REFERENCES'");
+            int annotations = scalar(st,
+                    "SELECT count(*) FROM annotations");
+            int overrideAnnotations = scalar(st,
+                    "SELECT count(*) FROM annotations WHERE annotation_fqn='java.lang.Override'");
             int orderServiceHits = scalar(st,
                     "SELECT count(*) FROM nodes WHERE qualified_name='com.example.shop.service.OrderService'");
             int fts = scalar(st,
@@ -65,7 +77,17 @@ class IndexCommandIT {
 
             assertTrue(classes >= 4, "expected ≥4 CLASS nodes; got " + classes);
             assertTrue(methods >= 1, "expected ≥1 METHOD; got " + methods);
-            assertTrue(contains > 0, "expected CONTAINS edges; got " + contains);
+            assertTrue(fields >= 4, "expected ≥4 FIELD nodes; got " + fields);
+            assertTrue(contains > 46, "CONTAINS should grow beyond Phase-1-MVP baseline 46; got " + contains);
+            assertTrue(inherits >= 1, "expected ≥1 INHERITS (OrderService extends BaseService); got " + inherits);
+            assertTrue(impls >= 1, "expected ≥1 IMPLEMENTS (InMemoryOrderRepository); got " + impls);
+            assertTrue(overrides >= 1, "expected ≥1 OVERRIDES; got " + overrides);
+            assertTrue(callsAll >= 3, "expected ≥3 CALLS in createOrder; got " + callsAll);
+            assertTrue(callsInternal >= 1, "expected ≥1 internal CALLS; got " + callsInternal);
+            assertTrue(references >= 1, "expected ≥1 REFERENCES; got " + references);
+            assertTrue(annotations >= 1, "expected ≥1 annotation row; got " + annotations);
+            assertTrue(overrideAnnotations >= 1,
+                    "expected ≥1 @Override (JDK-internal so resolvable even with --no-classpath); got " + overrideAnnotations);
             assertEquals(1, orderServiceHits, "OrderService node missing or duplicated");
             assertTrue(fts >= 1, "FTS5 should match OrderService; got " + fts);
         }

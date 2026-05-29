@@ -25,6 +25,11 @@ public class NodeIdGenerator {
         if (name == null || name.isEmpty()) {
             name = erasure.getBinaryName();
         }
+        if (name == null || name.isEmpty()) {
+            // Anonymous classes inside lambdas etc. can have null qualified
+            // name AND null binary name in some JDT versions; fall back to key.
+            name = erasure.getKey();
+        }
         return name;
     }
 
