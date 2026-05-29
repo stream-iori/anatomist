@@ -31,13 +31,14 @@
     "checkpoints": {
       "consolidate": "",
       "generate": "",
-      "plan": "",
+      "plan": "23c99075ec6a218b0705027c6adb97bcc67117f2",
       "specify": "20d64debf11c01fa950cbd9dfc6e3c86740ab078"
     },
     "completed": [
-      "specify"
+      "specify",
+      "plan"
     ],
-    "current": "plan",
+    "current": "generate",
     "task_checkpoints": {}
   },
   "task": {
