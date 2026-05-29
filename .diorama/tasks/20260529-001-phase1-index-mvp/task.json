@@ -29,7 +29,12 @@
   },
   "consolidate": {
     "noop": false,
-    "updated_files": []
+    "updated_files": [
+      ".diorama/knowledge/facts/glossary.json",
+      ".diorama/knowledge/facts/domain-model.md",
+      ".diorama/knowledge/rules/experience.md",
+      ".diorama/knowledge/rules/index.md"
+    ]
   },
   "phase": {
     "checkpoints": {
