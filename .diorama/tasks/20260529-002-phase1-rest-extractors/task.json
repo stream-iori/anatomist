@@ -42,7 +42,8 @@
     "task_checkpoints": {
       "T1": "81c2363277254d5801170d63953b7c8df579b988",
       "T2": "b1cd43139e705ae96356f19b1fe65c6b9ca18c1a",
-      "T3": "2e85abd23d3a55b3093da13146de3aa60eac345d"
+      "T3": "2e85abd23d3a55b3093da13146de3aa60eac345d",
+      "T4": "91f2a12ffda09f743b69a4de518557738e0c40a2"
     }
   },
   "task": {
