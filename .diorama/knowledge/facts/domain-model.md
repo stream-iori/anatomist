@@ -177,25 +177,39 @@ sequenceDiagram
     SS-->>CLI: ok
 ```
 
-## 6. Phase 1 MVP 实际覆盖
+## 6. Phase 1 实际覆盖
 
-| Extractor | 状态 | 说明 |
+| Extractor | 状态 | 备注 |
 |-----------|------|------|
-| TypeExtractor | ✅ 实现 | CLASS / INTERFACE / ENUM(含 nested,跳过 anonymous/local) |
-| MethodExtractor | ✅ 实现 | METHOD + CONTAINS Edge;跳过 anonymous/local 内方法 |
-| FieldExtractor | ⏸ 骨架 | 下个 task |
-| CallGraphExtractor | ⏸ 骨架 | 下个 task |
-| HierarchyExtractor | ⏸ 骨架 | 下个 task |
-| ReferenceExtractor | ⏸ 骨架 | 下个 task |
-| FieldAccessExtractor | ⏸ 骨架 | 下个 task |
-| AnnotationExtractor | ⏸ 骨架 | 下个 task |
+| TypeExtractor | ✅ | CLASS / INTERFACE / ENUM + **ANONYMOUS_CLASS** |
+| MethodExtractor | ✅ | METHOD + CONTAINS;anonymous 内方法已支持(local 仍跳过) |
+| FieldExtractor | ✅ | FIELD + CONTAINS;metadata 含 type/isStatic/isFinal |
+| AnnotationExtractor | ✅ | 类/方法/字段/参数 4 层级;参数注解 attributes 含 `_param`/`_name` |
+| HierarchyExtractor | ✅ | INHERITS / IMPLEMENTS / OVERRIDES;外部父类支持 |
+| ReferenceExtractor | ✅ | field/parameter/return + 泛型 args 递归 depth≤5;**仅项目内** |
+| CallGraphExtractor | ✅ | 5 种 call_kind;**含外部** |
+| FieldAccessExtractor | ✅ | READS/WRITES + 复合赋值 + ++/--;**仅项目内字段** |
+| LAMBDA Node | ⏸ 未实现 | IndexCommand `pruneDanglingInternalEdges` 兜底 |
+| METHOD_REF Node | ⏸ 未实现 | 同上 |
 
 ## 7. 验证基线
 
-Fixture `fixtures/mini-spring-shop/`(api+domain+service 三模块, 15 java 文件)首次索引产出:
-- 15 types(CLASS+INTERFACE+ENUM)
-- 46 methods
-- 46 CONTAINS edges
-- 0 ANNOTATED_WITH / CALLS / INHERITS / IMPLEMENTS / REFERENCES(本期不提取)
+Fixture `fixtures/mini-spring-shop/`(api+domain+service 三模块, 15 java 文件)`--no-classpath` 索引产出(20260529-002 task 后):
 
-任何后续 task 实施 Extractor 时,这些数字只会**单调增长**,可作为回归基线。
+| 维度 | Phase-1-MVP(001) | Full Phase-1(002) |
+|------|------------------|-------------------|
+| Types(CLASS+INTERFACE+ENUM+ANONYMOUS) | 15 | 16 |
+| Methods | 46 | 47 |
+| Fields | 0 | 20 |
+| Annotations | 0 | 23 |
+| CONTAINS | 46 | 68 |
+| INHERITS | 0 | 3 |
+| IMPLEMENTS | 0 | 1 |
+| OVERRIDES | 0 | 4 |
+| REFERENCES | 0 | 35 |
+| CALLS | 0 | 25 |
+| READS | 0 | 42 |
+| WRITES | 0 | 19 |
+| **Pruned dangling**(LAMBDA 未实现) | 0 | 3 |
+
+Phase 2 / 后续 task 应保证这些数字**单调增长**(除 Pruned,后者应在 LAMBDA Node 落地后变 0)。

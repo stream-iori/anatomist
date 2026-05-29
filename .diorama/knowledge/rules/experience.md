@@ -50,3 +50,35 @@
 **情景**: TypeExtractor/MethodExtractor/NodeIdGenerator 等单测需要构造 ITypeBinding / IMethodBinding。
 
 **对策**: `src/test/java/com/anatomist/core/JdtTestSupport.java` 封装 `parse(unitName, source)`,内部 `setEnvironment(new String[0], new String[0], null, true) + setUnitName + setSource(...) + createAST(null)`。test scope 直接拿到带 binding 的 CompilationUnit。**注意**: 该 helper 必须 public(被跨包测试引用)。
+
+## E7: ExtractionContext.isProjectInternal 必须用 binding.isFromSource() 作为主信号
+
+**情景**: HierarchyExtractor / ReferenceExtractor / CallGraphExtractor / FieldAccessExtractor 都需要区分项目内/外部 binding。
+
+**坑**: 原实现只比对 `binding.getJavaElement().getPath()` 与 sourcePaths。在测试场景下 sourcePaths 为空 → 永远返回 false → 所有项目内 binding 都被当外部处理,断言失败。
+
+**对策**: 优先用 `binding.isFromSource()`:JDT 对任何从源码解析(无论 createASTs 还是内存 setSource)的 binding 都返回 true,对从 jar 解析的返回 false。这恰好是"项目内"的语义。原 path 比对作为 fallback 保留。
+
+## E8: 外部方法 FQN 必须用 IMethodBinding.getMethodDeclaration() 取声明参数,而非调用点参数
+
+**情景**: `CallGraphExtractor.emit` 想给外部调用记录稳定的 `external_target_fqn`。
+
+**坑**: `binding.getParameterTypes()` 返回的是**调用点解析后**的类型(泛型实参已替换)。如 `java.util.Objects.requireNonNull(pkg.A obj)` 中,调用 `requireNonNull(this)` 会让 binding 的参数类型变成 `pkg.A` 而不是 `T` 的擦除 `java.lang.Object` —— 这让"同一个外部方法的所有调用"变成 N 个不同 FQN,Phase 2 callers-of 查询完全失效。
+
+**对策**: 用 `binding.getMethodDeclaration().getParameterTypes()` 取原始**声明**参数类型,再 `.getErasure().getQualifiedName()` 得到稳定 FQN。HierarchyExtractor / CallGraphExtractor 共用同一个 helper(`HierarchyExtractor.externalMethodFqn`)。
+
+## E9: Lambda / METHOD_REF 未实现时,IndexCommand 必须 pruneDanglingInternalEdges
+
+**情景**: 任何含 Lambda / method reference(`stream().filter(x -> ...)`、`::method`)的真实项目。
+
+**坑**: CallGraphExtractor / FieldAccessExtractor 在 Lambda body 内 visit 到的 MethodInvocation 会通过 `enclosingMethodBinding` 上溯到外层方法(因为本期不发射 LAMBDA Node)。多数情况 OK,但当 Lambda **本身**是 functional interface 的合成方法(如 BiFunction 的 `apply`)时,enclosingMethod 可能返回 lambda 的 synthetic binding,其 `forMethod(...)` ID 与 nodes 表对不上 → CONTAINS/CALLS 边 source_id 找不到节点 → 整个事务被 SQLite FK violation 推翻。
+
+**对策**: IndexCommand 在 `store.write` 之前调 `pruneDanglingInternalEdges(result)`:扫描所有 internal 边,过滤掉 source_id / target_id 不在 nodes 集合中的边,只 warn 不 abort。fixture 上典型 drop 数 = 3-5 条。LAMBDA Node 落地后该 helper 可保留作为最后防线。
+
+## E10: --no-classpath 模式下 Spring 注解 binding 全 null
+
+**情景**: 测试用 `--no-classpath` 跑 fixture(避免联网拉 Spring 依赖)。
+
+**坑**: AnnotationExtractor 通过 `binding.getAnnotations()` 收集注解。Spring 注解(`@Service`/`@Autowired`/`@Transactional`)需要 classpath 才能 resolve,无 classpath 时这些注解的 binding 全是 null,annotations 表里只剩 JDK-builtin 注解(`@Override` / `@Deprecated` / `@SuppressWarnings`)。
+
+**对策**: 测试断言用 `@Override`(JDK 内置,永远可解析)而非 Spring 注解。若要测 Spring 注解,需要在 IT 中先确保 ClasspathDetector 工作正常,或显式传 `--classpath`。生产场景下用户跑 `anatomist index` 默认走 ClasspathDetector,不受此限制。

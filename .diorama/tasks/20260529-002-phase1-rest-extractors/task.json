@@ -25,7 +25,10 @@
   },
   "consolidate": {
     "noop": false,
-    "updated_files": []
+    "updated_files": [
+      ".diorama/knowledge/rules/experience.md",
+      ".diorama/knowledge/facts/domain-model.md"
+    ]
   },
   "phase": {
     "checkpoints": {
