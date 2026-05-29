@@ -40,9 +40,10 @@
     },
     "completed": [
       "specify",
-      "plan"
+      "plan",
+      "generate"
     ],
-    "current": "generate",
+    "current": "consolidate",
     "task_checkpoints": {
       "T1": "df02ba49fd1d1bc97c49325e23b77fa5a246bc64",
       "T2": "d0dfd93b519b8c7af0213dba742e70b5603ef994",
