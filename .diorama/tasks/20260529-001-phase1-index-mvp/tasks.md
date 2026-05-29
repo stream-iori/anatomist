@@ -104,33 +104,31 @@
 
 ### T4: NodeIdGenerator + ExtractionContext + JdtParserFactory [REQ-004, AC-006]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] `src/main/java/com/anatomist/core/NodeIdGenerator.java` — 新增 — `String forType(ITypeBinding)`、`String forMethod(IMethodBinding)`、`String forField(IVariableBinding)`
-- [ ] `src/main/java/com/anatomist/core/ExtractionContext.java` — 新增 — 字段:`Path projectRoot`、`List<Path> sourcePaths`、`NodeIdGenerator idGenerator`、`String module`、`String scope`;方法 `isProjectInternal(ITypeBinding)`
-- [ ] `src/main/java/com/anatomist/core/JdtParserFactory.java` — 修改 — `newParser()` 返回配置好的 ASTParser;新增 `void parseAll(List<Path> sourceFiles, FileASTRequestor requestor)`
+- [x] `NodeIdGenerator.java` — 新增 — forType/forMethod/forField
+- [x] `ExtractionContext.java` — 新增 — projectRoot/sourcePaths/idGenerator/module/scope + isProjectInternal
+- [x] `JdtParserFactory.java` — 修改 — newParser + parseAll(files, requestor)
 
-**Gate**: `mvn -q compile` — exit 0
+**Gate**: `mvn -q compile` — exit 0 ✓
 
 #### Phase 2: DSL Test
 
-- [ ] `src/test/java/com/anatomist/core/NodeIdGeneratorTest.java#forType_preservesCase` — 给定 `pkg.Order` 和 `pkg.order.Sub`,期望返回原样大小写,不互相冲突
-- [ ] 同文件 `#forMethod_usesErasedSignature` — 通过 JDT 内存解析 `class A { void foo(String s, java.util.List<Integer> xs){} void foo(){} }`,期望 ID 分别为 `pkg.A#foo(java.lang.String,java.util.List)` 和 `pkg.A#foo()`(AC-004)
-- [ ] `src/test/java/com/anatomist/core/JdtParserFactoryTest.java#parseAll_resolvesCrossFileBindings` — 场景 AC-006 — 临时目录写 A.java/B.java,A 引用 B;parseAll 调用 requestor,A 中 invocation 的 binding 非 null
-
-**Gate**: `mvn -q test-compile && mvn -q test -Dtest=NodeIdGeneratorTest,JdtParserFactoryTest` — ① test-compile exit 0 ② 红灯
+- [x] `NodeIdGeneratorTest#forType_preservesCase`
+- [x] `NodeIdGeneratorTest#forMethod_usesErasedSignature` — 验证泛型擦除 + 大小写保留 + 重载消歧
+- [x] `JdtParserFactoryTest#parseAll_resolvesCrossFileBindings` — A.java/B.java 跨文件 binding 解析
 
 #### Phase 3: Implementation
 
-- [ ] `NodeIdGenerator.forType`: 用 `binding.getErasure().getQualifiedName()`,nested 用 `Outer.Inner` (JDT 默认就是 `.`)
-- [ ] `NodeIdGenerator.forMethod`: `<declClass FQN>#<name>(<param[i].getErasure().getQualifiedName() join ',' >)`
-- [ ] `NodeIdGenerator.forField`: `<declClass FQN>#<fieldName>`
-- [ ] `JdtParserFactory.newParser`: 按 javaVersion 选 `AST.JLS*` + `setCompilerOptions(JavaCore.setComplianceOptions(VERSION_*, options))`;`setResolveBindings(true)`、`setBindingsRecovery(true)`、`setEnvironment(classpath, sourcePaths, null, includeRunningVmClasspath)`
-- [ ] `parseAll`: 计算 unitNames(从 sourcePaths 找最长前缀,截后 `/` 转 unitName),读源码字符串数组,`parser.createASTs(sourceCodes, unitNames, new String[0], requestor, null)`
+- [x] forType 用 `binding.getErasure().getQualifiedName()`
+- [x] forMethod 用 `IMethodBinding.getMethodDeclaration().getParameterTypes()[i].getErasure().getQualifiedName()` 拼接(而非 `getKey()`,避免跨 JDT 版本差异)
+- [x] parseAll 用 `parser.createASTs(paths, encodings, ...)`(基于 path 形式,JDT 自动读文件)
 
-**Gate**: `mvn -q test -Dtest=NodeIdGeneratorTest,JdtParserFactoryTest` — exit 0
+**注解**: 单测 JdtParserFactoryTest 必须 `includeRunningVmClasspath=true` —— JDT 的 `createASTs` 需要系统库可寻址,否则报 "Missing system library"。生产侧 IndexCommand 默认 false(避免向 Java 8 项目注入新 API),测试关心的是跨文件 binding 而非 API 集,可放宽。
+
+**Gate**: `mvn test -Dtest=NodeIdGeneratorTest,JdtParserFactoryTest` — exit 0, 3/3 green ✓
 
 ---
 
