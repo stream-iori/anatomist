@@ -40,7 +40,8 @@
     ],
     "current": "generate",
     "task_checkpoints": {
-      "T1": "81c2363277254d5801170d63953b7c8df579b988"
+      "T1": "81c2363277254d5801170d63953b7c8df579b988",
+      "T2": "b1cd43139e705ae96356f19b1fe65c6b9ca18c1a"
     }
   },
   "task": {
