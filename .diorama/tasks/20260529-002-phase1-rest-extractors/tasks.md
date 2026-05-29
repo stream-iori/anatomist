@@ -67,30 +67,11 @@
 
 ### T4: ReferenceExtractor(仅项目内)[REQ-004, BR-EXT-1, AC-004, S3]
 
-**Status**: [ ] done
+**Status**: [x] done
 
-#### Phase 1: Skeleton
-
-- [ ] `ReferenceExtractor` 构造器 + ASTVisitor
-
-#### Phase 2: DSL Test
-
-- [ ] `ReferenceExtractorTest#extract_emitsFieldTypeReference` — `class A { Order o; }` + Order 内存源码 → REFERENCES context=field_type
-- [ ] `ReferenceExtractorTest#extract_emitsParameterReturnTypeReferences` — `class A { Order f(Order x){return x;} }`
-- [ ] `ReferenceExtractorTest#extract_emitsGenericArgReference` — S3
-- [ ] `ReferenceExtractorTest#extract_skipsExternalTypes` — `class A { java.util.List<String> xs; }`,期望产 0 条 REFERENCES
-
-**Gate**: `mvn -q test -Dtest=ReferenceExtractorTest` — 红灯
-
-#### Phase 3: Implementation
-
-- [ ] visit FieldDeclaration → 对 type 及其泛型 args 递归(depth ≤ 5),仅项目内发射
-- [ ] visit MethodDeclaration → returnType + 每个 parameter type,同上策略
-- [ ] source_id:
-  - 字段类型 → 字段 Node id
-  - 参数/返回类型 → 方法 Node id
-
-**Gate**: `mvn -q test -Dtest=ReferenceExtractorTest` — exit 0
+- [x] field/parameter/return + 泛型 args 递归(depth≤5)
+- [x] 仅项目内 target 发射
+- [x] 4/4 green
 
 ---
 
