@@ -19,11 +19,11 @@ import java.util.Map;
  * full Maven project — we parse an in-memory source string with bindings
  * enabled and walk the resulting AST.
  */
-final class JdtTestSupport {
+public final class JdtTestSupport {
 
     private JdtTestSupport() {}
 
-    static CompilationUnit parse(String unitName, String source) {
+    public static CompilationUnit parse(String unitName, String source) {
         ASTParser parser = ASTParser.newParser(AST.JLS21);
         parser.setKind(ASTParser.K_COMPILATION_UNIT);
         parser.setResolveBindings(true);
@@ -40,13 +40,13 @@ final class JdtTestSupport {
         return (CompilationUnit) parser.createAST(null);
     }
 
-    static List<AbstractTypeDeclaration> topTypes(CompilationUnit cu) {
+    public static List<AbstractTypeDeclaration> topTypes(CompilationUnit cu) {
         List<AbstractTypeDeclaration> out = new ArrayList<>();
         for (Object o : cu.types()) out.add((AbstractTypeDeclaration) o);
         return out;
     }
 
-    static ITypeBinding bindingOf(CompilationUnit cu, String simpleName) {
+    public static ITypeBinding bindingOf(CompilationUnit cu, String simpleName) {
         for (AbstractTypeDeclaration t : topTypes(cu)) {
             if (t.getName().getIdentifier().equals(simpleName)) {
                 return t.resolveBinding();
@@ -62,7 +62,7 @@ final class JdtTestSupport {
         return null;
     }
 
-    static List<IMethodBinding> methodBindings(CompilationUnit cu, String typeName, String methodName) {
+    public static List<IMethodBinding> methodBindings(CompilationUnit cu, String typeName, String methodName) {
         List<IMethodBinding> out = new ArrayList<>();
         for (AbstractTypeDeclaration t : topTypes(cu)) {
             if (!(t instanceof TypeDeclaration td)) continue;

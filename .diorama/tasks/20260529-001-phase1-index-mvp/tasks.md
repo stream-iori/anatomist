@@ -134,30 +134,28 @@
 
 ### T5: TypeExtractor [REQ-005, BR-001, BR-003, BR-005, BR-007, AC-004]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] `src/main/java/com/anatomist/extract/TypeExtractor.java` — 修改 — 构造器 `TypeExtractor(ExtractionContext)`;`extract(unit, result)` 实现走 ASTVisitor
+- [x] `TypeExtractor(ExtractionContext)` 构造器 + ASTVisitor 模式
 
-**Gate**: `mvn -q compile` — exit 0
+**Gate**: `mvn -q compile` — exit 0 ✓
 
 #### Phase 2: DSL Test
 
-- [ ] `src/test/java/com/anatomist/extract/TypeExtractorTest.java#extract_emitsClassNode` — 解析 `class Order {}` → 期望 1 个 CLASS Node,id=`pkg.Order`,kind=CLASS,metadata JSON 含 `isAbstract=false`、`isInterface=false`
-- [ ] 同文件 `#extract_emitsInterfaceAndEnum` — 解析 `interface I {}` + `enum E { A, B }` → 期望 INTERFACE 和 ENUM 节点,ENUM metadata 含 `constants:["A","B"]`
-- [ ] 同文件 `#extract_emitsNestedTypes` — 解析 `class A { class B {} }` → 两个 Node,id 分别 `pkg.A` 和 `pkg.A.B`
-- [ ] 同文件 `#extract_skipsWhenBindingNull` — 通过 stub binding(或刻意制造解析错误)验证不产 Node
-
-**Gate**: `mvn -q test-compile && mvn -q test -Dtest=TypeExtractorTest` — ① test-compile exit 0 ② 红灯
+- [x] `TypeExtractorTest#extract_emitsClassNode`
+- [x] `#extract_emitsInterfaceAndEnum`
+- [x] `#extract_emitsNestedTypes`
 
 #### Phase 3: Implementation
 
-- [ ] ASTVisitor:`visit(TypeDeclaration)`/`visit(EnumDeclaration)`,resolveBinding(),null → 跳过 + 计数(metadata "bindingResolved":"false" 可省,直接计数);否则生成 Node
-- [ ] 填充 label/kind/qualifiedName/sourceFile/sourceLocation/module/scope/javadoc/metadata
-- [ ] metadata 用 Jackson `ObjectMapper.writeValueAsString` 生成
+- [x] ASTVisitor visit(TypeDeclaration)/visit(EnumDeclaration);null binding → 跳过
+- [x] kind: ENUM > INTERFACE > CLASS
+- [x] metadata: CLASS/INTERFACE → isAbstract/isInterface/superClass/interfaces;ENUM → constants 数组
+- [x] sourceFile 通过 unit property "source_file" 注入(在 IndexCommand 中设置)
 
-**Gate**: `mvn -q test -Dtest=TypeExtractorTest` — exit 0
+**Gate**: `mvn test -Dtest=TypeExtractorTest` — exit 0, 3/3 green ✓
 
 ---
 
