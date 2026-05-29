@@ -12,10 +12,12 @@
       "consolidate": "",
       "generate": "",
       "plan": "",
-      "specify": ""
+      "specify": "20d64debf11c01fa950cbd9dfc6e3c86740ab078"
     },
-    "completed": [],
-    "current": "specify",
+    "completed": [
+      "specify"
+    ],
+    "current": "plan",
     "task_checkpoints": {}
   },
   "task": {
