@@ -1,10 +1,10 @@
 {
   "session": {
-    "current_phase": "consolidate",
+    "current_phase": "done",
     "current_task": "20260529-002-phase1-rest-extractors",
-    "dirty": true,
-    "last_checkpoint_commit": "8e5be97f34c8d69bef26c4391aec84a075342c2a",
+    "dirty": false,
+    "last_checkpoint_commit": "9f73e389da7edeaa587fb638d30b4fa1a06d617b",
     "last_task_checkpoint": "",
-    "last_updated_at": "2026-05-29T07:09:38.859495Z"
+    "last_updated_at": "2026-05-29T07:10:59.829595Z"
   }
 }

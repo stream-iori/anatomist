@@ -32,7 +32,7 @@
   },
   "phase": {
     "checkpoints": {
-      "consolidate": "",
+      "consolidate": "9f73e389da7edeaa587fb638d30b4fa1a06d617b",
       "generate": "8e5be97f34c8d69bef26c4391aec84a075342c2a",
       "plan": "23c99075ec6a218b0705027c6adb97bcc67117f2",
       "specify": "20d64debf11c01fa950cbd9dfc6e3c86740ab078"
@@ -40,9 +40,10 @@
     "completed": [
       "specify",
       "plan",
-      "generate"
+      "generate",
+      "consolidate"
     ],
-    "current": "consolidate",
+    "current": "done",
     "task_checkpoints": {
       "T1": "81c2363277254d5801170d63953b7c8df579b988",
       "T2": "b1cd43139e705ae96356f19b1fe65c6b9ca18c1a",
