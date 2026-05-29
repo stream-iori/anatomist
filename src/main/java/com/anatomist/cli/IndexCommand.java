@@ -5,7 +5,13 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JdtParserFactory;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.ProjectScanner;
+import com.anatomist.extract.AnnotationExtractor;
+import com.anatomist.extract.CallGraphExtractor;
+import com.anatomist.extract.FieldAccessExtractor;
+import com.anatomist.extract.FieldExtractor;
+import com.anatomist.extract.HierarchyExtractor;
 import com.anatomist.extract.MethodExtractor;
+import com.anatomist.extract.ReferenceExtractor;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.store.SqliteStore;
@@ -95,7 +101,13 @@ public class IndexCommand implements Callable<Integer> {
             NodeIdGenerator idGen = new NodeIdGenerator();
             ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN");
             TypeExtractor typeExtractor = new TypeExtractor(ctx);
+            FieldExtractor fieldExtractor = new FieldExtractor(ctx);
             MethodExtractor methodExtractor = new MethodExtractor(ctx);
+            AnnotationExtractor annotationExtractor = new AnnotationExtractor(ctx);
+            HierarchyExtractor hierarchyExtractor = new HierarchyExtractor(ctx);
+            ReferenceExtractor referenceExtractor = new ReferenceExtractor(ctx);
+            CallGraphExtractor callGraphExtractor = new CallGraphExtractor(ctx);
+            FieldAccessExtractor fieldAccessExtractor = new FieldAccessExtractor(ctx);
 
             ExtractionResult result = new ExtractionResult();
 
@@ -104,8 +116,15 @@ public class IndexCommand implements Callable<Integer> {
                 public void acceptAST(String sourceFilePath, CompilationUnit ast) {
                     String relative = relativize(projectRoot, Path.of(sourceFilePath));
                     ast.setProperty("source_file", relative);
+                    // Order matters: nodes first, then edges that reference them.
                     typeExtractor.extract(ast, result);
+                    fieldExtractor.extract(ast, result);
                     methodExtractor.extract(ast, result);
+                    annotationExtractor.extract(ast, result);
+                    hierarchyExtractor.extract(ast, result);
+                    referenceExtractor.extract(ast, result);
+                    callGraphExtractor.extract(ast, result);
+                    fieldAccessExtractor.extract(ast, result);
                 }
             });
 
@@ -117,13 +136,25 @@ public class IndexCommand implements Callable<Integer> {
 
             try (SqliteStore store = new SqliteStore(dbPath)) {
                 store.initSchema();
+                int dropped = pruneDanglingInternalEdges(result);
+                if (dropped > 0) {
+                    System.err.println("WARN: dropped " + dropped + " edges with dangling internal target (extractor gaps)");
+                }
                 store.write(result);
             }
 
             long elapsed = System.currentTimeMillis() - started;
             long types = result.nodes.stream().filter(n -> isType(n.kind)).count();
             long methods = result.nodes.stream().filter(n -> "METHOD".equals(n.kind)).count();
-            long contains = result.edges.stream().filter(e -> "CONTAINS".equals(e.relation)).count();
+            long fields = result.nodes.stream().filter(n -> "FIELD".equals(n.kind)).count();
+            long contains = countEdges(result, "CONTAINS");
+            long inherits = countEdges(result, "INHERITS");
+            long implementsRel = countEdges(result, "IMPLEMENTS");
+            long overrides = countEdges(result, "OVERRIDES");
+            long references = countEdges(result, "REFERENCES");
+            long calls = countEdges(result, "CALLS");
+            long reads = countEdges(result, "READS");
+            long writes = countEdges(result, "WRITES");
 
             System.out.println("Indexed " + projectRoot);
             System.out.println("  Source paths: " + sourcePaths);
@@ -131,7 +162,16 @@ public class IndexCommand implements Callable<Integer> {
             System.out.println("  Source files: " + sourceFiles.size());
             System.out.println("  Types:        " + types);
             System.out.println("  Methods:      " + methods);
+            System.out.println("  Fields:       " + fields);
+            System.out.println("  Annotations:  " + result.annotations.size());
             System.out.println("  CONTAINS:     " + contains);
+            System.out.println("  INHERITS:     " + inherits);
+            System.out.println("  IMPLEMENTS:   " + implementsRel);
+            System.out.println("  OVERRIDES:    " + overrides);
+            System.out.println("  REFERENCES:   " + references);
+            System.out.println("  CALLS:        " + calls);
+            System.out.println("  READS:        " + reads);
+            System.out.println("  WRITES:       " + writes);
             System.out.println("  Output:       " + dbPath);
             System.out.println("Done in " + elapsed + "ms");
             return 0;
@@ -176,6 +216,27 @@ public class IndexCommand implements Callable<Integer> {
     }
 
     private static boolean isType(String kind) {
-        return "CLASS".equals(kind) || "INTERFACE".equals(kind) || "ENUM".equals(kind);
+        return "CLASS".equals(kind) || "INTERFACE".equals(kind) || "ENUM".equals(kind)
+                || "ANONYMOUS_CLASS".equals(kind);
+    }
+
+    private static long countEdges(ExtractionResult r, String relation) {
+        return r.edges.stream().filter(e -> relation.equals(e.relation)).count();
+    }
+
+    /**
+     * Defensive sweep: any edge marked is_external=0 whose target_id does not
+     * resolve to a known node would trigger a FOREIGN KEY violation and abort
+     * the whole index transaction. This phase intentionally does not emit
+     * LAMBDA / METHOD_REF nodes yet, so a few cross-extractor edges can land in
+     * that hole. Drop them with a single WARN rather than failing the run.
+     */
+    private static int pruneDanglingInternalEdges(ExtractionResult r) {
+        java.util.Set<String> known = new java.util.HashSet<>();
+        for (com.anatomist.model.Node n : r.nodes) known.add(n.id);
+        int before = r.edges.size();
+        r.edges.removeIf(e -> !e.isExternal && (e.targetId == null || !known.contains(e.targetId)));
+        r.edges.removeIf(e -> e.sourceId == null || !known.contains(e.sourceId));
+        return before - r.edges.size();
     }
 }
