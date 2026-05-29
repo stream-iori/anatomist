@@ -1,0 +1,26 @@
+{
+  "anchors": {
+    "acceptance_entries": [],
+    "dev_entries": []
+  },
+  "consolidate": {
+    "noop": false,
+    "updated_files": []
+  },
+  "phase": {
+    "checkpoints": {
+      "consolidate": "",
+      "generate": "",
+      "plan": "",
+      "specify": ""
+    },
+    "completed": [],
+    "current": "specify",
+    "task_checkpoints": {}
+  },
+  "task": {
+    "base_branch": "main",
+    "branch": "task/20260529-002-phase1-rest-extractors",
+    "name": "20260529-002-phase1-rest-extractors"
+  }
+}
