@@ -2,9 +2,9 @@
   "session": {
     "current_phase": "specify",
     "current_task": "20260529-002-phase1-rest-extractors",
-    "dirty": false,
+    "dirty": true,
     "last_checkpoint_commit": "",
     "last_task_checkpoint": "",
-    "last_updated_at": "2026-05-29T06:43:45.056566Z"
+    "last_updated_at": "2026-05-29T06:46:46.232039Z"
   }
 }
