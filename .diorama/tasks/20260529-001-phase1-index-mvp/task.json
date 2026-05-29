@@ -1,0 +1,69 @@
+{
+  "anchors": {
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java",
+      "src/test/java/com/anatomist/cli/IndexCommandTest.java",
+      "src/test/java/com/anatomist/store/SqliteStoreInitSchemaTest.java",
+      "src/test/java/com/anatomist/store/SqliteStoreWriteTest.java",
+      "src/test/java/com/anatomist/extract/TypeExtractorTest.java",
+      "src/test/java/com/anatomist/extract/MethodExtractorTest.java",
+      "src/test/java/com/anatomist/core/ProjectScannerTest.java",
+      "src/test/java/com/anatomist/core/JdtParserFactoryTest.java",
+      "src/test/java/com/anatomist/core/NodeIdGeneratorTest.java",
+      "src/test/java/com/anatomist/core/ClasspathDetectorTest.java"
+    ],
+    "dev_entries": [
+      "src/main/java/com/anatomist/cli/IndexCommand.java",
+      "src/main/java/com/anatomist/cli/AnatomistCli.java",
+      "src/main/java/com/anatomist/core/ProjectScanner.java",
+      "src/main/java/com/anatomist/core/ClasspathDetector.java",
+      "src/main/java/com/anatomist/core/JdtParserFactory.java",
+      "src/main/java/com/anatomist/core/NodeIdGenerator.java",
+      "src/main/java/com/anatomist/core/ExtractionContext.java",
+      "src/main/java/com/anatomist/extract/TypeExtractor.java",
+      "src/main/java/com/anatomist/extract/MethodExtractor.java",
+      "src/main/java/com/anatomist/store/SqliteStore.java",
+      "src/main/resources/schema.sql",
+      "pom.xml"
+    ]
+  },
+  "consolidate": {
+    "noop": false,
+    "updated_files": [
+      ".diorama/knowledge/facts/glossary.json",
+      ".diorama/knowledge/facts/domain-model.md",
+      ".diorama/knowledge/rules/experience.md",
+      ".diorama/knowledge/rules/index.md"
+    ]
+  },
+  "phase": {
+    "checkpoints": {
+      "consolidate": "5d20295b7d20d723f8e497214ae293b2bb43d86d",
+      "generate": "fd78520eb03e4b4219f348cd73cfdcc92f18e6a7",
+      "plan": "dd8e2971f4f99256f79d6443513fa8c7ffa3d1d0",
+      "specify": "fe1ae02234711c69bedafda73459b2bc3ea782c1"
+    },
+    "completed": [
+      "specify",
+      "plan",
+      "generate",
+      "consolidate"
+    ],
+    "current": "done",
+    "task_checkpoints": {
+      "T1": "df02ba49fd1d1bc97c49325e23b77fa5a246bc64",
+      "T2": "d0dfd93b519b8c7af0213dba742e70b5603ef994",
+      "T3": "943eefc41af3ba915887e2210388329e12b2f95b",
+      "T4": "51ab676c28691c61b692ccdf182fa0eb2c47b49f",
+      "T5": "31aaa6ce50d40aed4135d2ddf7ceded2ecf7cf44",
+      "T6": "9111510b41e361ac0be7dd8a1f1b3879ce0b21ae",
+      "T7": "d45a966a7c9518c68ee7873a315c590229484ecb",
+      "T8": "86a3fde49ee6364a09cc2e7d4ccfd2b6167c51a8"
+    }
+  },
+  "task": {
+    "base_branch": "main",
+    "branch": "task/20260529-001-phase1-index-mvp",
+    "name": "20260529-001-phase1-index-mvp"
+  }
+}

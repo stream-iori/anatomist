@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "last_verified": "2026-05-29",
+  "terms": [
+    {
+      "term": "Node",
+      "definition": "SQLite nodes 表中的一条记录,代表一个 Java 代码实体(CLASS/INTERFACE/ENUM/METHOD/FIELD/ENUM_CONSTANT/ANONYMOUS_CLASS/LAMBDA/METHOD_REF)。ID 形如 com.x.A 或 com.x.A#foo(java.lang.String),保留原始大小写。",
+      "last_verified": "2026-05-29"
+    },
+    {
+      "term": "Edge",
+      "definition": "SQLite edges 表中的一条记录,代表两个 Node 之间的关系。relation ∈ {CONTAINS, CALLS, INHERITS, IMPLEMENTS, OVERRIDES, REFERENCES, READS, WRITES, ANNOTATED_WITH}。本期(Phase 1 MVP)只产出 CONTAINS。",
+      "last_verified": "2026-05-29"
+    },
+    {
+      "term": "Extractor",
+      "definition": "com.anatomist.extract 包下的 ASTVisitor 实现,接收一个 CompilationUnit 和 ExtractionResult,将提取出的 Node / Edge / Annotation 写入 result。每个 Extractor 独立、可单测。",
+      "last_verified": "2026-05-29"
+    },
+    {
+      "term": "ExtractionContext",
+      "definition": "一次索引运行共享的上下文,持有 projectRoot / sourcePaths / NodeIdGenerator / module / scope,并提供 isProjectInternal(ITypeBinding) 判断是否项目内类型。",
+      "last_verified": "2026-05-29"
+    },
+    {
+      "term": "Project Internal",
+      "definition": "ITypeBinding 的声明类源文件位于 --project-source 指定路径下的类型。与之相对的是外部依赖(External)。CONTAINS 边只在项目内 Node 之间建立。",
+      "last_verified": "2026-05-29"
+    },
+    {
+      "term": "Node ID",
+      "definition": "Node 主键。CLASS/INTERFACE/ENUM = FQN 原样;METHOD = <classFqn>#<name>(<erased,param,fqns>);FIELD = <classFqn>#<name>;ANONYMOUS = parentMethodId$anon@L<line>;LAMBDA = parentMethodId$lambda@L<line>C<col>。",
+      "last_verified": "2026-05-29"
+    },
+    {
+      "term": "FTS5 node_names",
+      "definition": "SQLite FTS5 虚拟表,external content 模式,内容来自 nodes 表的 qualified_name/label/javadoc。由 nodes_ai/ad/au 三个触发器同步维护。注意默认 tokenizer 会把 'pkg.X#foo()' 拆分。",
+      "last_verified": "2026-05-29"
+    },
+    {
+      "term": "Fixture",
+      "definition": "fixtures/mini-spring-shop/。三模块 Maven 项目(api/domain/service),作为索引器的端到端验收数据源。",
+      "last_verified": "2026-05-29"
+    }
+  ]
+}
