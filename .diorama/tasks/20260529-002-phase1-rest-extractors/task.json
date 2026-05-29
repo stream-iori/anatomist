@@ -1,7 +1,27 @@
 {
   "anchors": {
-    "acceptance_entries": [],
-    "dev_entries": []
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/extract/FieldExtractorTest.java",
+      "src/test/java/com/anatomist/extract/AnnotationExtractorTest.java",
+      "src/test/java/com/anatomist/extract/HierarchyExtractorTest.java",
+      "src/test/java/com/anatomist/extract/ReferenceExtractorTest.java",
+      "src/test/java/com/anatomist/extract/CallGraphExtractorTest.java",
+      "src/test/java/com/anatomist/extract/FieldAccessExtractorTest.java",
+      "src/test/java/com/anatomist/extract/TypeExtractorTest.java",
+      "src/test/java/com/anatomist/extract/MethodExtractorTest.java",
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java"
+    ],
+    "dev_entries": [
+      "src/main/java/com/anatomist/extract/FieldExtractor.java",
+      "src/main/java/com/anatomist/extract/AnnotationExtractor.java",
+      "src/main/java/com/anatomist/extract/HierarchyExtractor.java",
+      "src/main/java/com/anatomist/extract/ReferenceExtractor.java",
+      "src/main/java/com/anatomist/extract/CallGraphExtractor.java",
+      "src/main/java/com/anatomist/extract/FieldAccessExtractor.java",
+      "src/main/java/com/anatomist/extract/TypeExtractor.java",
+      "src/main/java/com/anatomist/extract/MethodExtractor.java",
+      "src/main/java/com/anatomist/cli/IndexCommand.java"
+    ]
   },
   "consolidate": {
     "noop": false,
