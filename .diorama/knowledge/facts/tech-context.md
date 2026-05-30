@@ -85,8 +85,10 @@ anatomist/
 
 ## 衰减检查结果
 
-本次 survey 重新对照代码:
+本次 survey 重新对照代码(2026-05-30,基于 commit `fcca0c8 Replace JDT with JavaParser + SymbolSolver`):
 
-- glossary.json 所有 16 个 term 在 DESIGN.md 或源码中均能找到对应 → 无 stale
-- domain-model.md 中 8 个 Extractor 与源码包结构一致(2 实现 + 5 骨架,1 个标准 Annotation 类 + 1 接口 + 7 个实现)→ 无 stale
-- 已知漂移点: ANONYMOUS_CLASS / LAMBDA Node 类型已在 schema 与文档中保留位置,但代码尚未实现 — 这是计划内的 Phase 1 余量,不算 stale
+- glossary.json 所有 16 个 term 在 DESIGN.md 或源码中均能找到对应 → 无 stale,全部 `last_verified` 刷新为 2026-05-30
+- domain-model.md 中 8 个 Extractor 与 `src/main/java/com/anatomist/extract/` 包结构一一对应(Phase 1.5 全部真实化)→ 无 stale
+- schema.sql / SqliteStore / 4 个生产依赖版本与上次 survey 一致 → 无漂移
+- 已知漂移点: LAMBDA / METHOD_REF Node 类型已在 schema 与文档中保留位置,但代码尚未实现 — 这是计划内的 Phase 1 余量,由 `IndexCommand.pruneDanglingInternalEdges` 兜底,不算 stale
+- 微调: `FieldExtractor` 同时承担 ENUM_CONSTANT 节点生成,本次 survey 在 domain-model §6 中显式标注该事实

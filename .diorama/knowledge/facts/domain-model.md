@@ -183,7 +183,7 @@ sequenceDiagram
 |-----------|------|------|
 | TypeExtractor | ✅ | CLASS / INTERFACE / ENUM + **ANONYMOUS_CLASS** |
 | MethodExtractor | ✅ | METHOD + CONTAINS;anonymous 内方法已支持(local 仍跳过) |
-| FieldExtractor | ✅ | FIELD + CONTAINS;metadata 含 type/isStatic/isFinal |
+| FieldExtractor | ✅ | FIELD + ENUM_CONSTANT + CONTAINS;metadata 含 type/isStatic/isFinal(枚举常量复用 FIELD 通路,kind=ENUM_CONSTANT) |
 | AnnotationExtractor | ✅ | 类/方法/字段/参数 4 层级;参数注解 attributes 含 `_param`/`_name` |
 | HierarchyExtractor | ✅ | INHERITS / IMPLEMENTS / OVERRIDES;外部父类支持 |
 | ReferenceExtractor | ✅ | field/parameter/return + 泛型 args 递归 depth≤5;**仅项目内** |

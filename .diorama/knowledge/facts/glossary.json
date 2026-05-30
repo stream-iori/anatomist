@@ -1,118 +1,118 @@
 {
   "version": 1,
-  "last_verified": "2026-05-29",
+  "last_verified": "2026-05-30",
   "terms": [
     {
       "term": "Node",
       "english": "Node",
       "definition": "SQLite nodes 表中的一条记录,代表一个 Java 代码实体(CLASS/INTERFACE/ENUM/METHOD/FIELD/ENUM_CONSTANT/ANONYMOUS_CLASS/LAMBDA/METHOD_REF)。ID 形如 com.x.A 或 com.x.A#foo(java.lang.String),保留原始大小写。",
       "aliases": ["代码节点", "code entity"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Edge",
       "english": "Edge",
       "definition": "SQLite edges 表中的一条记录,代表两个 Node 之间的关系。relation ∈ {CONTAINS, CALLS, INHERITS, IMPLEMENTS, OVERRIDES, REFERENCES, READS, WRITES, ANNOTATED_WITH}。Phase 1 MVP 只产出 CONTAINS。",
       "aliases": ["关系", "relation"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Extractor",
       "english": "Extractor",
       "definition": "com.anatomist.extract 包下的 VoidVisitorAdapter 实现,接收 JavaParser CompilationUnit 与 ExtractionResult,提取出 Node/Edge/Annotation 写入 result。每个 Extractor 独立可测,多次遍历开销可忽略。",
       "aliases": [],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "ExtractionContext",
       "english": "ExtractionContext",
       "definition": "一次 index 运行共享的上下文,持有 projectRoot/sourcePaths/NodeIdGenerator/module/scope,并提供 isProjectInternal(ResolvedTypeDeclaration) 判断类型来源。",
       "aliases": [],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Project Internal",
       "english": "Project Internal",
       "definition": "SymbolSolver 解析后,声明类源文件位于 --project-source 指定路径下的类型(通过 JavaParserTypeSolver 命中)。与之相对的是 External(外部依赖,由 JarTypeSolver/ReflectionTypeSolver 命中)。Edge 用 is_external + (target_id | external_target_fqn) 二选一表达,SQL CHECK 约束保证不混淆。",
       "aliases": ["项目内", "internal type"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "External Dependency",
       "english": "External Dependency",
       "definition": "声明类不在 --project-source 路径下的类型(JDK / 第三方 jar)。外部依赖产生的 Edge 不在 nodes 表创建 ghost 节点,而是把 FQN 直接放进 edges.external_target_fqn,is_external=1, target_id=NULL。",
       "aliases": ["外部依赖", "external type"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Node ID",
       "english": "Node ID",
       "definition": "Node 主键。CLASS/INTERFACE/ENUM = FQN 原样(保留大小写);METHOD = <classFqn>#<name>(<erased,param,fqns>);FIELD = <classFqn>#<name>;ENUM_CONSTANT = <enumFqn>#<constantName>;ANONYMOUS = <parentMethodId>$anon@L<line>;LAMBDA = <parentMethodId>$lambda@L<line>C<col>。",
       "aliases": ["节点 ID", "stable id"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "FTS5 node_names",
       "english": "FTS5 node_names",
       "definition": "SQLite FTS5 虚拟表,external content 模式,内容来自 nodes 表的 qualified_name/label/javadoc 三列。由 nodes_ai/ad/au 三个触发器与 nodes 表同步。默认 tokenizer 会拆分 pkg.X#foo() 中的标识符。",
       "aliases": ["全文索引"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Index Phase",
       "english": "Index Phase",
       "definition": "anatomist 的离线一次性阶段。JavaParser + SymbolSolver 解析源码与依赖 jar → Extractors → SQLite。耗时秒到分钟级。命令: `anatomist index <path>`。",
       "aliases": ["索引阶段"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Query Phase",
       "english": "Query Phase",
       "definition": "anatomist 的在线高频阶段。只读 SQLite + SQL/FTS5/递归 CTE。**不**触发解析器,毫秒级响应。命令包括 search/context/callers-of/callees-of/hierarchy/...",
       "aliases": ["查询阶段"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Agent",
       "english": "Agent",
       "definition": "调用 anatomist CLI 的 LLM 驱动客户端(Claude Code/Cursor/Copilot 等)。anatomist 自身不嵌入 LLM,所有语义推理由 Agent 完成。",
       "aliases": [],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Binding",
       "english": "Binding",
       "definition": "JavaParser SymbolSolver 解析后的 Resolved* 声明(ResolvedReferenceTypeDeclaration / ResolvedMethodDeclaration / ResolvedFieldDeclaration)。提供精确的类型/方法/字段身份,用于生成 Node ID 与 Edge target。resolve() 抛 UnsolvedSymbolException 时跳过该实体并计入 unresolved。",
       "aliases": [],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Scope",
       "english": "Scope",
       "definition": "nodes 表 scope 列。取值 MAIN(src/main/java 源)或 TEST(src/test/java 源)。查询可按 scope 过滤。",
       "aliases": [],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Module",
       "english": "Module",
       "definition": "多模块 Maven 项目中的子模块名(如 api/domain/service),写入 nodes.module。单模块为 null。多模块的所有源码共享同一 index.db。",
       "aliases": [],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Fixture",
       "english": "Fixture",
       "definition": "fixtures/mini-spring-shop/。三模块 Maven 项目(api/domain/service),作为索引器与查询命令的端到端验收数据源。",
       "aliases": ["测试样本"],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     },
     {
       "term": "Skill",
       "english": "Skill",
       "definition": "Phase 3 产物。markdown 描述文件(anatomist-skill.md),引导 Agent 在领域问答场景下编排 anatomist 命令组合。",
       "aliases": [],
-      "last_verified": "2026-05-29"
+      "last_verified": "2026-05-30"
     }
   ]
 }
