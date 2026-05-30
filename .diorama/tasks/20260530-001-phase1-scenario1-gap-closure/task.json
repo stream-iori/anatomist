@@ -1,0 +1,24 @@
+{
+  "task": {
+    "name": "20260530-001-phase1-scenario1-gap-closure",
+    "branch": "task/20260530-001-phase1-scenario1-gap-closure",
+    "base_branch": "main",
+    "created_at": "2026-05-30T05:38:00Z"
+  },
+  "phase": {
+    "current": "specify",
+    "completed": ["incept"],
+    "checkpoints": {
+      "incept": "",
+      "specify": "",
+      "plan": "",
+      "generate": "",
+      "consolidate": ""
+    },
+    "task_checkpoints": {}
+  },
+  "anchors": {
+    "dev_entries": [],
+    "acceptance_entries": []
+  }
+}
