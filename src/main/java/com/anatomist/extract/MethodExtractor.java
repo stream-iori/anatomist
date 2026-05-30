@@ -6,18 +6,22 @@ import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.eclipse.jdt.core.dom.ASTVisitor;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.MethodDeclaration;
-import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodLikeDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.anatomist.core.NodeIdGenerator.erasedTypeDescribe;
 
 public class MethodExtractor implements Extractor {
 
@@ -32,113 +36,188 @@ public class MethodExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = sourceFileOf(unit);
-        unit.accept(new ASTVisitor() {
+        String sourceFile = unit.containsData(TypeExtractor.SourceFileKey.KEY)
+                ? unit.getData(TypeExtractor.SourceFileKey.KEY)
+                : null;
+        if (sourceFile == null) {
+            sourceFile = unit.getStorage().map(s -> s.getPath().toString()).orElse(null);
+        }
+        final String sf = sourceFile;
+
+        new VoidVisitorAdapter<Void>() {
             @Override
-            public boolean visit(MethodDeclaration node) {
-                emit(node, sourceFile, result);
-                return true;
+            public void visit(MethodDeclaration n, Void arg) {
+                emitMethod(n, sf, result);
+                super.visit(n, arg);
             }
-        });
+
+            @Override
+            public void visit(ConstructorDeclaration n, Void arg) {
+                emitConstructor(n, sf, result);
+                super.visit(n, arg);
+            }
+        }.visit(unit, null);
     }
 
-    private void emit(MethodDeclaration decl, String sourceFile, ExtractionResult result) {
-        IMethodBinding binding = decl.resolveBinding();
-        if (binding == null) return;
-        ITypeBinding declClass = binding.getDeclaringClass();
-        if (declClass == null) return;
-        // Local classes still lack a corresponding CLASS node in this phase.
-        // Anonymous classes are now emitted by TypeExtractor, so methods
-        // declared in them are safe to extract.
-        if (declClass.isLocal() && !declClass.isAnonymous()) return;
-
-        String methodId = ctx.idGenerator().forMethod(binding);
-        String classId = ctx.idGenerator().forType(declClass);
+    private void emitMethod(MethodDeclaration decl, String sourceFile, ExtractionResult result) {
+        ResolvedMethodDeclaration r;
+        try {
+            r = decl.resolve();
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
+        ResolvedTypeDeclaration declType;
+        String methodId;
+        String classId;
+        String returnTypeName;
+        try {
+            declType = r.declaringType();
+            if (skipDeclaringType(declType)) return;
+            methodId = ctx.idGenerator().forMethod(r);
+            classId = ctx.idGenerator().forType(declType);
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
 
         Node n = new Node();
         n.id = methodId;
-        n.label = binding.getName();
+        n.label = r.getName();
         n.kind = "METHOD";
-        n.qualifiedName = declClass.getErasure().getQualifiedName() + "#" + binding.getName();
-        n.pkg = declClass.getPackage() == null ? null : declClass.getPackage().getName();
+        n.qualifiedName = declType.getQualifiedName() + "#" + r.getName();
+        n.pkg = declType.getPackageName();
         n.sourceFile = sourceFile;
-        n.sourceLocation = "L" + lineNumber(decl);
+        n.sourceLocation = "L" + lineOf(decl);
         n.module = ctx.module();
         n.scope = ctx.scope();
-        n.javadoc = decl.getJavadoc() == null ? null : decl.getJavadoc().toString();
-        n.metadata = metadataJson(decl, binding);
+        n.javadoc = decl.getJavadocComment().map(c -> c.getContent()).orElse(null);
+        n.metadata = methodMetadata(decl, r, false);
         result.nodes.add(n);
 
+        result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
+    }
+
+    private void emitConstructor(ConstructorDeclaration decl, String sourceFile, ExtractionResult result) {
+        ResolvedConstructorDeclaration r;
+        try {
+            r = decl.resolve();
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
+        ResolvedTypeDeclaration declType;
+        String methodId;
+        String classId;
+        try {
+            declType = r.declaringType();
+            if (skipDeclaringType(declType)) return;
+            methodId = ctx.idGenerator().forConstructor(r);
+            classId = ctx.idGenerator().forType(declType);
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
+
+        Node n = new Node();
+        n.id = methodId;
+        n.label = r.getName();
+        n.kind = "METHOD";
+        n.qualifiedName = declType.getQualifiedName() + "#" + r.getName();
+        n.pkg = declType.getPackageName();
+        n.sourceFile = sourceFile;
+        n.sourceLocation = "L" + lineOf(decl);
+        n.module = ctx.module();
+        n.scope = ctx.scope();
+        n.javadoc = decl.getJavadocComment().map(c -> c.getContent()).orElse(null);
+        n.metadata = methodMetadata(decl, r, true);
+        result.nodes.add(n);
+
+        result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
+    }
+
+    /**
+     * Same invariant as the original {@code MethodExtractor.emit} short-circuit
+     * (BR-007): Phase 1 does not emit nodes for anonymous / local classes via
+     * a TypeDeclaration walk, so methods declared in such bodies would point
+     * at a non-existent classId and break the FK on the CONTAINS edge.
+     * TypeExtractor emits anonymous classes, so anonymous-owned methods are
+     * fine; only local classes are still skipped here.
+     */
+    private static boolean skipDeclaringType(ResolvedTypeDeclaration declType) {
+        // JavaParser does not expose "is local class" as a uniform predicate.
+        // Anonymous declarations come back as JavaParserAnonymousClassDeclaration
+        // — those are emitted by TypeExtractor, keep them. Reject things that
+        // are neither class/interface/enum/annotation at all.
+        return !(declType.isClass() || declType.isInterface()
+                || declType.isEnum() || declType.isAnnotation());
+    }
+
+    private static Edge containsEdge(String classId, String methodId,
+                                     String sourceFile, String sourceLoc) {
         Edge e = new Edge();
         e.sourceId = classId;
         e.targetId = methodId;
-        e.externalTargetFqn = null;
         e.relation = "CONTAINS";
-        e.callKind = null;
         e.confidence = "EXTRACTED";
-        e.context = null;
         e.isExternal = false;
         e.sourceFile = sourceFile;
-        e.sourceLocation = n.sourceLocation;
-        result.edges.add(e);
+        e.sourceLocation = sourceLoc;
+        return e;
     }
 
-    private static int lineNumber(MethodDeclaration decl) {
-        CompilationUnit cu = (CompilationUnit) decl.getRoot();
-        return cu.getLineNumber(decl.getStartPosition());
+    private static int lineOf(com.github.javaparser.ast.Node n) {
+        return n.getBegin().map(p -> p.line).orElse(0);
     }
 
-    private static String sourceFileOf(CompilationUnit unit) {
-        Object prop = unit.getProperty("source_file");
-        return prop instanceof String s ? s : null;
-    }
-
-    private static String metadataJson(MethodDeclaration decl, IMethodBinding binding) {
+    private static String methodMetadata(com.github.javaparser.ast.body.CallableDeclaration<?> decl,
+                                         ResolvedMethodLikeDeclaration r,
+                                         boolean isConstructor) {
         Map<String, Object> meta = new LinkedHashMap<>();
-        ITypeBinding rt = binding.getReturnType();
-        meta.put("returnType", rt == null ? null : rt.getName());
+        if (isConstructor) {
+            meta.put("returnType", null);
+        } else {
+            try { meta.put("returnType", erasedTypeDescribe(((ResolvedMethodDeclaration) r).getReturnType())); }
+            catch (RuntimeException e) { meta.put("returnType", null); }
+        }
 
         List<Map<String, String>> params = new ArrayList<>();
-        ITypeBinding[] paramTypes = binding.getParameterTypes();
-        List<?> declParams = decl.parameters();
-        for (int i = 0; i < paramTypes.length; i++) {
+        for (int i = 0; i < r.getNumberOfParams(); i++) {
             Map<String, String> p = new LinkedHashMap<>();
-            String name = i < declParams.size()
-                    ? ((SingleVariableDeclaration) declParams.get(i)).getName().getIdentifier()
-                    : "arg" + i;
+            String name = i < decl.getParameters().size()
+                    ? decl.getParameter(i).getNameAsString() : "arg" + i;
             p.put("name", name);
-            p.put("type", paramTypes[i].getName());
+            String typeDesc;
+            try { typeDesc = erasedTypeDescribe(r.getParam(i).getType()); }
+            catch (RuntimeException e) { typeDesc = "<unresolved>"; }
+            p.put("type", typeDesc);
             params.add(p);
         }
         meta.put("parameters", params);
-        meta.put("isStatic", Modifier.isStatic(binding.getModifiers()));
-        meta.put("isAbstract", Modifier.isAbstract(binding.getModifiers()));
-        meta.put("isConstructor", binding.isConstructor());
+
+        boolean isStatic = decl.isStatic();
+        boolean isAbstract = decl instanceof MethodDeclaration md && md.isAbstract();
+        meta.put("isStatic", isStatic);
+        meta.put("isAbstract", isAbstract);
+        meta.put("isConstructor", isConstructor);
 
         List<String> mods = new ArrayList<>();
-        int m = binding.getModifiers();
-        if (Modifier.isPublic(m)) mods.add("public");
-        if (Modifier.isProtected(m)) mods.add("protected");
-        if (Modifier.isPrivate(m)) mods.add("private");
-        if (Modifier.isStatic(m)) mods.add("static");
-        if (Modifier.isFinal(m)) mods.add("final");
+        for (Modifier m : decl.getModifiers()) {
+            String kw = m.getKeyword().asString();
+            mods.add(kw);
+        }
         meta.put("modifiers", mods);
 
-        StringBuilder sig = new StringBuilder(binding.getName()).append("(");
-        for (int i = 0; i < paramTypes.length; i++) {
+        StringBuilder sig = new StringBuilder(r.getName()).append("(");
+        for (int i = 0; i < params.size(); i++) {
             if (i > 0) sig.append(", ");
-            String name = i < declParams.size()
-                    ? ((SingleVariableDeclaration) declParams.get(i)).getName().getIdentifier()
-                    : "arg" + i;
-            sig.append(paramTypes[i].getName()).append(' ').append(name);
+            Map<String, String> p = params.get(i);
+            sig.append(p.get("type")).append(' ').append(p.get("name"));
         }
         sig.append(")");
         meta.put("signature", sig.toString());
 
-        try {
-            return JSON.writeValueAsString(meta);
-        } catch (JsonProcessingException e) {
-            return "{}";
-        }
+        try { return JSON.writeValueAsString(meta); }
+        catch (JsonProcessingException e) { return "{}"; }
     }
 }

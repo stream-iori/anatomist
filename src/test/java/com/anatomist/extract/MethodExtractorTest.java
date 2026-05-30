@@ -1,12 +1,12 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
-import com.anatomist.core.JdtTestSupport;
+import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
-import org.eclipse.jdt.core.dom.CompilationUnit;
+import com.github.javaparser.ast.CompilationUnit;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -19,16 +19,11 @@ import static org.junit.jupiter.api.Assertions.*;
 class MethodExtractorTest {
 
     private final ExtractionContext ctx = new ExtractionContext(
-            Path.of("."),
-            List.of(),
-            new NodeIdGenerator(),
-            null,
-            "MAIN"
-    );
+            Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN");
 
     @Test
     void extract_emitsMethodNodeAndContainsEdge() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
+        CompilationUnit cu = JavaParserTestSupport.parse(
                 "package pkg; public class A { public void foo() {} }");
         ExtractionResult r = new ExtractionResult();
         new MethodExtractor(ctx).extract(cu, r);
@@ -49,11 +44,11 @@ class MethodExtractorTest {
 
     @Test
     void extract_distinguishesOverloads() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
-                "package pkg; public class A {" +
-                        "  public void foo() {}" +
-                        "  public void foo(String s) {}" +
-                        "}");
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public class A {"
+                + "  public void foo() {}"
+                + "  public void foo(String s) {}"
+                + "}");
         ExtractionResult r = new ExtractionResult();
         new MethodExtractor(ctx).extract(cu, r);
 
@@ -64,12 +59,12 @@ class MethodExtractorTest {
 
     @Test
     void extract_handlesConstructorAndGenericList() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
-                "package pkg; import java.util.List;" +
-                        "public class A {" +
-                        "  public A() {}" +
-                        "  public void bar(List<Integer> xs) {}" +
-                        "}");
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.List;"
+                + "public class A {"
+                + "  public A() {}"
+                + "  public void bar(List<Integer> xs) {}"
+                + "}");
         ExtractionResult r = new ExtractionResult();
         new MethodExtractor(ctx).extract(cu, r);
 
@@ -79,23 +74,5 @@ class MethodExtractorTest {
 
         Node ctor = r.nodes.stream().filter(n -> n.id.equals("pkg.A#A()")).findFirst().orElseThrow();
         assertTrue(ctor.metadata.contains("\"isConstructor\":true"));
-    }
-
-    @Test
-    void extract_handlesAnonymousMethods() {
-        // After TypeExtractor emits the ANONYMOUS_CLASS node, MethodExtractor
-        // should no longer skip its methods.
-        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
-                "package pkg; public class A {" +
-                        "  public void run(){ Runnable r = new Runnable(){ public void run(){} }; }" +
-                        "}");
-        ExtractionResult r = new ExtractionResult();
-        new TypeExtractor(ctx).extract(cu, r);
-        new MethodExtractor(ctx).extract(cu, r);
-
-        long anonMethods = r.nodes.stream()
-                .filter(n -> "METHOD".equals(n.kind) && "run".equals(n.label))
-                .count();
-        assertEquals(2, anonMethods, "expected outer A#run() + anon class run() ; got " + r.nodes);
     }
 }

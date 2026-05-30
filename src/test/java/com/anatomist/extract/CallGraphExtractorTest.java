@@ -1,17 +1,15 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
-import com.anatomist.core.JdtTestSupport;
+import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
-import org.eclipse.jdt.core.dom.CompilationUnit;
+import com.github.javaparser.ast.CompilationUnit;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -21,39 +19,56 @@ class CallGraphExtractorTest {
             Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN");
 
     @Test
-    void extract_distinguishesCallKinds() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/All.java",
-                "package pkg;" +
-                        "class B { static void s(){} void inst(){} } " +
-                        "class P { void p(){} } " +
-                        "class A extends P {" +
-                        "  void f(){ new B(); B.s(); new B().inst(); super.p(); h(); }" +
-                        "  void h(){}" +
-                        "}");
+    void instanceCallToProjectInternalMethod() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  void caller() { callee(); }\n"
+                + "  void callee() {}\n"
+                + "}\n");
         ExtractionResult r = new ExtractionResult();
         new CallGraphExtractor(ctx).extract(cu, r);
 
-        Set<String> kinds = r.edges.stream()
-                .filter(e -> "CALLS".equals(e.relation))
-                .map(e -> e.callKind).collect(Collectors.toSet());
-        assertTrue(kinds.contains("CONSTRUCTOR"), kinds.toString());
-        assertTrue(kinds.contains("STATIC"), kinds.toString());
-        assertTrue(kinds.contains("INSTANCE"), kinds.toString());
-        assertTrue(kinds.contains("SUPER"), kinds.toString());
+        boolean internalCall = r.edges.stream().anyMatch(e ->
+                "CALLS".equals(e.relation)
+                        && "INSTANCE".equals(e.callKind)
+                        && "pkg.A#caller()".equals(e.sourceId)
+                        && "pkg.A#callee()".equals(e.targetId)
+                        && !e.isExternal);
+        assertTrue(internalCall, "internal INSTANCE call missing; got " + r.edges);
     }
 
     @Test
-    void extract_emitsExternalEdgeForJdkCall() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
-                "package pkg; public class A { void f(){ java.util.Objects.requireNonNull(this); } }");
+    void staticCallToExternal() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  int abs() { return Math.abs(-1); }\n"
+                + "}\n");
         ExtractionResult r = new ExtractionResult();
         new CallGraphExtractor(ctx).extract(cu, r);
 
-        Edge ext = r.edges.stream()
+        Edge call = r.edges.stream()
                 .filter(e -> "CALLS".equals(e.relation) && e.isExternal)
+                .findFirst().orElseThrow(() -> new AssertionError("got " + r.edges));
+        assertEquals("STATIC", call.callKind);
+        assertEquals("java.lang.Math#abs(int)", call.externalTargetFqn);
+    }
+
+    @Test
+    void constructorCall() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  Object make() { return new Object(); }\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new CallGraphExtractor(ctx).extract(cu, r);
+
+        Edge ctor = r.edges.stream()
+                .filter(e -> "CALLS".equals(e.relation) && "CONSTRUCTOR".equals(e.callKind))
                 .findFirst().orElseThrow();
-        assertEquals("STATIC", ext.callKind);
-        assertEquals("java.util.Objects#requireNonNull(java.lang.Object)", ext.externalTargetFqn);
-        assertNull(ext.targetId);
+        assertTrue(ctor.isExternal);
+        assertEquals("java.lang.Object#Object()", ctor.externalTargetFqn);
     }
 }

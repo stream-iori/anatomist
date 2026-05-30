@@ -2,24 +2,24 @@
 
 项目级实践经验,服务后续 task 的 plan / generate。
 
-## E1: JDT createASTs 需要可寻址的系统库
+## E1: ReflectionTypeSolver 与跨 JDK 版本"假阳性 API"
 
-**情景**: 用 `ASTParser.createASTs(...)` 解析多个 Java 文件,且未提供 classpath 时。
+**情景**: 用 `JavaParserFactory` 解析目标项目源码，且目标项目使用比 anatomist 运行 JDK 更老的 Java 版本。
 
-**坑**: 若同时 `includeRunningVMClasspath = false` 且 classpath 为空, JDT 抛 `IllegalStateException: Missing system library`。
+**坑**: 若 `--vm-classpath true`（即在 `CombinedTypeSolver` 里加 `ReflectionTypeSolver`），当前 JVM 暴露的 JDK 类会被识别为可用 API。分析 JDK 8 项目时，`String.strip()` / `List.of()` / sealed 类等 JDK 11+ 才有的成员仍可解析成功，产生"假阳性"绑定。
 
 **对策**:
-- 生产侧 IndexCommand 默认 false(避免向 Java 8 项目注入高版本 JDK API),依赖 ClasspathDetector 提供至少一个 jar
-- 测试侧需要 createASTs 时,在不关心 API 集精度的 case 中传 `true`(只关心跨文件 binding 是否能 resolve)
-- 用户传 `--no-classpath` 时接受 binding 不完整,但 TypeExtractor/MethodExtractor 仍可工作(它们只读声明 binding)
+- 生产侧 IndexCommand 默认 `--vm-classpath true`（保证 `java.lang.*` 可解析），但提示用户在分析远低于自身 JVM 的项目时显式关掉
+- 测试侧 `JavaParserTestSupport.combinedTypeSolver()` 默认开启 ReflectionTypeSolver，但 JDK 8 语义验证测试要单独关掉做 negative 断言
+- 真正想要目标版本 JDK 类时，把那一版的 `rt.jar` / 抽出来的 jrt 模块 jar 走 `--classpath` 传给 `JarTypeSolver`
 
-## E2: Anonymous/Local class 的方法不能在 BR-007 限定下提取
+## E2: Anonymous/Local class 的方法发射受 BR-007 约束
 
-**情景**: MethodExtractor 在 BR-007("本期不提取 anonymous/lambda/field")约束下运行。
+**情景**: MethodExtractor / FieldExtractor 在 BR-007("Phase 1 不发射 LOCAL_CLASS / LAMBDA 节点")约束下运行。
 
-**坑**: 若不显式过滤,JDT visit(MethodDeclaration) 会进入 anonymous class 的方法 body,生成 METHOD Node,其 `source_id` 指向不存在的 anonymous CLASS Node → SQLite 外键约束失败 → 整个事务 rollback → 索引完全失败。
+**坑**: 若不显式过滤，VoidVisitorAdapter 会进入 local class 的方法 body，生成 METHOD Node，其 `source_id` 指向不存在的 LOCAL_CLASS Node → SQLite 外键约束失败 → 整个事务 rollback → 索引完全失败。匿名类不在此列——TypeExtractor 已经发射 ANONYMOUS_CLASS Node。
 
-**对策**: MethodExtractor.emit 开头检查 `declClass.isAnonymous() || declClass.isLocal()`,直接 return。下个 task 实现 ANONYMOUS_CLASS Node 后移除此守卫。
+**对策**: MethodExtractor.`skipDeclaringType` 检查 `declType.isClass()/isInterface()/isEnum()/isAnnotation()` 之外的情况直接 return。下个 task 实现 LOCAL_CLASS / LAMBDA Node 后移除此守卫。
 
 ## E3: FTS5 default tokenizer 把 Java 标识符切碎
 
@@ -45,40 +45,48 @@
 
 **对策**: `protected int runMvn(workingDir, args)` 作为测试 seam。测试匿名子类化 ClasspathDetector,override runMvn 直接抛 IOException 或写假 outputFile,即可覆盖降级路径与解析路径,完全脱离 mvn 二进制。
 
-## E6: 单测想要 JDT binding 时用最小内存 source + ASTParser.setSource
+## E6: 单测想要符号绑定时用 JavaParserTestSupport
 
-**情景**: TypeExtractor/MethodExtractor/NodeIdGenerator 等单测需要构造 ITypeBinding / IMethodBinding。
+**情景**: TypeExtractor/MethodExtractor/NodeIdGenerator 等单测需要构造 `ResolvedReferenceTypeDeclaration` / `ResolvedMethodDeclaration`。
 
-**对策**: `src/test/java/com/anatomist/core/JdtTestSupport.java` 封装 `parse(unitName, source)`,内部 `setEnvironment(new String[0], new String[0], null, true) + setUnitName + setSource(...) + createAST(null)`。test scope 直接拿到带 binding 的 CompilationUnit。**注意**: 该 helper 必须 public(被跨包测试引用)。
+**对策**: `src/test/java/com/anatomist/core/JavaParserTestSupport.java` 封装：
+- `parse(source)`：直接传入源码字符串，内部挂 `JavaSymbolSolver(CombinedTypeSolver(ReflectionTypeSolver + MemoryTypeSolver))`
+- `resolveType(cu, simpleName)` / `resolveMethods(cu, type, method)` / `resolveConstructor(cu, type)`：便捷拿到 `Resolved*` 声明
 
-## E7: ExtractionContext.isProjectInternal 必须用 binding.isFromSource() 作为主信号
+测试 scope 直接拿到带绑定的 CompilationUnit。**注意**: 该 helper 必须 public(被跨包测试引用)。
 
-**情景**: HierarchyExtractor / ReferenceExtractor / CallGraphExtractor / FieldAccessExtractor 都需要区分项目内/外部 binding。
+## E7: ExtractionContext.isProjectInternal 用 TypeSolver 类型判定
 
-**坑**: 原实现只比对 `binding.getJavaElement().getPath()` 与 sourcePaths。在测试场景下 sourcePaths 为空 → 永远返回 false → 所有项目内 binding 都被当外部处理,断言失败。
+**情景**: HierarchyExtractor / ReferenceExtractor / CallGraphExtractor / FieldAccessExtractor 都需要区分项目内 vs 外部依赖。
 
-**对策**: 优先用 `binding.isFromSource()`:JDT 对任何从源码解析(无论 createASTs 还是内存 setSource)的 binding 都返回 true,对从 jar 解析的返回 false。这恰好是"项目内"的语义。原 path 比对作为 fallback 保留。
+**坑**: JavaParser 不在 binding 上提供 `isFromSource()` 这类直接信号。我们必须基于"哪一个 TypeSolver 返回了它"来判定。
 
-## E8: 外部方法 FQN 必须用 IMethodBinding.getMethodDeclaration() 取声明参数,而非调用点参数
+**对策**: `ExtractionContext.isProjectInternal(ResolvedTypeDeclaration)` 用 `instanceof` 判断：
+- 项目内 = `JavaParserClassDeclaration` / `JavaParserInterfaceDeclaration` / `JavaParserEnumDeclaration` / `JavaParserAnnotationDeclaration` / `JavaParserAnonymousClassDeclaration`（都来自 `JavaParserTypeSolver`）
+- 外部 = 其余（`ReflectionClass*Declaration` 或我们自实现的 `JavassistClassDeclaration`）
+
+`JarTypeSolver` 落地后只要保持 `JavassistClassDeclaration` 不是 `JavaParser*Declaration` 子类即可继续按"外部"处理。
+
+## E8: 外部方法 FQN 用 ResolvedMethodDeclaration 的擦除签名
 
 **情景**: `CallGraphExtractor.emit` 想给外部调用记录稳定的 `external_target_fqn`。
 
-**坑**: `binding.getParameterTypes()` 返回的是**调用点解析后**的类型(泛型实参已替换)。如 `java.util.Objects.requireNonNull(pkg.A obj)` 中,调用 `requireNonNull(this)` 会让 binding 的参数类型变成 `pkg.A` 而不是 `T` 的擦除 `java.lang.Object` —— 这让"同一个外部方法的所有调用"变成 N 个不同 FQN,Phase 2 callers-of 查询完全失效。
+**坑**: `MethodCallExpr.resolve()` 返回的 `ResolvedMethodDeclaration` 上，参数泛型可能已被实参替换；如果跟着取 `getParam(i).getType()`，"同一个外部方法的所有调用"会变成 N 个不同 FQN，Phase 2 callers-of 查询完全失效。
 
-**对策**: 用 `binding.getMethodDeclaration().getParameterTypes()` 取原始**声明**参数类型,再 `.getErasure().getQualifiedName()` 得到稳定 FQN。HierarchyExtractor / CallGraphExtractor 共用同一个 helper(`HierarchyExtractor.externalMethodFqn`)。
+**对策**: 统一用 `NodeIdGenerator.erasedTypeDescribe(resolvedType)`（内部走 `ResolvedType.erasure().describe()`）拼擦除签名；公用 helper `NodeIdGenerator.externalMethodFqn(...)`，HierarchyExtractor / CallGraphExtractor 共用。
 
 ## E9: Lambda / METHOD_REF 未实现时,IndexCommand 必须 pruneDanglingInternalEdges
 
 **情景**: 任何含 Lambda / method reference(`stream().filter(x -> ...)`、`::method`)的真实项目。
 
-**坑**: CallGraphExtractor / FieldAccessExtractor 在 Lambda body 内 visit 到的 MethodInvocation 会通过 `enclosingMethodBinding` 上溯到外层方法(因为本期不发射 LAMBDA Node)。多数情况 OK,但当 Lambda **本身**是 functional interface 的合成方法(如 BiFunction 的 `apply`)时,enclosingMethod 可能返回 lambda 的 synthetic binding,其 `forMethod(...)` ID 与 nodes 表对不上 → CONTAINS/CALLS 边 source_id 找不到节点 → 整个事务被 SQLite FK violation 推翻。
+**坑**: CallGraphExtractor / FieldAccessExtractor 在 Lambda body 内 visit 到的 `MethodCallExpr` 会通过"上溯找到 enclosing MethodDeclaration"的逻辑归到外层方法。多数情况 OK,但当 Lambda **本身**是 functional interface 的合成方法（如 `BiFunction.apply`）时，enclosing 可能解析失败或落到一个没有对应 nodes 行的合成签名 → CONTAINS/CALLS 边 source_id 找不到节点 → 整个事务被 SQLite FK violation 推翻。
 
-**对策**: IndexCommand 在 `store.write` 之前调 `pruneDanglingInternalEdges(result)`:扫描所有 internal 边,过滤掉 source_id / target_id 不在 nodes 集合中的边,只 warn 不 abort。fixture 上典型 drop 数 = 3-5 条。LAMBDA Node 落地后该 helper 可保留作为最后防线。
+**对策**: IndexCommand 在 `store.write` 之前调 `pruneDanglingInternalEdges(result)`:扫描所有 internal 边,过滤掉 source_id / target_id 不在 nodes 集合中的边,只 warn 不 abort。LAMBDA Node 落地后该 helper 可保留作为最后防线。
 
-## E10: --no-classpath 模式下 Spring 注解 binding 全 null
+## E10: --no-classpath 模式下 Spring 注解 unresolved
 
 **情景**: 测试用 `--no-classpath` 跑 fixture(避免联网拉 Spring 依赖)。
 
-**坑**: AnnotationExtractor 通过 `binding.getAnnotations()` 收集注解。Spring 注解(`@Service`/`@Autowired`/`@Transactional`)需要 classpath 才能 resolve,无 classpath 时这些注解的 binding 全是 null,annotations 表里只剩 JDK-builtin 注解(`@Override` / `@Deprecated` / `@SuppressWarnings`)。
+**坑**: AnnotationExtractor 通过 `AnnotationExpr.resolve()` 取 FQN。Spring 注解(`@Service`/`@Autowired`/`@Transactional`)需要 classpath 才能解析,无 classpath 时这些 `resolve()` 调用抛 `UnsolvedSymbolException`,annotations 表里只剩 `ReflectionTypeSolver` 命中的 JDK 内置注解(`@Override` / `@Deprecated` / `@SuppressWarnings`)。
 
-**对策**: 测试断言用 `@Override`(JDK 内置,永远可解析)而非 Spring 注解。若要测 Spring 注解,需要在 IT 中先确保 ClasspathDetector 工作正常,或显式传 `--classpath`。生产场景下用户跑 `anatomist index` 默认走 ClasspathDetector,不受此限制。
+**对策**: 测试断言用 `@Override`(JDK 内置,只要 `--vm-classpath true` 即可解析)而非 Spring 注解。若要测 Spring 注解,需要在 IT 中先确保 ClasspathDetector 工作正常,或显式传 `--classpath`。生产场景下用户跑 `anatomist index` 默认走 ClasspathDetector,不受此限制。

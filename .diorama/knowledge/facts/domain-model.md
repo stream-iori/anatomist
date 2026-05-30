@@ -78,15 +78,15 @@ classDiagram
 | Edge | Node 间的关系。CASCADE DELETE 跟随 Node | 同 Node |
 | Annotation | Node 上的注解。CASCADE DELETE 跟随 Node | 同 Node |
 | IndexDb | SQLite 物理文件,默认 `<project>/.anatomist/index.db` | 重复索引时覆盖(MVP) |
-| Extractor | ASTVisitor,从 CompilationUnit 产出 Node/Edge/Annotation | 每次 index 实例化,与 ExtractionContext 绑定 |
+| Extractor | VoidVisitorAdapter,从 CompilationUnit 产出 Node/Edge/Annotation | 每次 index 实例化,与 ExtractionContext 绑定 |
 
 ## 3. 核心业务规则
 
 - **R1: Node ID 大小写保留** — `com.example.Order`(类)与 `com.example.order`(子包)是不同实体,小写化会撞 ID
-- **R2: 方法 ID 用擦除签名** — 重载消歧;`process(List<A>)` 与 `process(List<B>)` 都规约为 `process(java.util.List)` —— 这是 JDT 类型擦除的固有现象,工程上接受
+- **R2: 方法 ID 用擦除签名** — 重载消歧;`process(List<A>)` 与 `process(List<B>)` 都规约为 `process(java.util.List)` —— 这是 Java 类型擦除的固有现象,工程上接受
 - **R3: target 拆分约束** — edges 通过 CHECK 约束强制 `is_external=0 ⇒ target_id 非空 & external_target_fqn 空`,`is_external=1 ⇒ 反之`。SQL 自身防撞名
-- **R4: Binding 失败跳过** — 任何 `resolveBinding() == null` 的实体均跳过,不产生半成品 Node;统计 unresolved 计数
-- **R5: 两阶段隔离** — Index 阶段调 JDT,Query 阶段**不**调 JDT,只走 SQLite。Agent 多次查询 O(1) 而非 O(N) 重解析
+- **R4: 符号解析失败跳过** — 任何 `MethodCallExpr.resolve()` / `decl.resolve()` 抛 `UnsolvedSymbolException` / `UnsupportedOperationException` 的实体均跳过,不产生半成品 Node;统计 unresolved 计数
+- **R5: 两阶段隔离** — Index 阶段调 JavaParser+SymbolSolver,Query 阶段**不**调解析器,只走 SQLite。Agent 多次查询 O(1) 而非 O(N) 重解析
 - **R6: SUT 单 DB** — 多模块项目共享一个 index.db,通过 nodes.module 列区分
 
 ## 4. 状态/枚举
@@ -109,7 +109,7 @@ sequenceDiagram
     participant CLI as IndexCommand
     participant CD as ClasspathDetector
     participant PS as ProjectScanner
-    participant JF as JdtParserFactory
+    participant JF as JavaParserFactory
     participant Ext as Extractors
     participant SS as SqliteStore
 
@@ -117,8 +117,8 @@ sequenceDiagram
     CD-->>CLI: sourcePaths + classpath (mvn 不可用降级 WARN)
     CLI->>PS: scan(sourcePaths)
     PS-->>CLI: List<Path> javaFiles
-    CLI->>JF: parseAll(files, requestor)
-    JF->>JF: ASTParser.createASTs 共享 binding 上下文
+    CLI->>JF: parseAll(consumer)
+    JF->>JF: SourceRoot.tryToParse + JavaSymbolSolver(CombinedTypeSolver)
     loop 每个 CompilationUnit
         JF->>Ext: extract(unit, result)
         Ext-->>JF: nodes + edges + annotations
@@ -165,13 +165,13 @@ sequenceDiagram
     participant FS as FileWatcher
     participant CLI as anatomist watch
     participant Diff as ChangeDetector
-    participant JF as JdtParserFactory
+    participant JF as JavaParserFactory
     participant SS as SqliteStore
 
     FS-->>CLI: file modified event
     CLI->>Diff: compute changed compilation units
     Diff-->>CLI: List<Path> changed
-    CLI->>JF: parseAll(changed)
+    CLI->>JF: parseFiles(changed)
     JF-->>CLI: new ExtractionResult
     CLI->>SS: DELETE nodes WHERE source_file IN (...) <br/>+ insert new<br/>(CASCADE 清理 edges/annotations)
     SS-->>CLI: ok

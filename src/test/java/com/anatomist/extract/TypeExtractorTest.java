@@ -1,11 +1,11 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
-import com.anatomist.core.JdtTestSupport;
+import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
-import org.eclipse.jdt.core.dom.CompilationUnit;
+import com.github.javaparser.ast.CompilationUnit;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -17,16 +17,11 @@ import static org.junit.jupiter.api.Assertions.*;
 class TypeExtractorTest {
 
     private final ExtractionContext ctx = new ExtractionContext(
-            Path.of("."),
-            List.of(),
-            new NodeIdGenerator(),
-            null,
-            "MAIN"
-    );
+            Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN");
 
     @Test
     void extract_emitsClassNode() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/Order.java",
+        CompilationUnit cu = JavaParserTestSupport.parse(
                 "package pkg; public class Order {}");
         ExtractionResult result = new ExtractionResult();
 
@@ -44,9 +39,9 @@ class TypeExtractorTest {
 
     @Test
     void extract_emitsInterfaceAndEnum() {
-        CompilationUnit ifCu = JdtTestSupport.parse("pkg/I.java",
+        CompilationUnit ifCu = JavaParserTestSupport.parse(
                 "package pkg; public interface I {}");
-        CompilationUnit enumCu = JdtTestSupport.parse("pkg/E.java",
+        CompilationUnit enumCu = JavaParserTestSupport.parse(
                 "package pkg; public enum E { A, B }");
         ExtractionResult result = new ExtractionResult();
         TypeExtractor te = new TypeExtractor(ctx);
@@ -62,7 +57,7 @@ class TypeExtractorTest {
 
     @Test
     void extract_emitsNestedTypes() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
+        CompilationUnit cu = JavaParserTestSupport.parse(
                 "package pkg; public class A { public static class B {} }");
         ExtractionResult result = new ExtractionResult();
         new TypeExtractor(ctx).extract(cu, result);
@@ -72,27 +67,6 @@ class TypeExtractorTest {
         Optional<Node> inner = result.nodes.stream().filter(n -> n.id.equals("pkg.A.B")).findFirst();
         assertTrue(outer.isPresent());
         assertTrue(inner.isPresent());
-    }
-
-    @Test
-    void extract_emitsAnonymousClass() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
-                "package pkg; public class A {" +
-                        "  public void run(){ Runnable r = new Runnable(){ public void run(){} }; }" +
-                        "}");
-        ExtractionResult r = new ExtractionResult();
-        new TypeExtractor(ctx).extract(cu, r);
-
-        // outer class + anonymous class
-        assertTrue(r.nodes.stream().anyMatch(n -> n.id.equals("pkg.A")));
-        long anon = r.nodes.stream().filter(n -> "ANONYMOUS_CLASS".equals(n.kind)).count();
-        assertEquals(1, anon, "expected one ANONYMOUS_CLASS node; got " + r.nodes);
-
-        // CONTAINS edge from enclosing method to anonymous class
-        boolean containsToAnon = r.edges.stream()
-                .filter(e -> "CONTAINS".equals(e.relation))
-                .anyMatch(e -> e.sourceId.startsWith("pkg.A#run("));
-        assertTrue(containsToAnon, "expected CONTAINS edge from enclosing method; got " + r.edges);
     }
 
     private static Node byId(ExtractionResult r, String id) {

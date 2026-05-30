@@ -19,21 +19,21 @@
     {
       "term": "Extractor",
       "english": "Extractor",
-      "definition": "com.anatomist.extract 包下的 ASTVisitor 实现,接收 CompilationUnit 与 ExtractionResult,提取出 Node/Edge/Annotation 写入 result。每个 Extractor 独立可测,7 次遍历开销可忽略。",
+      "definition": "com.anatomist.extract 包下的 VoidVisitorAdapter 实现,接收 JavaParser CompilationUnit 与 ExtractionResult,提取出 Node/Edge/Annotation 写入 result。每个 Extractor 独立可测,多次遍历开销可忽略。",
       "aliases": [],
       "last_verified": "2026-05-29"
     },
     {
       "term": "ExtractionContext",
       "english": "ExtractionContext",
-      "definition": "一次 index 运行共享的上下文,持有 projectRoot/sourcePaths/NodeIdGenerator/module/scope,并提供 isProjectInternal(ITypeBinding) 判断类型来源。",
+      "definition": "一次 index 运行共享的上下文,持有 projectRoot/sourcePaths/NodeIdGenerator/module/scope,并提供 isProjectInternal(ResolvedTypeDeclaration) 判断类型来源。",
       "aliases": [],
       "last_verified": "2026-05-29"
     },
     {
       "term": "Project Internal",
       "english": "Project Internal",
-      "definition": "ITypeBinding 的声明类源文件位于 --project-source 指定路径下的类型。与之相对的是 External(外部依赖)。Edge 用 is_external + (target_id | external_target_fqn) 二选一表达,SQL CHECK 约束保证不混淆。",
+      "definition": "SymbolSolver 解析后,声明类源文件位于 --project-source 指定路径下的类型(通过 JavaParserTypeSolver 命中)。与之相对的是 External(外部依赖,由 JarTypeSolver/ReflectionTypeSolver 命中)。Edge 用 is_external + (target_id | external_target_fqn) 二选一表达,SQL CHECK 约束保证不混淆。",
       "aliases": ["项目内", "internal type"],
       "last_verified": "2026-05-29"
     },
@@ -61,14 +61,14 @@
     {
       "term": "Index Phase",
       "english": "Index Phase",
-      "definition": "anatomist 的离线一次性阶段。JDT 解析源码 → Extractors → SQLite。耗时秒到分钟级。命令: `anatomist index <path>`。",
+      "definition": "anatomist 的离线一次性阶段。JavaParser + SymbolSolver 解析源码与依赖 jar → Extractors → SQLite。耗时秒到分钟级。命令: `anatomist index <path>`。",
       "aliases": ["索引阶段"],
       "last_verified": "2026-05-29"
     },
     {
       "term": "Query Phase",
       "english": "Query Phase",
-      "definition": "anatomist 的在线高频阶段。只读 SQLite + SQL/FTS5/递归 CTE。**不**触发 JDT,毫秒级响应。命令包括 search/context/callers-of/callees-of/hierarchy/...",
+      "definition": "anatomist 的在线高频阶段。只读 SQLite + SQL/FTS5/递归 CTE。**不**触发解析器,毫秒级响应。命令包括 search/context/callers-of/callees-of/hierarchy/...",
       "aliases": ["查询阶段"],
       "last_verified": "2026-05-29"
     },
@@ -82,7 +82,7 @@
     {
       "term": "Binding",
       "english": "Binding",
-      "definition": "JDT 解析后的语义绑定(IMethodBinding/ITypeBinding/IVariableBinding)。提供精确的类型/方法/字段身份,用于生成 Node ID 与 Edge target。Binding 为 null 时跳过该实体并计入 unresolved。",
+      "definition": "JavaParser SymbolSolver 解析后的 Resolved* 声明(ResolvedReferenceTypeDeclaration / ResolvedMethodDeclaration / ResolvedFieldDeclaration)。提供精确的类型/方法/字段身份,用于生成 Node ID 与 Edge target。resolve() 抛 UnsolvedSymbolException 时跳过该实体并计入 unresolved。",
       "aliases": [],
       "last_verified": "2026-05-29"
     },

@@ -1,22 +1,25 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
+import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
-import org.eclipse.jdt.core.dom.ASTVisitor;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.EnumDeclaration;
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.MethodDeclaration;
-import org.eclipse.jdt.core.dom.TypeDeclaration;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
+import com.github.javaparser.resolution.types.ResolvedReferenceType;
+import com.github.javaparser.resolution.types.ResolvedType;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+
+import static com.anatomist.core.NodeIdGenerator.erasedTypeDescribe;
 
 public class HierarchyExtractor implements Extractor {
 
@@ -29,119 +32,133 @@ public class HierarchyExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = sourceFileOf(unit);
-        unit.accept(new ASTVisitor() {
+
+        new VoidVisitorAdapter<Void>() {
             @Override
-            public boolean visit(TypeDeclaration node) {
-                emitTypeHierarchy(node.resolveBinding(), sourceFile, result);
-                emitOverrides(node, sourceFile, result);
-                return true;
+            public void visit(ClassOrInterfaceDeclaration n, Void arg) {
+                emitTypeAncestry(n, result);
+                emitOverrides(n, result);
+                super.visit(n, arg);
             }
 
             @Override
-            public boolean visit(EnumDeclaration node) {
-                emitTypeHierarchy(node.resolveBinding(), sourceFile, result);
-                return true;
+            public void visit(EnumDeclaration n, Void arg) {
+                emitTypeAncestry(n, result);
+                super.visit(n, arg);
             }
-        });
+        }.visit(unit, null);
     }
 
-    private void emitTypeHierarchy(ITypeBinding binding, String sourceFile, ExtractionResult result) {
-        if (binding == null) return;
-        String classId = ctx.idGenerator().forType(binding);
-        ITypeBinding sc = binding.getSuperclass();
-        if (sc != null && !"java.lang.Object".equals(sc.getQualifiedName())) {
-            result.edges.add(hierarchyEdge(classId, sc, "INHERITS", sourceFile));
+    private void emitTypeAncestry(com.github.javaparser.ast.body.TypeDeclaration<?> decl,
+                                  ExtractionResult result) {
+        ResolvedReferenceTypeDeclaration rt;
+        try { rt = decl.resolve(); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        String sourceId = ctx.idGenerator().forType(rt);
+        boolean isInterface = rt.isInterface();
+
+        // Superclass (only meaningful for class declarations; interfaces and
+        // enums special-case as below).
+        if (!isInterface) {
+            try {
+                rt.asClass().getSuperClass()
+                        .filter(s -> !"java.lang.Object".equals(s.getQualifiedName()))
+                        .filter(s -> !"java.lang.Enum".equals(s.getQualifiedName()))
+                        .ifPresent(s -> result.edges.add(
+                                hierarchyEdge(sourceId, s, "INHERITS")));
+            } catch (RuntimeException ignore) { ctx.incrementUnresolved(); }
         }
-        for (ITypeBinding iface : binding.getInterfaces()) {
-            String relation = binding.isInterface() ? "INHERITS" : "IMPLEMENTS";
-            result.edges.add(hierarchyEdge(classId, iface, relation, sourceFile));
-        }
+
+        // Direct interfaces / parent interfaces.
+        try {
+            List<ResolvedReferenceType> ifs = isInterface
+                    ? rt.asInterface().getInterfacesExtended()
+                    : rt.asClass().getInterfaces();
+            for (ResolvedReferenceType i : ifs) {
+                String relation = isInterface ? "INHERITS" : "IMPLEMENTS";
+                result.edges.add(hierarchyEdge(sourceId, i, relation));
+            }
+        } catch (RuntimeException ignore) { ctx.incrementUnresolved(); }
     }
 
-    private Edge hierarchyEdge(String sourceId, ITypeBinding target, String relation, String sourceFile) {
+    private Edge hierarchyEdge(String sourceId, ResolvedReferenceType target, String relation) {
         Edge e = new Edge();
         e.sourceId = sourceId;
         e.relation = relation;
         e.confidence = "EXTRACTED";
-        e.sourceFile = sourceFile;
-        if (ctx.isProjectInternal(target)) {
-            e.targetId = ctx.idGenerator().forType(target);
+
+        ResolvedReferenceTypeDeclaration t = target.getTypeDeclaration().orElse(null);
+        if (t != null && ctx.isProjectInternal(t)) {
+            e.targetId = ctx.idGenerator().forType(t);
             e.isExternal = false;
         } else {
-            e.externalTargetFqn = target.getErasure().getQualifiedName();
+            e.externalTargetFqn = target.getQualifiedName();
             e.isExternal = true;
         }
         return e;
     }
 
-    private void emitOverrides(TypeDeclaration decl, String sourceFile, ExtractionResult result) {
-        ITypeBinding type = decl.resolveBinding();
-        if (type == null) return;
+    private void emitOverrides(ClassOrInterfaceDeclaration decl, ExtractionResult result) {
+        if (decl.isInterface()) return; // skip — interfaces overriding interface methods is rarely meaningful here
+        ResolvedReferenceTypeDeclaration rt;
+        try { rt = decl.resolve(); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+
+        // Gather candidate super methods (BFS via getAllAncestors, dedup by FQN+erased-signature).
+        List<ResolvedMethodDeclaration> superMethods;
+        try {
+            superMethods = rt.getAllAncestors().stream()
+                    .flatMap(anc -> anc.getTypeDeclaration().stream())
+                    .flatMap(td -> td.getDeclaredMethods().stream())
+                    .filter(m -> m.accessSpecifier() != com.github.javaparser.ast.AccessSpecifier.PRIVATE
+                              && !m.isStatic())
+                    .collect(Collectors.toList());
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
+
         for (MethodDeclaration md : decl.getMethods()) {
-            IMethodBinding subBinding = md.resolveBinding();
-            if (subBinding == null || subBinding.isConstructor()) continue;
-            for (IMethodBinding superMethod : collectSuperMethods(type)) {
-                if (subBinding.overrides(superMethod)) {
-                    result.edges.add(overrideEdge(subBinding, superMethod, sourceFile));
-                }
+            ResolvedMethodDeclaration sub;
+            try { sub = md.resolve(); }
+            catch (RuntimeException e) { ctx.incrementUnresolved(); continue; }
+
+            String subSig = methodSignatureKey(sub);
+            Set<String> seenTargets = new HashSet<>();
+            for (ResolvedMethodDeclaration sup : superMethods) {
+                if (!sub.getName().equals(sup.getName())) continue;
+                if (!methodSignatureKey(sup).equals(subSig)) continue;
+                String supId = NodeIdGenerator.externalMethodFqn(sup);
+                if (!seenTargets.add(supId)) continue;
+                result.edges.add(overrideEdge(sub, sup));
             }
         }
     }
 
-    private List<IMethodBinding> collectSuperMethods(ITypeBinding type) {
-        List<IMethodBinding> out = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        Deque<ITypeBinding> queue = new ArrayDeque<>();
-        ITypeBinding sc = type.getSuperclass();
-        if (sc != null) queue.add(sc);
-        for (ITypeBinding i : type.getInterfaces()) queue.add(i);
-        while (!queue.isEmpty()) {
-            ITypeBinding t = queue.poll();
-            if (t == null) continue;
-            String key = t.getKey();
-            if (key != null && !seen.add(key)) continue;
-            for (IMethodBinding m : t.getDeclaredMethods()) {
-                if (!m.isConstructor()) out.add(m);
-            }
-            if (t.getSuperclass() != null) queue.add(t.getSuperclass());
-            for (ITypeBinding i : t.getInterfaces()) queue.add(i);
+    private static String methodSignatureKey(ResolvedMethodDeclaration m) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < m.getNumberOfParams(); i++) {
+            if (i > 0) sb.append(',');
+            ResolvedType pt;
+            try { pt = m.getParam(i).getType(); }
+            catch (RuntimeException e) { sb.append("<unknown>"); continue; }
+            sb.append(erasedTypeDescribe(pt));
         }
-        return out;
+        return sb.toString();
     }
 
-    private Edge overrideEdge(IMethodBinding sub, IMethodBinding sup, String sourceFile) {
+    private Edge overrideEdge(ResolvedMethodDeclaration sub, ResolvedMethodDeclaration sup) {
         Edge e = new Edge();
         e.sourceId = ctx.idGenerator().forMethod(sub);
         e.relation = "OVERRIDES";
         e.confidence = "EXTRACTED";
-        e.sourceFile = sourceFile;
-        ITypeBinding supDecl = sup.getDeclaringClass();
-        if (supDecl != null && ctx.isProjectInternal(supDecl)) {
+        if (ctx.isProjectInternal(sup.declaringType())) {
             e.targetId = ctx.idGenerator().forMethod(sup);
             e.isExternal = false;
         } else {
-            e.externalTargetFqn = externalMethodFqn(sup);
+            e.externalTargetFqn = NodeIdGenerator.externalMethodFqn(sup);
             e.isExternal = true;
         }
         return e;
-    }
-
-    static String externalMethodFqn(IMethodBinding m) {
-        IMethodBinding decl = m.getMethodDeclaration();
-        ITypeBinding declClass = decl.getDeclaringClass();
-        String classFqn = declClass == null ? "<unknown>" : declClass.getErasure().getQualifiedName();
-        StringBuilder params = new StringBuilder();
-        ITypeBinding[] pts = decl.getParameterTypes();
-        for (int i = 0; i < pts.length; i++) {
-            if (i > 0) params.append(',');
-            params.append(pts[i].getErasure().getQualifiedName());
-        }
-        return classFqn + "#" + decl.getName() + "(" + params + ")";
-    }
-
-    private static String sourceFileOf(CompilationUnit unit) {
-        Object prop = unit.getProperty("source_file");
-        return prop instanceof String s ? s : null;
     }
 }

@@ -10,13 +10,13 @@
     <packaging>jar</packaging>
 
     <name>anatomist</name>
-    <description>JDT-based Java code intelligence for Agent LLMs</description>
+    <description>JavaParser + SymbolSolver based Java code intelligence for Agent LLMs</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
 
-        <jdt.version>3.45.0</jdt.version>
+        <javaparser.version>3.28.1</javaparser.version>
         <sqlite.version>3.47.0.0</sqlite.version>
         <picocli.version>4.7.6</picocli.version>
         <jackson.version>2.17.0</jackson.version>
@@ -26,9 +26,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.eclipse.jdt</groupId>
-            <artifactId>org.eclipse.jdt.core</artifactId>
-            <version>${jdt.version}</version>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-symbol-solver-core</artifactId>
+            <version>${javaparser.version}</version>
         </dependency>
 
         <dependency>

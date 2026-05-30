@@ -1,8 +1,12 @@
 package com.anatomist.core;
 
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
+import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodLikeDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
+import com.github.javaparser.resolution.types.ResolvedType;
 
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -18,39 +22,78 @@ import java.util.stream.IntStream;
  */
 public class NodeIdGenerator {
 
-    public String forType(ITypeBinding binding) {
-        if (binding == null) throw new IllegalArgumentException("binding is null");
-        ITypeBinding erasure = binding.getErasure();
-        String name = erasure.getQualifiedName();
-        if (name == null || name.isEmpty()) {
-            name = erasure.getBinaryName();
-        }
-        if (name == null || name.isEmpty()) {
-            // Anonymous classes inside lambdas etc. can have null qualified
-            // name AND null binary name in some JDT versions; fall back to key.
-            name = erasure.getKey();
-        }
-        return name;
+    public String forType(ResolvedTypeDeclaration t) {
+        if (t == null) throw new IllegalArgumentException("declaration is null");
+        return t.getQualifiedName();
     }
 
-    public String forMethod(IMethodBinding binding) {
-        if (binding == null) throw new IllegalArgumentException("binding is null");
-        IMethodBinding method = binding.getMethodDeclaration();
-        ITypeBinding decl = method.getDeclaringClass();
-        String classFqn = forType(decl);
-        ITypeBinding[] params = method.getParameterTypes();
-        String paramList = IntStream.range(0, params.length)
-                .mapToObj(i -> params[i].getErasure().getQualifiedName())
+    public String forMethod(ResolvedMethodDeclaration m) {
+        return forMethodLike(m);
+    }
+
+    public String forConstructor(ResolvedConstructorDeclaration c) {
+        return forMethodLike(c);
+    }
+
+    public String forField(ResolvedFieldDeclaration f) {
+        if (f == null) throw new IllegalArgumentException("field is null");
+        ResolvedTypeDeclaration decl = f.declaringType();
+        return decl.getQualifiedName() + "#" + f.getName();
+    }
+
+    private String forMethodLike(ResolvedMethodLikeDeclaration m) {
+        if (m == null) throw new IllegalArgumentException("method is null");
+        String classFqn = m.declaringType().getQualifiedName();
+        String params = IntStream.range(0, m.getNumberOfParams())
+                .mapToObj(i -> paramTypeOrUnresolved(m, i))
                 .collect(Collectors.joining(","));
-        String name = method.getName();
-        return classFqn + "#" + name + "(" + paramList + ")";
+        String name = m.getName();
+        return classFqn + "#" + name + "(" + params + ")";
     }
 
-    public String forField(IVariableBinding binding) {
-        if (binding == null) throw new IllegalArgumentException("binding is null");
-        if (!binding.isField()) throw new IllegalArgumentException("not a field binding");
-        ITypeBinding decl = binding.getDeclaringClass();
-        String classFqn = forType(decl);
-        return classFqn + "#" + binding.getName();
+    private static String paramTypeOrUnresolved(ResolvedMethodLikeDeclaration m, int i) {
+        try {
+            return erasedTypeDescribe(m.getParam(i).getType());
+        } catch (RuntimeException e) {
+            return "<unresolved>";
+        }
+    }
+
+    /**
+     * Render a {@link ResolvedType} as its erased, fully-qualified form so a
+     * method signature is stable across overload/generic variants.
+     *
+     * <p>{@code List<String>} → {@code java.util.List}; {@code int[]} →
+     * {@code int[]}; type variables collapse to their first bound.</p>
+     */
+    public static String erasedTypeDescribe(ResolvedType type) {
+        if (type == null) return "<unknown>";
+        try {
+            ResolvedType erased = type.erasure();
+            return erased.describe();
+        } catch (RuntimeException e) {
+            // Some Resolved* types do not implement erasure() (e.g. void); fall
+            // back to whatever describe() gives.
+            try { return type.describe(); }
+            catch (RuntimeException e2) { return "<unknown>"; }
+        }
+    }
+
+    public static String externalMethodFqn(ResolvedMethodLikeDeclaration m) {
+        String classFqn;
+        try {
+            classFqn = m.declaringType().getQualifiedName();
+        } catch (RuntimeException e) {
+            classFqn = "<unknown>";
+        }
+        String params = IntStream.range(0, m.getNumberOfParams())
+                .mapToObj(i -> paramTypeOrUnresolved(m, i))
+                .collect(Collectors.joining(","));
+        return classFqn + "#" + m.getName() + "(" + params + ")";
+    }
+
+    /** Convenience: external FQN for a reference-type declaration. */
+    public static String externalTypeFqn(ResolvedReferenceTypeDeclaration t) {
+        return t.getQualifiedName();
     }
 }

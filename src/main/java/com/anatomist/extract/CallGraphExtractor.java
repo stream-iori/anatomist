@@ -1,19 +1,24 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
+import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
-import org.eclipse.jdt.core.dom.ASTNode;
-import org.eclipse.jdt.core.dom.ASTVisitor;
-import org.eclipse.jdt.core.dom.ClassInstanceCreation;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.MethodDeclaration;
-import org.eclipse.jdt.core.dom.MethodInvocation;
-import org.eclipse.jdt.core.dom.SuperMethodInvocation;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.expr.SuperExpr;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodLikeDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 
-import java.lang.reflect.Modifier;
+import java.util.Optional;
 
 public class CallGraphExtractor implements Extractor {
 
@@ -26,77 +31,91 @@ public class CallGraphExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = sourceFileOf(unit);
-        unit.accept(new ASTVisitor() {
+        new VoidVisitorAdapter<Void>() {
             @Override
-            public boolean visit(MethodInvocation node) {
-                IMethodBinding b = node.resolveMethodBinding();
-                if (b != null) emit(node, b, classifyInvocation(b), sourceFile, result);
-                return true;
+            public void visit(MethodCallExpr n, Void arg) {
+                ResolvedMethodDeclaration target;
+                try { target = n.resolve(); }
+                catch (RuntimeException e) { ctx.incrementUnresolved(); super.visit(n, arg); return; }
+                String callKind = classify(target, n);
+                emit(n, target, callKind, result);
+                super.visit(n, arg);
             }
 
             @Override
-            public boolean visit(ClassInstanceCreation node) {
-                IMethodBinding b = node.resolveConstructorBinding();
-                if (b != null) emit(node, b, "CONSTRUCTOR", sourceFile, result);
-                return true;
+            public void visit(ObjectCreationExpr n, Void arg) {
+                if (n.getAnonymousClassBody().isPresent()) {
+                    // Construction of the anonymous class itself; the call
+                    // links to the supertype constructor.
+                }
+                ResolvedConstructorDeclaration target;
+                try { target = n.resolve(); }
+                catch (RuntimeException e) { ctx.incrementUnresolved(); super.visit(n, arg); return; }
+                emit(n, target, "CONSTRUCTOR", result);
+                super.visit(n, arg);
             }
-
-            @Override
-            public boolean visit(SuperMethodInvocation node) {
-                IMethodBinding b = node.resolveMethodBinding();
-                if (b != null) emit(node, b, "SUPER", sourceFile, result);
-                return true;
-            }
-        });
+        }.visit(unit, null);
     }
 
-    private static String classifyInvocation(IMethodBinding b) {
-        if (Modifier.isStatic(b.getModifiers())) return "STATIC";
-        ITypeBinding decl = b.getDeclaringClass();
-        if (decl != null && decl.isInterface()) return "INTERFACE";
+    private static String classify(ResolvedMethodDeclaration target, MethodCallExpr call) {
+        if (call.getScope().isPresent() && call.getScope().get() instanceof SuperExpr) {
+            return "SUPER";
+        }
+        if (target.isStatic()) return "STATIC";
+        try {
+            ResolvedReferenceTypeDeclaration t = target.declaringType().asReferenceType();
+            if (t.isInterface()) return "INTERFACE";
+        } catch (RuntimeException ignore) { }
         return "INSTANCE";
     }
 
-    private void emit(ASTNode call, IMethodBinding target, String callKind,
-                      String sourceFile, ExtractionResult result) {
-        IMethodBinding caller = enclosingMethodBinding(call);
-        if (caller == null) return;  // call appears in initializer outside a method
-        String sourceId = ctx.idGenerator().forMethod(caller);
-
-        CompilationUnit cu = (CompilationUnit) call.getRoot();
-        int line = cu.getLineNumber(call.getStartPosition());
+    private void emit(com.github.javaparser.ast.Node callNode,
+                      ResolvedMethodLikeDeclaration target, String callKind,
+                      ExtractionResult result) {
+        String enclosingId = enclosingMethodId(callNode);
+        if (enclosingId == null) return;
 
         Edge e = new Edge();
-        e.sourceId = sourceId;
+        e.sourceId = enclosingId;
         e.relation = "CALLS";
         e.callKind = callKind;
         e.confidence = "EXTRACTED";
-        e.sourceFile = sourceFile;
-        e.sourceLocation = "L" + line;
+        e.sourceLocation = "L" + callNode.getBegin().map(p -> p.line).orElse(0);
 
-        ITypeBinding decl = target.getDeclaringClass();
-        if (decl != null && ctx.isProjectInternal(decl)) {
-            e.targetId = ctx.idGenerator().forMethod(target);
+        ResolvedTypeDeclaration decl;
+        try { decl = target.declaringType(); }
+        catch (RuntimeException ex) { ctx.incrementUnresolved(); return; }
+
+        if (ctx.isProjectInternal(decl)) {
+            if (target instanceof ResolvedMethodDeclaration m) {
+                e.targetId = ctx.idGenerator().forMethod(m);
+            } else if (target instanceof ResolvedConstructorDeclaration c) {
+                e.targetId = ctx.idGenerator().forConstructor(c);
+            } else {
+                return;
+            }
             e.isExternal = false;
         } else {
-            e.externalTargetFqn = HierarchyExtractor.externalMethodFqn(target);
+            e.externalTargetFqn = NodeIdGenerator.externalMethodFqn(target);
             e.isExternal = true;
         }
         result.edges.add(e);
     }
 
-    private static IMethodBinding enclosingMethodBinding(ASTNode node) {
-        ASTNode cur = node.getParent();
-        while (cur != null) {
-            if (cur instanceof MethodDeclaration md) return md.resolveBinding();
-            cur = cur.getParent();
+    private String enclosingMethodId(com.github.javaparser.ast.Node node) {
+        Optional<CallableDeclaration> enclosing = node.findAncestor(CallableDeclaration.class);
+        if (enclosing.isEmpty()) return null;
+        try {
+            CallableDeclaration<?> cd = enclosing.get();
+            if (cd instanceof MethodDeclaration md) {
+                return ctx.idGenerator().forMethod(md.resolve());
+            }
+            if (cd instanceof ConstructorDeclaration ctor) {
+                return ctx.idGenerator().forConstructor(ctor.resolve());
+            }
+            return null;
+        } catch (RuntimeException e) {
+            return null;
         }
-        return null;
-    }
-
-    private static String sourceFileOf(CompilationUnit unit) {
-        Object prop = unit.getProperty("source_file");
-        return prop instanceof String s ? s : null;
     }
 }

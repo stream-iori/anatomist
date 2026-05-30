@@ -80,7 +80,7 @@ flowchart TD
 # Anatomist — Java Code Intelligence Skill
 
 ## Description
-Anatomist provides precise structural analysis of Java projects using JDT.
+Anatomist provides precise structural analysis of Java projects using JavaParser + SymbolSolver.
 Use it to find code symbols, trace call chains, understand class hierarchies,
 and analyze dependencies.
 

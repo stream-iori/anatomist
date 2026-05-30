@@ -4,4 +4,4 @@
 
 ## 规则文件
 
-- [experience.md](experience.md) — 经验规则 — JDT / SQLite / FTS5 / Maven seam 等实践陷阱与对策(E1-E6)
+- [experience.md](experience.md) — 经验规则 — JavaParser+SymbolSolver / SQLite / FTS5 / Maven seam 等实践陷阱与对策(E1-E10)

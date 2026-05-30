@@ -1,12 +1,12 @@
 # 测试策略
 
-anatomist 自身运行在 **JDK 21+**（JDT 3.45 要求），但被索引的目标项目以 **JDK 8** 为基线。本文定义验收策略、fixture 设计与 CI 流程。
+anatomist 自身运行在 **JDK 21+**（`maven.compiler.release=21`），但被索引的目标项目以 **JDK 8** 为基线。本文定义验收策略、fixture 设计与 CI 流程。
 
 ## 一、测试金字塔
 
 | 层 | 验证什么 | 形式 | 占比 |
 |----|---------|------|------|
-| L1 单元 | 单个 Extractor 解析单个 .java 片段 | JUnit 5 + JDT 内存 AST | 60% |
+| L1 单元 | 单个 Extractor 解析单个 .java 片段 | JUnit 5 + JavaParser 内存 AST + SymbolSolver | 60% |
 | L2 集成 | 完整 index → SQLite → SQL 查询 | JUnit 5 + 临时 .db | 30% |
 | L3 端到端 | CLI 命令 → JSON 输出 | Picocli + golden file | 10% |
 
@@ -14,7 +14,7 @@ anatomist 自身运行在 **JDK 21+**（JDT 3.45 要求），但被索引的目�
 - L2 验证 ID 一致性、外键、FTS5 触发器、增量 diff
 - L3 锁定 Agent 看到的契约（命令输出 JSON Schema）
 
-**不 mock JDT**：JDT 行为本身就是被测核心，mock 等于不测。所有层都用真 JDT + 真 ASTParser。
+**不 mock 解析器**：JavaParser + SymbolSolver 的解析与绑定行为本身就是被测核心，mock 等于不测。所有层都用真 JavaParser + 真 JavaSymbolSolver；测试 helper 见 `src/test/java/com/anatomist/core/JavaParserTestSupport.java`。
 
 ## 二、Fixture 分层
 
@@ -33,7 +33,7 @@ fixtures/micro/
 └── InterfaceDefaultMethod.java  # JDK 8 default method 归属
 ```
 
-不需要 build，直接喂给 ASTParser。每个片段 < 30 行。Phase 1 起逐个补齐。
+不需要 build，直接喂给 `JavaParser.parse(...)`。每个片段 < 30 行。Phase 1 起逐个补齐。
 
 ### Fixture B — `fixtures/mini-spring-shop/`（L2/L3 主战场）
 
@@ -62,10 +62,10 @@ git submodule 锁版本，vendored 到 `fixtures/external/`,不联网。
 
 由于 anatomist 跑在 JDK 21、索引 JDK 8 源码，必须显式断言以下不被"提升解析"：
 
-1. `ASTParser.setSource(JLS8)` 生效——Record / sealed / switch pattern 不应识别
+1. `ParserConfiguration.setLanguageLevel(JAVA_8)` 生效——Record / sealed / switch pattern 不应识别
 2. Lambda 按 JDK 8 语义（不是 var capture）
 3. interface `default` 方法正确归到 INTERFACE 节点
-4. anatomist 自身 JRE 21 的类（`java.util.SequencedCollection` 等）不污染外部 FQN
+4. anatomist 自身 JRE 21 的类（`java.util.SequencedCollection` 等）不污染外部 FQN（通过 `--vm-classpath false` 关闭 ReflectionTypeSolver 验证）
 
 L1 fixture 各加一条 negative 断言覆盖。
 

@@ -6,16 +6,19 @@ import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.eclipse.jdt.core.dom.ASTVisitor;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.FieldDeclaration;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
-import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.EnumConstantDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.declarations.ResolvedEnumConstantDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 
-import java.lang.reflect.Modifier;
 import java.util.LinkedHashMap;
 import java.util.Map;
+
+import static com.anatomist.core.NodeIdGenerator.erasedTypeDescribe;
 
 public class FieldExtractor implements Extractor {
 
@@ -31,47 +34,115 @@ public class FieldExtractor implements Extractor {
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
         String sourceFile = sourceFileOf(unit);
-        unit.accept(new ASTVisitor() {
+
+        new VoidVisitorAdapter<Void>() {
             @Override
-            public boolean visit(FieldDeclaration node) {
-                for (Object o : node.fragments()) {
-                    VariableDeclarationFragment frag = (VariableDeclarationFragment) o;
-                    IVariableBinding binding = frag.resolveBinding();
-                    if (binding == null || !binding.isField()) continue;
-                    emit(node, frag, binding, sourceFile, result);
+            public void visit(FieldDeclaration n, Void arg) {
+                for (VariableDeclarator var : n.getVariables()) {
+                    emitField(n, var, sourceFile, result);
                 }
-                return true;
+                super.visit(n, arg);
             }
-        });
+
+            @Override
+            public void visit(EnumConstantDeclaration n, Void arg) {
+                emitEnumConstant(n, sourceFile, result);
+                super.visit(n, arg);
+            }
+        }.visit(unit, null);
     }
 
-    private void emit(FieldDeclaration decl, VariableDeclarationFragment frag,
-                      IVariableBinding binding, String sourceFile, ExtractionResult result) {
-        ITypeBinding declClass = binding.getDeclaringClass();
-        if (declClass == null) return;
-        if (declClass.isAnonymous() || declClass.isLocal()) {
-            // Anonymous/local class fields would have no matching CLASS node
-            // until ANONYMOUS_CLASS lands; safe to skip them for the same
-            // reason MethodExtractor used to skip anon methods.
+    private void emitField(FieldDeclaration decl, VariableDeclarator var,
+                           String sourceFile, ExtractionResult result) {
+        // FieldDeclaration.resolve() requires a single VariableDeclarator;
+        // for `int a, b, c;` we must resolve each VariableDeclarator
+        // individually.
+        ResolvedFieldDeclaration r;
+        try {
+            com.github.javaparser.resolution.declarations.ResolvedValueDeclaration v = var.resolve();
+            if (!(v instanceof ResolvedFieldDeclaration field)) return;
+            r = field;
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
             return;
         }
-        String classId = ctx.idGenerator().forType(declClass);
-        String fieldId = ctx.idGenerator().forField(binding);
+        ResolvedTypeDeclaration declType;
+        try {
+            declType = r.declaringType();
+            if (skipDeclaringType(declType)) return;
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
+        String classId = ctx.idGenerator().forType(declType);
+        String fieldId = declType.getQualifiedName() + "#" + var.getNameAsString();
 
         Node n = new Node();
         n.id = fieldId;
-        n.label = binding.getName();
+        n.label = var.getNameAsString();
         n.kind = "FIELD";
-        n.qualifiedName = declClass.getErasure().getQualifiedName() + "#" + binding.getName();
-        n.pkg = declClass.getPackage() == null ? null : declClass.getPackage().getName();
+        n.qualifiedName = fieldId;
+        n.pkg = declType.getPackageName();
         n.sourceFile = sourceFile;
-        n.sourceLocation = "L" + ((CompilationUnit) decl.getRoot()).getLineNumber(frag.getStartPosition());
+        n.sourceLocation = "L" + lineOf(var);
         n.module = ctx.module();
         n.scope = ctx.scope();
-        n.javadoc = decl.getJavadoc() == null ? null : decl.getJavadoc().toString();
-        n.metadata = metadataJson(binding);
+        n.javadoc = decl.getJavadocComment().map(c -> c.getContent()).orElse(null);
+        n.metadata = fieldMetadata(decl, var);
         result.nodes.add(n);
 
+        result.edges.add(containsEdge(classId, fieldId, sourceFile, n.sourceLocation));
+    }
+
+    private void emitEnumConstant(EnumConstantDeclaration decl, String sourceFile, ExtractionResult result) {
+        ResolvedEnumConstantDeclaration r;
+        try {
+            r = decl.resolve();
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
+        // ResolvedEnumConstantDeclaration only exposes the type FQN via getType().
+        String enumFqn;
+        try {
+            enumFqn = r.getType().describe();
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
+        String id = enumFqn + "#" + decl.getNameAsString();
+
+        Node n = new Node();
+        n.id = id;
+        n.label = decl.getNameAsString();
+        n.kind = "ENUM_CONSTANT";
+        n.qualifiedName = id;
+        n.pkg = packageOf(enumFqn);
+        n.sourceFile = sourceFile;
+        n.sourceLocation = "L" + lineOf(decl);
+        n.module = ctx.module();
+        n.scope = ctx.scope();
+        n.metadata = "{}";
+        result.nodes.add(n);
+
+        result.edges.add(containsEdge(enumFqn, id, sourceFile, n.sourceLocation));
+    }
+
+    private static String packageOf(String fqn) {
+        int dot = fqn.lastIndexOf('.');
+        return dot < 0 ? "" : fqn.substring(0, dot);
+    }
+
+    private static boolean skipDeclaringType(ResolvedTypeDeclaration declType) {
+        // Anonymous classes are emitted by TypeExtractor — keep their fields.
+        // Local classes still have no CLASS node, so skip their fields to
+        // avoid orphan CONTAINS edges (same rationale as MethodExtractor).
+        return !(declType.isClass() || declType.isInterface()
+                || declType.isEnum() || declType.isAnnotation());
+    }
+
+    private static Edge containsEdge(String classId, String fieldId,
+                                     String sourceFile, String sourceLoc) {
         Edge e = new Edge();
         e.sourceId = classId;
         e.targetId = fieldId;
@@ -79,26 +150,28 @@ public class FieldExtractor implements Extractor {
         e.confidence = "EXTRACTED";
         e.isExternal = false;
         e.sourceFile = sourceFile;
-        e.sourceLocation = n.sourceLocation;
-        result.edges.add(e);
+        e.sourceLocation = sourceLoc;
+        return e;
+    }
+
+    private static int lineOf(com.github.javaparser.ast.Node n) {
+        return n.getBegin().map(p -> p.line).orElse(0);
     }
 
     private static String sourceFileOf(CompilationUnit unit) {
-        Object prop = unit.getProperty("source_file");
-        return prop instanceof String s ? s : null;
+        if (unit.containsData(TypeExtractor.SourceFileKey.KEY)) {
+            return unit.getData(TypeExtractor.SourceFileKey.KEY);
+        }
+        return unit.getStorage().map(s -> s.getPath().toString()).orElse(null);
     }
 
-    private static String metadataJson(IVariableBinding binding) {
+    private static String fieldMetadata(FieldDeclaration decl, VariableDeclarator var) {
         Map<String, Object> meta = new LinkedHashMap<>();
-        ITypeBinding type = binding.getType();
-        meta.put("type", type == null ? null : type.getName());
-        int mods = binding.getModifiers();
-        meta.put("isStatic", Modifier.isStatic(mods));
-        meta.put("isFinal", Modifier.isFinal(mods));
-        try {
-            return JSON.writeValueAsString(meta);
-        } catch (JsonProcessingException e) {
-            return "{}";
-        }
+        try { meta.put("type", erasedTypeDescribe(var.getType().resolve())); }
+        catch (RuntimeException e) { meta.put("type", var.getTypeAsString()); }
+        meta.put("isStatic", decl.isStatic());
+        meta.put("isFinal", decl.isFinal());
+        try { return JSON.writeValueAsString(meta); }
+        catch (JsonProcessingException e) { return "{}"; }
     }
 }

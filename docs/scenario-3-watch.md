@@ -32,7 +32,7 @@ flowchart TD
     MOD --> HASH_MOD["计算 SHA-256"]
     HASH_NEW --> COMPARE{"hash 变化?"}
     HASH_MOD --> COMPARE
-    COMPARE -->|是| REPARSE["JDT 重解析<br/>变更文件"]
+    COMPARE -->|是| REPARSE["解析器重解析<br/>变更文件"]
     COMPARE -->|否| WAIT
     DEL --> REMOVE["从索引库删除<br/>该文件的所有节点和边"]
     REPARSE --> DIFF["Diff 新旧提取结果"]
@@ -89,13 +89,13 @@ flowchart LR
 
 #### 增量重解析
 
-单文件重解析时，JDT 无法像全量 `createASTs()` 那样共享 Binding 上下文。需要处理：
+单文件重解析时，JavaParser 无法像全量 `SourceRoot.tryToParse()` 那样让 SymbolSolver 一次性持有所有源码的解析缓存。需要处理：
 
 | 场景 | 处理方式 |
 |------|---------|
-| 文件内 Binding | `ASTParser` 单文件解析 + `setResolveBindings(true)` 即可 |
-| 跨文件 Binding（引用项目内其他类） | 需要 `setEnvironment()` 传入项目 classpath + 源码目录 |
-| Binding resolve 失败 | 标记 `bindingResolved: false`，保留文本信息 |
+| 文件内符号 | `JavaParser.parse(file)` + 已挂 `JavaSymbolSolver` 的 `ParserConfiguration` 即可 |
+| 跨文件符号（引用项目内其他类） | `JavaParserTypeSolver(srcRoot)` 必须覆盖所有项目源码根；外部 jar 走 `JarTypeSolver` |
+| 符号解析失败 | 标记 `bindingResolved: false`，保留文本信息 |
 
 #### 增量更新 SQLite
 
@@ -119,7 +119,7 @@ DELETE FROM nodes WHERE source_file = ?;
 -- 6. 插入新数据（复用全量索引的 Extractor 逻辑）
 ```
 
-**Binding 影响扩散（级联 stale 标记）**：如果修改的是接口、基类或常被引用的类型，依赖它的源文件的 Binding/OVERRIDES/CALLS 边可能失效，但 anatomist 没有重解析它们——这会产生**沉默的陈旧数据**。
+**符号解析影响扩散（级联 stale 标记）**：如果修改的是接口、基类或常被引用的类型，依赖它的源文件的符号解析/OVERRIDES/CALLS 边可能失效，但 anatomist 没有重解析它们——这会产生**沉默的陈旧数据**。
 
 MVP 的处理策略是**显式标记 stale 而非自动重解析**：
 
@@ -180,7 +180,7 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     EVENT["pom.xml 变更"] --> CP_CHANGE{"classpath 变化?"}
-    CP_CHANGE -->|是| REINDEX["重新检测 classpath<br/>全量重解析（Binding 可能变化）"]
+    CP_CHANGE -->|是| REINDEX["重新检测 classpath<br/>全量重解析（符号解析可能变化）"]
     CP_CHANGE -->|否| SKIP["跳过，无需重解析"]
 ```
 
@@ -206,7 +206,7 @@ CREATE TABLE file_cache (
 **何时视为需要重解析**：
 - `hash` 与磁盘 SHA-256 不同 → 本文件内容变更
 - `schema_version` 与当前索引器版本不同 → DDL / Extractor 升级，整库失效
-- `stale = 1` → 上游依赖文件变更触发（见 [Binding 影响扩散](#binding-影响扩散级联-stale-标记)）
+- `stale = 1` → 上游依赖文件变更触发（见 [符号解析影响扩散](#符号解析影响扩散级联-stale-标记)）
 - pom.xml / build.gradle 的 classpath hash 变化 → 全量重解析
 
 ### 新增：项目元数据表
@@ -257,7 +257,7 @@ Watching /path/to/project for changes...
 
 1. **防抖窗口**：500ms 是 IDE 保存场景的合理值。太大的窗口导致响应迟钝，太小则可能重复解析。
 
-2. **Binding 一致性**：增量重解析的单文件 Binding 可能不如全量 `createASTs()` 精确（缺少其他文件的 Binding 上下文）。如果用户发现 Binding 精度下降，可手动触发全量 `index` 刷新。
+2. **符号解析一致性**：增量重解析的单文件符号绑定可能不如全量 `SourceRoot.tryToParse()` 精确（缺少其他文件的解析缓存）。如果用户发现绑定精度下降，可手动触发全量 `index` 刷新。
 
 3. **大文件重解析**：单个大文件重解析通常 <100ms。但如果一个文件包含大量内部类，重解析 + 重新提取可能需要几百毫秒。
 

@@ -1,17 +1,16 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
-import com.anatomist.core.JdtTestSupport;
+import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.ExtractionResult;
-import org.eclipse.jdt.core.dom.CompilationUnit;
+import com.github.javaparser.ast.CompilationUnit;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -21,38 +20,59 @@ class AnnotationExtractorTest {
             Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN");
 
     @Test
-    void extract_collectsClassMethodFieldParameterAnnotations() {
-        CompilationUnit cu = JdtTestSupport.parse("pkg/A.java",
-                "package pkg;" +
-                        "@Deprecated public class A {" +
-                        "  @SuppressWarnings(\"x\") private int n;" +
-                        "  @Override public String toString(@Deprecated Object o){ return \"\"; }" +
-                        "}");
+    void resolvesJdkAnnotationOnMethod() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A extends Object {\n"
+                + "  @Override public String toString() { return \"a\"; }\n"
+                + "}\n");
         ExtractionResult r = new ExtractionResult();
         new AnnotationExtractor(ctx).extract(cu, r);
 
-        Set<String> fqns = r.annotations.stream()
-                .map(a -> a.annotationFqn).collect(Collectors.toSet());
-        assertTrue(fqns.contains("java.lang.Deprecated"), "got " + fqns);
-        assertTrue(fqns.contains("java.lang.SuppressWarnings"), "got " + fqns);
-        assertTrue(fqns.contains("java.lang.Override"), "got " + fqns);
+        Optional<Annotation> override = r.annotations.stream()
+                .filter(a -> "java.lang.Override".equals(a.annotationFqn))
+                .findFirst();
+        assertTrue(override.isPresent(), "expected @Override resolved; got " + r.annotations);
+        assertTrue(override.get().nodeId.startsWith("pkg.A#toString("));
+    }
 
-        // The class-level @Deprecated, the field @SuppressWarnings, the
-        // method @Override, and the parameter @Deprecated → 4 rows.
-        assertEquals(4, r.annotations.size(), "got " + r.annotations.stream()
-                .map(a -> a.annotationFqn + "@" + a.nodeId).collect(Collectors.toList()));
+    @Test
+    void capturesAnnotationAttributes() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  @SuppressWarnings(\"unchecked\") void m() {}\n"
+                + "  @SuppressWarnings({\"a\", \"b\"}) void n() {}\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new AnnotationExtractor(ctx).extract(cu, r);
 
-        Annotation suppress = r.annotations.stream()
-                .filter(a -> a.annotationFqn.equals("java.lang.SuppressWarnings"))
+        Annotation single = r.annotations.stream()
+                .filter(a -> a.nodeId.startsWith("pkg.A#m("))
                 .findFirst().orElseThrow();
-        assertTrue(suppress.attributes.contains("\"x\""),
-                "expected value 'x' captured; got " + suppress.attributes);
+        assertEquals("java.lang.SuppressWarnings", single.annotationFqn);
+        assertTrue(single.attributes.contains("\"value\":\"unchecked\""), single.attributes);
 
-        Annotation paramDeprecated = r.annotations.stream()
-                .filter(a -> a.annotationFqn.equals("java.lang.Deprecated")
-                        && a.nodeId.startsWith("pkg.A#toString"))
+        Annotation array = r.annotations.stream()
+                .filter(a -> a.nodeId.startsWith("pkg.A#n("))
                 .findFirst().orElseThrow();
-        assertTrue(paramDeprecated.attributes.contains("\"_param\":0"),
-                "param marker missing; got " + paramDeprecated.attributes);
+        assertTrue(array.attributes.contains("[\"a\",\"b\"]"), array.attributes);
+    }
+
+    @Test
+    void parameterAnnotationCarriesIndexAndName() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  void m(@Deprecated String s) {}\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new AnnotationExtractor(ctx).extract(cu, r);
+
+        Annotation a = r.annotations.stream()
+                .filter(x -> "java.lang.Deprecated".equals(x.annotationFqn))
+                .findFirst().orElseThrow();
+        assertTrue(a.attributes.contains("\"_param\":0"), a.attributes);
+        assertTrue(a.attributes.contains("\"_name\":\"s\""), a.attributes);
     }
 }

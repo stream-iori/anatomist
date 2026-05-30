@@ -7,7 +7,7 @@ import picocli.CommandLine.Command;
         name = "anatomist",
         mixinStandardHelpOptions = true,
         version = "anatomist 0.1.0",
-        description = "JDT-based Java code intelligence for Agent LLMs",
+        description = "JavaParser + SymbolSolver based Java code intelligence for Agent LLMs",
         subcommands = {
                 IndexCommand.class
         }

@@ -6,22 +6,27 @@ import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.eclipse.jdt.core.dom.ASTNode;
-import org.eclipse.jdt.core.dom.ASTVisitor;
-import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
-import org.eclipse.jdt.core.dom.AnonymousClassDeclaration;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.EnumConstantDeclaration;
-import org.eclipse.jdt.core.dom.EnumDeclaration;
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.MethodDeclaration;
-import org.eclipse.jdt.core.dom.TypeDeclaration;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node.TreeTraversal;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
+import com.github.javaparser.ast.body.BodyDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.EnumConstantDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
+import com.github.javaparser.resolution.types.ResolvedReferenceType;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class TypeExtractor implements Extractor {
 
@@ -36,52 +41,100 @@ public class TypeExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = relativeSourceFile(unit);
-        unit.accept(new ASTVisitor() {
+        String sourceFile = sourceFileOf(unit);
+
+        new VoidVisitorAdapter<Void>() {
             @Override
-            public boolean visit(TypeDeclaration node) {
-                emit(node, sourceFile, result);
-                return true;
+            public void visit(ClassOrInterfaceDeclaration n, Void arg) {
+                emitTypeDecl(n, sourceFile, result);
+                super.visit(n, arg);
             }
 
             @Override
-            public boolean visit(EnumDeclaration node) {
-                emit(node, sourceFile, result);
-                return true;
+            public void visit(EnumDeclaration n, Void arg) {
+                emitTypeDecl(n, sourceFile, result);
+                super.visit(n, arg);
             }
 
             @Override
-            public boolean visit(AnonymousClassDeclaration node) {
-                emitAnonymous(node, sourceFile, result);
-                return true;
+            public void visit(AnnotationDeclaration n, Void arg) {
+                emitTypeDecl(n, sourceFile, result);
+                super.visit(n, arg);
             }
-        });
+
+            @Override
+            public void visit(ObjectCreationExpr n, Void arg) {
+                if (n.getAnonymousClassBody().isPresent()) {
+                    emitAnonymous(n, sourceFile, result);
+                }
+                super.visit(n, arg);
+            }
+        }.visit(unit, null);
     }
 
-    private void emitAnonymous(AnonymousClassDeclaration decl, String sourceFile, ExtractionResult result) {
-        ITypeBinding binding = decl.resolveBinding();
-        if (binding == null) return;
-        IMethodBinding enclosingMethod = enclosingMethodBinding(decl);
-        if (enclosingMethod == null) return;  // conservative — skip if not inside a method (initializer/field, lambda)
-        CompilationUnit cu = (CompilationUnit) decl.getRoot();
-        int line = cu.getLineNumber(decl.getStartPosition());
+    private void emitTypeDecl(TypeDeclaration<?> decl, String sourceFile, ExtractionResult result) {
+        ResolvedReferenceTypeDeclaration rt;
+        try {
+            rt = decl.resolve();
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
+        Node n = new Node();
+        n.id = ctx.idGenerator().forType(rt);
+        n.label = rt.getName();
+        n.kind = kindOf(decl, rt);
+        n.qualifiedName = rt.getQualifiedName();
+        n.pkg = rt.getPackageName();
+        n.sourceFile = sourceFile;
+        n.sourceLocation = "L" + lineOf(decl);
+        n.module = ctx.module();
+        n.scope = ctx.scope();
+        n.javadoc = decl.getJavadocComment().map(c -> c.getContent()).orElse(null);
+        n.metadata = metadataJson(decl, rt);
+        result.nodes.add(n);
+    }
+
+    private void emitAnonymous(ObjectCreationExpr expr, String sourceFile, ExtractionResult result) {
+        // Resolve the anonymous class itself. JavaParser's resolved declaration
+        // of an anonymous class is a JavaParserAnonymousClassDeclaration whose
+        // qualifiedName is the enclosing context + "$N". For ID stability we
+        // append "$anon@L<line>" to the enclosing method's id, mirroring the
+        // existing Phase 1 rule (DESIGN.md §Node ID 生成规则).
+        Optional<MethodDeclaration> enclosing = expr.findAncestor(MethodDeclaration.class);
+        if (enclosing.isEmpty()) return; // initializer/field/lambda — Phase 1 skip
+        ResolvedMethodDeclaration enclosingMethod;
+        try {
+            enclosingMethod = enclosing.get().resolve();
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+            return;
+        }
         String parentMethodId = ctx.idGenerator().forMethod(enclosingMethod);
-        String id = ctx.idGenerator().forType(binding);
+        int line = lineOf(expr);
+        String id = parentMethodId + "$anon@L" + line;
+
+        String baseType = expr.getType().getNameAsString();
+        try {
+            ResolvedConstructorDeclaration ctor = expr.resolve();
+            baseType = ctor.declaringType().getName();
+        } catch (RuntimeException ignore) { /* keep simple-name baseType */ }
 
         Node n = new Node();
         n.id = id;
         n.label = "$anon";
         n.kind = "ANONYMOUS_CLASS";
         n.qualifiedName = id;
-        n.pkg = binding.getPackage() == null ? null : binding.getPackage().getName();
+        n.pkg = enclosingMethod.declaringType().getPackageName();
         n.sourceFile = sourceFile;
         n.sourceLocation = "L" + line;
         n.module = ctx.module();
         n.scope = ctx.scope();
-        n.metadata = anonymousMetadata(binding);
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("baseType", baseType);
+        n.metadata = toJson(meta);
         result.nodes.add(n);
 
-        // CONTAINS edge: enclosing method → anonymous class
         Edge e = new Edge();
         e.sourceId = parentMethodId;
         e.targetId = id;
@@ -93,99 +146,73 @@ public class TypeExtractor implements Extractor {
         result.edges.add(e);
     }
 
-    private static IMethodBinding enclosingMethodBinding(ASTNode node) {
-        ASTNode cur = node.getParent();
-        while (cur != null) {
-            if (cur instanceof MethodDeclaration md) {
-                return md.resolveBinding();
-            }
-            cur = cur.getParent();
-        }
-        return null;
-    }
-
-    private static String anonymousMetadata(ITypeBinding binding) {
-        Map<String, Object> meta = new LinkedHashMap<>();
-        ITypeBinding sc = binding.getSuperclass();
-        String base = null;
-        if (sc != null && !"java.lang.Object".equals(sc.getQualifiedName())) {
-            base = sc.getName();
-        } else if (binding.getInterfaces().length > 0) {
-            base = binding.getInterfaces()[0].getName();
-        }
-        meta.put("baseType", base);
-        try {
-            return JSON.writeValueAsString(meta);
-        } catch (JsonProcessingException e) {
-            return "{}";
-        }
-    }
-
-    private void emit(AbstractTypeDeclaration decl, String sourceFile, ExtractionResult result) {
-        ITypeBinding binding = decl.resolveBinding();
-        if (binding == null) return;
-        Node n = new Node();
-        n.id = ctx.idGenerator().forType(binding);
-        n.label = binding.getName();
-        n.kind = kindOf(decl, binding);
-        n.qualifiedName = binding.getErasure().getQualifiedName();
-        n.pkg = binding.getPackage() == null ? null : binding.getPackage().getName();
-        n.sourceFile = sourceFile;
-        n.sourceLocation = "L" + lineNumber(decl);
-        n.module = ctx.module();
-        n.scope = ctx.scope();
-        n.javadoc = javadocText(decl);
-        n.metadata = metadataJson(decl, binding);
-        result.nodes.add(n);
-    }
-
-    private static String kindOf(AbstractTypeDeclaration decl, ITypeBinding binding) {
+    private static String kindOf(TypeDeclaration<?> decl, ResolvedReferenceTypeDeclaration rt) {
         if (decl instanceof EnumDeclaration) return "ENUM";
-        if (binding.isInterface()) return "INTERFACE";
+        if (decl instanceof AnnotationDeclaration) return "INTERFACE"; // annotations stored as INTERFACE per Phase 1 kind set
+        if (rt.isInterface()) return "INTERFACE";
         return "CLASS";
     }
 
-    private static int lineNumber(AbstractTypeDeclaration decl) {
-        CompilationUnit cu = (CompilationUnit) decl.getRoot();
-        return cu.getLineNumber(decl.getStartPosition());
+    private static int lineOf(com.github.javaparser.ast.Node n) {
+        return n.getBegin().map(p -> p.line).orElse(0);
     }
 
-    private static String javadocText(AbstractTypeDeclaration decl) {
-        return decl.getJavadoc() == null ? null : decl.getJavadoc().toString();
+    private static String sourceFileOf(CompilationUnit unit) {
+        if (unit.containsData(SourceFileKey.KEY)) {
+            Object prop = unit.getData(SourceFileKey.KEY);
+            if (prop instanceof String s) return s;
+        }
+        return unit.getStorage().map(s -> s.getPath().toString()).orElse(null);
     }
 
-    private String relativeSourceFile(CompilationUnit unit) {
-        Object prop = unit.getProperty("source_file");
-        if (prop instanceof String s) return s;
-        return null;
-    }
-
-    private static String metadataJson(AbstractTypeDeclaration decl, ITypeBinding binding) {
+    private static String metadataJson(TypeDeclaration<?> decl, ResolvedReferenceTypeDeclaration rt) {
         Map<String, Object> meta = new LinkedHashMap<>();
         if (decl instanceof EnumDeclaration enumDecl) {
             List<String> consts = new ArrayList<>();
-            for (Object o : enumDecl.enumConstants()) {
-                consts.add(((EnumConstantDeclaration) o).getName().getIdentifier());
+            for (EnumConstantDeclaration c : enumDecl.getEntries()) {
+                consts.add(c.getNameAsString());
             }
             meta.put("constants", consts);
         } else {
-            meta.put("isAbstract", java.lang.reflect.Modifier.isAbstract(binding.getModifiers()));
-            meta.put("isInterface", binding.isInterface());
-            ITypeBinding sc = binding.getSuperclass();
-            if (sc != null && !"java.lang.Object".equals(sc.getQualifiedName())) {
-                meta.put("superClass", sc.getName());
-            }
-            ITypeBinding[] ifs = binding.getInterfaces();
-            if (ifs.length > 0) {
-                List<String> names = new ArrayList<>();
-                for (ITypeBinding i : ifs) names.add(i.getName());
-                meta.put("interfaces", names);
-            }
+            boolean isInterface = rt.isInterface();
+            meta.put("isAbstract", isAbstract(decl));
+            meta.put("isInterface", isInterface);
+            try {
+                Optional<ResolvedReferenceType> sc = rt.asClass().getSuperClass();
+                sc.filter(s -> !"java.lang.Object".equals(s.getQualifiedName()))
+                  .ifPresent(s -> meta.put("superClass", s.getTypeDeclaration()
+                          .map(d -> d.getName()).orElse(s.getQualifiedName())));
+            } catch (RuntimeException ignore) { }
+            try {
+                List<ResolvedReferenceType> ifs = isInterface
+                        ? rt.asInterface().getInterfacesExtended()
+                        : rt.asClass().getInterfaces();
+                if (!ifs.isEmpty()) {
+                    List<String> names = new ArrayList<>();
+                    for (ResolvedReferenceType i : ifs) {
+                        names.add(i.getTypeDeclaration().map(d -> d.getName())
+                                .orElse(i.getQualifiedName()));
+                    }
+                    meta.put("interfaces", names);
+                }
+            } catch (RuntimeException ignore) { }
         }
-        try {
-            return JSON.writeValueAsString(meta);
-        } catch (JsonProcessingException e) {
-            return "{}";
-        }
+        return toJson(meta);
+    }
+
+    private static boolean isAbstract(TypeDeclaration<?> decl) {
+        if (decl instanceof ClassOrInterfaceDeclaration c) return c.isAbstract() || c.isInterface();
+        return false;
+    }
+
+    static String toJson(Map<String, Object> meta) {
+        try { return JSON.writeValueAsString(meta); }
+        catch (JsonProcessingException e) { return "{}"; }
+    }
+
+    /** Marker used by IndexCommand to stash the relative source path on a CU. */
+    public static final class SourceFileKey extends com.github.javaparser.ast.DataKey<String> {
+        public static final SourceFileKey KEY = new SourceFileKey();
+        private SourceFileKey() {}
     }
 }

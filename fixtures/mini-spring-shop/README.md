@@ -52,7 +52,7 @@ anatomist callees-of \
 
 ## 注意事项
 
-- 不引入 Lombok——保持源码"裸"以便 JDT 解析结果可预期
+- 不引入 Lombok——保持源码"裸"以便 JavaParser+SymbolSolver 解析结果可预期
 - 不使用 JPA/JDBC——`InMemoryOrderRepository` 替代,避免引入数据库依赖
 - `OrderService` 故意塞 Lambda(`countExpensiveItems`)和匿名类(`cleanupTask`)以覆盖 LAMBDA/ANONYMOUS_CLASS 节点
 - `PriceCalculator.calculate` 使用方法引用(`OrderItem::getPrice`)覆盖 METHOD_REF

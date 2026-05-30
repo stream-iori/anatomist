@@ -3,15 +3,17 @@ package com.anatomist.extract;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
-import org.eclipse.jdt.core.dom.ASTVisitor;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.FieldDeclaration;
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
-import org.eclipse.jdt.core.dom.MethodDeclaration;
-import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
-import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
+import com.github.javaparser.resolution.types.ResolvedReferenceType;
+import com.github.javaparser.resolution.types.ResolvedType;
 
 public class ReferenceExtractor implements Extractor {
 
@@ -26,66 +28,79 @@ public class ReferenceExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = sourceFileOf(unit);
-        unit.accept(new ASTVisitor() {
+
+        new VoidVisitorAdapter<Void>() {
             @Override
-            public boolean visit(FieldDeclaration node) {
-                for (Object o : node.fragments()) {
-                    VariableDeclarationFragment frag = (VariableDeclarationFragment) o;
-                    IVariableBinding fb = frag.resolveBinding();
-                    if (fb == null || !fb.isField()) continue;
-                    String fieldId = ctx.idGenerator().forField(fb);
-                    ITypeBinding type = fb.getType();
-                    if (type == null) continue;
-                    emitTypeReference(fieldId, type, "field_type", sourceFile, result, 0);
+            public void visit(FieldDeclaration n, Void arg) {
+                for (VariableDeclarator var : n.getVariables()) {
+                    ResolvedValueDeclaration v;
+                    try { v = var.resolve(); }
+                    catch (RuntimeException e) { ctx.incrementUnresolved(); continue; }
+                    if (!(v instanceof ResolvedFieldDeclaration field)) continue;
+                    String fieldId = ctx.idGenerator().forField(field);
+                    ResolvedType type;
+                    try { type = var.getType().resolve(); }
+                    catch (RuntimeException e) { ctx.incrementUnresolved(); continue; }
+                    emitTypeRef(fieldId, type, "field_type", result, 0);
                 }
-                return true;
+                super.visit(n, arg);
             }
 
             @Override
-            public boolean visit(MethodDeclaration node) {
-                IMethodBinding mb = node.resolveBinding();
-                if (mb == null) return true;
-                String methodId = ctx.idGenerator().forMethod(mb);
-                ITypeBinding rt = mb.getReturnType();
-                if (rt != null) emitTypeReference(methodId, rt, "return_type", sourceFile, result, 0);
-                ITypeBinding[] pts = mb.getParameterTypes();
-                for (ITypeBinding pt : pts) {
-                    emitTypeReference(methodId, pt, "parameter_type", sourceFile, result, 0);
+            public void visit(MethodDeclaration n, Void arg) {
+                ResolvedMethodDeclaration m;
+                try { m = n.resolve(); }
+                catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+                String methodId = ctx.idGenerator().forMethod(m);
+
+                // Return type
+                try {
+                    if (!"void".equals(n.getTypeAsString())) {
+                        emitTypeRef(methodId, n.getType().resolve(), "return_type", result, 0);
+                    }
+                } catch (RuntimeException e) { ctx.incrementUnresolved(); }
+
+                // Parameters
+                for (Parameter p : n.getParameters()) {
+                    try {
+                        emitTypeRef(methodId, p.getType().resolve(), "parameter_type", result, 0);
+                    } catch (RuntimeException e) { ctx.incrementUnresolved(); }
                 }
-                return true;
+                super.visit(n, arg);
             }
-        });
+        }.visit(unit, null);
     }
 
-    private void emitTypeReference(String sourceId, ITypeBinding type, String context,
-                                   String sourceFile, ExtractionResult result, int depth) {
+    private void emitTypeRef(String sourceId, ResolvedType type, String context,
+                             ExtractionResult result, int depth) {
         if (type == null || depth > MAX_GENERIC_DEPTH) return;
-        ITypeBinding erasure = type.getErasure();
-        if (erasure == null) return;
-        if (erasure.isPrimitive() || erasure.isTypeVariable() || erasure.isWildcardType()) {
-            // primitives and type variables don't reference a real type node;
-            // still recurse into bounds for wildcards (rare in field/param types)
-        } else if (ctx.isProjectInternal(erasure)) {
-            Edge e = new Edge();
-            e.sourceId = sourceId;
-            e.targetId = ctx.idGenerator().forType(erasure);
-            e.relation = "REFERENCES";
-            e.confidence = "EXTRACTED";
-            e.context = context;
-            e.isExternal = false;
-            e.sourceFile = sourceFile;
-            result.edges.add(e);
+        if (type.isPrimitive() || type.isVoid() || type.isTypeVariable() || type.isWildcard()) {
+            return;
         }
-        // recurse into generic args regardless of whether the outer type is
-        // project-internal — Map<String, Order> should still emit Order
-        for (ITypeBinding arg : type.getTypeArguments()) {
-            emitTypeReference(sourceId, arg, "generic_arg", sourceFile, result, depth + 1);
+        if (type.isArray()) {
+            emitTypeRef(sourceId, type.asArrayType().getComponentType(), context, result, depth);
+            return;
         }
-    }
-
-    private static String sourceFileOf(CompilationUnit unit) {
-        Object prop = unit.getProperty("source_file");
-        return prop instanceof String s ? s : null;
+        if (!type.isReferenceType()) return;
+        ResolvedReferenceType ref = type.asReferenceType();
+        ref.getTypeDeclaration().ifPresent(td -> {
+            if (ctx.isProjectInternal(td)) {
+                Edge e = new Edge();
+                e.sourceId = sourceId;
+                e.targetId = ctx.idGenerator().forType(td);
+                e.relation = "REFERENCES";
+                e.confidence = "EXTRACTED";
+                e.context = context;
+                e.isExternal = false;
+                result.edges.add(e);
+            }
+            // External references aren't tracked yet — would inflate the edge
+            // table for every java.lang.String / java.util.* in the project.
+            // Phase 1.5 keeps REFERENCES project-internal only.
+        });
+        // Recurse into generic args regardless of outer internal/external.
+        for (ResolvedType arg : ref.typeParametersValues()) {
+            emitTypeRef(sourceId, arg, "generic_arg", result, depth + 1);
+        }
     }
 }

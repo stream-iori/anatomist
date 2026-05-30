@@ -3,22 +3,23 @@ package com.anatomist.extract;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
-import org.eclipse.jdt.core.dom.ASTNode;
-import org.eclipse.jdt.core.dom.ASTVisitor;
-import org.eclipse.jdt.core.dom.Assignment;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.Expression;
-import org.eclipse.jdt.core.dom.FieldAccess;
-import org.eclipse.jdt.core.dom.IBinding;
-import org.eclipse.jdt.core.dom.IMethodBinding;
-import org.eclipse.jdt.core.dom.ITypeBinding;
-import org.eclipse.jdt.core.dom.IVariableBinding;
-import org.eclipse.jdt.core.dom.MethodDeclaration;
-import org.eclipse.jdt.core.dom.PostfixExpression;
-import org.eclipse.jdt.core.dom.PrefixExpression;
-import org.eclipse.jdt.core.dom.SimpleName;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.AssignExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.UnaryExpr;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 public class FieldAccessExtractor implements Extractor {
@@ -32,143 +33,138 @@ public class FieldAccessExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = sourceFileOf(unit);
-        // First pass: discover all syntactic write sites so the read-pass can
-        // skip them. AST identity is stable across the two visits.
-        Set<ASTNode> writeSites = new HashSet<>();
-        unit.accept(new ASTVisitor() {
+
+        // Pass 1: collect write-site AST node identities so the read pass
+        // can skip them.
+        Set<Node> writeSites = new HashSet<>();
+        new VoidVisitorAdapter<Void>() {
             @Override
-            public boolean visit(Assignment node) {
-                Expression lhs = node.getLeftHandSide();
-                ASTNode site = nameOrFieldAccess(lhs);
+            public void visit(AssignExpr n, Void arg) {
+                Node site = nameOrFieldAccess(n.getTarget());
                 if (site != null) writeSites.add(site);
-                return true;
+                super.visit(n, arg);
             }
 
             @Override
-            public boolean visit(PrefixExpression node) {
-                if (isIncDec(node.getOperator().toString())) {
-                    ASTNode site = nameOrFieldAccess(node.getOperand());
+            public void visit(UnaryExpr n, Void arg) {
+                if (isIncDec(n.getOperator())) {
+                    Node site = nameOrFieldAccess(n.getExpression());
                     if (site != null) writeSites.add(site);
                 }
-                return true;
+                super.visit(n, arg);
             }
+        }.visit(unit, null);
 
+        // Pass 2: actual emit.
+        new VoidVisitorAdapter<Void>() {
             @Override
-            public boolean visit(PostfixExpression node) {
-                if (isIncDec(node.getOperator().toString())) {
-                    ASTNode site = nameOrFieldAccess(node.getOperand());
-                    if (site != null) writeSites.add(site);
+            public void visit(AssignExpr n, Void arg) {
+                ResolvedFieldDeclaration field = fieldBindingOf(n.getTarget());
+                String enclosingId = enclosingId(n);
+                if (field != null && enclosingId != null) {
+                    emit(field, enclosingId, "WRITES", n, result);
+                    if (n.getOperator() != AssignExpr.Operator.ASSIGN) {
+                        emit(field, enclosingId, "READS", n, result);
+                    }
                 }
-                return true;
+                super.visit(n, arg);
             }
-        });
 
-        unit.accept(new ASTVisitor() {
             @Override
-            public boolean visit(Assignment node) {
-                IVariableBinding field = fieldBindingOf(node.getLeftHandSide());
-                if (field == null) return true;
-                IMethodBinding enclosing = enclosingMethod(node);
-                if (enclosing == null) return true;
-                emit(field, enclosing, "WRITES", node, sourceFile, result);
-                if (!"=".equals(node.getOperator().toString())) {
-                    emit(field, enclosing, "READS", node, sourceFile, result);
+            public void visit(UnaryExpr n, Void arg) {
+                if (isIncDec(n.getOperator())) {
+                    ResolvedFieldDeclaration field = fieldBindingOf(n.getExpression());
+                    String enclosingId = enclosingId(n);
+                    if (field != null && enclosingId != null) {
+                        emit(field, enclosingId, "WRITES", n, result);
+                    }
                 }
-                return true;
+                super.visit(n, arg);
             }
 
             @Override
-            public boolean visit(PrefixExpression node) {
-                if (!isIncDec(node.getOperator().toString())) return true;
-                IVariableBinding field = fieldBindingOf(node.getOperand());
-                IMethodBinding enclosing = enclosingMethod(node);
-                if (field == null || enclosing == null) return true;
-                emit(field, enclosing, "WRITES", node, sourceFile, result);
-                return true;
+            public void visit(NameExpr n, Void arg) {
+                if (writeSites.contains(n)) { super.visit(n, arg); return; }
+                ResolvedFieldDeclaration field = fieldBindingOf(n);
+                String enclosingId = enclosingId(n);
+                if (field != null && enclosingId != null) {
+                    emit(field, enclosingId, "READS", n, result);
+                }
+                super.visit(n, arg);
             }
 
             @Override
-            public boolean visit(PostfixExpression node) {
-                if (!isIncDec(node.getOperator().toString())) return true;
-                IVariableBinding field = fieldBindingOf(node.getOperand());
-                IMethodBinding enclosing = enclosingMethod(node);
-                if (field == null || enclosing == null) return true;
-                emit(field, enclosing, "WRITES", node, sourceFile, result);
-                return true;
+            public void visit(FieldAccessExpr n, Void arg) {
+                if (writeSites.contains(n)) { super.visit(n, arg); return; }
+                ResolvedFieldDeclaration field = fieldBindingOf(n);
+                String enclosingId = enclosingId(n);
+                if (field != null && enclosingId != null) {
+                    emit(field, enclosingId, "READS", n, result);
+                }
+                super.visit(n, arg);
             }
-
-            @Override
-            public boolean visit(SimpleName node) {
-                if (writeSites.contains(node)) return true;
-                IBinding b = node.resolveBinding();
-                if (!(b instanceof IVariableBinding vb) || !vb.isField()) return true;
-                IMethodBinding enclosing = enclosingMethod(node);
-                if (enclosing == null) return true;
-                emit(vb, enclosing, "READS", node, sourceFile, result);
-                return true;
-            }
-
-            @Override
-            public boolean visit(FieldAccess node) {
-                if (writeSites.contains(node)) return true;
-                IVariableBinding b = node.resolveFieldBinding();
-                if (b == null || !b.isField()) return true;
-                IMethodBinding enclosing = enclosingMethod(node);
-                if (enclosing == null) return true;
-                emit(b, enclosing, "READS", node, sourceFile, result);
-                return true;
-            }
-        });
+        }.visit(unit, null);
     }
 
-    private void emit(IVariableBinding field, IMethodBinding caller, String relation,
-                      ASTNode at, String sourceFile, ExtractionResult result) {
-        ITypeBinding decl = field.getDeclaringClass();
-        if (decl == null || !ctx.isProjectInternal(decl)) return;
+    private static Node nameOrFieldAccess(Expression expr) {
+        if (expr instanceof NameExpr || expr instanceof FieldAccessExpr) return expr;
+        return null;
+    }
+
+    private static boolean isIncDec(UnaryExpr.Operator op) {
+        return op == UnaryExpr.Operator.PREFIX_INCREMENT
+                || op == UnaryExpr.Operator.PREFIX_DECREMENT
+                || op == UnaryExpr.Operator.POSTFIX_INCREMENT
+                || op == UnaryExpr.Operator.POSTFIX_DECREMENT;
+    }
+
+    private ResolvedFieldDeclaration fieldBindingOf(Expression expr) {
+        try {
+            if (expr instanceof NameExpr name) {
+                ResolvedValueDeclaration v = name.resolve();
+                return v instanceof ResolvedFieldDeclaration f ? f : null;
+            }
+            if (expr instanceof FieldAccessExpr fa) {
+                ResolvedValueDeclaration v = fa.resolve();
+                return v instanceof ResolvedFieldDeclaration f ? f : null;
+            }
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+        }
+        return null;
+    }
+
+    private String enclosingId(Node node) {
+        Optional<CallableDeclaration> enclosing = node.findAncestor(CallableDeclaration.class);
+        if (enclosing.isEmpty()) return null;
+        try {
+            CallableDeclaration<?> cd = enclosing.get();
+            if (cd instanceof MethodDeclaration md) {
+                return ctx.idGenerator().forMethod(md.resolve());
+            }
+            if (cd instanceof ConstructorDeclaration ctor) {
+                return ctx.idGenerator().forConstructor(ctor.resolve());
+            }
+            return null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void emit(ResolvedFieldDeclaration field, String callerId, String relation,
+                      Node at, ExtractionResult result) {
+        ResolvedTypeDeclaration decl;
+        try { decl = field.declaringType(); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        if (!ctx.isProjectInternal(decl)) return; // external field access not tracked in Phase 1.5
+
         Edge e = new Edge();
-        e.sourceId = ctx.idGenerator().forMethod(caller);
+        e.sourceId = callerId;
         e.targetId = ctx.idGenerator().forField(field);
         e.relation = relation;
         e.confidence = "EXTRACTED";
         e.isExternal = false;
-        e.sourceFile = sourceFile;
-        e.sourceLocation = "L" + ((CompilationUnit) at.getRoot()).getLineNumber(at.getStartPosition());
+        e.sourceLocation = "L" + at.getBegin().map(p -> p.line).orElse(0);
         result.edges.add(e);
-    }
-
-    private static IVariableBinding fieldBindingOf(Expression expr) {
-        if (expr instanceof SimpleName name) {
-            IBinding b = name.resolveBinding();
-            return (b instanceof IVariableBinding vb && vb.isField()) ? vb : null;
-        }
-        if (expr instanceof FieldAccess fa) {
-            IVariableBinding b = fa.resolveFieldBinding();
-            return (b != null && b.isField()) ? b : null;
-        }
-        return null;
-    }
-
-    private static ASTNode nameOrFieldAccess(Expression expr) {
-        if (expr instanceof SimpleName || expr instanceof FieldAccess) return expr;
-        return null;
-    }
-
-    private static boolean isIncDec(String op) {
-        return "++".equals(op) || "--".equals(op);
-    }
-
-    private static IMethodBinding enclosingMethod(ASTNode node) {
-        ASTNode cur = node.getParent();
-        while (cur != null) {
-            if (cur instanceof MethodDeclaration md) return md.resolveBinding();
-            cur = cur.getParent();
-        }
-        return null;
-    }
-
-    private static String sourceFileOf(CompilationUnit unit) {
-        Object prop = unit.getProperty("source_file");
-        return prop instanceof String s ? s : null;
     }
 }

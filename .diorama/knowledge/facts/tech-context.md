@@ -22,16 +22,16 @@
 
 > `release=21` 而非 25 的原因:Maven `release` 编译目标稳定支持到 21,JDK 25 作为运行时 JDK 直接可用;若 toolchain 升级,可平滑切到 25。
 
-## 生产依赖(4 个,严格控制)
+## 生产依赖(4 个直接依赖,严格控制)
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| `org.eclipse.jdt:org.eclipse.jdt.core` | 3.45.0 | AST 解析 + Binding 解析 |
+| `com.github.javaparser:javaparser-symbol-solver-core` | 3.28.1 | AST 解析 + SymbolSolver 绑定。传递依赖 `javassist`，由 `JarTypeSolver` 用来读取 .m2 中的 jar 字节码。 |
 | `org.xerial:sqlite-jdbc` | 3.47.0.0 | 索引存储 + FTS5 |
 | `info.picocli:picocli` | 4.7.6 | CLI 解析 |
 | `com.fasterxml.jackson.core:jackson-databind` | 2.17.0 | metadata JSON 序列化 |
 
-**约束(继承自 DESIGN.md)**: 不引入除以上 4 个之外的生产依赖。若需新增,必须在 task 的 proposal/design 中明确说明理由。
+**约束(继承自 DESIGN.md)**: 不引入除以上之外的生产依赖。若需新增,必须在 task 的 proposal/design 中明确说明理由。
 
 ## 测试依赖
 
@@ -49,9 +49,9 @@ anatomist/
 ├── fixtures/mini-spring-shop/             # 端到端 fixture(三模块)
 ├── src/main/java/com/anatomist/
 │   ├── cli/        # AnatomistCli, IndexCommand
-│   ├── core/       # ProjectScanner, ClasspathDetector, JdtParserFactory,
+│   ├── core/       # ProjectScanner, ClasspathDetector, JavaParserFactory,
 │   │               # NodeIdGenerator, ExtractionContext
-│   ├── extract/    # Extractor 接口 + 7 个实现(2 实现/5 骨架)
+│   ├── extract/    # Extractor 接口 + 8 个实现（Phase 1.5 全部真实化）
 │   ├── model/      # Node, Edge, Annotation, ExtractionResult
 │   └── store/      # SqliteStore
 ├── src/main/resources/

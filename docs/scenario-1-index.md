@@ -2,9 +2,9 @@
 
 ## 场景描述
 
-将一个 Java 项目的源码通过 JDT 解析，提取结构化信息（节点、边、注解），持久化到 SQLite 索引库。
+将一个 Java 项目的源码通过 **JavaParser + SymbolSolver** 解析（外部 jar 通过 `JarTypeSolver` 由 javassist 读取字节码），提取结构化信息（节点、边、注解），持久化到 SQLite 索引库。
 
-**核心原则**：JDT 只在 index 阶段参与，查询阶段完全走 SQLite。
+**核心原则**：解析器（JavaParser + SymbolSolver）只在 index 阶段参与，查询阶段完全走 SQLite。
 
 ## 详细子场景
 
@@ -36,7 +36,7 @@
 | 参数注解 | 提取 | `@RequestBody`、`@PathVariable` 等 Spring 注解很重要 |
 | 泛型类型引用 | 深入泛型参数提取 REFERENCES | `List<OrderItem>` 中的 `OrderItem` 是核心依赖 |
 | Getter/Setter | 全部索引，metadata 标记 `isAccessor` | 跳过会断调用链；查询时默认隐藏 |
-| ASTVisitor 模式 | 独立 Visitor + 共享 ExtractionContext | 可测试、可扩展，7 次遍历性能可忽略 |
+| Visitor 模式 | 独立 VoidVisitorAdapter + 共享 ExtractionContext | 可测试、可扩展，多次遍历性能可忽略 |
 
 ## index 的两个核心入参
 
@@ -46,24 +46,24 @@ index 命令的概念模型：
 anatomist index --project-source <paths> --classpath <paths>
 ```
 
-| 入参 | 含义 | 传入 JDT | 缺失时 |
-|------|------|---------|--------|
-| `projectSource` | 项目源码目录（JDT 解析并提取结构） | `setEnvironment(sourcePaths, ...)` 第二个参数 | 必须提供，否则无从提取 |
-| `classpath` | 依赖 jar 路径（JDT 只读，用于 resolve Binding） | `setEnvironment(classpathEntries, ...)` 第一个参数 | 外部类型 Binding 全为 null |
+| 入参 | 含义 | 传入解析器 | 缺失时 |
+|------|------|-----------|--------|
+| `projectSource` | 项目源码目录（JavaParser 解析 AST，SymbolSolver 用 `JavaParserTypeSolver` 解析其符号） | 注册为一个或多个 `SourceRoot` + `JavaParserTypeSolver` | 必须提供，否则无从提取 |
+| `classpath` | 依赖 jar 路径（只读，用于绑定外部类型） | 每个 jar 注册一个 `JarTypeSolver`（JavaParser 自带，javassist 读 .class） | 外部类型 `resolve()` 抛 `UnsolvedSymbolException`，节点被跳过 |
 
-**关键区别**：`projectSource` 里的代码被完整解析提取为 nodes/edges；`classpath` 里的 jar 只用于类型查找，不产生节点。
+**关键区别**：`projectSource` 里的代码被完整解析提取为 nodes/edges；`classpath` 里的 jar 只用于类型/方法签名查找，不产生节点。
 
 ## 为什么需要 Classpath？
 
-JDT 解析分两个层次：
+JavaParser 的解析分两个层次：
 
 | 层次 | 有 classpath | 无 classpath |
 |------|-------------|-------------|
 | **AST 语法树** | 完整 | 完整（不需要 classpath） |
-| **项目内部 Binding** | 完整 | 完整（`createASTs()` 共享上下文，A 调 B 能 resolve） |
-| **外部依赖 Binding** | 完整（Spring、JDK 扩展等） | **null**（`@Service` 的 Binding 为 null，`orderRepo.findById()` 的 Binding 为 null） |
+| **项目内部符号绑定** | 完整 | 完整（`JavaParserTypeSolver` 覆盖项目内所有源码） |
+| **外部依赖符号绑定** | 完整（`JarTypeSolver` 读 jar 字节码） | **失败**（`@Service` 的 resolve 抛 `UnsolvedSymbolException`，`orderRepo.findById()` 同上） |
 
-**结论**：没有 classpath 也能索引，只是外部类型的 Binding 全是 null。classpath 让 JDT 能识别外部依赖的类型信息，提取更完整的调用图和注解。
+**结论**：没有 classpath 也能索引，只是外部类型的符号全部 unresolved。classpath 让 SymbolSolver 能识别外部依赖的类型信息，提取更完整的调用图和注解。
 
 ### Classpath 能力对比
 
@@ -72,8 +72,8 @@ JDT 解析分两个层次：
 | B4 按注解查找 | `@Service` 存为简名，无法区分框架 | 存 `org.springframework.stereotype.Service`，精确查询 |
 | D1 调用图 | 只能看到项目内调用 | Spring Data JPA 的 `repository.findById()` 等外部调用也能追踪 |
 | C4 依赖分析 | 只能看到项目内类型引用 | 完整的依赖关系，包括第三方库类型 |
-| E1 领域模型 | `@Entity` 注解丢失 | 精确识别 JPA 实体 |
-| E2 限界上下文 | `@RestController`/`@Service` 注解丢失 | 精确识别 Spring 分层 |
+| E1 领域模型 | `@Entity` 注解 unresolved | 精确识别 JPA 实体 |
+| E2 限界上下文 | `@RestController`/`@Service` 注解 unresolved | 精确识别 Spring 分层 |
 
 ## Maven Classpath 获取
 
@@ -91,7 +91,7 @@ mvn dependency:build-classpath -DincludeScope=compile
 /Users/x/.m2/repository/org/springframework/spring-core/6.0.0/spring-core-6.0.0.jar:/Users/x/.m2/repository/org/springframework/spring-beans/6.0.0/spring-beans-6.0.0.jar:...
 ```
 
-按 `File.pathSeparator` 拆分即为 jar 路径数组，直接传入 JDT `setEnvironment()`。
+按 `File.pathSeparator` 拆分即为 jar 路径数组，分别注册为 `JarTypeSolver`。
 
 | 步骤 | 作用 | 是否必须 |
 |------|------|---------|
@@ -119,14 +119,14 @@ order-platform/               ← root (parent POM)
 
 #### 跨模块 Binding 的核心问题
 
-`order-service` 里的 `OrderService` 引用了 `order-api` 里的 `OrderRequest`。JDT 要 resolve 这个 Binding，有两种方式：
+`order-service` 里的 `OrderService` 引用了 `order-api` 里的 `OrderRequest`。SymbolSolver 要解析这个符号，有两种方式：
 
 | 方式 | 原理 | 效果 |
 |------|------|------|
-| sourcePaths 包含所有模块源码 | JDT 从源码直接解析 | **最佳**：跨模块 Binding 完整，还能提取跨模块 CALLS/REFERENCES 边 |
-| classpath 包含 target/classes | JDT 从编译后的 class 查找 | **次优**：能 resolve 类型，但无法链接到源码节点 |
+| sourcePaths 包含所有模块源码（各模块一个 `JavaParserTypeSolver`） | 从源码直接解析 | **最佳**：跨模块绑定完整，还能提取跨模块 CALLS/REFERENCES 边 |
+| classpath 包含 target/classes（`JarTypeSolver`） | 从编译后的 class 查找 | **次优**：能解析类型，但无法链接到源码节点 |
 
-**结论**：把所有模块源码都放进 sourcePaths，JDT 一次 `createASTs()` 就能完整解析跨模块引用。不需要 `mvn compile`。
+**结论**：把所有模块源码都注册成独立的 `JavaParserTypeSolver` 加入 `CombinedTypeSolver`，一次性解析跨模块引用。不需要 `mvn compile`。
 
 #### 多模块参数组装
 
@@ -137,10 +137,10 @@ flowchart TD
     DETECT -->|多模块| MULTI["遍历 <modules>"]
     MULTI --> COLLECT_SRC["projectSource = [<br/>  order-api/src/main/java,<br/>  order-service/src/main/java,<br/>  order-infrastructure/src/main/java<br/>]"]
     MULTI --> COLLECT_CP["classpath = 各模块<br/>mvn dependency:build-classpath -pl <module><br/>合并去重"]
-    SINGLE --> JDT
-    COLLECT_SRC --> JDT
-    COLLECT_CP --> JDT
-    JDT["JdtParserFactory<br/>setEnvironment(classpath, projectSource)"]
+    SINGLE --> PARSER
+    COLLECT_SRC --> PARSER
+    COLLECT_CP --> PARSER
+    PARSER["JavaParserFactory<br/>CombinedTypeSolver(<br/>  JavaParserTypeSolver(srcRoot)*,<br/>  JarTypeSolver(jar)*,<br/>  ReflectionTypeSolver(可选))"]
 ```
 
 **classpath 合并去重**：多模块各跑一次 `mvn dependency:build-classpath -pl <module>`，合并去重。模块间共享大量依赖（如 Spring Boot），不去重会传入大量重复 jar。
@@ -182,10 +182,17 @@ anatomist index /path/to/order-platform
    - mvn dependency:build-classpath -pl order-service
    - mvn dependency:build-classpath -pl order-infrastructure
    → 合并去重 → classpathEntries
-4. JdtParserFactory:
-   setEnvironment(classpathEntries, projectSource, null, true)
-   createASTs(allSourceCodes, allUnitNames, ...)
-5. 跨模块 Binding 自然 resolve:
+4. JavaParserFactory:
+   CombinedTypeSolver ts = new CombinedTypeSolver();
+   ts.add(new JavaParserTypeSolver(order-api/src/main/java));
+   ts.add(new JavaParserTypeSolver(order-service/src/main/java));
+   ts.add(new JavaParserTypeSolver(order-infrastructure/src/main/java));
+   for (jar in classpathEntries) ts.add(new JarTypeSolver(jar));
+   ParserConfiguration cfg = new ParserConfiguration()
+       .setSymbolResolver(new JavaSymbolSolver(ts))
+       .setLanguageLevel(detectedLevel);
+   for (srcRoot : projectSource) new SourceRoot(srcRoot, cfg).tryToParse();
+5. 跨模块符号自然 resolve:
    order-service 的 OrderService → order-api 的 OrderRequest ✓
 ```
 
@@ -202,7 +209,7 @@ flowchart TD
     MAVEN --> SCAN
     MAVEN_MULTI --> SCAN
     PLAIN --> SCAN
-    SCAN["ProjectScanner<br/>扫描 sourcePaths 下 .java 文件"] --> PARSE["JdtParserFactory<br/>createASTs() 批量解析"]
+    SCAN["ProjectScanner<br/>扫描 sourcePaths 下 .java 文件"] --> PARSE["JavaParserFactory<br/>SourceRoot.tryToParse() 批量解析<br/>SymbolSolver 即时绑定"]
     PARSE --> EXTRACT["Extractors<br/>提取 nodes + edges + annotations"]
     EXTRACT --> STORE["SqliteStore<br/>写入 SQLite + FTS5 索引"]
     STORE --> DONE["索引完成<br/>输出统计信息"]
@@ -230,14 +237,12 @@ flowchart TD
 
 **进度输出**：解析多模块时持续输出 `[2/20] resolving classpath for order-service...`，避免用户以为程序卡死。
 
-**传入 JDT**：
+**传给 SymbolSolver**：
 ```java
-parser.setEnvironment(
-    classpathEntries,                      // 依赖 jar 路径数组（从 .m2 获取）
-    sourcePaths,                            // 源码目录数组（项目源码，JDT 解析提取）
-    null,                                   // encodedPaths
-    includeRunningVMClasspath              // 见下文 JdtParserFactory 关于此参数的风险说明
-);
+CombinedTypeSolver ts = new CombinedTypeSolver();
+ts.add(new ReflectionTypeSolver());                  // 仅当目标版本与 JVM 兼容时打开（见下文风险）
+for (Path src : sourcePaths) ts.add(new JavaParserTypeSolver(src));
+for (Path jar : classpathEntries) ts.add(new JarTypeSolver(jar));   // javassist 读 jar 字节码
 ```
 
 #### ProjectScanner
@@ -249,61 +254,61 @@ parser.setEnvironment(
 - 使用 `Files.walk()` 不跟符号链接，避免重复
 - 返回 `List<Path>` 源文件列表
 
-#### JdtParserFactory
+#### JavaParserFactory
 
-核心解析引擎，使用 `ASTParser.createASTs()` 批量解析。
+核心解析引擎，使用 `JavaParser` + `JavaSymbolSolver`（基于 `CombinedTypeSolver`）批量解析 + 即时符号绑定。
 
 ```java
-// 默认 Java 8，可通过 --java-version 覆盖
-ASTParser parser = ASTParser.newParser(AST.JLS8);
-parser.setResolveBindings(true);
-parser.setBindingsRecovery(true);  // 有编译错误时尽量恢复 Binding
+// 1) 组装 TypeSolver
+CombinedTypeSolver typeSolver = new CombinedTypeSolver();
+// 项目内源码：每个源码根（多模块时多个）一个 JavaParserTypeSolver
+for (Path src : sourcePaths) {
+    typeSolver.add(new JavaParserTypeSolver(src));
+}
+// 外部 jar：每个 jar 一个自实现的 JarTypeSolver（不依赖 javassist）
+for (Path jar : classpathEntries) {
+    typeSolver.add(new JarTypeSolver(jar));
+}
+// 兼容时附加 ReflectionTypeSolver（识别 JDK 内置类型 java.lang.*）
+if (isRunningVMCompatibleWith(targetJavaVersion)) {
+    typeSolver.add(new ReflectionTypeSolver(/*jreOnly*/ true));
+}
 
-// 仅当 anatomist 自身 JDK 与目标项目 JDK 兼容时才共享 VM classpath
-// 否则会引入目标项目里不存在的 API（如分析 Java 8 项目时引入 String.strip()）
-boolean includeRunningVM = isRunningVMCompatibleWith(targetJavaVersion);
-parser.setEnvironment(classpathEntries, sourcePaths, null, includeRunningVM);
+// 2) ParserConfiguration：语言级别 + Symbol Resolver
+ParserConfiguration cfg = new ParserConfiguration()
+    .setLanguageLevel(toLanguageLevel(targetJavaVersion))   // JAVA_8 / 11 / 17 / 21
+    .setSymbolResolver(new JavaSymbolSolver(typeSolver));
 
-Map<String, String> options = JavaCore.getOptions();
-JavaCore.setComplianceOptions(JavaCore.VERSION_1_8, options);
-parser.setCompilerOptions(options);
+// 3) 批量解析：每个源码根用一个 SourceRoot
+List<CompilationUnit> units = new ArrayList<>();
+for (Path src : sourcePaths) {
+    SourceRoot root = new SourceRoot(src, cfg);
+    for (ParseResult<CompilationUnit> pr : root.tryToParse()) {
+        pr.getResult().ifPresent(units::add);
+        pr.getProblems().forEach(p -> log.warn("parse problem: {}", p));
+    }
+}
 ```
 
-**`includeRunningVMClasspath` 风险说明**：
+**`ReflectionTypeSolver` 风险说明**（运行时 JDK 版本高于目标项目时的"假阳性 API"问题）：
 - anatomist 自身通常运行在较高版本 JDK（如 21），目标项目可能是 Java 8。
-- 传 `true` 会把高版本 JDK 的 rt 类暴露给 JDT，导致解析时识别出目标项目中并不存在的 API（如 `String.strip()`、`List.of()`），引入"假阳性" Binding。
-- 兼容性判断：当 `targetJavaVersion <= runningVMVersion - 4` 时关闭(经验值，跨大版本差异)；用户也可用 `--vm-classpath false` 强制关闭，或 `--jrt-fs <path>` 显式挂载目标版本的 `jrt-fs.jar` / `rt.jar`。
+- 打开 `ReflectionTypeSolver` 会把当前 JVM 的 JDK 类暴露给符号解析，导致解析时识别出目标项目中并不存在的 API（如 `String.strip()`、`List.of()`），引入"假阳性" Binding。
+- 兼容性判断：当 `targetJavaVersion <= runningVMVersion - 4` 时关闭(经验值)；用户也可用 `--vm-classpath false` 强制关闭，或通过 `--classpath` 显式提供目标版本的 `rt.jar` / `jrt-fs` 抽出的 jar，由 `JarTypeSolver` 接管。
 - MVP 行为：默认关闭，文档与 README 显著提示；用户在意精度时显式打开。
-
-parser.createASTs(
-    sourceCodes,    // String[]
-    unitNames,      // String[] 必须匹配 package + 类名
-    new String[0],  // encodings
-    new FileASTRequestor() {
-        @Override
-        public void acceptAST(String sourceFilePath, CompilationUnit ast) {
-            // 对每个文件的 AST 执行提取
-        }
-    },
-    null
-);
-```
 
 **`--java-version` 映射表**：
 
-| 参数值 | AST 常量 | Compliance |
-|--------|----------|-----------|
-| `8` (默认) | `AST.JLS8` | `VERSION_1_8` |
-| `11` | `AST.JLS11` | `VERSION_11` |
-| `17` | `AST.JLS17` | `VERSION_17` |
-| `21` | `AST.JLS21` | `VERSION_21` |
+| 参数值 | LanguageLevel |
+|--------|--------------|
+| `8` (默认) | `JAVA_8` |
+| `11` | `JAVA_11` |
+| `17` | `JAVA_17` |
+| `21` | `JAVA_21` |
 
-**unitName 推算**：JDT 要求 `unitName` = 包名/类名.java，必须从文件路径推算。例如 `src/main/java/com/example/OrderService.java` → `com/example/OrderService.java`。推算方法：从 sourcePaths 中找到最长匹配前缀，截取后即为 unitName。
-
-**为什么用 `createASTs()` 而不是逐文件 `createAST()`**：
-- `createASTs()` 内部共享 NameEnvironment 和 Binding 表
-- 文件间的类型引用可以正确 resolve（如 A 调用 B 的方法，B 的 Binding 能被 A 看到）
-- 一次性解析比多次单文件解析更快
+**为什么用 `SourceRoot.tryToParse()` 而不是逐文件 `StaticJavaParser.parse()`**：
+- `SourceRoot` 内部维持一个 `JavaParser` 实例，所有解析共享同一 `SymbolResolver`，`CombinedTypeSolver` 的缓存命中率最大化
+- `tryToParse()` 不抛异常，每个文件独立返回 `ParseResult`（含语法错误信息），单文件失败不影响整体
+- `SourceRoot` 默认按目录递归扫描，与 `ProjectScanner` 配合时只要把每个源码根传入即可，不需要手动构造 `unitName`
 
 #### Extractors
 
@@ -341,12 +346,12 @@ flowchart LR
 
 ##### TypeExtractor
 
-| 提取对象 | JDT 节点 | Node kind | ID 生成规则 |
+| 提取对象 | JavaParser AST 节点 | Node kind | ID 生成规则 |
 |---------|---------|-----------|------------|
-| 类（含内部类、静态内部类） | `TypeDeclaration` | `CLASS` | FQN 原样（保留大小写）：`com.example.OrderService` |
-| 接口 | `TypeDeclaration.isInterface()` | `INTERFACE` | 同上 |
+| 类（含内部类、静态内部类） | `ClassOrInterfaceDeclaration.isInterface() == false` | `CLASS` | FQN 原样（保留大小写）：`com.example.OrderService` |
+| 接口 | `ClassOrInterfaceDeclaration.isInterface() == true` | `INTERFACE` | 同上 |
 | 枚举 | `EnumDeclaration` | `ENUM` | 同上 |
-| 匿名类 | `AnonymousClassDeclaration` | `ANONYMOUS_CLASS` | 父方法 ID + `$anon@L<line>`：`com.example.OrderService#checkout(...)$anon@L42` |
+| 匿名类 | `ObjectCreationExpr` 含 `getAnonymousClassBody().isPresent()` | `ANONYMOUS_CLASS` | 父方法 ID + `$anon@L<line>`：`com.example.OrderService#checkout(...)$anon@L42` |
 | Record (Java 16+) | `RecordDeclaration` | `RECORD` | 同类规则 |
 
 **匿名类的处理**：
@@ -356,13 +361,13 @@ flowchart LR
 
 ##### MethodExtractor
 
-| 提取对象 | JDT 节点 | 说明 |
+| 提取对象 | JavaParser AST 节点 | 说明 |
 |---------|---------|------|
 | 普通方法 | `MethodDeclaration` | kind = `METHOD` |
-| 构造函数 | `MethodDeclaration.isConstructor()` | kind = `METHOD`，metadata 标记 `isConstructor: true` |
+| 构造函数 | `ConstructorDeclaration` | kind = `METHOD`，metadata 标记 `isConstructor: true` |
 | 抽象方法 | `MethodDeclaration.isAbstract()` | metadata 标记 `isAbstract: true` |
-| Lambda 表达式 | `LambdaExpression` | kind = `LAMBDA`，ID = 父方法 ID + `$lambda@L<line>C<col>`（基于源码位置，增量稳定） |
-| 方法引用 | `MethodReference` | kind = `METHOD_REF`，指向目标方法 |
+| Lambda 表达式 | `LambdaExpr` | kind = `LAMBDA`，ID = 父方法 ID + `$lambda@L<line>C<col>`（基于源码位置，增量稳定） |
+| 方法引用 | `MethodReferenceExpr` | kind = `METHOD_REF`，指向目标方法 |
 
 **Lambda 的处理**：
 - Lambda 是匿名方法，需要提取其内部的方法调用和类型引用
@@ -388,23 +393,23 @@ Edge: com.example.OrderService#checkout(...)$lambda@L8C13 → external_target_fq
 
 ##### FieldExtractor
 
-| 提取对象 | JDT 节点 | kind |
+| 提取对象 | JavaParser AST 节点 | kind |
 |---------|---------|------|
 | 实例字段 | `FieldDeclaration` | `FIELD` |
-| 静态字段 | `FieldDeclaration` | `FIELD`，metadata 标记 `isStatic: true` |
+| 静态字段 | `FieldDeclaration.isStatic()` | `FIELD`，metadata 标记 `isStatic: true` |
 | 枚举常量 | `EnumConstantDeclaration` | `ENUM_CONSTANT` |
 
 ##### CallGraphExtractor（最复杂）
 
-| 提取对象 | JDT API | call_kind | 说明 |
+| 提取对象 | JavaParser / SymbolSolver API | call_kind | 说明 |
 |---------|---------|-----------|------|
-| 实例方法调用 | `MethodInvocation.resolveMethodBinding()` | `INSTANCE` | 主要来源 |
-| 静态方法调用 | `MethodInvocation` + `IMethodBinding.getModifiers()` & STATIC | `STATIC` | `Math.abs()` |
-| 构造函数调用 | `ClassInstanceCreation.resolveConstructorBinding()` | `CONSTRUCTOR` | `new Order()`；E1 领域模型识别需要单查 |
-| 接口方法调用 | `IMethodBinding.getDeclaringClass().isInterface()` | `INTERFACE` | `Repository.findById()`；多态分析需要 |
-| Super 调用 | `SuperMethodInvocation` | `SUPER` | `super.method()` |
-| 链式调用 | 多个 `MethodInvocation` | 按各自类别 | `a.b().c()` → 两条 CALLS 边 |
-| Lambda 内调用 | Lambda body 中的 `MethodInvocation` | 按各自类别 | 递归进入 Lambda body；source_id 是 Lambda 节点本身 |
+| 实例方法调用 | `MethodCallExpr.resolve()` → `ResolvedMethodDeclaration` | `INSTANCE` | 主要来源 |
+| 静态方法调用 | `MethodCallExpr.resolve().isStatic()` | `STATIC` | `Math.abs()` |
+| 构造函数调用 | `ObjectCreationExpr.resolve()` → `ResolvedConstructorDeclaration` | `CONSTRUCTOR` | `new Order()`；E1 领域模型识别需要单查 |
+| 接口方法调用 | `ResolvedMethodDeclaration.declaringType().isInterface()` | `INTERFACE` | `Repository.findById()`；多态分析需要 |
+| Super 调用 | `MethodCallExpr` 的 scope 是 `SuperExpr` | `SUPER` | `super.method()` |
+| 链式调用 | 多个 `MethodCallExpr` | 按各自类别 | `a.b().c()` → 两条 CALLS 边 |
+| Lambda 内调用 | `LambdaExpr` body 中的 `MethodCallExpr` | 按各自类别 | 递归进入 Lambda body；source_id 是 Lambda 节点本身 |
 
 **`call_kind` 列的查询价值**：
 - **多态分析**：`WHERE call_kind = 'INTERFACE'` 找运行时可能是子类实现的调用
@@ -414,26 +419,35 @@ Edge: com.example.OrderService#checkout(...)$lambda@L8C13 → external_target_fq
 **Lambda 在调用链遍历中的处理**：
 Lambda 节点是真实节点（有 ID、有 CALLS 边出去），但 `callees-of OrderService.checkout` 用户期望看到 stream 内的 `item.isValid()`，而不是中间一个 `$lambda@L7C18` 节点。GraphTraversal 在递归 CTE 遍历 CALLS 时，遇到 LAMBDA 节点透明跨越，把 Lambda 的 callees 折算为父方法的 callees。
 
-**Binding 三种情况的处理**：
+**符号解析三种情况的处理**：
 
 ```mermaid
 flowchart TD
-    CALL["方法调用"] --> CHECK{"resolveMethodBinding()"}
-    CHECK -->|非 null<br/>项目内类型| INTERNAL["正常提取<br/>target_id = 目标方法 Node ID<br/>external_target_fqn = NULL<br/>is_external = 0"]
-    CHECK -->|非 null<br/>外部依赖类型| EXTERNAL["保留提取<br/>target_id = NULL<br/>external_target_fqn = com.foo.Bar#method(...)<br/>is_external = 1"]
-    CHECK -->|null| SKIP["跳过<br/>metadata 标记<br/>bindingResolved = false"]
+    CALL["方法调用"] --> CHECK{"MethodCallExpr.resolve()"}
+    CHECK -->|成功<br/>项目内类型| INTERNAL["正常提取<br/>target_id = 目标方法 Node ID<br/>external_target_fqn = NULL<br/>is_external = 0"]
+    CHECK -->|成功<br/>外部依赖类型| EXTERNAL["保留提取<br/>target_id = NULL<br/>external_target_fqn = com.foo.Bar#method(...)<br/>is_external = 1"]
+    CHECK -->|抛 UnsolvedSymbolException<br/>或 UnsupportedOperationException| SKIP["跳过<br/>metadata 标记<br/>bindingResolved = false"]
 ```
 
 **判断项目内 vs 外部依赖**：
+
 ```java
-IMethodBinding binding = invocation.resolveMethodBinding();
-if (binding != null) {
-    ITypeBinding declaringClass = binding.getDeclaringClass();
-    // 检查声明类的源文件是否在项目内
-    String sourcePath = getPathToCompilationUnit(declaringClass);
-    boolean isExternal = (sourcePath == null || !sourcePath.startsWith(projectRoot));
+try {
+    ResolvedMethodDeclaration m = invocation.resolve();
+    ResolvedReferenceTypeDeclaration declaringType =
+        m.declaringType().asReferenceType();
+
+    // 解析此类型的 TypeSolver 来源决定 internal/external
+    // - JavaParserTypeSolver 命中 → 项目内
+    // - JarTypeSolver / ReflectionTypeSolver 命中 → 外部
+    boolean isExternal = !context.isResolvedBySource(declaringType);
+} catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+    context.incrementUnresolved();
+    return; // 跳过，不生成边
 }
 ```
+
+> `ExtractionContext.isResolvedBySource()` 的实现：`JavaParserTypeSolver` 在解析符号时会返回 `JavaParserClassDeclaration` 等"基于源码"的实现类，可通过 `instanceof` 判定；`JarTypeSolver` 返回自定义的 `JavassistClassDeclaration`。判定细节见 [core/JarTypeSolver.java](../src/main/java/com/anatomist/core/JarTypeSolver.java)。
 
 **外部依赖方法调用的数据结构**：
 - `target_id`: NULL（外部方法不在 nodes 表中）
@@ -443,25 +457,30 @@ if (binding != null) {
 
 ##### HierarchyExtractor
 
-| 提取对象 | JDT API | Edge relation |
+| 提取对象 | JavaParser / SymbolSolver API | Edge relation |
 |---------|---------|--------------|
-| extends 类 | `ITypeBinding.getSuperclass()` | `INHERITS` |
-| implements 接口 | `ITypeBinding.getInterfaces()` | `IMPLEMENTS` |
-| 接口 extends 接口 | `ITypeBinding.getInterfaces()` on interface | `INHERITS` |
-| 方法 Override | `IMethodBinding.overrides(superMethod)` | `OVERRIDES` |
+| extends 类 | `ResolvedReferenceTypeDeclaration.getSuperClass()` | `INHERITS` |
+| implements 接口 | `ResolvedReferenceTypeDeclaration.getInterfaces()` | `IMPLEMENTS` |
+| 接口 extends 接口 | 同上（对 interface 而言 `getInterfaces()` 即父接口） | `INHERITS` |
+| 方法 Override | 遍历 `getAllAncestors()` 中每个类型的方法，用 `MethodResolutionLogic.isApplicable(...)` 比对签名 | `OVERRIDES` |
 
-**OVERRIDES 检测**：遍历父类/接口的所有方法，用 `IMethodBinding.overrides()` 逐一比较。
+**OVERRIDES 检测**：JavaParser/SymbolSolver 没有"`bindings.overrides(other)`"的直接 API。做法：
+
+1. 取当前 `MethodDeclaration` 解析出的 `ResolvedMethodDeclaration` 的擦除签名（名 + 参数擦除类型列表）
+2. 沿 `getAllAncestors()` 拿到所有父类/接口的 `ResolvedReferenceType`
+3. 对每个父类型 `getAllMethods()`，凡同签名（同名 + 同擦除参数列表）即 OVERRIDES
+4. 跳过 `private` 与 `static` 方法（不参与覆盖）
 
 ##### ReferenceExtractor
 
-| 提取对象 | JDT API | context 值 |
+| 提取对象 | JavaParser / SymbolSolver API | context 值 |
 |---------|---------|-----------|
-| 字段类型 | `FieldDeclaration.getType().resolveBinding()` | `field_type` |
-| 方法参数类型 | `SingleVariableDeclaration.getType().resolveBinding()` | `parameter_type` |
-| 返回类型 | `MethodDeclaration.getReturnType2().resolveBinding()` | `return_type` |
+| 字段类型 | `FieldDeclaration.getElementType().resolve()` | `field_type` |
+| 方法参数类型 | `Parameter.getType().resolve()` | `parameter_type` |
+| 返回类型 | `MethodDeclaration.getType().resolve()` | `return_type` |
 | 类型参数 | `TypeParameter` | `generic_arg` |
-| 泛型参数类型 | `ParameterizedType.typeArguments()` → 逐个 `resolveBinding()` | `generic_arg` |
-| Lambda 参数类型 | `LambdaExpression.parameters()` | `parameter_type` |
+| 泛型参数类型 | `ClassOrInterfaceType.getTypeArguments()` → 逐个 `.resolve()` | `generic_arg` |
+| Lambda 参数类型 | `LambdaExpr.getParameters()` → 推断或显式类型 `.resolve()` | `parameter_type` |
 
 **泛型类型引用深入提取**：
 ```java
@@ -482,17 +501,17 @@ REFERENCES: com.example.OrderService#orderCache → com.example.Order           
 
 **去重策略**：同一方法中参数类型和返回类型引用同一个类时，生成**多条 REFERENCES 边**，因为 context 不同（`return_type` vs `parameter_type`），查询时需要区分。
 
-**null Binding 处理**：与 CallGraphExtractor 相同策略，Binding 为 null 时跳过并标记。
+**符号解析失败的处理**：`resolve()` 抛 `UnsolvedSymbolException` / `UnsupportedOperationException` 时跳过该引用并 `context.incrementUnresolved()`，与 CallGraphExtractor 同策略。
 
 ##### FieldAccessExtractor
 
 为支持 F1 影响分析中"谁修改了 `order.status`"这类字段级问题，单独提取字段访问。
 
-| 提取对象 | JDT API | relation |
+| 提取对象 | JavaParser / SymbolSolver API | relation |
 |---------|---------|----------|
-| 字段读取 | `SimpleName` / `FieldAccess` → `IVariableBinding.isField()`，且节点不在 `Assignment` 左侧 / `PrefixExpression` / `PostfixExpression` 内 | `READS` |
-| 字段写入 | 字段名出现在 `Assignment.getLeftHandSide()` 或 `PrefixExpression` / `PostfixExpression`（`++`/`--`） | `WRITES` |
-| 复合赋值 `+=` | `Assignment` 左侧字段 + 右侧字段 | 生成一条 `WRITES` + 一条 `READS` |
+| 字段读取 | `NameExpr` / `FieldAccessExpr` → `resolve()` 为 `ResolvedFieldDeclaration`，且节点不在 `AssignExpr.getTarget()` / `UnaryExpr` (`++` / `--`) 中 | `READS` |
+| 字段写入 | 字段名出现在 `AssignExpr.getTarget()` 或 `UnaryExpr` (`++`/`--`) | `WRITES` |
+| 复合赋值 `+=` | `AssignExpr.getOperator()` 非纯 `=` 时，左侧字段同时产生 `WRITES` 与 `READS` | 生成一条 `WRITES` + 一条 `READS` |
 
 **边数据**：
 - `source_id`: 包含该访问的方法节点 ID（Lambda 内访问则归到 Lambda 节点，遍历时按 LAMBDA 跨越规则折算）
@@ -524,14 +543,14 @@ WRITES: com.example.OrderService#updateStatus(...) → com.example.OrderService#
 
 ##### AnnotationExtractor
 
-| 提取对象 | JDT API | 说明 |
+| 提取对象 | JavaParser / SymbolSolver API | 说明 |
 |---------|---------|------|
-| 类注解 | `TypeDeclaration.modifiers()` → `Annotation` | — |
-| 方法注解 | `MethodDeclaration.modifiers()` → `Annotation` | — |
-| 字段注解 | `FieldDeclaration.modifiers()` → `Annotation` | — |
-| 参数注解 | `SingleVariableDeclaration.modifiers()` → `Annotation` | `@RequestBody`、`@Valid`、`@PathVariable` 等 |
-| 注解 FQN | `IAnnotationBinding.getAnnotationType().getQualifiedName()` | 必须存 FQN |
-| 注解属性 | `MemberValuePair` | `@RequestMapping("/api/orders")` → `{"value": "/api/orders"}` |
+| 类注解 | `ClassOrInterfaceDeclaration.getAnnotations()` | — |
+| 方法注解 | `MethodDeclaration.getAnnotations()` | — |
+| 字段注解 | `FieldDeclaration.getAnnotations()` | — |
+| 参数注解 | `Parameter.getAnnotations()` | `@RequestBody`、`@Valid`、`@PathVariable` 等 |
+| 注解 FQN | `AnnotationExpr.resolve().getQualifiedName()` | 必须存 FQN |
+| 注解属性 | `NormalAnnotationExpr.getPairs()` / `SingleMemberAnnotationExpr.getMemberValue()` | `@RequestMapping("/api/orders")` → `{"value": "/api/orders"}` |
 
 **注解全限定名的重要性**：`@Service` 在代码中是简写，但 SQLite 中必须存 `org.springframework.stereotype.Service`，否则 B4 场景（"所有 @RestController"）无法精确查询。
 
@@ -566,7 +585,7 @@ WRITES: com.example.OrderService#updateStatus(...) → com.example.OrderService#
 **关键决策**：
 
 - **保留大小写**：`com.example.Order`（类）与 `com.example.order`（子包）是不同实体，小写化会冲突；类成员与子包同名也会撞 ID。
-- **方法用完整擦除签名**：重载消歧的权威方式；直接派生自 JDT `IMethodBinding.getKey()`，不再人工把 `List<OrderItem>` 标准化为 `list`（会丢泛型导致 `process(List<A>)` 与 `process(List<B>)` 撞 ID）。
+- **方法用完整擦除签名**：重载消歧的权威方式；直接派生自 `ResolvedMethodDeclaration` 的 `getParam(i).getType().erasure().describe()`（输出 `java.lang.String` / `java.util.List` 等擦除 FQN），不再人工把 `List<OrderItem>` 标准化为 `list`（会丢泛型导致 `process(List<A>)` 与 `process(List<B>)` 撞 ID）。
 - **字段/方法用 `#` 而非 `__`**：`#` 是 Javadoc 引用惯例；字段无括号、方法有括号，语法即可区分。
 - **Lambda/匿名类用源码位置**：早期序号方案（`_anon1`/`_lambda1`）在文件新增一个 Lambda 后所有后续序号全部位移，导致增量更新破坏外部所有引用；改为 `@L42C18` 后位置稳定，IDE 跳转友好。
 - **冲突解决**：方法重载依靠完整签名天然区分；同源同位置不可能两个 Lambda，位置即唯一。
@@ -634,7 +653,7 @@ WRITES: com.example.OrderService#updateStatus(...) → com.example.OrderService#
 | `external_target_fqn` | TEXT | 外部依赖时填写 FQN（含方法签名），项目内为 NULL | 显示外部方法 |
 | `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES | 按关系筛选 |
 | `call_kind` | TEXT | 仅 CALLS 边：INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE；其他为 NULL | 多态、构造调用筛选 |
-| `confidence` | TEXT | EXTRACTED | JDT 解析均为 EXTRACTED |
+| `confidence` | TEXT | EXTRACTED | 符号解析成功均为 EXTRACTED |
 | `context` | TEXT | REFERENCES: `field_type`/`parameter_type`/`return_type`/`generic_arg`；CALLS: 空 | C4 区分引用类型 |
 | `is_external` | INTEGER | 0 = 项目内（target_id 有效），1 = 外部依赖（external_target_fqn 有效） | 过滤外部调用 |
 | `source_file` | TEXT | 边所在文件 | — |
@@ -719,7 +738,7 @@ Indexing /path/to/project...
   Classpath: 47 jars resolved
   Source paths: order-api/src/main/java, order-service/src/main/java, order-infra/src/main/java
   Source files: 156 .java files
-  Parsing with JDT (Java 8)...
+  Parsing with JavaParser (Java 8)...
   Extracting:
     Types:         234 (class: 168, interface: 38, enum: 16, anonymous: 12)
     Methods:       1,847 (method: 1,790, constructor: 42, lambda: 15)
@@ -744,9 +763,9 @@ Done in 4.2s → .anatomist/index.db
 
 4. **Lambda 提取**：Lambda 本质是匿名方法，需要递归进入其 body 提取调用和引用。Lambda 可以嵌套 Lambda。
 
-5. **CompilationUnit 的 Problem 处理**：JDT 会报告编译错误（缺少依赖、语法错误等）。策略：**尽力提取**，`setBindingsRecovery(true)` 让 JDT 尽量恢复 Binding。只在 metadata 中标记 `hasProblems: true`。
+5. **`ParseResult` Problem 处理**：JavaParser 会通过 `ParseResult.getProblems()` 报告语法错误（缺少依赖、语法错误等）。策略：**尽力提取**，单文件解析失败时记录 problem，能拿到 `CompilationUnit` 就尽量提取；对该文件节点 metadata 中标记 `hasProblems: true`。符号解析失败（`UnsolvedSymbolException`）按节点单点跳过，不影响同文件其他节点。
 
-6. **内存管理**：10 万行项目一次 `createASTs()` 约占 200-500MB 内存。Phase 1 不做分批，设置文件数上限 5000，超过提示。
+6. **内存管理**：10 万行项目一次完整 `SourceRoot.tryToParse()` + SymbolSolver 缓存约占 300-700MB 内存。Phase 1 不做分批，设置文件数上限 5000，超过提示。
 
 7. **SQLite 写入性能**：批量 INSERT 用事务包裹，预期 2 万条边在单事务中 <100ms 写入完成。
 
@@ -762,7 +781,7 @@ Done in 4.2s → .anatomist/index.db
 
 13. **测试源码**：`src/test/java` 也索引，nodes 表 `scope` 列标记 `MAIN` 或 `TEST`。CLI 查询支持 `--scope main|test|all` 过滤。
 
-14. **ASTVisitor 实现模式**：采用独立 Visitor + 共享 ExtractionContext。每个 Extractor 是独立的 ASTVisitor，可独立测试。共享 `ExtractionContext` 提供 ID 生成、is_external 判断等公共能力。每个 Extractor 从 Binding FQN 独立计算 Node ID，不依赖其他 Extractor 先执行（ID 生成是确定性的）。7 次遍历 AST 的额外开销约 50-100ms，可忽略。
+14. **Visitor 实现模式**：采用独立 VoidVisitorAdapter + 共享 ExtractionContext。每个 Extractor 是独立的 visitor，可独立测试。共享 `ExtractionContext` 提供 ID 生成、is_external 判断等公共能力。每个 Extractor 从 `Resolved*` 解析结果独立计算 Node ID，不依赖其他 Extractor 先执行（ID 生成是确定性的）。多次遍历 AST 的额外开销可忽略。
 
 15. **源码文件读取**：`Files.readString(path, StandardCharsets.UTF_8)`，读取失败（编码、权限）时跳过该文件并输出 warning。后续可扩展编码检测。
 
@@ -826,16 +845,19 @@ class ExtractionContext {
     String defaultModule;          // 当前模块名
 
     // 判断类型是否在项目内
-    boolean isProjectInternal(ITypeBinding binding) {
-        String source = getPathToCompilationUnit(binding);
-        return source != null && projectSourcePaths.stream()
-            .anyMatch(p -> source.startsWith(p.toString()));
+    boolean isProjectInternal(ResolvedReferenceTypeDeclaration t) {
+        // JavaParserTypeSolver 命中时返回的实现类是 JavaParserClassDeclaration /
+        // JavaParserInterfaceDeclaration / JavaParserEnumDeclaration 等
+        return t instanceof JavaParserClassDeclaration
+            || t instanceof JavaParserInterfaceDeclaration
+            || t instanceof JavaParserEnumDeclaration
+            || t instanceof JavaParserAnnotationDeclaration;
     }
 
     // 生成 Node ID
-    String generateId(ITypeBinding type) { ... }
-    String generateId(IMethodBinding method) { ... }
-    String generateId(IVariableBinding field) { ... }
+    String generateId(ResolvedReferenceTypeDeclaration type) { ... }
+    String generateId(ResolvedMethodDeclaration method)     { ... }
+    String generateId(ResolvedFieldDeclaration field)       { ... }
 }
 ```
 
@@ -982,8 +1004,8 @@ CREATE INDEX idx_semantic_source ON semantic_annotations(source);
 
 | 层级 | 来源 | 可靠性 | 获取成本 | Phase |
 |------|------|--------|---------|-------|
-| 代码结构 | JDT 解析 | 100% 精确 | 低（自动） | Phase 1 |
-| Javadoc / 注释 | 源码内嵌 | 高（开发者写的） | 低（JDT 可提取） | Phase 1 |
+| 代码结构 | JavaParser + SymbolSolver 解析 | 100% 精确 | 低（自动） | Phase 1 |
+| Javadoc / 注释 | 源码内嵌 | 高（开发者写的） | 低（JavaParser `Javadoc` 节点） | Phase 1 |
 | 约定推导 | @Service, *Service 命名 | 中（有例外） | 零 | Phase 1 |
 | 项目文档 | README, docs/, ADR | 高（项目官方） | 低（文件读取） | Phase 2 |
 | LLM 推理 | Agent LLM | 中（可能误判） | 高（token 消耗） | Phase 2 |
@@ -994,7 +1016,7 @@ CREATE INDEX idx_semantic_source ON semantic_annotations(source);
 
 #### Javadoc 提取
 
-JDT 能提取 Javadoc 注释，天然绑到具体类/方法上：
+JavaParser 能提取 Javadoc 注释，天然绑到具体类/方法上：
 
 ```java
 /**
@@ -1004,7 +1026,7 @@ JDT 能提取 Javadoc 注释，天然绑到具体类/方法上：
 public class OrderService { ... }
 ```
 
-JDT API：`Javadoc` 节点可通过 `MethodDeclaration.getJavadoc()` / `TypeDeclaration.getJavadoc()` 获取。
+JavaParser API：所有 `BodyDeclaration` 节点都实现 `NodeWithJavadoc`，可通过 `getJavadoc()` 拿到 `Optional<Javadoc>`。
 
 **存储方式**：nodes 表新增 `javadoc` 列
 
@@ -1077,7 +1099,7 @@ CREATE VIRTUAL TABLE doc_content USING fts5(
 
 | 关联方式 | 示例 | 可靠性 | 实现 |
 |---------|------|--------|------|
-| Javadoc | `/** 订单服务 */` 直接绑到类 | 100% | JDT 提取，写入 nodes.javado |
+| Javadoc | `/** 订单服务 */` 直接绑到类 | 100% | JavaParser 提取，写入 nodes.javadoc |
 | 文档内嵌代码引用 | "OrderService 负责订单处理" | 高 | FTS5 搜索文档中的类名 → 匹配 nodes |
 | 文档目录结构 | `docs/order-module/` | 中 | 目录名模式匹配模块名 |
 | Agent LLM 关联 | LLM 读文档后判断 | 中 | `anatomist annotate` 写回 |
@@ -1173,9 +1195,9 @@ sequenceDiagram
 | 反射 / SPI | `Class.forName` / `Method.invoke` / `ServiceLoader` 触发的调用 | D3 调用链 | 不提取，需要时 Agent 自行用 FTS5 搜索 `Class.forName` 字符串字面量 |
 | 字符串 SQL / ORM 注解 | `@Query("SELECT ...")` / MyBatis XML / JPA Repository 派生方法名所暗示的表与字段访问 | E2 限界上下文 | 列入 Phase 5 或非目标；FTS5 可对 `@Query` 字符串内容做关键词搜索 |
 | 配置驱动 | `application.yml` / Spring XML 配置中的 Bean 装配 | E2 | 非目标 |
-| 代码生成 | Lombok 生成的 getter/setter、MapStruct、注解处理器产物 | C1 类全貌 | JDT 看到的是处理后的 AST，部分能解析；编译期生成的源文件若不在 source path 内则丢失 |
+| 代码生成 | Lombok 生成的 getter/setter、MapStruct、注解处理器产物 | C1 类全貌 | JavaParser 看到的是源文件中的原始 AST（未经注解处理器扩展）；Lombok 等编译期生成的方法在源码中不可见，会丢失。可通过 `--classpath` 引入构建产物 jar 让 SymbolSolver 看到 |
 | 跨项目联邦 | 多 repo 间 `OrderService` 调用关系 | D3 | 列入 Phase 4，每项目一个 db，提供 `--link` 联邦查询能力 |
-| Java 21+ 新特性 | sealed classes / pattern matching / record patterns 的语义 | 较新代码库 | JDT 3.45.0 已覆盖；`--java-version 21` 启用 |
+| Java 21+ 新特性 | sealed classes / pattern matching / record patterns 的语义 | 较新代码库 | JavaParser 3.26+ 已覆盖；`--java-version 21` 启用 |
 | Binding 失败的调用 | 编译错误、缺失依赖导致 `resolveMethodBinding() == null` 的调用 | F1 准确性 | 跳过且 `bindingResolved: false` 标记；统计输出 Unresolved 数量 |
 
 ## Phase 归属

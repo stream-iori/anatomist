@@ -1,38 +1,40 @@
 # Anatomist — Java Code Intelligence
 
-基于 JDT 的 Java 源码索引与结构化分析工具，配合 Agent LLM 实现精确语义搜索。
+基于 **JavaParser + SymbolSolver**（源码 AST 与符号解析，外部 jar 通过 `JarTypeSolver` 由 javassist 读取字节码）构建的 Java 源码索引与结构化分析工具，配合 Agent LLM 实现精确语义搜索。
 
 ## 核心理念
 
-**JDT 提供精确结构化数据，Agent 提供 LLM 推理能力。**
+**解析器提供精确结构化数据，Agent 提供 LLM 推理能力。**
 
 Anatomist 不嵌入 LLM 调用，而是作为 Agent 可调用的代码智能基座，通过 CLI 暴露结构化查询能力，由 Agent（Claude Code / Cursor / Copilot 等）利用自身 LLM 完成语义理解和推理。
 
 ## 两阶段数据流
 
-anatomist 的运行严格分为两个阶段，**JDT 只在 index 阶段参与，查询阶段完全走 SQLite**。
+anatomist 的运行严格分为两个阶段，**JavaParser & SymbolSolver 只在 index 阶段参与，查询阶段完全走 SQLite**。
 
 ```mermaid
 graph LR
     subgraph IndexPhase["index 阶段（离线，一次性）"]
-        SRC["Java 源码"] --> JDT["JDT 解析"]
-        POM["pom.xml"] --> JDT
-        JDT --> |提取 nodes + edges| SQLITE["SQLite + FTS5"]
+        SRC["Java 源码"] --> JP["JavaParser + SymbolSolver"]
+        JAR["依赖 jar"] --> JTS["JarTypeSolver (javassist)"]
+        JTS --> JP
+        POM["pom.xml"] --> JP
+        JP --> |提取 nodes + edges| SQLITE["SQLite + FTS5"]
     end
 
     subgraph QueryPhase["query 阶段（在线，每次查询）"]
         SQLITE --> |SQL 查询<br/>递归 CTE| RESULT["返回结构化结果"]
     end
 
-    SQLITE -.- |JDT 快照| SQLITE
+    SQLITE -.- |解析快照| SQLITE
 ```
 
-| 阶段 | 触发 | 数据流 | JDT 参与 | 耗时 |
-|------|------|--------|---------|------|
-| **index** | `anatomist index /path` | Java 源码 → JDT 解析 → SQLite | 是 | 秒~分钟级 |
+| 阶段 | 触发 | 数据流 | 解析器参与 | 耗时 |
+|------|------|--------|-----------|------|
+| **index** | `anatomist index /path` | Java 源码 → JavaParser+SymbolSolver → SQLite | 是 | 秒~分钟级 |
 | **query** | `anatomist search/context/callers-of/...` | SQLite → SQL 查询 → 结果 | **否** | 毫秒级 |
 
-**为什么查询不重新走 JDT**：JDT 解析一个项目需要几秒到几十秒，Agent 每次查询都重解析不现实。SQLite 中的数据就是 JDT Binding 的持久化快照，查询直接读快照即可。
+**为什么查询不重新解析**：完整解析一个项目（源码 + jar 依赖）需要几秒到几十秒，Agent 每次查询都重解析不现实。SQLite 中的数据就是符号解析结果的持久化快照，查询直接读快照即可。
 
 **数据如何保持新鲜**：源码变更后执行 `anatomist index --incremental`（Phase 4），仅重解析变更文件并更新 SQLite。
 
@@ -43,18 +45,20 @@ graph LR
     end
 
     subgraph Anatomist["Anatomist CLI"]
-        JDT["JDT (仅 index)"]
+        PARSER["JavaParser + SymbolSolver<br/>(仅 index)"]
         SQLITE["SQLite + FTS5"]
     end
 
     subgraph Project["Java Project"]
         SRC["源码 .java"]
+        JARS["依赖 jar (.m2)"]
         POM["pom.xml / build.gradle"]
     end
 
-    SRC -->|"index 阶段"| JDT
-    POM -->|"index 阶段"| JDT
-    JDT --> SQLITE
+    SRC -->|"index 阶段"| PARSER
+    JARS -->|"index 阶段"| PARSER
+    POM -->|"index 阶段"| PARSER
+    PARSER --> SQLITE
     SQLITE -->|"query 阶段：结构化查询 + 递归 CTE"| LLM
     LLM -->|"anatomist search/context/callers-of"| SQLITE
 ```
@@ -184,9 +188,9 @@ graph LR
 
 ## 场景推导：为什么需要持久化关系？
 
-**问题**: JDT 已能解析所有关系，为什么还要持久化到 SQLite？
+**问题**: JavaParser+SymbolSolver 已能解析所有关系，为什么还要持久化到 SQLite？
 
-**答案**: JDT 解析一个项目要几秒到几十秒，Agent 每问一次都重解析不现实。**关系的持久化 = JDT Binding 的快照**，使后续查询 O(1) 而不是 O(N) 重解析。
+**答案**: 完整解析一个项目（源码 + jar 依赖 + 符号绑定）要几秒到几十秒，Agent 每问一次都重解析不现实。**关系的持久化 = 符号解析结果的快照**，使后续查询 O(1) 而不是 O(N) 重解析。
 
 **不需要图库**: SQLite 的 edges 表就是图，SQL 递归 CTE 就是遍历，MVP 阶段不需要 JGraphT 等图库。
 
@@ -211,22 +215,22 @@ SELECT * FROM chain;
 
 ### 核心 5 种（覆盖 80% 场景）
 
-| 关系 | JDT 来源 | 存什么 | 追溯场景 |
+| 关系 | 解析来源 | 存什么 | 追溯场景 |
 |------|---------|--------|---------|
-| **CONTAINS** | `TypeDeclaration` → 其中的 MethodDeclaration / FieldDeclaration | class 节点 → method/field 节点 | **C1**: "OrderService 有什么方法和字段" |
-| **CALLS** | `MethodInvocation.resolveMethodBinding()`（含 `ClassInstanceCreation`、`SuperMethodInvocation`） | 调用方 method 节点 → 被调用 method 节点；`call_kind` 列区分 INSTANCE / STATIC / CONSTRUCTOR / SUPER / INTERFACE | **D1/D2/D3**: 调用链追踪；**F1**: 方法修改影响 |
-| **INHERITS** | `ITypeBinding.getSuperclass()` | 子类 → 父类 | **C2**: 继承链 |
-| **IMPLEMENTS** | `ITypeBinding.getInterfaces()` | 实现类 → 接口 | **B5**: "谁实现了这个接口"；**F2**: 接口变更影响 |
-| **ANNOTATED_WITH** | TypeDeclaration / MethodDeclaration 上的 Annotation | 节点 → 注解 | **B4**: "所有 @RestController"；**E1/E2**: Spring 注解分析 |
+| **CONTAINS** | `ClassOrInterfaceDeclaration` / `EnumDeclaration` → 其中的 `MethodDeclaration` / `FieldDeclaration` | class 节点 → method/field 节点 | **C1**: "OrderService 有什么方法和字段" |
+| **CALLS** | `MethodCallExpr.resolve()`（含 `ObjectCreationExpr.resolve()`、`SuperExpr`） → `ResolvedMethodDeclaration` | 调用方 method 节点 → 被调用 method 节点；`call_kind` 列区分 INSTANCE / STATIC / CONSTRUCTOR / SUPER / INTERFACE | **D1/D2/D3**: 调用链追踪；**F1**: 方法修改影响 |
+| **INHERITS** | `ResolvedReferenceTypeDeclaration.getAncestors()` 中的 class 祖先 | 子类 → 父类 | **C2**: 继承链 |
+| **IMPLEMENTS** | `ResolvedReferenceTypeDeclaration.getAncestors()` 中的 interface 祖先 | 实现类 → 接口 | **B5**: "谁实现了这个接口"；**F2**: 接口变更影响 |
+| **ANNOTATED_WITH** | `NodeWithAnnotations.getAnnotations()` → `AnnotationExpr.resolve()` | 节点 → 注解 | **B4**: "所有 @RestController"；**E1/E2**: Spring 注解分析 |
 
 ### 补充 4 种（覆盖剩余 20%）
 
-| 关系 | JDT 来源 | 存什么 | 追溯场景 |
+| 关系 | 解析来源 | 存什么 | 追溯场景 |
 |------|---------|--------|---------|
-| **OVERRIDES** | `IMethodBinding.overrides(superMethod)` | 子类方法 → 父类方法 | **C2**: 多态场景——"checkout 覆盖了谁的实现" |
-| **REFERENCES** | 字段类型、方法参数类型、返回类型的 `ITypeBinding` | 使用方 → 被引用的类 | **C4/C5**: "OrderService 依赖了哪些类"；**F3**: 类删除影响 |
-| **READS** | `SimpleName` / `FieldAccess` 解析到 `IVariableBinding`（字段），且不在赋值左侧 | 方法节点 → 字段节点 | **F1**: "谁读了 order.status" |
-| **WRITES** | `Assignment` / `PrefixExpression` / `PostfixExpression` 中字段在左侧 | 方法节点 → 字段节点 | **F1**: "谁修改了 order.status"——影响分析高频问题 |
+| **OVERRIDES** | `MethodResolutionLogic.isApplicable(superMethod, name, paramTypes, ...)` 遍历父类/接口方法逐一比对 | 子类方法 → 父类方法 | **C2**: 多态场景——"checkout 覆盖了谁的实现" |
+| **REFERENCES** | 字段 `Type`、方法参数 `Type`、`MethodDeclaration.getType()` 返回值的 `resolve()` | 使用方 → 被引用的类 | **C4/C5**: "OrderService 依赖了哪些类"；**F3**: 类删除影响 |
+| **READS** | `NameExpr` / `FieldAccessExpr` → `resolve()` 为 `ResolvedFieldDeclaration`，且不在赋值左侧 | 方法节点 → 字段节点 | **F1**: "谁读了 order.status" |
+| **WRITES** | `AssignExpr` / `UnaryExpr (++/--)` 左侧字段 | 方法节点 → 字段节点 | **F1**: "谁修改了 order.status"——影响分析高频问题 |
 
 ### 不存的
 
@@ -342,7 +346,7 @@ LAMBDA:                 父方法ID + $lambda@L<line>C<col>             → com.
 | 决策 | 原因 |
 |------|------|
 | 保留大小写 | `com.example.Order`(类)与 `com.example.order`(子包)是不同实体,小写化会冲突 |
-| 方法用完整擦除签名 | 重载消歧权威方式;直接用 JDT `IMethodBinding.getKey()` 派生,不再人工标准化 |
+| 方法用完整擦除签名 | 重载消歧权威方式;直接由 `ResolvedMethodDeclaration` 的参数类型 `erasure().describe()` 派生,不再人工标准化 |
 | 字段/方法用 `#` 而非 `__` | `#` 是 Java 文档惯例(Javadoc 引用),字段无括号方法有,语法即可区分 |
 | Lambda/匿名类用源码位置(`@L42C18`) | 序号在文件内新增 Lambda 后会漂移,导致增量更新破坏所有引用;位置稳定 |
 | 字符集 | 仅 `[A-Za-z0-9._#$()@,]`,无空格,SQL/CLI/Mermaid 友好 |
@@ -424,7 +428,7 @@ LAMBDA:                 父方法ID + $lambda@L<line>C<col>             → com.
 | `external_target_fqn` | TEXT | 外部依赖时填写 FQN（如 `java.util.List#add(java.lang.Object)`）；项目内为 NULL | INDEX | 显示外部方法全限定名 |
 | `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/ANNOTATED_WITH | INDEX | 按关系类型筛选 |
 | `call_kind` | TEXT | 仅 CALLS 边：INSTANCE / STATIC / CONSTRUCTOR / SUPER / INTERFACE；其他关系为 NULL | INDEX | 多态分析、构造调用筛选 |
-| `confidence` | TEXT | EXTRACTED | — | JDT 解析均为 EXTRACTED |
+| `confidence` | TEXT | EXTRACTED | — | 符号解析成功均为 EXTRACTED |
 | `context` | TEXT | REFERENCES: `field_type` / `parameter_type` / `return_type` / `generic_arg`；CALLS: 空 | — | 区分引用类型 |
 | `is_external` | INTEGER | 0 = 项目内（target_id 有效），1 = 外部依赖（external_target_fqn 有效） | INDEX | 过滤外部调用 |
 | `source_file` | TEXT | 边所在文件 | INDEX | — |
@@ -496,7 +500,7 @@ CREATE VIRTUAL TABLE node_names USING fts5(
 
 ## 真实示例
 
-以一个 Spring 项目为例，展示 JDT 提取的完整数据：
+以一个 Spring 项目为例，展示 JavaParser+SymbolSolver 提取的完整数据：
 
 ```java
 @Service
@@ -806,15 +810,15 @@ Agent → 读取 src/main/java/com/example/service/OrderService.java L33-40
 
 | 层级 | 来源 | 可靠性 | 获取成本 | Phase |
 |------|------|--------|---------|-------|
-| 代码结构 | JDT 解析 | 100% 精确 | 低（自动） | Phase 1 |
-| Javadoc / 注释 | 源码内嵌 | 高 | 低（JDT 提取） | Phase 1 |
+| 代码结构 | JavaParser + SymbolSolver 解析 | 100% 精确 | 低（自动） | Phase 1 |
+| Javadoc / 注释 | 源码内嵌 | 高 | 低（JavaParser `Javadoc` 节点提取） | Phase 1 |
 | 约定推导 | @Service, *Service 命名 | 中 | 零 | Phase 1 |
 | 项目文档 | README, docs/, ADR | 高 | 低（文件读取） | Phase 2 |
 | LLM 推理 | Agent LLM | 中 | 高（token） | Phase 2 |
 
 ### Phase 1：Javadoc + 约定推导
 
-**Javadoc**：nodes 表 `javadoc` 列存储，JDT 提取 `TypeDeclaration.getJavadoc()` / `MethodDeclaration.getJavadoc()`，可被 FTS5 索引。
+**Javadoc**：nodes 表 `javadoc` 列存储，JavaParser 提取 `Node.getJavadoc()`（来自 `JavadocComment`），可被 FTS5 索引。
 
 **约定推导**：索引时从注解和命名模式自动推断语义类别，写入 `semantic_annotations` 表（`source = 'CONVENTION'`）：
 
@@ -859,10 +863,10 @@ graph TB
         BUILD["Maven/Gradle 构建文件"]
     end
 
-    subgraph Phase1["Phase 1: JDT 索引引擎 → 场景 A"]
+    subgraph Phase1["Phase 1: 索引引擎 → 场景 A"]
         SCANNER["ProjectScanner<br/>递归扫描 .java"]
         CLASSPATH["ClasspathDetector<br/>自动检测依赖"]
-        PARSER["JdtParserFactory<br/>ASTParser + createASTs()"]
+        PARSER["JavaParserFactory<br/>JavaParser + SymbolSolver<br/>(JarTypeSolver 读 jar)"]
         EXTRACTORS["Extractors<br/>Type/Method/CallGraph/Hierarchy/..."]
     end
 
@@ -903,10 +907,12 @@ anatomist/
 │   ├── anatomist-skill.md              # Skill 定义（给 Agent 用）
 │   └── domain-analysis-skill.md        # 领域分析 Skill
 └── src/main/java/com/anatomist/
-    ├── core/                           # Phase 1: JDT 索引引擎
-    │   ├── JdtParserFactory.java       # ASTParser 工厂 + classpath 配置
+    ├── core/                           # Phase 1: 索引引擎
+    │   ├── JavaParserFactory.java      # JavaParser + JavaSymbolSolver 工厂（CombinedTypeSolver: JavaParserTypeSolver + JarTypeSolver + ReflectionTypeSolver）
     │   ├── ProjectScanner.java         # 递归扫描 .java 文件
-    │   └── ClasspathDetector.java      # 自动检测 Maven/Gradle 依赖
+    │   ├── ClasspathDetector.java      # 自动检测 Maven/Gradle 依赖
+    │   ├── NodeIdGenerator.java        # 从 ResolvedDeclaration 生成 Node ID
+    │   └── ExtractionContext.java      # 共享上下文（TypeSolver、is_external 判定）
     ├── extract/                        # Phase 1: 结构化提取
     │   ├── Extractor.java             # 提取器接口
     │   ├── TypeExtractor.java         # 类/接口/枚举/Record
@@ -964,11 +970,11 @@ anatomist/
 
 ```xml
 <dependencies>
-    <!-- JDT — 场景 A1: 解析 Java 源码 -->
+    <!-- JavaParser + SymbolSolver — 源码 AST 与符号绑定；transitive 拉入 javassist 用于 JarTypeSolver 读 jar -->
     <dependency>
-        <groupId>org.eclipse.jdt</groupId>
-        <artifactId>org.eclipse.jdt.core</artifactId>
-        <version>3.45.0</version>
+        <groupId>com.github.javaparser</groupId>
+        <artifactId>javaparser-symbol-solver-core</artifactId>
+        <version>3.28.1</version>
     </dependency>
 
     <!-- SQLite — 场景 B/C/D: 持久化存储 + 查询 -->
@@ -994,6 +1000,8 @@ anatomist/
 </dependencies>
 ```
 
+**依赖预算**：4 个直接依赖。`javaparser-symbol-solver-core` 会传递引入 `javassist`，供 `JarTypeSolver` 读取依赖 jar 的字节码。
+
 ## 实施路径
 
 ```mermaid
@@ -1002,14 +1010,14 @@ gantt
     dateFormat  YYYY-MM-DD
     axisFormat  %m/%d
 
-    section Phase 1: JDT 索引引擎 (场景 A)
-    项目骨架 + Maven 配置           :p1a, 2026-06-01, 2d
-    ClasspathDetector               :p1b, after p1a, 3d
-    JdtParserFactory + createASTs() :p1c, after p1a, 3d
-    TypeExtractor                   :p1d, after p1c, 2d
-    MethodExtractor                 :p1e, after p1d, 2d
-    CallGraphExtractor              :p1f, after p1e, 3d
-    HierarchyExtractor              :p1g, after p1f, 2d
+    section Phase 1: 索引引擎 (场景 A)
+    项目骨架 + Maven 配置             :p1a, 2026-06-01, 2d
+    ClasspathDetector                 :p1b, after p1a, 3d
+    JavaParserFactory + JarTypeSolver :p1c, after p1a, 4d
+    TypeExtractor                     :p1d, after p1c, 2d
+    MethodExtractor                   :p1e, after p1d, 2d
+    CallGraphExtractor                :p1f, after p1e, 3d
+    HierarchyExtractor                :p1g, after p1f, 2d
 
     section Phase 2: 存储 + 搜索 + CLI (场景 B/C/D/F)
     SQLite Store                    :p2a, after p1g, 3d
@@ -1029,7 +1037,7 @@ gantt
 
 | Phase | 内容 | 覆盖场景 | 时间 |
 |-------|------|---------|------|
-| Phase 1 | JDT 结构化索引引擎 | A | 2-3 周 |
+| Phase 1 | JavaParser+SymbolSolver 结构化索引引擎 | A | 2-3 周 |
 | Phase 2 | SQLite 存储 + FTS5 搜索 + CLI | B, C, D, F | 2 周 |
 | Phase 3 | Agent Skills + ContextBuilder | E | 1 周 |
 | Phase 4 | 增量解析 + 向量搜索 + 图算法 | A2 + 高级 | 2 周 |
@@ -1039,12 +1047,12 @@ gantt
 
 | 维度 | Graphify | Anatomist |
 |------|----------|-----------|
-| 结构解析 | tree-sitter（无类型信息） | JDT（完整 Binding/类型解析） |
-| 调用图 | 保守 label 匹配（INFERRED） | 编译器级精确解析（EXTRACTED） |
+| 结构解析 | tree-sitter（无类型信息） | JavaParser + SymbolSolver（jar 字节码通过 javassist 解析） |
+| 调用图 | 保守 label 匹配（INFERRED） | 符号解析级精确（EXTRACTED） |
 | 语言 | 多语言 | Java 专精 |
-| 增量 | 无 | 文件粒度差量重解析（JDT 无原生增量 API） + 缓存 diff |
+| 增量 | 无 | 文件粒度差量重解析 + 缓存 diff |
 | 语义搜索 | 内嵌 LLM | Agent Skill 驱动 |
 | 领域分析 | LLM 直接提取 | Agent 基于结构数据推理 |
 | 存储 | NetworkX + JSON | SQLite + FTS5 |
 | 图遍历 | NetworkX API | SQL 递归 CTE |
-| 部署 | Python + 依赖 | 单 JAR，4 个依赖，零外部服务 |
+| 部署 | Python + 依赖 | 单 JAR，4 个直接依赖（javassist 等通过 javaparser-symbol-solver-core 传递），零外部服务 |

@@ -2,7 +2,7 @@ package com.anatomist.cli;
 
 import com.anatomist.core.ClasspathDetector;
 import com.anatomist.core.ExtractionContext;
-import com.anatomist.core.JdtParserFactory;
+import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.ProjectScanner;
 import com.anatomist.extract.AnnotationExtractor;
@@ -15,8 +15,6 @@ import com.anatomist.extract.ReferenceExtractor;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.store.SqliteStore;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.FileASTRequestor;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -57,8 +55,16 @@ public class IndexCommand implements Callable<Integer> {
     @Option(names = "--project-source", description = "Override project source roots (path-separator delimited).")
     String projectSource;
 
-    @Option(names = "--no-classpath", description = "Skip classpath detection; bindings to external types will be null.")
+    @Option(names = "--no-classpath", description = "Skip classpath detection; external types will be unresolved.")
     boolean noClasspath;
+
+    @Option(names = "--vm-classpath",
+            description = "Add ReflectionTypeSolver so JDK types resolve. "
+                    + "Defaults to true so java.lang.* / java.util.* are visible "
+                    + "without an explicit classpath. Turn off when analysing a "
+                    + "much older target than the running JDK.",
+            defaultValue = "true", arity = "1")
+    boolean vmClasspath;
 
     @Override
     public Integer call() {
@@ -78,7 +84,7 @@ public class IndexCommand implements Callable<Integer> {
                 return 1;
             }
 
-            List<String> classpathEntries = resolveClasspath(cd, projectRoot);
+            List<Path> classpathEntries = resolveClasspath(cd, projectRoot);
 
             Set<String> extraExcludes = exclude == null || exclude.isEmpty()
                     ? Collections.emptySet()
@@ -91,12 +97,8 @@ public class IndexCommand implements Callable<Integer> {
             }
 
             int jv = javaVersion == null ? 8 : javaVersion;
-            JdtParserFactory factory = new JdtParserFactory(
-                    jv,
-                    classpathEntries,
-                    sourcePaths.stream().map(Path::toString).collect(Collectors.toList()),
-                    false
-            );
+            JavaParserFactory factory = new JavaParserFactory(
+                    jv, classpathEntries, sourcePaths, vmClasspath);
 
             NodeIdGenerator idGen = new NodeIdGenerator();
             ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN");
@@ -111,21 +113,18 @@ public class IndexCommand implements Callable<Integer> {
 
             ExtractionResult result = new ExtractionResult();
 
-            factory.parseAll(sourceFiles, new FileASTRequestor() {
-                @Override
-                public void acceptAST(String sourceFilePath, CompilationUnit ast) {
-                    String relative = relativize(projectRoot, Path.of(sourceFilePath));
-                    ast.setProperty("source_file", relative);
-                    // Order matters: nodes first, then edges that reference them.
-                    typeExtractor.extract(ast, result);
-                    fieldExtractor.extract(ast, result);
-                    methodExtractor.extract(ast, result);
-                    annotationExtractor.extract(ast, result);
-                    hierarchyExtractor.extract(ast, result);
-                    referenceExtractor.extract(ast, result);
-                    callGraphExtractor.extract(ast, result);
-                    fieldAccessExtractor.extract(ast, result);
-                }
+            factory.parseAll((filePath, cu) -> {
+                String relative = filePath == null ? null : relativize(projectRoot, filePath);
+                if (relative != null) cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
+                // Order matters: nodes first, then edges that reference them.
+                typeExtractor.extract(cu, result);
+                fieldExtractor.extract(cu, result);
+                methodExtractor.extract(cu, result);
+                annotationExtractor.extract(cu, result);
+                hierarchyExtractor.extract(cu, result);
+                referenceExtractor.extract(cu, result);
+                callGraphExtractor.extract(cu, result);
+                fieldAccessExtractor.extract(cu, result);
             });
 
             Path dbPath = output == null
@@ -172,6 +171,7 @@ public class IndexCommand implements Callable<Integer> {
             System.out.println("  CALLS:        " + calls);
             System.out.println("  READS:        " + reads);
             System.out.println("  WRITES:       " + writes);
+            System.out.println("  Unresolved:   " + ctx.unresolvedCount());
             System.out.println("  Output:       " + dbPath);
             System.out.println("Done in " + elapsed + "ms");
             return 0;
@@ -197,14 +197,15 @@ public class IndexCommand implements Callable<Integer> {
         return cd.detectSourcePaths(projectRoot);
     }
 
-    List<String> resolveClasspath(ClasspathDetector cd, Path projectRoot) {
+    List<Path> resolveClasspath(ClasspathDetector cd, Path projectRoot) {
         if (noClasspath) return Collections.emptyList();
         if (classpath != null && !classpath.isEmpty()) {
             return Arrays.stream(classpath.split(File.pathSeparator))
                     .map(String::trim).filter(s -> !s.isEmpty())
+                    .map(Path::of)
                     .collect(Collectors.toList());
         }
-        return cd.detect(projectRoot);
+        return cd.detect(projectRoot).stream().map(Path::of).collect(Collectors.toList());
     }
 
     private static String relativize(Path root, Path file) {
@@ -225,18 +226,18 @@ public class IndexCommand implements Callable<Integer> {
     }
 
     /**
-     * Defensive sweep: any edge marked is_external=0 whose target_id does not
-     * resolve to a known node would trigger a FOREIGN KEY violation and abort
-     * the whole index transaction. This phase intentionally does not emit
-     * LAMBDA / METHOD_REF nodes yet, so a few cross-extractor edges can land in
-     * that hole. Drop them with a single WARN rather than failing the run.
+     * Drop any edge / annotation whose source / internal target does not
+     * resolve to a known node — would otherwise blow the FK on insert. The
+     * underlying coverage gap (LOCAL_CLASS / LAMBDA / METHOD_REF nodes not
+     * yet emitted) is the actual fix; this is the last line of defence.
      */
     private static int pruneDanglingInternalEdges(ExtractionResult r) {
         java.util.Set<String> known = new java.util.HashSet<>();
         for (com.anatomist.model.Node n : r.nodes) known.add(n.id);
-        int before = r.edges.size();
+        int before = r.edges.size() + r.annotations.size();
         r.edges.removeIf(e -> !e.isExternal && (e.targetId == null || !known.contains(e.targetId)));
         r.edges.removeIf(e -> e.sourceId == null || !known.contains(e.sourceId));
-        return before - r.edges.size();
+        r.annotations.removeIf(a -> a.nodeId == null || !known.contains(a.nodeId));
+        return before - r.edges.size() - r.annotations.size();
     }
 }
