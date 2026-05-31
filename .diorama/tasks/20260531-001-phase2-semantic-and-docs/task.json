@@ -7,11 +7,11 @@
   },
   "phase": {
     "current": "plan",
-    "completed": ["incept", "specify"],
+    "completed": ["incept", "specify", "plan"],
     "checkpoints": {
       "incept": "",
       "specify": "ef92c45a12ea20bbf11008c2643c6cbbe118299d",
-      "plan": "",
+      "plan": "c4d81392da9917298a2da7e3e8827a017fd5057c",
       "generate": "",
       "consolidate": ""
     },
