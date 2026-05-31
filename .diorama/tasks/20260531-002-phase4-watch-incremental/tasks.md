@@ -52,41 +52,41 @@
 
 ### T2: FileCacheService + 增量索引 + IndexCommand 改造 [REQ-004, REQ-005, REQ-006, REQ-007]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] FileCacheService — class — SHA-256 hash 计算 + file_cache 对比 + 变更检测(changed/new/deleted)
-- [ ] IncrementalIndexer — class — 增量重解析协调(复用 JavaParserFactory + Extractors + SemanticPostProcessor)
-- [ ] IndexCommand 新增 --incremental / --full 选项 (picocli @Option)
+- [x] FileCacheService — class — SHA-256 hash 计算 + file_cache 对比 + 变更检测(changed/new/deleted)
+- [x] IncrementalIndexer — class — 增量重解析协调(复用 JavaParserFactory + Extractors + SemanticPostProcessor)
+- [x] IndexCommand 新增 --incremental / --full 选项 (picocli @Option)
 
 **Gate**: `mvn compile -q` — exit 0
 
 #### Phase 2: DSL Test
 
-- [ ] FileCacheServiceTest#testDetectChangedFiles — 场景 S1 — 核心断言: hash 不同的文件出现在 changed 列表
-- [ ] FileCacheServiceTest#testDetectNewFiles — 场景 S2 — 核心断言: 新文件出现在 new 列表
-- [ ] FileCacheServiceTest#testDetectDeletedFiles — 场景 S3 — 核心断言: 文件不存在时出现在 deleted 列表
-- [ ] IncrementalIndexerIT#testIncrementalModifyFile — 场景 S1 — 核心断言: 修改单个文件后增量索引，该文件 nodes 更新，其他文件不变
-- [ ] IncrementalIndexerIT#testIncrementalAddFile — 场景 S2 — 核心断言: 新增文件后增量索引，新文件 nodes 出现
-- [ ] IncrementalIndexerIT#testIncrementalDeleteFile — 场景 S3 — 核心断言: 删除文件后增量索引，该文件 nodes 消失
-- [ ] IncrementalIndexerIT#testIncrementalSchemaVersionDegradation — 场景 S4 — 核心断言: schema_version 不匹配时降级为全量
-- [ ] IncrementalIndexerIT#testIncrementalEmptyCacheDegradation — 场景 S5 — 核心断言: file_cache 为空时降级为全量
-- [ ] IncrementalIndexerIT#testStaleCascadeMarking — 场景 S7 — 核心断言: 修改被依赖文件后，依赖方 stale=1
-- [ ] IndexCommandIT 验证全量索引后 file_cache / project_meta / file_dependencies 非空 — 场景 S11
+- [x] FileCacheServiceTest#testDetectChangedFiles — 场景 S1 — 核心断言: hash 不同的文件出现在 changed 列表
+- [x] FileCacheServiceTest#testDetectNewFiles — 场景 S2 — 核心断言: 新文件出现在 new 列表
+- [x] FileCacheServiceTest#testDetectDeletedFiles — 场景 S3 — 核心断言: 文件不存在时出现在 deleted 列表
+- [x] IncrementalIndexerIT#testIncrementalModifyFile — 场景 S1 — 核心断言: 修改单个文件后增量索引，该文件 nodes 更新，其他文件不变
+- [x] IncrementalIndexerIT#testIncrementalAddFile — 场景 S2 — 核心断言: 新增文件后增量索引，新文件 nodes 出现
+- [x] IncrementalIndexerIT#testIncrementalDeleteFile — 场景 S3 — 核心断言: 删除文件后增量索引，该文件 nodes 消失
+- [x] IncrementalIndexerIT#testIncrementalSchemaVersionDegradation — 场景 S4 — 核心断言: schema_version 不匹配时降级为全量
+- [x] IncrementalIndexerIT#testIncrementalEmptyCacheDegradation — 场景 S5 — 核心断言: file_cache 为空时降级为全量
+- [x] IncrementalIndexerIT#testStaleCascadeMarking — 场景 S7 — 核心断言: 修改被依赖文件后，依赖方 stale=1
+- [x] IndexCommandIT 验证全量索引后 file_cache / project_meta / file_dependencies 非空 — 场景 S11
 
 **Gate**: `mvn test-compile -q && mvn test -Dtest="FileCacheServiceTest" -q` — ① test-compile exit 0 ② test fails with AssertionError (红灯)
 
 #### Phase 3: Implementation
 
-- [ ] FileCacheService: computeFileHashes(sourcePaths) — SHA-256 per file
-- [ ] FileCacheService: detectChanges(projectRoot, fileCache) — 对比 disk hashes vs file_cache → changed/new/deleted
-- [ ] IncrementalIndexer: indexIncremental(projectRoot, changedFiles, newFiles, deletedFiles) — 单事务内 DELETE + re-extract + INSERT + update file_cache + derive file_dependencies + mark stale
-- [ ] IndexCommand: --incremental 分支委托 IncrementalIndexer
-- [ ] IndexCommand: 默认全量流程改为清表(DELETE FROM nodes WHERE 1=1 等)而非 Files.deleteIfExists(dbPath)，索引完成后写入 file_cache / project_meta / file_dependencies
-- [ ] IndexCommand: --full 显式全量(语义与默认一致)
-- [ ] IndexCommand: stdout 新增 "File cache: <n> entries" 行
-- [ ] IndexCommandIT: 断言 file_cache 行数 = 源文件数；project_meta 含 java_version/classpath_hash
+- [x] FileCacheService: computeFileHashes(sourcePaths) — SHA-256 per file
+- [x] FileCacheService: detectChanges(projectRoot, fileCache) — 对比 disk hashes vs file_cache → changed/new/deleted
+- [x] IncrementalIndexer: indexIncremental(projectRoot, changedFiles, newFiles, deletedFiles) — 单事务内 DELETE + re-extract + INSERT + update file_cache + derive file_dependencies + mark stale
+- [x] IndexCommand: --incremental 分支委托 IncrementalIndexer
+- [x] IndexCommand: 默认全量流程改为清表(DELETE FROM nodes WHERE 1=1 等)而非 Files.deleteIfExists(dbPath)，索引完成后写入 file_cache / project_meta / file_dependencies
+- [x] IndexCommand: --full 显式全量(语义与默认一致)
+- [x] IndexCommand: stdout 新增 "File cache: <n> entries" 行
+- [x] IndexCommandIT: 断言 file_cache 行数 = 源文件数；project_meta 含 java_version/classpath_hash
 
 **Gate**: `mvn test -Dtest="FileCacheServiceTest,IncrementalIndexerIT,IndexCommandIT" -q` — exit 0, all tests green
 

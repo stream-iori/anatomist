@@ -99,6 +99,19 @@ class IndexCommandIT {
                     "expected ≥6 semantic_annotations rows on fixture (naming rules); got " + semantic);
             assertTrue(stdout.contains("Semantic annotations:"),
                     "stdout should contain 'Semantic annotations:' line; got:\n" + stdout);
+
+            // REQ-005 / S11 — file_cache and project_meta are populated post-full-index.
+            int fileCache = scalar(st, "SELECT count(*) FROM file_cache");
+            assertTrue(fileCache > 0, "file_cache should be populated; got " + fileCache);
+            int javaVerMeta = scalar(st, "SELECT count(*) FROM project_meta WHERE key='java_version'");
+            assertEquals(1, javaVerMeta, "project_meta should contain java_version row");
+            int cpHash = scalar(st, "SELECT count(*) FROM project_meta WHERE key='classpath_hash'");
+            assertEquals(1, cpHash, "project_meta should contain classpath_hash row");
+            int fileDeps = scalar(st, "SELECT count(*) FROM file_dependencies");
+            assertTrue(fileDeps >= 0, "file_dependencies table should be queryable");
+
+            assertTrue(stdout.contains("File cache:"),
+                    "stdout should contain 'File cache:' line; got:\n" + stdout);
         }
     }
 

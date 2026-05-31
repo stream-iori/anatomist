@@ -13,7 +13,10 @@ import com.anatomist.extract.HierarchyExtractor;
 import com.anatomist.extract.MethodExtractor;
 import com.anatomist.extract.ReferenceExtractor;
 import com.anatomist.extract.TypeExtractor;
+import com.anatomist.incremental.FileCacheService;
+import com.anatomist.incremental.IncrementalIndexer;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.FileCacheEntry;
 import com.anatomist.semantic.SemanticPostProcessor;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
@@ -67,6 +70,12 @@ public class IndexCommand implements Callable<Integer> {
             defaultValue = "true", arity = "1")
     boolean vmClasspath;
 
+    @Option(names = "--incremental", description = "Incremental index: only re-parse changed files.")
+    boolean incremental;
+
+    @Option(names = "--full", description = "Force full re-index (default behavior).")
+    boolean full;
+
     @Override
     public Integer call() {
         long started = System.currentTimeMillis();
@@ -107,49 +116,136 @@ public class IndexCommand implements Callable<Integer> {
             JavaParserFactory factory = new JavaParserFactory(
                     jv, classpathEntries, sourcePaths, vmClasspath);
 
-            NodeIdGenerator idGen = new NodeIdGenerator();
-            ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN");
-            TypeExtractor typeExtractor = new TypeExtractor(ctx);
-            FieldExtractor fieldExtractor = new FieldExtractor(ctx);
-            MethodExtractor methodExtractor = new MethodExtractor(ctx);
-            AnnotationExtractor annotationExtractor = new AnnotationExtractor(ctx);
-            HierarchyExtractor hierarchyExtractor = new HierarchyExtractor(ctx);
-            ReferenceExtractor referenceExtractor = new ReferenceExtractor(ctx);
-            CallGraphExtractor callGraphExtractor = new CallGraphExtractor(ctx);
-            FieldAccessExtractor fieldAccessExtractor = new FieldAccessExtractor(ctx);
-
-            ExtractionResult result = new ExtractionResult();
-
-            factory.parseAll((filePath, cu) -> {
-                String relative = filePath == null ? null : relativize(projectRoot, filePath);
-                if (relative != null) cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
-                // Order matters: nodes first, then edges that reference them.
-                typeExtractor.extract(cu, result);
-                fieldExtractor.extract(cu, result);
-                methodExtractor.extract(cu, result);
-                annotationExtractor.extract(cu, result);
-                hierarchyExtractor.extract(cu, result);
-                referenceExtractor.extract(cu, result);
-                callGraphExtractor.extract(cu, result);
-                fieldAccessExtractor.extract(cu, result);
-            });
-
             Path dbPath = output == null
                     ? projectRoot.resolve(".anatomist").resolve("index.db")
                     : output.toAbsolutePath().normalize();
             Files.createDirectories(dbPath.getParent());
-            Files.deleteIfExists(dbPath);
 
-            try (SqliteStore store = new SqliteStore(dbPath)) {
-                store.initSchema();
-                int dropped = pruneDanglingInternalEdges(result);
-                if (dropped > 0) {
-                    System.err.println("WARN: dropped " + dropped + " edges with dangling internal target (extractor gaps)");
+            boolean useIncremental = incremental && !full && Files.exists(dbPath);
+
+            if (useIncremental) {
+                try (SqliteStore store = new SqliteStore(dbPath)) {
+                    java.util.Map<String, FileCacheEntry> cache;
+                    try {
+                        cache = store.readFileCache();
+                    } catch (RuntimeException ex) {
+                        // Schema missing — fall back to full
+                        cache = java.util.Collections.emptyMap();
+                    }
+                    boolean schemaMismatch = !cache.isEmpty() && cache.values().stream()
+                            .anyMatch(e -> e.schemaVersion() != FileCacheService.CURRENT_SCHEMA_VERSION);
+                    if (cache.isEmpty() || schemaMismatch) {
+                        String reason = cache.isEmpty()
+                                ? "file_cache empty"
+                                : "schema_version mismatch";
+                        System.err.println("INFO: incremental degraded to full (" + reason + ")");
+                        return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
+                                jv, factory, dbPath, classpath, started);
+                    }
+                    FileCacheService fcs = new FileCacheService();
+                    java.util.Map<String, String> diskHashes = fcs.computeFileHashes(projectRoot, sourceFiles);
+                    FileCacheService.Changes ch = fcs.detectChanges(diskHashes, cache);
+
+                    IncrementalIndexer ii = new IncrementalIndexer(
+                            projectRoot, sourcePaths, factory, store, jv);
+                    IncrementalIndexer.Summary summary = ii.indexIncremental(
+                            ch.changed, ch.added, ch.deleted, diskHashes);
+
+                    long elapsed = System.currentTimeMillis() - started;
+                    System.out.println("Indexed " + projectRoot + " (incremental)");
+                    System.out.println("  Changed files: " + summary.changedFiles);
+                    System.out.println("  New files:     " + summary.newFiles);
+                    System.out.println("  Deleted files: " + summary.deletedFiles);
+                    System.out.println("  New nodes:     " + summary.newNodes);
+                    System.out.println("  New edges:     " + summary.newEdges);
+                    System.out.println("  Output:        " + dbPath);
+                    java.util.Map<String, FileCacheEntry> after = store.readFileCache();
+                    System.out.println("  File cache:    " + after.size() + " entries");
+                    System.out.println("Done in " + elapsed + "ms");
+                    return 0;
                 }
-                // TODO T3.P3: invoke SemanticPostProcessor here
-                new SemanticPostProcessor().process(result);
-                store.write(result);
             }
+
+            return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
+                    jv, factory, dbPath, classpath, started);
+        } catch (Exception e) {
+            System.err.println("ERROR: index failed: " + e.getMessage());
+            e.printStackTrace(System.err);
+            return 1;
+        }
+    }
+
+    private Integer runFullIndex(Path projectRoot,
+                                 List<Path> sourcePaths,
+                                 List<Path> classpathEntries,
+                                 List<Path> sourceFiles,
+                                 int jv,
+                                 JavaParserFactory factory,
+                                 Path dbPath,
+                                 String classpathOverride,
+                                 long started) throws Exception {
+        NodeIdGenerator idGen = new NodeIdGenerator();
+        ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN");
+        TypeExtractor typeExtractor = new TypeExtractor(ctx);
+        FieldExtractor fieldExtractor = new FieldExtractor(ctx);
+        MethodExtractor methodExtractor = new MethodExtractor(ctx);
+        AnnotationExtractor annotationExtractor = new AnnotationExtractor(ctx);
+        HierarchyExtractor hierarchyExtractor = new HierarchyExtractor(ctx);
+        ReferenceExtractor referenceExtractor = new ReferenceExtractor(ctx);
+        CallGraphExtractor callGraphExtractor = new CallGraphExtractor(ctx);
+        FieldAccessExtractor fieldAccessExtractor = new FieldAccessExtractor(ctx);
+
+        ExtractionResult result = new ExtractionResult();
+
+        factory.parseAll((filePath, cu) -> {
+            String relative = filePath == null ? null : relativize(projectRoot, filePath);
+            if (relative != null) cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
+            typeExtractor.extract(cu, result);
+            fieldExtractor.extract(cu, result);
+            methodExtractor.extract(cu, result);
+            annotationExtractor.extract(cu, result);
+            hierarchyExtractor.extract(cu, result);
+            referenceExtractor.extract(cu, result);
+            callGraphExtractor.extract(cu, result);
+            fieldAccessExtractor.extract(cu, result);
+        });
+
+        try (SqliteStore store = new SqliteStore(dbPath)) {
+            boolean schemaExists;
+            try (java.sql.Statement st = store.connection().createStatement();
+                 java.sql.ResultSet rs = st.executeQuery(
+                         "SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'")) {
+                schemaExists = rs.next();
+            }
+            if (!schemaExists) {
+                store.initSchema();
+            } else {
+                // Wipe data, keep schema, so the file_cache & friends survive across runs.
+                try (java.sql.Statement st = store.connection().createStatement()) {
+                    st.execute("DELETE FROM semantic_annotations");
+                    st.execute("DELETE FROM annotations");
+                    st.execute("DELETE FROM edges");
+                    st.execute("DELETE FROM nodes");
+                    st.execute("DELETE FROM file_cache");
+                    st.execute("DELETE FROM file_dependencies");
+                    st.execute("DELETE FROM project_meta");
+                }
+            }
+            int dropped = pruneDanglingInternalEdges(result);
+            if (dropped > 0) {
+                System.err.println("WARN: dropped " + dropped + " edges with dangling internal target (extractor gaps)");
+            }
+            new SemanticPostProcessor().process(result);
+            store.write(result);
+
+            // Phase 4: populate file_cache / project_meta / file_dependencies
+            populateFileCache(store, projectRoot, sourceFiles, result);
+            store.upsertProjectMeta("java_version", String.valueOf(jv));
+            store.upsertProjectMeta("classpath_hash",
+                    FileCacheService.sha256OfString(classpathFingerprint(classpathEntries, classpathOverride)));
+            store.upsertProjectMeta("index_version", String.valueOf(FileCacheService.CURRENT_SCHEMA_VERSION));
+            store.clearFileDependencies();
+            store.deriveFileDependencies();
 
             long elapsed = System.currentTimeMillis() - started;
             long types = result.nodes.stream().filter(n -> isType(n.kind)).count();
@@ -182,14 +278,47 @@ public class IndexCommand implements Callable<Integer> {
             System.out.println("  WRITES:       " + writes);
             System.out.println("  Semantic annotations: " + result.semanticAnnotations.size());
             System.out.println("  Unresolved:   " + ctx.unresolvedCount());
+            System.out.println("  File cache:   " + store.readFileCache().size() + " entries");
             System.out.println("  Output:       " + dbPath);
             System.out.println("Done in " + elapsed + "ms");
-            return 0;
-        } catch (Exception e) {
-            System.err.println("ERROR: index failed: " + e.getMessage());
-            e.printStackTrace(System.err);
-            return 1;
         }
+        return 0;
+    }
+
+    private static void populateFileCache(SqliteStore store, Path projectRoot,
+                                          List<Path> sourceFiles, ExtractionResult result) {
+        java.util.Map<String, int[]> perFile = new java.util.HashMap<>();
+        for (com.anatomist.model.Node n : result.nodes) {
+            if (n.sourceFile == null) continue;
+            perFile.computeIfAbsent(n.sourceFile, k -> new int[2])[0]++;
+        }
+        for (com.anatomist.model.Edge e : result.edges) {
+            if (e.sourceFile == null) continue;
+            perFile.computeIfAbsent(e.sourceFile, k -> new int[2])[1]++;
+        }
+        String now = java.time.Instant.now().toString();
+        java.util.List<FileCacheEntry> entries = new java.util.ArrayList<>();
+        for (Path f : sourceFiles) {
+            String rel;
+            try {
+                rel = projectRoot.relativize(f.toAbsolutePath().normalize()).toString();
+            } catch (IllegalArgumentException ex) {
+                rel = f.toAbsolutePath().toString();
+            }
+            String hash = FileCacheService.sha256(f.toAbsolutePath().normalize());
+            int[] cnt = perFile.getOrDefault(rel, new int[]{0, 0});
+            entries.add(new FileCacheEntry(rel, hash, FileCacheService.CURRENT_SCHEMA_VERSION,
+                    now, cnt[0], cnt[1], 0, null));
+        }
+        if (!entries.isEmpty()) store.updateFileCache(entries);
+    }
+
+    private static String classpathFingerprint(List<Path> classpathEntries, String override) {
+        if (override != null && !override.isEmpty()) return override;
+        if (classpathEntries == null || classpathEntries.isEmpty()) return "";
+        java.util.List<String> sorted = classpathEntries.stream()
+                .map(Path::toString).sorted().collect(java.util.stream.Collectors.toList());
+        return String.join(File.pathSeparator, sorted);
     }
 
     List<Path> resolveSourcePaths(ClasspathDetector cd, Path projectRoot) {
