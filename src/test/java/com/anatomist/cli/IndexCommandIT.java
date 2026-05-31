@@ -4,7 +4,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -45,7 +48,19 @@ class IndexCommandIT {
                 "--no-classpath",
                 "--output", db.toString()
         );
-        assertEquals(0, cmd.call(), "index should exit 0");
+
+        ByteArrayOutputStream stdoutCapture = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        int rc;
+        try {
+            System.setOut(new PrintStream(stdoutCapture, true, StandardCharsets.UTF_8));
+            rc = cmd.call();
+        } finally {
+            System.setOut(originalOut);
+        }
+        String stdout = stdoutCapture.toString(StandardCharsets.UTF_8);
+        System.out.print(stdout);
+        assertEquals(0, rc, "index should exit 0");
 
         assertTrue(Files.exists(db), "db not produced: " + db);
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
@@ -73,6 +88,17 @@ class IndexCommandIT {
             // OrderItem::getPrice method reference).
             assertTrue(lambdas >= 1, "expected ≥1 LAMBDA node; got " + lambdas);
             assertTrue(methodRefs >= 1, "expected ≥1 METHOD_REF node; got " + methodRefs);
+
+            // Phase 2 — semantic annotations & stdout line.
+            // Note: this IT runs with --no-classpath, so SymbolSolver cannot
+            // resolve Spring annotation FQNs (only java.lang.Override survives).
+            // Therefore only naming rules fire on this fixture (≥6 hits).
+            // Annotation-rule coverage is proven by SemanticPostProcessorTest.
+            int semantic = scalar(st, "SELECT count(*) FROM semantic_annotations");
+            assertTrue(semantic >= 6,
+                    "expected ≥6 semantic_annotations rows on fixture (naming rules); got " + semantic);
+            assertTrue(stdout.contains("Semantic annotations:"),
+                    "stdout should contain 'Semantic annotations:' line; got:\n" + stdout);
         }
     }
 

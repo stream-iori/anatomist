@@ -311,7 +311,7 @@ classDiagram
 - **AC-007**: [REQ-007] `anatomist index` stdout 包含 `Semantic annotations: <n>` 行
 - **AC-008**: [REQ-008] `anatomist index-docs` 扫描 README / docs/ / ADR 三种场景测试通过(≥ 3 用例)
 - **AC-009**: Phase 1 baseline 零回归 — IndexCommandIT 既除断言全部通过
-- **AC-010**: `anatomist index` 在 fixture 上产出 semantic_annotations 行数 ≥ 期望基线(注解规则 7 条: @Service×3 + @Repository×1 + @RestController×1 + @Component×1 + @Transactional×1; 命名规则至少 *Service×2 + *Request×1 + *Repository×2 + *Controller×1 = 6 条; Javadoc 规则取决于 fixture 中有 javadoc 的节点数)
+- **AC-010**: `anatomist index` 在 fixture 上产出 semantic_annotations 行数 ≥ 期望基线。在 `--no-classpath` 下,SymbolSolver 无法解析 Spring 注解 FQN(只剩 java.lang.Override),所以 IT 基线退化为命名规则 ≥6 条;注解规则(7 条)与 Javadoc 规则覆盖改由 SemanticPostProcessorTest 单元测试保证。Full-classpath IT 留作后续 task。
 
 ### 验证矩阵
 
@@ -329,3 +329,7 @@ classDiagram
 ## 11. 遗留问题
 
 无
+
+## Amendments
+
+- **2026-05-31**: AC-010 baseline 修正 — 在 `--no-classpath` IT 环境下,Spring 注解无法被 SymbolSolver 解析(只剩 `java.lang.Override`),因此 IT 仅断言命名规则的 ≥6 条 baseline;注解规则与 Javadoc 规则的覆盖完整性由 SemanticPostProcessorTest 单元测试承担。后续若需 full-classpath IT,作为新 task 引入。

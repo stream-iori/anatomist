@@ -47,6 +47,8 @@
 
 ### T3: IndexCommand 接入 + 统计输出 [REQ-007, AC-007, AC-009, AC-010]
 
+**Status**: [x] done
+
 在 `IndexCommand.call()` 中 `pruneDanglingInternalEdges(result)` 之后、`store.write(result)` 之前调用 `new SemanticPostProcessor().process(result)`；统计行追加 `Semantic annotations: <n>`；`IndexCommandIT` 新增三项断言：① stdout 包含 `Semantic annotations:` ② `semantic_annotations` 行数 ≥ AC-010 基线 ③ Phase 1 baseline(16 types / 47 methods / 75 CONTAINS / LAMBDA≥1 / METHOD_REF≥1) 全部保留。
 
 - **Phase 1 (Skeleton)**: `IndexCommand` 插入 `SemanticPostProcessor` 调用点 + 计数变量 + stdout 行；`IndexCommandIT` 加新断言方法签名占位(空 body 或 `fail()`)
