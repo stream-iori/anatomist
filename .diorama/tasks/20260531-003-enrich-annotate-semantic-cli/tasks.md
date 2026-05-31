@@ -52,7 +52,7 @@
 
 **Gate**: `mvn test -Dtest=SqliteStoreUpsertTest -q` — exit 0, all green
 
-**Status**: [ ] done
+**Status**: [x] done
 
 ---
 

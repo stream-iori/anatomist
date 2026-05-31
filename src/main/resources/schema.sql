@@ -145,6 +145,7 @@ CREATE INDEX idx_semantic_annotations_node_id ON semantic_annotations(node_id);
 CREATE INDEX idx_semantic_annotations_doc_id ON semantic_annotations(doc_id);
 CREATE INDEX idx_semantic_annotations_category ON semantic_annotations(category);
 CREATE INDEX idx_semantic_annotations_source ON semantic_annotations(source);
+CREATE UNIQUE INDEX idx_semantic_annotations_upsert_key ON semantic_annotations(node_id, category, source);
 
 CREATE TABLE file_cache (
     source_file TEXT PRIMARY KEY,
