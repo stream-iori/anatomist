@@ -12,6 +12,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 anatomist **never embeds an LLM**. All semantic reasoning is delegated to the calling Agent (Claude Code / Cursor / ...).
 
+**Native-image affinity is a global design constraint.** anatomist's distribution target is a GraalVM native binary covering *all* commands (index, incremental index, watch, query, enrich, annotate). When designing or modifying any production code, ask first: *"does this hold under native-image's closed-world assumption?"*. Concretely, the following patterns require a documented native-image adaptation in the task's `design.md` before they may land:
+
+- `Class.forName` / reflective method or field access
+- `java.lang.reflect.Proxy` / dynamic proxies
+- `ServiceLoader` discovery (unless the SPI is already covered by an upstream `META-INF/native-image/` config)
+- Runtime bytecode generation or loading (cglib, javassist `CtClass.toClass()`, custom `ClassLoader`)
+- Reflection-based POJO marshalling (Jackson `ObjectMapper`, Gson, etc.) — prefer compile-time codegen or hand-written serializers
+- Resource access via `getResourceAsStream` without a corresponding `resource-config.json` entry
+
+Concrete decisions already locked in by [scenario-6-native-image.md](docs/scenario-6-native-image.md) §决策 1–6, to be applied progressively:
+
+- **Drop javassist** → replace `JarTypeSolver` with self-written `AsmTypeSolver` (ASM `ClassReader` reads `.class` without loading)
+- **Drop `ReflectionTypeSolver`** → pre-generate per-JDK type catalogs as embedded binary resources (`META-INF/anatomist/jdkN-types.bin`)
+- **Drop `jackson-databind`** → hand-written JSON I/O for the ~14 flat POJOs (no reflection, ~300 LOC)
+- **picocli** → add `picocli-codegen` annotation processor for compile-time reflect-config
+- **sqlite-jdbc** → already ships `META-INF/native-image/` config (no action)
+
 See [DESIGN.md](DESIGN.md) for the full design rationale and [docs/scenario-1-index.md](docs/scenario-1-index.md) for the authoritative index-phase spec.
 
 ## Commands
@@ -101,6 +118,8 @@ This repo uses the `diorama` skill for scenario-driven development. Use `/dioram
 ### Dependency budget
 
 Production has **4 direct runtime deps** (`javaparser-symbol-solver-core` — bundles `javassist` as a transitive for `JarTypeSolver`, `sqlite-jdbc`, `picocli`, `jackson-databind`). Do not add more without explicit justification in a new task's `proposal.md` / `design.md`.
+
+**Phase 5 (native image) will reshape this budget**: Jackson and javassist will be dropped, `picocli-codegen` added as a compile-time annotation processor only. Terminal budget = 3 direct runtime deps (`javaparser-symbol-solver-core` + `sqlite-jdbc` + `picocli`). Any new dep proposal must justify its native-image story.
 
 ### ReflectionTypeSolver / `--vm-classpath` gotcha
 

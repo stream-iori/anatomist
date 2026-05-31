@@ -74,6 +74,7 @@ graph LR
 | 3 | 监控 + 增量更新 | [scenario-3-watch.md](docs/scenario-3-watch.md) | Phase 4 |
 | 4 | Skills 对接 CLI | [scenario-4-skills.md](docs/scenario-4-skills.md) | Phase 3 |
 | 5 | 导出 / 可视化 | [scenario-5-export.md](docs/scenario-5-export.md) | Phase 2+4 |
+| 6 | Native Image 分发 | [scenario-6-native-image.md](docs/scenario-6-native-image.md) | Phase 5 |
 
 **测试策略**: [docs/testing-strategy.md](docs/testing-strategy.md) — fixture 设计、JDK 8 验证边界、golden file 模式、CI 流程。Fixture B 实现见 [fixtures/mini-spring-shop/](fixtures/mini-spring-shop/)。
 
@@ -143,6 +144,19 @@ graph LR
 | 5.4 | 导出完整图为 JSON | `anatomist export --format json` |
 | 5.5 | 导出子图 | `anatomist export --root OrderService --depth 3` |
 | 5.6 | 导出包级依赖图 | `anatomist export --type package-deps` |
+
+#### 场景 6：Native Image 分发 → [详细分析](docs/scenario-6-native-image.md)
+
+| # | 子场景 | 命令 |
+|---|--------|------|
+| 6.1 | native binary 首次索引 | `./anatomist index /path` |
+| 6.2 | native binary 增量索引 | `./anatomist index /path`（命中 file_cache） |
+| 6.3 | native binary watch 监听 | `./anatomist watch /path --auto-index` |
+| 6.4 | native binary 跑全部 query / enrich / annotate | 与 JVM 版同 |
+| 6.5 | 构建期生成配置 | `mvn -Pnative package` |
+| 6.6 | CI native vs JVM 输出 diff | `make native-smoke` |
+
+> **设计原则**：场景 6 把 native-image 亲和性提升为**全局约束** —— 所有新代码都要保证在 native image 下成立。详见 [scenario-6-native-image.md](docs/scenario-6-native-image.md) §决策 1–6。具体落地路径：抛弃 javassist 改用 ASM、抛弃 `ReflectionTypeSolver` 改用预生成 JDK 类型目录、抛弃 Jackson 改用手写 JSON。
 
 ### 场景 → 设计追溯总览
 
@@ -1000,7 +1014,14 @@ anatomist/
 </dependencies>
 ```
 
-**依赖预算**：4 个直接依赖。`javaparser-symbol-solver-core` 会传递引入 `javassist`，供 `JarTypeSolver` 读取依赖 jar 的字节码。
+**依赖预算**：4 个直接依赖。`javaparser-symbol-solver-core` 当前传递引入 `javassist`，供 `JarTypeSolver` 读取依赖 jar 的字节码。
+
+> **Phase 5（native image，[场景 6](docs/scenario-6-native-image.md)）将重洗依赖**：
+> - **去掉** `jackson-databind`（手写 JSON 替代）
+> - **去掉** `javassist`（自写 `AsmTypeSolver` + ASM 替代；ASM 已被 javaparser 间接依赖）
+> - **加入** `picocli-codegen` 作为编译期 annotation processor（非运行时）
+> - **加入** `META-INF/anatomist/jdkN-types.bin` 资源（构建期产物，约 5–8 MB / JDK 版本）
+> 终态生产依赖：`javaparser-symbol-solver-core` + `sqlite-jdbc` + `picocli` = **3 个**。
 
 ## 实施路径
 
@@ -1041,7 +1062,8 @@ gantt
 | Phase 2 | SQLite 存储 + FTS5 搜索 + CLI | B, C, D, F | 2 周 |
 | Phase 3 | Agent Skills + ContextBuilder | E | 1 周 |
 | Phase 4 | 增量解析 + 向量搜索 + 图算法 | A2 + 高级 | 2 周 |
-| **合计** | | **A-F 全覆盖** | **7-9 周** |
+| Phase 5 | Native Image 分发（ASM solver + JDK 类型目录 + 手写 JSON） | 场景 6 | 3-4 周 |
+| **合计** | | **A-F + 场景 6 全覆盖** | **10-13 周** |
 
 ## 核心差异化
 
