@@ -5,10 +5,10 @@
     "base_branch": "main"
   },
   "phase": {
-    "current": "specify",
-    "completed": [],
+    "current": "plan",
+    "completed": ["specify"],
     "checkpoints": {
-      "specify": "",
+      "specify": "074c0169c7d6bc4b606930c276dba4b8a342cfaa",
       "plan": "",
       "generate": ""
     },
