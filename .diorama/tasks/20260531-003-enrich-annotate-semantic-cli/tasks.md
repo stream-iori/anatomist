@@ -159,7 +159,7 @@
 
 **Gate**: `mvn test -Dtest=AnnotateCommandIT -q` — exit 0, all green
 
-**Status**: [ ] done
+**Status**: [x] done
 
 ---
 
