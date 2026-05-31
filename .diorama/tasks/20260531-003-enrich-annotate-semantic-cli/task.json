@@ -1,0 +1,21 @@
+{
+  "task": {
+    "name": "20260531-003-enrich-annotate-semantic-cli",
+    "branch": "task/20260531-003-enrich-annotate-semantic-cli",
+    "base_branch": "main"
+  },
+  "phase": {
+    "current": "specify",
+    "completed": [],
+    "checkpoints": {
+      "specify": "",
+      "plan": "",
+      "generate": ""
+    },
+    "task_checkpoints": {}
+  },
+  "anchors": {
+    "dev_entries": [],
+    "acceptance_entries": []
+  }
+}
