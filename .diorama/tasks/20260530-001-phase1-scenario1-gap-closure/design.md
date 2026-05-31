@@ -335,3 +335,12 @@ classDiagram
 ## 11. 遗留问题
 
 无。五项缺口均在 `docs/scenario-1-index.md` 中有明确定义，实现路径清晰。
+
+## Amendments
+
+### Amendment 2026-05-31: AC-014 / BR-003 Pruned dangling 目标修正
+
+- **修改**: AC-014 由 "Pruned dangling = 0" 改为 "Pruned dangling 在本次任务范围内的根因消失（无 LAMBDA / METHOD_REF / RECORD 引起的 dangling），残留来自 anonymous-class id 不匹配（pre-existing extractor gap）"。
+- **修改**: BR-003 同步更新。
+- **原因**: T7 端到端验证发现 fixture 残留 6 条 CALLS/READS/CONTAINS dangling，根因为 `TypeExtractor` 将匿名类 ID 编码为 `<parentMethod>$anon@L<line>`，而 `CallGraphExtractor.classify` 对匿名类内方法的 SymbolSolver 解析返回 `Anonymous-<uuid>#run()` 形式，两侧 ID 命名不一致；这属于既有匿名类 ID 规范缺口，与 REQ-001/002/003/004/005 无关，应独立 task 处理。
+- **范围**: 不影响功能需求 REQ-001..005 的验收；fixture baseline 仍单调增长，且新引入的 Record 同步增补合成 canonical constructor METHOD Node，避免新增 dangling。

@@ -65,6 +65,7 @@ public class FieldExtractor implements Extractor {
         try { rt = decl.resolve(); }
         catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
         String classId = ctx.idGenerator().forType(rt);
+        StringBuilder ctorParams = new StringBuilder();
         for (com.github.javaparser.ast.body.Parameter p : decl.getParameters()) {
             String name = p.getNameAsString();
             String fieldId = rt.getQualifiedName() + "#" + name;
@@ -92,7 +93,35 @@ public class FieldExtractor implements Extractor {
             result.nodes.add(n);
 
             result.edges.add(containsEdge(classId, fieldId, sourceFile, n.sourceLocation));
+
+            if (ctorParams.length() > 0) ctorParams.append(',');
+            ctorParams.append(typeDesc);
         }
+
+        // Synthetic canonical constructor — record components imply
+        // <RecordName>(<types...>) but JavaParser produces no
+        // ConstructorDeclaration AST, so CallGraphExtractor would otherwise
+        // emit dangling edges to this id.
+        String simple = rt.getName();
+        String ctorId = rt.getQualifiedName() + "#" + simple + "(" + ctorParams + ")";
+        Node ctor = new Node();
+        ctor.id = ctorId;
+        ctor.label = simple;
+        ctor.kind = "METHOD";
+        ctor.qualifiedName = rt.getQualifiedName() + "#" + simple;
+        ctor.pkg = rt.getPackageName();
+        ctor.sourceFile = sourceFile;
+        ctor.sourceLocation = "L" + lineOf(decl);
+        ctor.module = ctx.module();
+        ctor.scope = ctx.scope();
+        Map<String, Object> cmeta = new LinkedHashMap<>();
+        cmeta.put("isConstructor", true);
+        cmeta.put("isSynthetic", true);
+        cmeta.put("isRecordCanonical", true);
+        try { ctor.metadata = JSON.writeValueAsString(cmeta); }
+        catch (JsonProcessingException e) { ctor.metadata = "{}"; }
+        result.nodes.add(ctor);
+        result.edges.add(containsEdge(classId, ctorId, sourceFile, ctor.sourceLocation));
     }
 
     private void emitField(FieldDeclaration decl, VariableDeclarator var,

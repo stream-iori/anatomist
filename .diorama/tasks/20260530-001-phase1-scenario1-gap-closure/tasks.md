@@ -227,7 +227,7 @@
 
 ### T7: Fixture 端到端基线刷新 + Pruned dangling = 0 [BR-003, BR-007, AC-014, AC-015]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 **目标**:
 1. 运行 fixture 端到端确认 baseline 单调增长（types ≥ 16, methods ≥ 47）且 LAMBDA / METHOD_REF / RECORD 计数已写入
