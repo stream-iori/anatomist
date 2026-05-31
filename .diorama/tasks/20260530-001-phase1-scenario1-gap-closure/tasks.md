@@ -193,7 +193,7 @@
 
 ### T6: RECORD 支持 [REQ-005, BR-002, BR-006]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 **目标**:
 1. `TypeExtractor` 新增 `visit(RecordDeclaration)` 产出 kind=`RECORD` 的 Node + CONTAINS 边

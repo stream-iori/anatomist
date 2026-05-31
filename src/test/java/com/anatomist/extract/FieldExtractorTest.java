@@ -66,4 +66,23 @@ class FieldExtractorTest {
                 .filter(n -> "ENUM_CONSTANT".equals(n.kind)).count();
         assertEquals(2, enumKindCount);
     }
+
+    @Test
+    void extract_recordComponents_emitsFieldNodes() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public record Point(int x, int y) {}");
+        ExtractionResult r = new ExtractionResult();
+        new FieldExtractor(ctx).extract(cu, r);
+
+        Set<String> ids = r.nodes.stream()
+                .filter(n -> "FIELD".equals(n.kind))
+                .map(n -> n.id).collect(Collectors.toSet());
+        assertTrue(ids.contains("pkg.Point#x"), "got " + ids);
+        assertTrue(ids.contains("pkg.Point#y"), "got " + ids);
+        long containsX = r.edges.stream().filter(e ->
+                "CONTAINS".equals(e.relation)
+                        && "pkg.Point".equals(e.sourceId)
+                        && "pkg.Point#x".equals(e.targetId)).count();
+        assertEquals(1, containsX, "got " + r.edges);
+    }
 }

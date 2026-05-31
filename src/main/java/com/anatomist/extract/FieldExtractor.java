@@ -9,10 +9,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.EnumConstantDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedEnumConstantDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 
 import java.util.LinkedHashMap;
@@ -49,7 +51,48 @@ public class FieldExtractor implements Extractor {
                 emitEnumConstant(n, sourceFile, result);
                 super.visit(n, arg);
             }
+
+            @Override
+            public void visit(RecordDeclaration n, Void arg) {
+                emitRecordComponents(n, sourceFile, result);
+                super.visit(n, arg);
+            }
         }.visit(unit, null);
+    }
+
+    private void emitRecordComponents(RecordDeclaration decl, String sourceFile, ExtractionResult result) {
+        ResolvedReferenceTypeDeclaration rt;
+        try { rt = decl.resolve(); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        String classId = ctx.idGenerator().forType(rt);
+        for (com.github.javaparser.ast.body.Parameter p : decl.getParameters()) {
+            String name = p.getNameAsString();
+            String fieldId = rt.getQualifiedName() + "#" + name;
+            String typeDesc;
+            try { typeDesc = com.anatomist.core.NodeIdGenerator.erasedTypeDescribe(p.getType().resolve()); }
+            catch (RuntimeException e) { typeDesc = p.getTypeAsString(); }
+
+            Node n = new Node();
+            n.id = fieldId;
+            n.label = name;
+            n.kind = "FIELD";
+            n.qualifiedName = fieldId;
+            n.pkg = rt.getPackageName();
+            n.sourceFile = sourceFile;
+            n.sourceLocation = "L" + lineOf(p);
+            n.module = ctx.module();
+            n.scope = ctx.scope();
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.put("type", typeDesc);
+            meta.put("isStatic", false);
+            meta.put("isFinal", true);
+            meta.put("isRecordComponent", true);
+            try { n.metadata = JSON.writeValueAsString(meta); }
+            catch (JsonProcessingException e) { n.metadata = "{}"; }
+            result.nodes.add(n);
+
+            result.edges.add(containsEdge(classId, fieldId, sourceFile, n.sourceLocation));
+        }
     }
 
     private void emitField(FieldDeclaration decl, VariableDeclarator var,

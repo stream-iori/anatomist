@@ -69,6 +69,18 @@ class TypeExtractorTest {
         assertTrue(inner.isPresent());
     }
 
+    @Test
+    void visit_recordDeclaration_emitsRecordNode() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public record Point(int x, int y) {}");
+        ExtractionResult r = new ExtractionResult();
+        new TypeExtractor(ctx).extract(cu, r);
+
+        Node rec = r.nodes.stream().filter(n -> "RECORD".equals(n.kind)).findFirst()
+                .orElseThrow(() -> new AssertionError("no RECORD; got " + r.nodes));
+        assertEquals("pkg.Point", rec.id);
+    }
+
     private static Node byId(ExtractionResult r, String id) {
         return r.nodes.stream().filter(n -> n.id.equals(id)).findFirst()
                 .orElseThrow(() -> new AssertionError("no node with id " + id + "; got " + r.nodes));

@@ -224,7 +224,7 @@ public class IndexCommand implements Callable<Integer> {
 
     private static boolean isType(String kind) {
         return "CLASS".equals(kind) || "INTERFACE".equals(kind) || "ENUM".equals(kind)
-                || "ANONYMOUS_CLASS".equals(kind);
+                || "ANONYMOUS_CLASS".equals(kind) || "RECORD".equals(kind);
     }
 
     private static long countEdges(ExtractionResult r, String relation) {
