@@ -18,7 +18,17 @@
     "task_checkpoints": {}
   },
   "anchors": {
-    "dev_entries": [],
-    "acceptance_entries": []
+    "dev_entries": [
+      "src/main/java/com/anatomist/cli/IndexCommand.java",
+      "src/main/resources/schema.sql",
+      "src/main/java/com/anatomist/store/SqliteStore.java",
+      "src/main/java/com/anatomist/cli/AnatomistCli.java"
+    ],
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java",
+      "src/test/java/com/anatomist/store/SqliteStoreWriteTest.java",
+      "src/test/java/com/anatomist/semantic/SemanticPostProcessorTest.java",
+      "src/test/java/com/anatomist/cli/IndexDocsCommandIT.java"
+    ]
   }
 }
