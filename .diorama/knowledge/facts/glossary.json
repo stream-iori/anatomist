@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "last_verified": "2026-05-30",
+  "last_verified": "2026-05-31",
   "terms": [
     {
       "term": "Node",
       "english": "Node",
-      "definition": "SQLite nodes 表中的一条记录,代表一个 Java 代码实体(CLASS/INTERFACE/ENUM/METHOD/FIELD/ENUM_CONSTANT/ANONYMOUS_CLASS/LAMBDA/METHOD_REF)。ID 形如 com.x.A 或 com.x.A#foo(java.lang.String),保留原始大小写。",
+      "definition": "SQLite nodes 表中的一条记录,代表一个 Java 代码实体(CLASS/INTERFACE/ENUM/RECORD/METHOD/FIELD/ENUM_CONSTANT/ANONYMOUS_CLASS/LAMBDA/METHOD_REF)。ID 形如 com.x.A 或 com.x.A#foo(java.lang.String),保留原始大小写。",
       "aliases": ["代码节点", "code entity"],
-      "last_verified": "2026-05-30"
+      "last_verified": "2026-05-31"
     },
     {
       "term": "Edge",
@@ -47,9 +47,9 @@
     {
       "term": "Node ID",
       "english": "Node ID",
-      "definition": "Node 主键。CLASS/INTERFACE/ENUM = FQN 原样(保留大小写);METHOD = <classFqn>#<name>(<erased,param,fqns>);FIELD = <classFqn>#<name>;ENUM_CONSTANT = <enumFqn>#<constantName>;ANONYMOUS = <parentMethodId>$anon@L<line>;LAMBDA = <parentMethodId>$lambda@L<line>C<col>。",
+      "definition": "Node 主键。CLASS/INTERFACE/ENUM/RECORD = FQN 原样(保留大小写);METHOD = <classFqn>#<name>(<erased,param,fqns>);FIELD = <classFqn>#<name>;ENUM_CONSTANT = <enumFqn>#<constantName>;ANONYMOUS = <parentMethodId>$anon@L<line>;LAMBDA = <parentMethodId>$lambda@L<line>C<col>;METHOD_REF = <parentMethodId>$methodref@L<line>C<col>。RECORD canonical constructor 由 FieldExtractor 合成,id 形如 <recordFqn>#<simpleName>(<types>) 且 metadata.isSynthetic=true。",
       "aliases": ["节点 ID", "stable id"],
-      "last_verified": "2026-05-30"
+      "last_verified": "2026-05-31"
     },
     {
       "term": "FTS5 node_names",
@@ -113,6 +113,34 @@
       "definition": "Phase 3 产物。markdown 描述文件(anatomist-skill.md),引导 Agent 在领域问答场景下编排 anatomist 命令组合。",
       "aliases": [],
       "last_verified": "2026-05-30"
+    },
+    {
+      "term": "isAccessor",
+      "english": "isAccessor",
+      "definition": "METHOD metadata 的 boolean 字段。true 当方法是 getter (`get`+0参+非void) / `is`+0参+boolean / setter (`set`+1参+void)。由 MethodExtractor.isAccessor() 判定。",
+      "aliases": ["accessor flag"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "AstEnclosing",
+      "english": "AstEnclosing",
+      "definition": "com.anatomist.extract.AstEnclosing。沿 AST 父链向上查找 LambdaExpr → MethodReferenceExpr → MethodDeclaration → ConstructorDeclaration → FieldDeclaration → TypeDeclaration 中最近的一个,返回其 Node id。CallGraphExtractor / FieldAccessExtractor / ReferenceExtractor 用它把 Lambda/MethodRef body 内的调用/读写/引用归因到 LAMBDA / METHOD_REF Node 而非外层方法。",
+      "aliases": ["enclosing resolver"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "Java Version Detection",
+      "english": "Java Version Detection",
+      "definition": "ClasspathDetector.detectJavaVersion(Path) 用 JDK 内置 SAX 遍历 projectRoot 下所有 pom.xml,读取 `<maven.compiler.source>` (优先) 或 `<java.version>` 属性,跨模块取最大值,支持 `1.8`→8 形式归一化。优先级: `--java-version` 显式 > pom 检测 > 默认 8。结果驱动 JavaParserFactory.toLanguageLevel,影响 Records (≥16) 等语言特性的解析。",
+      "aliases": ["javaVersion detection"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "Record Canonical Constructor",
+      "english": "Record Canonical Constructor",
+      "definition": "JavaParser 不在 RecordDeclaration 下产出 ConstructorDeclaration AST。FieldExtractor.emitRecordComponents 合成一个 METHOD Node (metadata.isSynthetic=true, isRecordCanonical=true),id 与 SymbolSolver 解析 record 构造方法时返回的 (recordFqn#simpleName(componentTypes)) 形式对齐,避免 CALLS 边出现 dangling target。",
+      "aliases": ["合成构造方法"],
+      "last_verified": "2026-05-31"
     }
   ]
 }

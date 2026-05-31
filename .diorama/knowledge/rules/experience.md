@@ -15,11 +15,11 @@
 
 ## E2: Anonymous/Local class 的方法发射受 BR-007 约束
 
-**情景**: MethodExtractor / FieldExtractor 在 BR-007("Phase 1 不发射 LOCAL_CLASS / LAMBDA 节点")约束下运行。
+**情景**: MethodExtractor / FieldExtractor 在 BR-007("Phase 1 不发射 LOCAL_CLASS Node")约束下运行。
 
-**坑**: 若不显式过滤，VoidVisitorAdapter 会进入 local class 的方法 body，生成 METHOD Node，其 `source_id` 指向不存在的 LOCAL_CLASS Node → SQLite 外键约束失败 → 整个事务 rollback → 索引完全失败。匿名类不在此列——TypeExtractor 已经发射 ANONYMOUS_CLASS Node。
+**坑**: 若不显式过滤，VoidVisitorAdapter 会进入 local class 的方法 body，生成 METHOD Node，其 `source_id` 指向不存在的 LOCAL_CLASS Node → SQLite 外键约束失败 → 整个事务 rollback → 索引完全失败。匿名类不在此列——TypeExtractor 已经发射 ANONYMOUS_CLASS Node。Lambda / MethodReference 也不在此列——T3/T4(20260530-001)落地后 MethodExtractor 自身发射 LAMBDA / METHOD_REF Node,并通过 `AstEnclosing` 让 CallGraphExtractor / FieldAccessExtractor / ReferenceExtractor 正确归因。
 
-**对策**: MethodExtractor.`skipDeclaringType` 检查 `declType.isClass()/isInterface()/isEnum()/isAnnotation()` 之外的情况直接 return。下个 task 实现 LOCAL_CLASS / LAMBDA Node 后移除此守卫。
+**对策**: MethodExtractor.`skipDeclaringType` 检查 `declType.isClass()/isInterface()/isEnum()/isAnnotation()` 之外的情况直接 return。下个 task 实现 LOCAL_CLASS Node 后移除此守卫。
 
 ## E3: FTS5 default tokenizer 把 Java 标识符切碎
 
@@ -75,13 +75,37 @@
 
 **对策**: 统一用 `NodeIdGenerator.erasedTypeDescribe(resolvedType)`（内部走 `ResolvedType.erasure().describe()`）拼擦除签名；公用 helper `NodeIdGenerator.externalMethodFqn(...)`，HierarchyExtractor / CallGraphExtractor 共用。
 
-## E9: Lambda / METHOD_REF 未实现时,IndexCommand 必须 pruneDanglingInternalEdges
+## E9: pruneDanglingInternalEdges 仍是最后防线
 
-**情景**: 任何含 Lambda / method reference(`stream().filter(x -> ...)`、`::method`)的真实项目。
+**情景**: 任何含 Lambda / method reference / anonymous-class body 的真实项目。
 
-**坑**: CallGraphExtractor / FieldAccessExtractor 在 Lambda body 内 visit 到的 `MethodCallExpr` 会通过"上溯找到 enclosing MethodDeclaration"的逻辑归到外层方法。多数情况 OK,但当 Lambda **本身**是 functional interface 的合成方法（如 `BiFunction.apply`）时，enclosing 可能解析失败或落到一个没有对应 nodes 行的合成签名 → CONTAINS/CALLS 边 source_id 找不到节点 → 整个事务被 SQLite FK violation 推翻。
+**坑**: 即便 T3/T4(20260530-001)落地了 LAMBDA / METHOD_REF Node 和 AstEnclosing 归因,残留的 dangling 边仍来自 TypeExtractor 对匿名类 ID 的编码方式(`<parentMethod>$anon@L<line>`)与 SymbolSolver 解析匿名类内方法时返回的 `Anonymous-<uuid>` 不一致;CallGraphExtractor 会产出 `source_id = Anonymous-<uuid>#run()` 形式的 CALLS/READS/CONTAINS 边,在 nodes 表中无匹配。
 
-**对策**: IndexCommand 在 `store.write` 之前调 `pruneDanglingInternalEdges(result)`:扫描所有 internal 边,过滤掉 source_id / target_id 不在 nodes 集合中的边,只 warn 不 abort。LAMBDA Node 落地后该 helper 可保留作为最后防线。
+**对策**: 保留 `IndexCommand.pruneDanglingInternalEdges` 作为最后防线,只 warn 不 abort。彻底消除需要独立 task 重写匿名类 ID 编码,使其与 SymbolSolver 解析路径对齐(或反向调整 TypeExtractor)。
+
+## E11: VoidVisitorAdapter 的子类必须显式 super.visit() 才会递归
+
+**情景**: 给现有 Extractor(MethodExtractor / TypeExtractor / FieldExtractor / ReferenceExtractor)新增 `visit(SomeNode n, Void arg)` override。
+
+**坑**: 在新 override 里只调 emit 逻辑、忘记 `super.visit(n, arg)`,VoidVisitorAdapter 不会继续递归 SomeNode 的子树。表现为嵌套 lambda 只发射外层、record 内部成员不发射等。
+
+**对策**: 任何新增的 `visit(...)` 重写必须以 `super.visit(n, arg);` 结尾(emit 逻辑写在 super 之前或之后都行,但 super 调用本身不能省)。MethodExtractor.visit(LambdaExpr) 嵌套 lambda 测试就是这条规则的回归保护。
+
+## E12: SymbolSolver "可恢复"失败的统一惯例 — Node 仍发射 + bindingResolved=false
+
+**情景**: MethodReferenceExpr.resolve() 在构造器引用、外部依赖缺失、跨工程符号缺位等场景会抛 `UnsolvedSymbolException` / `UnsupportedOperationException`。
+
+**坑**: 旧惯例是 catch 之后整体 skip,但这会让上层 Edge 找不到 Node target(METHOD_REF Node 没了, CALLS 边目标也消失)。
+
+**对策**: T4(20260530-001)起的新惯例 —— **Node 永远发射**(位置信息足以建 Node),仅把 "我没解析出绑定" 写入 `metadata.bindingResolved = false`,放弃产出后续依赖 binding 的 Edge(如 CALLS 边)。CallGraphExtractor.emit 已有相同模式,后续 Extractor 也应一致。
+
+## E13: AstEnclosing 是 LAMBDA / METHOD_REF 归因的唯一入口
+
+**情景**: 实现 Lambda body 内部 CALLS / READS / WRITES / REFERENCES 的 `source_id`。
+
+**坑**: 旧的 `findAncestor(CallableDeclaration.class)` 只能到达 MethodDeclaration / ConstructorDeclaration,Lambda 体内的调用会被错归到外层方法,破坏图遍历的因果关系。
+
+**对策**: `com.anatomist.extract.AstEnclosing.ownerIdOf(Node)` 按 LambdaExpr → MethodReferenceExpr → MethodDeclaration → ConstructorDeclaration → FieldDeclaration → TypeDeclaration 顺序找最近祖先。任何归因到"当前所在方法/Lambda/MethodRef"的代码都应走它,不要再写新的 `findAncestor(CallableDeclaration)`。Extractor 内 `enclosing = new AstEnclosing(ctx.idGenerator())` 一次性持有即可。
 
 ## E10: --no-classpath 模式下 Spring 注解 unresolved
 

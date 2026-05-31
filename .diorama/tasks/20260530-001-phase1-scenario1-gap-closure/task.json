@@ -25,6 +25,15 @@
       "T7": "e927847fbcffc00f196ff4e904566f61514e7e5c"
     }
   },
+  "consolidate": {
+    "noop": false,
+    "updated_files": [
+      "knowledge/facts/glossary.json",
+      "knowledge/facts/domain-model.md",
+      "knowledge/rules/experience.md",
+      "knowledge/rules/index.md"
+    ]
+  },
   "anchors": {
     "dev_entries": [
       "src/main/java/com/anatomist/extract/MethodExtractor.java",
