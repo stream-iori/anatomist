@@ -16,7 +16,8 @@
       "consolidate": ""
     },
     "task_checkpoints": {
-      "T1": "2e455b1bf4df29c8bdda478b3c937097067b06d1"
+      "T1": "2e455b1bf4df29c8bdda478b3c937097067b06d1",
+      "T2": "ac73f55906b99e99285f52a9baa41370935aaf3a"
     }
   },
   "anchors": {
