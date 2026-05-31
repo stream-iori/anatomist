@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.OptionalInt;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -96,5 +97,45 @@ class ClasspathDetectorTest {
             }
         }
         throw new AssertionError("missing -Dmdep.outputFile arg");
+    }
+
+    @Test
+    void detectJavaVersion_readsMavenCompilerSource(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"),
+                "<project><properties>"
+                + "<maven.compiler.source>17</maven.compiler.source>"
+                + "</properties></project>");
+        assertEquals(OptionalInt.of(17), new ClasspathDetector().detectJavaVersion(tmp));
+    }
+
+    @Test
+    void detectJavaVersion_fallsBackToJavaVersionProperty(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"),
+                "<project><properties>"
+                + "<java.version>11</java.version>"
+                + "</properties></project>");
+        assertEquals(OptionalInt.of(11), new ClasspathDetector().detectJavaVersion(tmp));
+    }
+
+    @Test
+    void detectJavaVersion_multiModuleReturnsMax(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"),
+                "<project><modules><module>a</module><module>b</module></modules></project>");
+        Path a = Files.createDirectories(tmp.resolve("a"));
+        Path b = Files.createDirectories(tmp.resolve("b"));
+        Files.writeString(a.resolve("pom.xml"),
+                "<project><properties>"
+                + "<maven.compiler.source>11</maven.compiler.source>"
+                + "</properties></project>");
+        Files.writeString(b.resolve("pom.xml"),
+                "<project><properties>"
+                + "<maven.compiler.source>17</maven.compiler.source>"
+                + "</properties></project>");
+        assertEquals(OptionalInt.of(17), new ClasspathDetector().detectJavaVersion(tmp));
+    }
+
+    @Test
+    void detectJavaVersion_noPomReturnsEmpty(@TempDir Path tmp) {
+        assertEquals(OptionalInt.empty(), new ClasspathDetector().detectJavaVersion(tmp));
     }
 }

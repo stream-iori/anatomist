@@ -96,7 +96,13 @@ public class IndexCommand implements Callable<Integer> {
                 return 1;
             }
 
-            int jv = javaVersion == null ? 8 : javaVersion;
+            int jv;
+            if (javaVersion != null) {
+                jv = javaVersion;
+            } else {
+                jv = cd.detectJavaVersion(projectRoot).orElse(8);
+            }
+            System.err.println("Parsing with Java " + jv);
             JavaParserFactory factory = new JavaParserFactory(
                     jv, classpathEntries, sourcePaths, vmClasspath);
 

@@ -159,7 +159,7 @@
 
 ### T5: Java 版本自动检测 [REQ-003, BR-005]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 **目标**:
 1. `ClasspathDetector.detectJavaVersion(Path projectRoot)` 用 JDK 内置 SAX 解析所有 pom.xml，读取 `<maven.compiler.source>` / `<java.version>`，多模块取最大值
