@@ -188,7 +188,7 @@
 
 **Gate**: 人工审阅 anatomist-skill.md 内容完整性
 
-**Status**: [ ] done
+**Status**: [x] done
 
 ---
 
@@ -211,4 +211,4 @@
 
 **Gate**: `mvn test -q` — exit 0, all green
 
-**Status**: [ ] done
+**Status**: [x] done — mvn test exit 0; enrich --node OrderService = 59 lines (≤ 200)
