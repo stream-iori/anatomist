@@ -4,6 +4,7 @@ import com.anatomist.model.Annotation;
 import com.anatomist.model.Document;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.Node;
 import com.anatomist.model.SemanticAnnotation;
 
@@ -215,6 +216,187 @@ public class SqliteStore implements AutoCloseable {
             } finally {
                 connection = null;
             }
+        }
+    }
+
+    // ===== Phase 4: incremental index support =====
+
+    public void updateFileCache(java.util.List<FileCacheEntry> entries) {
+        if (entries == null || entries.isEmpty()) return;
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        String sql = "INSERT OR REPLACE INTO file_cache" +
+                "(source_file,hash,schema_version,last_indexed,node_count,edge_count,stale,stale_reason)" +
+                " VALUES (?,?,?,?,?,?,?,?)";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            for (FileCacheEntry e : entries) {
+                ps.setString(1, e.sourceFile());
+                ps.setString(2, e.hash());
+                ps.setInt(3, e.schemaVersion());
+                ps.setString(4, e.lastIndexed() == null ? java.time.Instant.now().toString() : e.lastIndexed());
+                ps.setInt(5, e.nodeCount());
+                ps.setInt(6, e.edgeCount());
+                ps.setInt(7, e.stale());
+                if (e.staleReason() == null) ps.setNull(8, Types.VARCHAR); else ps.setString(8, e.staleReason());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to update file_cache", e);
+        }
+    }
+
+    public java.util.Map<String, FileCacheEntry> readFileCache() {
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        java.util.Map<String, FileCacheEntry> out = new java.util.LinkedHashMap<>();
+        String sql = "SELECT source_file,hash,schema_version,last_indexed,node_count,edge_count,stale,stale_reason FROM file_cache";
+        try (PreparedStatement ps = c.prepareStatement(sql);
+             java.sql.ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                FileCacheEntry e = new FileCacheEntry(
+                        rs.getString(1),
+                        rs.getString(2),
+                        rs.getInt(3),
+                        rs.getString(4),
+                        rs.getInt(5),
+                        rs.getInt(6),
+                        rs.getInt(7),
+                        rs.getString(8)
+                );
+                out.put(e.sourceFile(), e);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read file_cache", e);
+        }
+        return out;
+    }
+
+    public java.util.Optional<String> readProjectMeta(String key) {
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        try (PreparedStatement ps = c.prepareStatement("SELECT value FROM project_meta WHERE key=?")) {
+            ps.setString(1, key);
+            try (java.sql.ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return java.util.Optional.ofNullable(rs.getString(1));
+                return java.util.Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read project_meta", e);
+        }
+    }
+
+    public void upsertProjectMeta(String key, String value) {
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        try (PreparedStatement ps = c.prepareStatement(
+                "INSERT INTO project_meta(key,value) VALUES (?,?) " +
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value")) {
+            ps.setString(1, key);
+            if (value == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, value);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to upsert project_meta", e);
+        }
+    }
+
+    public void deriveFileDependencies() {
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        try (Statement st = c.createStatement()) {
+            st.execute(
+                    "INSERT OR IGNORE INTO file_dependencies(source_file, depends_on_file) " +
+                            "SELECT DISTINCT e.source_file, n.source_file " +
+                            "FROM edges e JOIN nodes n ON e.target_id = n.id " +
+                            "WHERE e.is_external=0 AND e.source_file IS NOT NULL " +
+                            "AND n.source_file IS NOT NULL AND e.source_file <> n.source_file"
+            );
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to derive file_dependencies", e);
+        }
+    }
+
+    public void markStaleDependents(java.util.List<String> changedFiles) {
+        if (changedFiles == null || changedFiles.isEmpty()) return;
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        String sql = "UPDATE file_cache SET stale=1, stale_reason=? " +
+                "WHERE source_file IN (SELECT source_file FROM file_dependencies WHERE depends_on_file=?)";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            for (String f : changedFiles) {
+                ps.setString(1, "依赖的 " + f + " 已变更");
+                ps.setString(2, f);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to mark stale dependents", e);
+        }
+    }
+
+    public void clearFileDependencies() {
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        try (Statement st = c.createStatement()) {
+            st.execute("DELETE FROM file_dependencies");
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to clear file_dependencies", e);
+        }
+    }
+
+    public void deleteBySourceFiles(java.util.List<String> sourceFiles) {
+        if (sourceFiles == null || sourceFiles.isEmpty()) return;
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        // semantic_annotations.node_id is ON DELETE SET NULL — clean explicitly first.
+        String delSem = "DELETE FROM semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)";
+        String delFc = "DELETE FROM file_cache WHERE source_file=?";
+        String delNodes = "DELETE FROM nodes WHERE source_file=?";
+        try (PreparedStatement psSem = c.prepareStatement(delSem);
+             PreparedStatement psFc = c.prepareStatement(delFc);
+             PreparedStatement psNodes = c.prepareStatement(delNodes)) {
+            for (String f : sourceFiles) {
+                psSem.setString(1, f); psSem.addBatch();
+                psNodes.setString(1, f); psNodes.addBatch();
+                psFc.setString(1, f); psFc.addBatch();
+            }
+            psSem.executeBatch();
+            psNodes.executeBatch();
+            psFc.executeBatch();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to delete by source files", e);
         }
     }
 

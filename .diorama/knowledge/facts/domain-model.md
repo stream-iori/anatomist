@@ -104,6 +104,12 @@ classDiagram
 | Extractor | VoidVisitorAdapter,从 CompilationUnit 产出 Node/Edge/Annotation | 每次 index 实例化,与 ExtractionContext 绑定 |
 | SemanticPostProcessor | index 末尾后处理器,applyConventionRules + applyJavadocRules | 每次 index 实例化,纯内存,无 IO |
 | DocScanner | 文件树遍历,产出 Document 列表 | `index-docs` 命令实例化 |
+| FileCache | file_cache 表的行实体,绑定单个源文件的 SHA-256 + 节点/边计数 + schema_version + stale 标记 | 全量索引时按所有源文件写入;增量索引时按 changed/new 更新、按 deleted 删除 |
+| ProjectMeta | project_meta key-value 元数据 | 全量索引时写入 java_version/classpath_hash/index_version |
+| FileDependency | file_dependencies 跨文件依赖,从 edges 表 post-hoc 推导 | 每次索引完成后 clearFileDependencies + deriveFileDependencies 重建 |
+| FileCacheService | SHA-256 hash + 变更检测(changed/added/deleted) | 增量索引调用,无 IO 缓存 |
+| IncrementalIndexer | 协调 parser + extractors + store 在单事务内执行增量 | `--incremental` 路径实例化 |
+| WatchCommand | WatchService + debounce + 委托 IndexCommand | `watch` 子命令实例化 |
 
 ## 3. 核心业务规则
 
@@ -113,6 +119,10 @@ classDiagram
 - **R4: 符号解析失败跳过** — 任何 `MethodCallExpr.resolve()` / `decl.resolve()` 抛 `UnsolvedSymbolException` / `UnsupportedOperationException` 的实体均跳过,不产生半成品 Node;统计 unresolved 计数
 - **R5: 两阶段隔离** — Index 阶段调 JavaParser+SymbolSolver,Query 阶段**不**调解析器,只走 SQLite。Agent 多次查询 O(1) 而非 O(N) 重解析
 - **R6: SUT 单 DB** — 多模块项目共享一个 index.db,通过 nodes.module 列区分
+- **R7: 增量单事务** — `IncrementalIndexer.indexIncremental` 在单 SQLite 事务内完成 deleteBySourceFiles → write → updateFileCache → deriveFileDependencies → markStaleDependents,任一失败回滚整事务,避免中间状态被查询读到
+- **R8: semantic_annotations 显式清理** — 删除文件时 ON DELETE SET NULL 不会清理 semantic_annotations,必须先 DELETE semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?) 再 DELETE nodes
+- **R9: schema_version 整库失效** — `--incremental` 检测 file_cache 任一行 schema_version != FileCacheService.CURRENT_SCHEMA_VERSION 时降级为全量;空 file_cache 同样降级
+- **R10: build 文件触发全量** — pom.xml / build.gradle 变更经 classpath_hash 比较,差异时触发全量重索引(增量无法处理符号解析范围变化)
 
 ## 4. 状态/枚举
 
@@ -155,7 +165,11 @@ sequenceDiagram
     CLI->>PP: process(result)
     PP->>PP: applyConventionRules + applyJavadocRules
     PP-->>CLI: result + semanticAnnotations
-    CLI->>SS: initSchema + write(result)
+    CLI->>SS: initSchema (若 nodes 表缺失) 或 清表 (DELETE nodes/edges/annotations/semantic_annotations/file_cache/file_dependencies/project_meta)
+    CLI->>SS: write(result)
+    CLI->>SS: updateFileCache(per source file: hash + counts + schema_version)
+    CLI->>SS: upsertProjectMeta(java_version, classpath_hash, index_version)
+    CLI->>SS: clearFileDependencies + deriveFileDependencies (从 edges 表推导)
     SS-->>CLI: ok
 ```
 
@@ -210,19 +224,57 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant FS as FileWatcher
-    participant CLI as anatomist watch
-    participant Diff as ChangeDetector
+    participant CLI as IndexCommand
+    participant FC as FileCacheService
+    participant PS as ProjectScanner
     participant JF as JavaParserFactory
+    participant Ext as Extractors
+    participant PP as SemanticPostProcessor
     participant SS as SqliteStore
 
-    FS-->>CLI: file modified event
-    CLI->>Diff: compute changed compilation units
-    Diff-->>CLI: List<Path> changed
-    CLI->>JF: parseFiles(changed)
-    JF-->>CLI: new ExtractionResult
-    CLI->>SS: DELETE nodes WHERE source_file IN (...) <br/>+ insert new<br/>(CASCADE 清理 edges/annotations)
-    SS-->>CLI: ok
+    CLI->>FC: detectChanges(projectRoot)
+    FC->>FC: compute disk hashes vs file_cache
+    FC-->>CLI: changedFiles + deletedFiles + newFiles
+    CLI->>SS: beginTransaction()
+    CLI->>SS: deleteBySourceFiles(changed + deleted)
+    CLI->>JF: parseFiles(changed + new)
+    JF->>Ext: extract(cu, result)
+    Ext-->>JF: nodes + edges + annotations
+    CLI->>PP: process(result)
+    PP-->>CLI: result + semanticAnnotations
+    CLI->>SS: write(result)
+    CLI->>SS: updateFileCache(changed + new + deleted)
+    CLI->>SS: clearFileDependencies + deriveFileDependencies
+    CLI->>SS: markStaleDependents(changedFiles + deletedFiles)
+    CLI->>SS: commit()
+    CLI-->>CLI: output incremental summary
+```
+
+### 场景 4: 监控 + 自动增量(Watch)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FS as WatchService
+    participant W as WatchCommand
+    participant DB as Debounce
+    participant CLI as IncrementalIndexer
+    participant SS as SqliteStore
+
+    FS-->>W: ENTRY_MODIFY event
+    FS-->>W: ENTRY_MODIFY event (重复)
+    W->>DB: 缓冲事件,debounce-ms 窗口合并
+    DB-->>W: merged event set
+    W->>W: 输出 [MODIFY/CREATE/DELETE] <relPath>
+    alt build 文件变更 (pom.xml/build.gradle)
+        W->>CLI: 委托 IndexCommand --full
+    else 普通源文件变更 (--auto-index)
+        W->>CLI: indexIncremental(changedFiles)
+        CLI->>SS: incremental update (同场景 3)
+        SS-->>CLI: summary
+        CLI-->>W: nodes/edges diff + stale list
+    end
+    W-->>W: output to stdout
 ```
 
 ## 6. Phase 1 实际覆盖

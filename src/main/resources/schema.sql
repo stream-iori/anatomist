@@ -145,3 +145,30 @@ CREATE INDEX idx_semantic_annotations_node_id ON semantic_annotations(node_id);
 CREATE INDEX idx_semantic_annotations_doc_id ON semantic_annotations(doc_id);
 CREATE INDEX idx_semantic_annotations_category ON semantic_annotations(category);
 CREATE INDEX idx_semantic_annotations_source ON semantic_annotations(source);
+
+CREATE TABLE file_cache (
+    source_file TEXT PRIMARY KEY,
+    hash TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    last_indexed TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    node_count INTEGER NOT NULL DEFAULT 0,
+    edge_count INTEGER NOT NULL DEFAULT 0,
+    stale INTEGER NOT NULL DEFAULT 0,
+    stale_reason TEXT
+);
+
+CREATE INDEX idx_file_cache_stale ON file_cache(stale);
+CREATE INDEX idx_file_cache_schema_version ON file_cache(schema_version);
+
+CREATE TABLE project_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
+CREATE TABLE file_dependencies (
+    source_file TEXT NOT NULL,
+    depends_on_file TEXT NOT NULL,
+    PRIMARY KEY (source_file, depends_on_file)
+);
+
+CREATE INDEX idx_file_deps_target ON file_dependencies(depends_on_file);

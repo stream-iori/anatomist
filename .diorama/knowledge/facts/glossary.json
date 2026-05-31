@@ -190,6 +190,62 @@
       "definition": "SemanticPostProcessor.firstBlankLineOrTag(javadoc): 取 javadoc 文本中第一个空行(`\\n\\n`)或第一个 javadoc tag(`^\\s*@\\w+`)之前的内容,trim 后写入 semantic_annotations.business_description, source=JAVADOC, confidence=HIGH。javadoc 为空或空白则跳过(S6)。",
       "aliases": ["javadoc 摘要"],
       "last_verified": "2026-05-31"
+    },
+    {
+      "term": "FileCache",
+      "english": "File Cache",
+      "definition": "file_cache 表的一条记录,记录已索引源文件的 SHA-256 hash、schema_version、last_indexed、节点/边计数、stale 标记与原因。增量索引时用于比较磁盘内容与数据库索引状态,识别 changed/new/deleted 文件。schema_version != FileCacheService.CURRENT_SCHEMA_VERSION 时整库失效。",
+      "aliases": ["文件缓存"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "ProjectMeta",
+      "english": "Project Meta",
+      "definition": "project_meta 表的 key-value 元数据,记录项目级状态:java_version、classpath_hash、index_version。watch 模式比较 classpath_hash 决定是否触发全量重索引。",
+      "aliases": ["项目元数据"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "FileDependency",
+      "english": "File Dependency",
+      "definition": "file_dependencies 表 (source_file, depends_on_file) 复合 PK。每次索引后从 edges 表 post-hoc 推导:JOIN nodes ON edges.target_id WHERE is_external=0 AND source_file<>n.source_file。用于级联 stale 标记。",
+      "aliases": ["文件依赖"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "IncrementalIndexer",
+      "english": "Incremental Indexer",
+      "definition": "com.anatomist.incremental.IncrementalIndexer。协调 FileCacheService + JavaParserFactory + Extractors + SemanticPostProcessor + SqliteStore 在单事务内执行 deleteBySourceFiles(changed+deleted) → parseAll(filter to changed+new) → write → updateFileCache → clearFileDependencies → deriveFileDependencies → markStaleDependents(changed+deleted)。任何步骤失败回滚整事务。",
+      "aliases": ["增量索引器"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "FileCacheService",
+      "english": "File Cache Service",
+      "definition": "com.anatomist.incremental.FileCacheService。computeFileHashes 按 SHA-256 哈希源文件,detectChanges 对比磁盘哈希与 file_cache 产出 changed/added/deleted 三组列表。CURRENT_SCHEMA_VERSION 常量定义当前索引器版本。",
+      "aliases": [],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "WatchCommand",
+      "english": "Watch Command",
+      "definition": "com.anatomist.cli.WatchCommand。基于 java.nio.file.WatchService 监听源码目录树,500ms 防抖窗口合并 ENTRY_CREATE/DELETE/MODIFY 事件,过滤 --extensions 之外的文件,输出 `[CREATE|MODIFY|DELETE] <relPath>`。--auto-index 模式下委托 IndexCommand 执行增量索引;pom.xml/build.gradle 变更触发 --full 重索引。--idle-timeout-ms 与 --max-iterations 是测试用退出开关。",
+      "aliases": ["watch 子命令"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "Stale",
+      "english": "Stale",
+      "definition": "file_cache.stale=1 状态,表示文件本身未变但其上游依赖已变更,索引数据可能失效。stale_reason 记录变更来源。stale 不自动重解析,仅供 watch 输出和后续工具提示;用户需手动 --full 或显式重索引该文件。",
+      "aliases": ["失效"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "Debounce",
+      "english": "Debounce",
+      "definition": "WatchCommand 用 --debounce-ms (默认 500) 合并连续文件事件。IDE 保存场景下单个文件可能触发 2-3 个 MODIFY 事件,debounce 窗口内最后一次事件后等待 N 毫秒再 flush 一次性处理。",
+      "aliases": ["防抖"],
+      "last_verified": "2026-05-31"
     }
   ]
 }

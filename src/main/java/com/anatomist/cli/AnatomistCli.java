@@ -10,7 +10,8 @@ import picocli.CommandLine.Command;
         description = "JavaParser + SymbolSolver based Java code intelligence for Agent LLMs",
         subcommands = {
                 IndexCommand.class,
-                IndexDocsCommand.class
+                IndexDocsCommand.class,
+                WatchCommand.class
         }
 )
 public class AnatomistCli implements Runnable {
