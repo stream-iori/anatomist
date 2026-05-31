@@ -1,10 +1,10 @@
 {
   "session": {
-    "current_phase": "consolidate",
+    "current_phase": "done",
     "current_task": "20260531-003-enrich-annotate-semantic-cli",
     "dirty": false,
-    "last_checkpoint_commit": "0bc20b5fc4e83c0920d3ed5d602758f693bd25ba",
+    "last_checkpoint_commit": "83a9f5692725d52623f1cc6bba02512d413b60c8",
     "last_task_checkpoint": "",
-    "last_updated_at": "2026-05-31T11:36:46.209847Z"
+    "last_updated_at": "2026-05-31T11:40:06.274500Z"
   }
 }

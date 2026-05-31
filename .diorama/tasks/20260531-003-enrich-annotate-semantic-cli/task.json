@@ -15,27 +15,6 @@
       "src/main/resources/schema.sql"
     ]
   },
-  "phase": {
-    "checkpoints": {
-      "generate": "0bc20b5fc4e83c0920d3ed5d602758f693bd25ba",
-      "plan": "f1578b6aca74f1492e154aa2bdca92fdf74286d8",
-      "specify": "074c0169c7d6bc4b606930c276dba4b8a342cfaa"
-    },
-    "completed": [
-      "specify",
-      "plan",
-      "generate"
-    ],
-    "current": "consolidate",
-    "task_checkpoints": {
-      "T1": "7b9b651d34fd871e17f1c05b6f23fa04aeae9faa",
-      "T2": "03c41d0ba458810e94db3b6039d45dd852ecbc99",
-      "T3": "a3e43557fb89bff119aa2f7b8320adbe515dc2b5",
-      "T4": "cf11cb1bb26f2b3528af004bd615cbbf7c98e99e",
-      "T5": "143d244d37e84c008c540d53de61662206b9503d",
-      "T6": "143d244d37e84c008c540d53de61662206b9503d"
-    }
-  },
   "consolidate": {
     "noop": false,
     "updated_files": [
@@ -44,6 +23,29 @@
       "knowledge/rules/experience.md",
       "knowledge/rules/index.md"
     ]
+  },
+  "phase": {
+    "checkpoints": {
+      "consolidate": "83a9f5692725d52623f1cc6bba02512d413b60c8",
+      "generate": "0bc20b5fc4e83c0920d3ed5d602758f693bd25ba",
+      "plan": "f1578b6aca74f1492e154aa2bdca92fdf74286d8",
+      "specify": "074c0169c7d6bc4b606930c276dba4b8a342cfaa"
+    },
+    "completed": [
+      "specify",
+      "plan",
+      "generate",
+      "consolidate"
+    ],
+    "current": "done",
+    "task_checkpoints": {
+      "T1": "7b9b651d34fd871e17f1c05b6f23fa04aeae9faa",
+      "T2": "03c41d0ba458810e94db3b6039d45dd852ecbc99",
+      "T3": "a3e43557fb89bff119aa2f7b8320adbe515dc2b5",
+      "T4": "cf11cb1bb26f2b3528af004bd615cbbf7c98e99e",
+      "T5": "143d244d37e84c008c540d53de61662206b9503d",
+      "T6": "143d244d37e84c008c540d53de61662206b9503d"
+    }
   },
   "task": {
     "base_branch": "main",
