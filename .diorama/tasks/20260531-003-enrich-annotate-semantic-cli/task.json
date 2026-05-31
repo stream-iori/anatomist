@@ -23,11 +23,17 @@
     },
     "completed": [
       "specify",
-      "plan"
+      "plan",
+      "generate"
     ],
-    "current": "generate",
+    "current": "consolidate",
     "task_checkpoints": {
-      "T1": "7b9b651d34fd871e17f1c05b6f23fa04aeae9faa"
+      "T1": "7b9b651d34fd871e17f1c05b6f23fa04aeae9faa",
+      "T2": "03c41d0ba458810e94db3b6039d45dd852ecbc99",
+      "T3": "a3e43557fb89bff119aa2f7b8320adbe515dc2b5",
+      "T4": "cf11cb1bb26f2b3528af004bd615cbbf7c98e99e",
+      "T5": "143d244d37e84c008c540d53de61662206b9503d",
+      "T6": "143d244d37e84c008c540d53de61662206b9503d"
     }
   },
   "task": {
