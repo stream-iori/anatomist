@@ -15,8 +15,23 @@
     "task_checkpoints": {}
   },
   "anchors": {
-    "dev_entries": [],
-    "acceptance_entries": []
+    "dev_entries": [
+      "src/main/java/com/anatomist/model/FileCacheEntry.java",
+      "src/main/java/com/anatomist/incremental/FileCacheService.java",
+      "src/main/java/com/anatomist/incremental/IncrementalIndexer.java",
+      "src/main/java/com/anatomist/cli/WatchCommand.java",
+      "src/main/resources/schema.sql",
+      "src/main/java/com/anatomist/store/SqliteStore.java",
+      "src/main/java/com/anatomist/cli/IndexCommand.java",
+      "src/main/java/com/anatomist/cli/AnatomistCli.java"
+    ],
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/store/SqliteStoreWriteTest.java",
+      "src/test/java/com/anatomist/incremental/FileCacheServiceTest.java",
+      "src/test/java/com/anatomist/incremental/IncrementalIndexerIT.java",
+      "src/test/java/com/anatomist/cli/WatchCommandIT.java",
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java"
+    ]
   },
   "consolidate": {
     "noop": false,
