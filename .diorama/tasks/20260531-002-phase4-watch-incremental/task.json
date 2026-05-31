@@ -27,6 +27,7 @@
   },
   "phase": {
     "checkpoints": {
+      "consolidate": "79f27a15f0350f34bccf7927dfa48cb6d49445aa",
       "generate": "ef560dddb0cdee78636634050958d44094a7f4b3",
       "incept": "",
       "plan": "749c76984ee700cfca2d15680d9d8e7076c71854",
@@ -36,9 +37,10 @@
       "incept",
       "specify",
       "plan",
-      "generate"
+      "generate",
+      "consolidate"
     ],
-    "current": "consolidate",
+    "current": "done",
     "task_checkpoints": {
       "T1": "5d00e1bc377c411361247603cf34c4964a91eae5",
       "T2": "6b0db41d3c5d19a1385591afd5e785efe73cb25b",
