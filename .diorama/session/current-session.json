@@ -1,6 +1,6 @@
 {
   "session": {
-    "current_phase": "plan",
+    "current_phase": "generate",
     "current_task": "20260531-001-phase2-semantic-and-docs",
     "dirty": false,
     "last_checkpoint_commit": "c4d81392da9917298a2da7e3e8827a017fd5057c",
