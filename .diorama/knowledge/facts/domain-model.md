@@ -121,6 +121,8 @@ classDiagram
 - **R6: SUT 单 DB** — 多模块项目共享一个 index.db,通过 nodes.module 列区分
 - **R7: 增量单事务** — `IncrementalIndexer.indexIncremental` 在单 SQLite 事务内完成 deleteBySourceFiles → write → updateFileCache → deriveFileDependencies → markStaleDependents,任一失败回滚整事务,避免中间状态被查询读到
 - **R8: semantic_annotations 显式清理** — 删除文件时 ON DELETE SET NULL 不会清理 semantic_annotations,必须先 DELETE semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?) 再 DELETE nodes
+- **R9: annotate source 白名单** — annotate CLI 只允许 `source ∈ {DOC, LLM}`；CONVENTION 由 SemanticPostProcessor 自动产出，JAVADOC 由 javadoc 提取器自动产出，手动写入会与自动产出冲突，CLI 层拒绝并 exit 1
+- **R10: (node_id, category, source) 是 upsert 键** — semantic_annotations 表上有 UNIQUE INDEX `idx_semantic_annotations_upsert_key`；SqliteStore.upsertSemanticAnnotation 用 DELETE + INSERT 在单事务内实现幂等
 - **R9: schema_version 整库失效** — `--incremental` 检测 file_cache 任一行 schema_version != FileCacheService.CURRENT_SCHEMA_VERSION 时降级为全量;空 file_cache 同样降级
 - **R10: build 文件触发全量** — pom.xml / build.gradle 变更经 classpath_hash 比较,差异时触发全量重索引(增量无法处理符号解析范围变化)
 
@@ -275,6 +277,39 @@ sequenceDiagram
         CLI-->>W: nodes/edges diff + stale list
     end
     W-->>W: output to stdout
+```
+
+### 场景 5: Enrich + Annotate 写回闭环(语义沉淀)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Agent
+    participant CLI as AnatomistCli
+    participant Enrich as EnrichCommand
+    participant Annotate as AnnotateCommand
+    participant QS as QueryService
+    participant SS as SqliteStore
+
+    Note over A,SS: enrich 流程
+    A->>CLI: anatomist enrich --node OrderService
+    CLI->>Enrich: call()
+    Enrich->>QS: enrichNode(fqn, depth, withDocs)
+    QS->>QS: resolveNodeRow + context (members+annotations)
+    QS->>QS: readSemanticAnnotations + searchRelatedDocs (FTS5)
+    QS->>QS: suggestQueries (静态规则)
+    QS-->>Enrich: EnrichResult
+    Enrich->>Enrich: MarkdownFormatter.format / JsonFormatter
+    Enrich-->>A: markdown 或 JSON (≤200 行)
+
+    Note over A,SS: annotate 流程 (upsert 写回)
+    A->>CLI: anatomist annotate <node-id> --label ... --category ... --source LLM
+    CLI->>Annotate: call()
+    Annotate->>Annotate: validate source ∈ {DOC, LLM}
+    Annotate->>SS: upsertSemanticAnnotation
+    SS->>SS: DELETE WHERE (node_id, category, source) + INSERT (单事务)
+    SS-->>Annotate: ok
+    Annotate-->>A: "Annotated N node(s)"
 ```
 
 ## 6. Phase 1 实际覆盖

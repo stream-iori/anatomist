@@ -1,10 +1,10 @@
 {
   "session": {
     "current_phase": "done",
-    "current_task": "20260531-002-phase4-watch-incremental",
+    "current_task": "20260531-003-enrich-annotate-semantic-cli",
     "dirty": false,
-    "last_checkpoint_commit": "79f27a15f0350f34bccf7927dfa48cb6d49445aa",
+    "last_checkpoint_commit": "83a9f5692725d52623f1cc6bba02512d413b60c8",
     "last_task_checkpoint": "",
-    "last_updated_at": "2026-05-31T04:53:22.782373Z"
+    "last_updated_at": "2026-05-31T11:40:06.274500Z"
   }
 }

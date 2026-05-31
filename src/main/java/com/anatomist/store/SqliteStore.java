@@ -172,6 +172,57 @@ public class SqliteStore implements AutoCloseable {
         }
     }
 
+    public void upsertSemanticAnnotation(SemanticAnnotation sa) {
+        if (sa == null) return;
+        upsertSemanticAnnotations(java.util.List.of(sa));
+    }
+
+    public void upsertSemanticAnnotations(java.util.List<SemanticAnnotation> sas) {
+        if (sas == null || sas.isEmpty()) return;
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        boolean priorAutoCommit;
+        try {
+            priorAutoCommit = c.getAutoCommit();
+            c.setAutoCommit(false);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to begin transaction", e);
+        }
+        String del = "DELETE FROM semantic_annotations WHERE node_id=? AND category=? AND source=?";
+        String ins = "INSERT INTO semantic_annotations" +
+                "(node_id,doc_id,category,business_label,business_description,domain_context,source,confidence)" +
+                " VALUES (?,?,?,?,?,?,?,?)";
+        try (PreparedStatement psDel = c.prepareStatement(del);
+             PreparedStatement psIns = c.prepareStatement(ins)) {
+            for (SemanticAnnotation sa : sas) {
+                psDel.setString(1, sa.nodeId);
+                psDel.setString(2, sa.category);
+                psDel.setString(3, sa.source);
+                psDel.executeUpdate();
+
+                if (sa.nodeId == null) psIns.setNull(1, Types.VARCHAR); else psIns.setString(1, sa.nodeId);
+                if (sa.docId == null) psIns.setNull(2, Types.INTEGER); else psIns.setInt(2, sa.docId);
+                if (sa.category == null) psIns.setNull(3, Types.VARCHAR); else psIns.setString(3, sa.category);
+                if (sa.businessLabel == null) psIns.setNull(4, Types.VARCHAR); else psIns.setString(4, sa.businessLabel);
+                if (sa.businessDescription == null) psIns.setNull(5, Types.VARCHAR); else psIns.setString(5, sa.businessDescription);
+                if (sa.domainContext == null) psIns.setNull(6, Types.VARCHAR); else psIns.setString(6, sa.domainContext);
+                psIns.setString(7, sa.source);
+                psIns.setString(8, sa.confidence);
+                psIns.executeUpdate();
+            }
+            c.commit();
+        } catch (SQLException e) {
+            try { c.rollback(); } catch (SQLException ignore) {}
+            throw new RuntimeException("Failed to upsert semantic_annotations", e);
+        } finally {
+            try { c.setAutoCommit(priorAutoCommit); } catch (SQLException ignore) {}
+        }
+    }
+
     public void insertDocuments(java.util.List<Document> docs) {
         if (docs == null || docs.isEmpty()) return;
         Connection c;

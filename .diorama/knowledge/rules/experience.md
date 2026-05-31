@@ -125,3 +125,19 @@
 - 任何 `Set<Node>` / `Map<Node, ?>` 一律用 `Collections.newSetFromMap(new IdentityHashMap<>())` 或 `new IdentityHashMap<>()`，绝不用 `HashSet` / `HashMap`
 - 写注释解释**为什么** load-bearing（防止后来人"清理"成普通 HashSet），见 `FieldAccessExtractor.extract()` Pass 1 上方注释
 - 单元测试要覆盖"同名 Node 同时出现在写点和读点"组合，否则结构相等 bug 一律抓不到。`FieldAccessExtractorTest.selfAssignment_rhsEmitsRead_andOtherReadsInSameClassSurvive` 是模板
+
+## E15: 写 enrich 类 IT 时不要让 IndexDocsCommand 跑在已索引的 db 上
+
+**情景**: 任何 IT 想同时拿到「nodes/edges 全部 + documents」，会想着先 `IndexCommand` 索引代码、再 `IndexDocsCommand` 索引 markdown。
+
+**坑**: `SqliteStore.initSchema()` 直接执行 `schema.sql` 里的 `CREATE TABLE ...`（无 `IF NOT EXISTS`）。`IndexCommand` 在 db 已存在时跳过 initSchema 改走 DELETE 清表；但 `IndexDocsCommand` **无条件**调用 `initSchema()`，跑在已索引的 db 上时会因 `CREATE TABLE nodes` 报错 `already exists`，整个测试 setup 崩。
+
+**对策**: IT 内不要串联这两个命令到同一个 db；要测 `--with-docs` 路径时，直接用 `SqliteStore.insertDocuments(List<Document>)` 在 `@BeforeAll` 里手工塞一两条 Document。等价覆盖、还更稳定。模板见 `EnrichQueryIT.buildIndex` / `EnrichCommandIT.buildIndex`。
+
+## E16: SemanticPostProcessor 在 IT setup 阶段会自动加 CONVENTION 行
+
+**情景**: 写 annotate / enrich 类 IT，setup 中 `IndexCommand` 跑完后再 `upsertSemanticAnnotation` 一条 LLM 行，断言 "semantic_annotations 表只有 1 条"。
+
+**坑**: `IndexCommand` 在 write 前会跑 `new SemanticPostProcessor().process(result)`，对识别为 BUSINESS_SERVICE / REPOSITORY / CONTROLLER 的类型自动写 source=CONVENTION 的语义注解。OrderService / PaymentService 这种带 "Service" 后缀的类型就会被自动加一条 CONVENTION 行，断言 count==1 永远 fail。
+
+**对策**: IT 断言应按 `(category, source)` 过滤而不是简单 count。`readSemanticAnnotations_returnsSeeded` 模板：`assertTrue(rows.stream().anyMatch(r -> "BUSINESS_SERVICE".equals(r.category) && "LLM".equals(r.source)))`。直接 count 等于固定值的断言一律不可靠。

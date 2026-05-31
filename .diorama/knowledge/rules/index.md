@@ -4,4 +4,4 @@
 
 ## 规则文件
 
-- [experience.md](experience.md) — 经验规则 — JavaParser+SymbolSolver / SQLite / FTS5 / Maven seam / AstEnclosing / SymbolSolver 容错惯例 / JavaParser Node.equals 结构相等 等实践陷阱与对策(E1-E14)
+- [experience.md](experience.md) — 经验规则 — JavaParser+SymbolSolver / SQLite / FTS5 / Maven seam / AstEnclosing / SymbolSolver 容错惯例 / JavaParser Node.equals 结构相等 / enrich+annotate IT setup 陷阱 等实践陷阱与对策(E1-E16)
