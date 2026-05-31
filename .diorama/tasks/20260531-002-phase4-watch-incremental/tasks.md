@@ -16,35 +16,35 @@
 
 ### T1: Schema + Model + SqliteStore 扩展 [REQ-001, REQ-002, REQ-003]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] FileCacheEntry — record — file_cache 行模型(sourceFile, hash, schemaVersion, lastIndexed, nodeCount, edgeCount, stale, staleReason)
-- [ ] schema.sql 追加: file_cache 表 + project_meta 表 + file_dependencies 表 + 索引
+- [x] FileCacheEntry — record — file_cache 行模型(sourceFile, hash, schemaVersion, lastIndexed, nodeCount, edgeCount, stale, staleReason)
+- [x] schema.sql 追加: file_cache 表 + project_meta 表 + file_dependencies 表 + 索引
 
 **Gate**: `mvn compile -q` — exit 0
 
 #### Phase 2: DSL Test
 
-- [ ] SqliteStoreWriteTest#testFileCacheCrud — 场景 S11 — 核心断言: 写入 file_cache 后读取与写入一致
-- [ ] SqliteStoreWriteTest#testProjectMetaCrud — 核心断言: 写入 project_meta 后读取与写入一致
-- [ ] SqliteStoreWriteTest#testFileDependenciesDerivation — 场景 S6 — 核心断言: 从 edges 推导跨文件依赖
-- [ ] SqliteStoreWriteTest#testDeleteBySourceFiles — 核心断言: 按文件删除 nodes 时 CASCADE 清理 edges/annotations，显式清理 semantic_annotations
-- [ ] SqliteStoreWriteTest#testMarkStaleDependents — 场景 S7 — 核心断言: 依赖方 stale=1 + stale_reason 非空
+- [x] SqliteStoreWriteTest#testFileCacheCrud — 场景 S11 — 核心断言: 写入 file_cache 后读取与写入一致
+- [x] SqliteStoreWriteTest#testProjectMetaCrud — 核心断言: 写入 project_meta 后读取与写入一致
+- [x] SqliteStoreWriteTest#testFileDependenciesDerivation — 场景 S6 — 核心断言: 从 edges 推导跨文件依赖
+- [x] SqliteStoreWriteTest#testDeleteBySourceFiles — 核心断言: 按文件删除 nodes 时 CASCADE 清理 edges/annotations，显式清理 semantic_annotations
+- [x] SqliteStoreWriteTest#testMarkStaleDependents — 场景 S7 — 核心断言: 依赖方 stale=1 + stale_reason 非空
 
 **Gate**: `mvn test-compile -q && mvn test -Dtest="SqliteStoreWriteTest#testFileCacheCrud+testProjectMetaCrud+testFileDependenciesDerivation+testDeleteBySourceFiles+testMarkStaleDependents" -q` — ① test-compile exit 0 ② test fails with AssertionError (红灯)
 
 #### Phase 3: Implementation
 
-- [ ] SqliteStore 新增 deleteBySourceFiles(List<String>): 先删 semantic_annotations (WHERE node_id IN SELECT)，再删 nodes (CASCADE 清理 edges/annotations)
-- [ ] SqliteStore 新增 updateFileCache(List<FileCacheEntry>): INSERT OR REPLACE
-- [ ] SqliteStore 新增 readFileCache(): 返回 Map<String, FileCacheEntry>
-- [ ] SqliteStore 新增 readProjectMeta(String key): 返回 Optional<String>
-- [ ] SqliteStore 新增 upsertProjectMeta(String key, String value)
-- [ ] SqliteStore 新增 deriveFileDependencies(): 从 edges 表 INSERT INTO file_dependencies SELECT DISTINCT...
-- [ ] SqliteStore 新增 markStaleDependents(List<String>): 查 file_dependencies 反向标记 stale
-- [ ] SqliteStore 新增 clearFileDependencies(): DELETE FROM file_dependencies (重索引前清空)
+- [x] SqliteStore 新增 deleteBySourceFiles(List<String>): 先删 semantic_annotations (WHERE node_id IN SELECT)，再删 nodes (CASCADE 清理 edges/annotations)
+- [x] SqliteStore 新增 updateFileCache(List<FileCacheEntry>): INSERT OR REPLACE
+- [x] SqliteStore 新增 readFileCache(): 返回 Map<String, FileCacheEntry>
+- [x] SqliteStore 新增 readProjectMeta(String key): 返回 Optional<String>
+- [x] SqliteStore 新增 upsertProjectMeta(String key, String value)
+- [x] SqliteStore 新增 deriveFileDependencies(): 从 edges 表 INSERT INTO file_dependencies SELECT DISTINCT...
+- [x] SqliteStore 新增 markStaleDependents(List<String>): 查 file_dependencies 反向标记 stale
+- [x] SqliteStore 新增 clearFileDependencies(): DELETE FROM file_dependencies (重索引前清空)
 
 **Gate**: `mvn test -Dtest=SqliteStoreWriteTest -q` — exit 0, all tests green
 

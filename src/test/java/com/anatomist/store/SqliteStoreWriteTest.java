@@ -2,6 +2,7 @@ package com.anatomist.store;
 
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.Node;
 import com.anatomist.model.SemanticAnnotation;
 import com.anatomist.model.Document;
@@ -128,6 +129,110 @@ class SqliteStoreWriteTest {
         Connection c = store.connection();
         assertEquals(1, count(c,
                 "SELECT count(*) FROM semantic_annotations WHERE node_id='com.x.OrderService' AND source='CONVENTION' AND category='BUSINESS_SERVICE'"));
+    }
+
+    @Test
+    void testFileCacheCrud(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        FileCacheEntry e = new FileCacheEntry("src/A.java", "abc123", 1, "2026-05-31T00:00:00Z", 5, 7, 0, null);
+        store.updateFileCache(java.util.List.of(e));
+
+        java.util.Map<String, FileCacheEntry> cache = store.readFileCache();
+        assertEquals(1, cache.size());
+        FileCacheEntry read = cache.get("src/A.java");
+        assertNotNull(read);
+        assertEquals("abc123", read.hash());
+        assertEquals(1, read.schemaVersion());
+        assertEquals(5, read.nodeCount());
+        assertEquals(7, read.edgeCount());
+        assertEquals(0, read.stale());
+    }
+
+    @Test
+    void testProjectMetaCrud(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        store.upsertProjectMeta("java_version", "21");
+        store.upsertProjectMeta("classpath_hash", "deadbeef");
+
+        assertEquals("21", store.readProjectMeta("java_version").orElse(null));
+        assertEquals("deadbeef", store.readProjectMeta("classpath_hash").orElse(null));
+
+        store.upsertProjectMeta("java_version", "25");
+        assertEquals("25", store.readProjectMeta("java_version").orElse(null));
+        assertFalse(store.readProjectMeta("nonexistent").isPresent());
+    }
+
+    @Test
+    void testFileDependenciesDerivation(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        ExtractionResult r = new ExtractionResult();
+        Node a = node("com.x.A", "A", "CLASS"); a.sourceFile = "A.java";
+        Node b = node("com.x.B", "B", "CLASS"); b.sourceFile = "B.java";
+        r.nodes.add(a);
+        r.nodes.add(b);
+        Edge ed = new Edge();
+        ed.sourceId = "com.x.A"; ed.targetId = "com.x.B"; ed.relation = "REFERENCES";
+        ed.isExternal = false; ed.confidence = "EXTRACTED"; ed.sourceFile = "A.java";
+        r.edges.add(ed);
+        store.write(r);
+
+        store.deriveFileDependencies();
+
+        Connection c = store.connection();
+        assertEquals(1, count(c, "SELECT count(*) FROM file_dependencies WHERE source_file='A.java' AND depends_on_file='B.java'"));
+    }
+
+    @Test
+    void testDeleteBySourceFiles(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        ExtractionResult r = new ExtractionResult();
+        Node a = node("com.x.A", "A", "CLASS"); a.sourceFile = "A.java";
+        Node am = node("com.x.A#foo()", "foo", "METHOD"); am.sourceFile = "A.java";
+        Node b = node("com.x.B", "B", "CLASS"); b.sourceFile = "B.java";
+        r.nodes.add(a); r.nodes.add(am); r.nodes.add(b);
+        r.edges.add(containsEdge("com.x.A", "com.x.A#foo()"));
+        SemanticAnnotation sa = new SemanticAnnotation();
+        sa.nodeId = "com.x.A"; sa.source = "CONVENTION"; sa.confidence = "MEDIUM";
+        r.semanticAnnotations.add(sa);
+        store.write(r);
+
+        store.deleteBySourceFiles(java.util.List.of("A.java"));
+
+        Connection c = store.connection();
+        assertEquals(1, count(c, "SELECT count(*) FROM nodes"));
+        assertEquals(0, count(c, "SELECT count(*) FROM nodes WHERE source_file='A.java'"));
+        assertEquals(0, count(c, "SELECT count(*) FROM edges"));
+        assertEquals(0, count(c, "SELECT count(*) FROM semantic_annotations"));
+    }
+
+    @Test
+    void testMarkStaleDependents(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        // Set up file_cache entries
+        store.updateFileCache(java.util.List.of(
+                new FileCacheEntry("A.java", "h1", 1, "2026-05-31T00:00:00Z", 1, 0, 0, null),
+                new FileCacheEntry("B.java", "h2", 1, "2026-05-31T00:00:00Z", 1, 0, 0, null)
+        ));
+        // Set up file_dependencies: A.java depends on B.java
+        Connection c = store.connection();
+        try (Statement st = c.createStatement()) {
+            st.execute("INSERT INTO file_dependencies(source_file, depends_on_file) VALUES ('A.java', 'B.java')");
+        }
+
+        store.markStaleDependents(java.util.List.of("B.java"));
+
+        assertEquals(1, count(c, "SELECT count(*) FROM file_cache WHERE source_file='A.java' AND stale=1 AND stale_reason IS NOT NULL"));
+        assertEquals(0, count(c, "SELECT count(*) FROM file_cache WHERE source_file='B.java' AND stale=1"));
     }
 
     @Test
