@@ -75,4 +75,59 @@ class MethodExtractorTest {
         Node ctor = r.nodes.stream().filter(n -> n.id.equals("pkg.A#A()")).findFirst().orElseThrow();
         assertTrue(ctor.metadata.contains("\"isConstructor\":true"));
     }
+
+    @Test
+    void methodMetadata_marksGetterAsAccessor() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public class A {"
+                + "  private String name;"
+                + "  public String getName() { return name; }"
+                + "  public boolean isActive() { return true; }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        Node getName = r.nodes.stream().filter(n -> n.id.equals("pkg.A#getName()")).findFirst().orElseThrow();
+        Node isActive = r.nodes.stream().filter(n -> n.id.equals("pkg.A#isActive()")).findFirst().orElseThrow();
+        assertTrue(getName.metadata.contains("\"isAccessor\":true"), "getName must be accessor; got " + getName.metadata);
+        assertTrue(isActive.metadata.contains("\"isAccessor\":true"), "isActive (boolean) must be accessor; got " + isActive.metadata);
+    }
+
+    @Test
+    void methodMetadata_marksSetterAsAccessor() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public class A {"
+                + "  private String name;"
+                + "  public void setName(String n) { this.name = n; }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        Node setName = r.nodes.stream().filter(n -> n.id.equals("pkg.A#setName(java.lang.String)")).findFirst().orElseThrow();
+        assertTrue(setName.metadata.contains("\"isAccessor\":true"), "setName must be accessor; got " + setName.metadata);
+    }
+
+    @Test
+    void methodMetadata_marksNonAccessorAsFalse() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public class A {"
+                + "  public void process() {}"
+                + "  public String isReady() { return \"\"; }"      // is + non-boolean return
+                + "  public void getSomething() {}"                 // get + void return
+                + "  public void setX() {}"                         // set + 0 params
+                + "  public int get() { return 0; }"                // bare get
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        for (String id : List.of(
+                "pkg.A#process()",
+                "pkg.A#isReady()",
+                "pkg.A#getSomething()",
+                "pkg.A#setX()",
+                "pkg.A#get()")) {
+            Node n = r.nodes.stream().filter(x -> x.id.equals(id)).findFirst().orElseThrow(() -> new AssertionError("missing " + id));
+            assertTrue(n.metadata.contains("\"isAccessor\":false"), id + " must be non-accessor; got " + n.metadata);
+        }
+    }
 }

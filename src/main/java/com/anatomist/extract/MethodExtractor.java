@@ -166,6 +166,30 @@ public class MethodExtractor implements Extractor {
         return e;
     }
 
+    private static boolean isAccessor(MethodDeclaration md) {
+        String name = md.getNameAsString();
+        int paramCount = md.getParameters().size();
+        String returnType;
+        try {
+            returnType = md.getType().asString();
+        } catch (RuntimeException e) {
+            return false;
+        }
+        boolean voidReturn = "void".equals(returnType);
+        boolean booleanReturn = "boolean".equals(returnType) || "Boolean".equals(returnType);
+
+        if (name.startsWith("get") && name.length() > 3 && paramCount == 0 && !voidReturn) {
+            return true;
+        }
+        if (name.startsWith("is") && name.length() > 2 && paramCount == 0 && booleanReturn) {
+            return true;
+        }
+        if (name.startsWith("set") && name.length() > 3 && paramCount == 1 && voidReturn) {
+            return true;
+        }
+        return false;
+    }
+
     private static int lineOf(com.github.javaparser.ast.Node n) {
         return n.getBegin().map(p -> p.line).orElse(0);
     }
@@ -200,6 +224,7 @@ public class MethodExtractor implements Extractor {
         meta.put("isStatic", isStatic);
         meta.put("isAbstract", isAbstract);
         meta.put("isConstructor", isConstructor);
+        meta.put("isAccessor", isConstructor ? false : isAccessor((MethodDeclaration) decl));
 
         List<String> mods = new ArrayList<>();
         for (Modifier m : decl.getModifiers()) {

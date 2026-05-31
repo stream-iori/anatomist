@@ -41,7 +41,7 @@
 
 ### T1: isAccessor metadata 标记 [REQ-004, BR-002]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 **目标**: `MethodExtractor.methodMetadata()` 新增 `isAccessor` 字段，getter（`get`/`is` 前缀 + 0 参 + 非 void 返回）和 setter（`set` 前缀 + 1 参 + void 返回）为 true，其余为 false。
 
