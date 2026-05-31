@@ -20,7 +20,10 @@
   },
   "consolidate": {
     "noop": false,
-    "updated_files": []
+    "updated_files": [
+      "knowledge/facts/glossary.json",
+      "knowledge/facts/domain-model.md"
+    ]
   },
   "phase": {
     "checkpoints": {
