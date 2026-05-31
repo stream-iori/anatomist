@@ -40,3 +40,17 @@ feature
 - **enrich 默认 markdown 输出**应控制在 ~200 行内（mini-spring-shop OrderService 量级），过长则 Agent 上下文窗口浪费、人看也累。
 - **annotate 写入语义**：`source` 字段必须严格走 schema CHECK（`CONVENTION|JAVADOC|DOC|LLM`），重复写同 (node_id, category, source) 走 upsert，不堆历史行。
 - **不实现 scenario 5 的 export 系列**（mermaid/json/subgraph 导出）——明确放弃，未来按需再做。
+
+## Specify 阶段挑战补全
+
+### annotate source 限制
+
+五维挑战发现：proposal 原文允许 `--source LLM|DOC|JAVADOC`，但 JAVADOC 和 CONVENTION 注解由 SemanticPostProcessor 自动产出，CLI 手写会与自动产出冲突。补全约束：**annotate CLI 限制 source ∈ {DOC, LLM}**，CONVENTION/JAVADOC 由系统自动管理，CLI 层拒绝。
+
+### schema UNIQUE 索引
+
+为支持 upsert 语义且不堆积历史行，需在 semantic_annotations 表新增 UNIQUE 索引 `(node_id, category, source)`。现有数据无重复键冲突（index 每次清表重建），向前兼容。
+
+### enrich --package --depth 语义
+
+确认：enrich --package 模式忽略 --depth 参数，仅输出类型概要（kind + label + category），不含 callees。--depth 仅在 --node 模式控制 callees 层数。
