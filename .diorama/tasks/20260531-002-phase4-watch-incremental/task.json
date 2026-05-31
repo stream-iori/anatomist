@@ -1,0 +1,22 @@
+{
+  "task": {
+    "name": "20260531-002-phase4-watch-incremental",
+    "branch": "task/20260531-002-phase4-watch-incremental",
+    "base_branch": "main",
+    "created_at": "2026-05-31T04:30:00Z"
+  },
+  "phase": {
+    "current": "incept",
+    "completed": [],
+    "checkpoints": {},
+    "task_checkpoints": {}
+  },
+  "anchors": {
+    "dev_entries": [],
+    "acceptance_entries": []
+  },
+  "consolidate": {
+    "noop": false,
+    "updated_files": []
+  }
+}
