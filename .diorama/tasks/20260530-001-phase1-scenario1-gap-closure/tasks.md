@@ -65,7 +65,7 @@
 
 ### T2: NodeIdGenerator 新增 forLambda / forMethodRef [REQ-001, REQ-002]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 **目标**: 在 `NodeIdGenerator` 新增两个静态方法，提供 LAMBDA / METHOD_REF 的稳定 ID 生成。
 

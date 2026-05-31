@@ -58,4 +58,23 @@ class NodeIdGeneratorTest {
         assertEquals("pkg.A#foo(java.lang.String,java.util.List)", withArgs);
         assertEquals("pkg.A#foo()", noArgs);
     }
+
+    @Test
+    void forLambda_concatsParentWithLineColumn() {
+        assertEquals("pkg.A#foo()$lambda@L12C34",
+                NodeIdGenerator.forLambda("pkg.A#foo()", 12, 34));
+    }
+
+    @Test
+    void forMethodRef_concatsParentWithLineColumn() {
+        assertEquals("pkg.A#foo()$methodref@L5C9",
+                NodeIdGenerator.forMethodRef("pkg.A#foo()", 5, 9));
+    }
+
+    @Test
+    void forLambda_isStableAcrossCalls() {
+        String a = NodeIdGenerator.forLambda("pkg.A#bar()", 7, 3);
+        String b = NodeIdGenerator.forLambda("pkg.A#bar()", 7, 3);
+        assertEquals(a, b);
+    }
 }
