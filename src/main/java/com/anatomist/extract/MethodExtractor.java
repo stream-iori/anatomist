@@ -1,12 +1,12 @@
 package com.anatomist.extract;
 
+import com.anatomist.json.Json;
+
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.CallableDeclaration;
@@ -28,8 +28,6 @@ import java.util.Map;
 import static com.anatomist.core.NodeIdGenerator.erasedTypeDescribe;
 
 public class MethodExtractor implements Extractor {
-
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final ExtractionContext ctx;
     private final AstEnclosing enclosing;
@@ -202,8 +200,7 @@ public class MethodExtractor implements Extractor {
         n.sourceLocation = "L" + line;
         n.module = ctx.module();
         n.scope = ctx.scope();
-        try { n.metadata = JSON.writeValueAsString(meta); }
-        catch (JsonProcessingException e) { n.metadata = "{}"; }
+        n.metadata = Json.writeCompact(meta);
         result.nodes.add(n);
 
         result.edges.add(containsEdge(parentId, id, sourceFile, n.sourceLocation));
@@ -241,8 +238,7 @@ public class MethodExtractor implements Extractor {
         n.sourceLocation = "L" + line;
         n.module = ctx.module();
         n.scope = ctx.scope();
-        try { n.metadata = JSON.writeValueAsString(meta); }
-        catch (JsonProcessingException e) { n.metadata = "{}"; }
+        n.metadata = Json.writeCompact(meta);
         result.nodes.add(n);
 
         result.edges.add(containsEdge(parentId, id, sourceFile, n.sourceLocation));
@@ -376,7 +372,6 @@ public class MethodExtractor implements Extractor {
         sig.append(")");
         meta.put("signature", sig.toString());
 
-        try { return JSON.writeValueAsString(meta); }
-        catch (JsonProcessingException e) { return "{}"; }
+        return Json.writeCompact(meta);
     }
 }

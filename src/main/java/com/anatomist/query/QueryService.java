@@ -1,7 +1,6 @@
 package com.anatomist.query;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.anatomist.json.Json;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -40,7 +39,6 @@ public class QueryService implements AutoCloseable {
             "CLASS", "INTERFACE", "ENUM", "ANNOTATION", "RECORD", "ANONYMOUS_CLASS");
 
     private final Connection conn;
-    private final ObjectMapper json = JsonFormatter.mapper();
 
     public QueryService(Path dbPath) {
         try {
@@ -155,7 +153,7 @@ public class QueryService implements AutoCloseable {
                     row.put("annotation_fqn", rs.getString(1));
                     String attrs = rs.getString(2);
                     if (attrs != null && !attrs.isEmpty()) {
-                        try { row.put("attributes", json.readValue(attrs, JsonNode.class)); }
+                        try { row.put("attributes", Json.parseTree(attrs)); }
                         catch (Exception e) { row.put("attributes", attrs); }
                     }
                     r.annotations.add(row);

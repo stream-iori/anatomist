@@ -1,11 +1,11 @@
 package com.anatomist.extract;
 
+import com.anatomist.json.Json;
+
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node.TreeTraversal;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
@@ -30,8 +30,6 @@ import java.util.Map;
 import java.util.Optional;
 
 public class TypeExtractor implements Extractor {
-
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final ExtractionContext ctx;
 
@@ -214,8 +212,7 @@ public class TypeExtractor implements Extractor {
     }
 
     static String toJson(Map<String, Object> meta) {
-        try { return JSON.writeValueAsString(meta); }
-        catch (JsonProcessingException e) { return "{}"; }
+        return Json.writeCompact(meta);
     }
 
     /** Marker used by IndexCommand to stash the relative source path on a CU. */

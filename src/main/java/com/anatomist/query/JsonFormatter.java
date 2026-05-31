@@ -1,34 +1,25 @@
 package com.anatomist.query;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.anatomist.json.DtoCodecs;
+import com.anatomist.json.Json;
 
 import java.io.PrintStream;
 
-/** Single Jackson instance shared by every query command — snake_case keys,
- *  pretty-printed, stable across CLI / golden-file tests. */
+/** Pretty-printer entry point for query subcommands. Delegates to the
+ *  hand-written {@link Json} layer so anatomist remains reflection-free. */
 public final class JsonFormatter {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
-            .enable(SerializationFeature.INDENT_OUTPUT);
+    static {
+        DtoCodecs.ensureRegistered();
+    }
 
     private JsonFormatter() {}
 
     public static String toJson(Object value) {
-        try {
-            return MAPPER.writeValueAsString(value);
-        } catch (Exception e) {
-            throw new RuntimeException("JSON serialization failed", e);
-        }
+        return Json.writePretty(value);
     }
 
     public static void emit(PrintStream out, QueryEnvelope env) {
         out.println(toJson(env));
-    }
-
-    public static ObjectMapper mapper() {
-        return MAPPER;
     }
 }

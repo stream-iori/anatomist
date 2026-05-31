@@ -19,7 +19,6 @@
         <javaparser.version>3.28.1</javaparser.version>
         <sqlite.version>3.47.0.0</sqlite.version>
         <picocli.version>4.7.6</picocli.version>
-        <jackson.version>2.17.0</jackson.version>
         <junit.version>5.10.2</junit.version>
         <surefire.version>3.2.5</surefire.version>
     </properties>
@@ -41,12 +40,6 @@
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>
             <version>${picocli.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
         </dependency>
 
         <dependency>
