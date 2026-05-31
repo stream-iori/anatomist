@@ -1,21 +1,12 @@
 {
-  "task": {
-    "name": "20260531-002-phase4-watch-incremental",
-    "branch": "task/20260531-002-phase4-watch-incremental",
-    "base_branch": "main",
-    "created_at": "2026-05-31T04:30:00Z"
-  },
-  "phase": {
-    "current": "generate",
-    "completed": ["incept", "specify", "plan"],
-    "checkpoints": {
-      "incept": "",
-      "specify": "ccac6563779e5eed9281bf7423eed33c8686895a",
-      "plan": "749c76984ee700cfca2d15680d9d8e7076c71854"
-    },
-    "task_checkpoints": {}
-  },
   "anchors": {
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/store/SqliteStoreWriteTest.java",
+      "src/test/java/com/anatomist/incremental/FileCacheServiceTest.java",
+      "src/test/java/com/anatomist/incremental/IncrementalIndexerIT.java",
+      "src/test/java/com/anatomist/cli/WatchCommandIT.java",
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java"
+    ],
     "dev_entries": [
       "src/main/java/com/anatomist/model/FileCacheEntry.java",
       "src/main/java/com/anatomist/incremental/FileCacheService.java",
@@ -25,17 +16,32 @@
       "src/main/java/com/anatomist/store/SqliteStore.java",
       "src/main/java/com/anatomist/cli/IndexCommand.java",
       "src/main/java/com/anatomist/cli/AnatomistCli.java"
-    ],
-    "acceptance_entries": [
-      "src/test/java/com/anatomist/store/SqliteStoreWriteTest.java",
-      "src/test/java/com/anatomist/incremental/FileCacheServiceTest.java",
-      "src/test/java/com/anatomist/incremental/IncrementalIndexerIT.java",
-      "src/test/java/com/anatomist/cli/WatchCommandIT.java",
-      "src/test/java/com/anatomist/cli/IndexCommandIT.java"
     ]
   },
   "consolidate": {
     "noop": false,
     "updated_files": []
+  },
+  "phase": {
+    "checkpoints": {
+      "incept": "",
+      "plan": "749c76984ee700cfca2d15680d9d8e7076c71854",
+      "specify": "ccac6563779e5eed9281bf7423eed33c8686895a"
+    },
+    "completed": [
+      "incept",
+      "specify",
+      "plan"
+    ],
+    "current": "generate",
+    "task_checkpoints": {
+      "T1": "5d00e1bc377c411361247603cf34c4964a91eae5"
+    }
+  },
+  "task": {
+    "base_branch": "main",
+    "branch": "task/20260531-002-phase4-watch-incremental",
+    "created_at": "2026-05-31T04:30:00Z",
+    "name": "20260531-002-phase4-watch-incremental"
   }
 }
