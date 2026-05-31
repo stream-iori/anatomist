@@ -163,18 +163,75 @@ Open these in order:
 
 Build target is `release=21`; runtime JDK 21+ works.
 
+### Native image (GraalVM)
+
+A single self-contained binary covering every CLI subcommand
+(`index` / `query` / `watch` / `enrich` / `annotate` / ...). See
+[`docs/scenario-6-native-image.md`](docs/scenario-6-native-image.md) for the
+architectural rationale.
+
+**Prereq**: GraalVM JDK 21+ with `native-image` on `$PATH`
+(`sdk install java 25.0.3-graal` via SDKMAN, or any equivalent).
+
+```bash
+# 1. Build (~1 minute on M-series, ~3 min on x86)
+mvn -Pnative -DskipTests package
+# → target/anatomist  (~44 MB, single Mach-O / ELF binary)
+
+# 2. Smoke: index the bundled fixture then search it
+./target/anatomist index fixtures/mini-spring-shop \
+    --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java \
+    --no-classpath \
+    --output /tmp/smoke.db
+
+./target/anatomist search OrderService --index /tmp/smoke.db
+./target/anatomist callees-of com.example.shop.service.OrderService#createOrder \
+    --depth 2 --index /tmp/smoke.db
+```
+
+Expected: `index` finishes in well under a second and prints node/edge
+counts; `search OrderService` returns a JSON envelope listing
+`com.example.shop.service.OrderService` and friends; `callees-of` returns
+the resolved method-call chain.
+
+#### macOS Gatekeeper note
+
+On macOS 14+ (Sonoma / Sequoia) the first execution of a freshly built
+native binary may be killed silently (exit 137, empty output) — amfid
+rejects ad-hoc-signed local binaries with
+`Code=-423 "The file is adhoc signed or signed by an unknown certificate chain"`.
+
+Two-step workaround (no `sudo` required):
+
+```bash
+xattr -cr target/anatomist                            # strip provenance / quarantine xattrs
+codesign --force --deep --sign - target/anatomist     # re-stamp the adhoc signature
+```
+
+If amfid still rejects (macOS keeps recreating provenance), the cleanest
+escape hatch today is **System Settings → Privacy & Security → "Allow
+anyway"** once after the first kill. Linux and Windows builds do not need
+this dance.
+
 ### Dependency budget
 
-**4 direct production dependencies**, on purpose:
+**3 direct production dependencies**, on purpose:
 
-- `javaparser-symbol-solver-core` (transitively pulls `javassist` for jar
-  reading) — AST + symbol resolution
-- `sqlite-jdbc` — storage + FTS5
-- `picocli` — CLI
-- `jackson-databind` — JSON I/O
+- `javaparser-symbol-solver-core` — AST + symbol resolution
+- `sqlite-jdbc` — storage + FTS5 (ships GraalVM `META-INF/native-image/`
+  feature, so no extra config to make it work in a native binary)
+- `picocli` — CLI (with `picocli-codegen` as a compile-time annotation
+  processor only — generates the reflect-config that native-image needs)
 
-No Spring, no Guava, no Lombok. New dependencies require justification in a
-new task's `proposal.md`.
+Plus `asm` as a build-time + runtime helper for our self-written
+`AsmTypeSolver` (replaces `javassist` for jar bytecode reading in a
+native-image-friendly way; see scenario 6 §决策 1) and
+`JdkTypeCatalogBuilder`. JSON I/O is hand-written
+([`com.anatomist.json`](src/main/java/com/anatomist/json/Json.java)) — no
+jackson at runtime.
+
+No Spring, no Guava (apart from javaparser's transitive dep), no Lombok.
+New dependencies require justification in a new task's `proposal.md`.
 
 ---
 
