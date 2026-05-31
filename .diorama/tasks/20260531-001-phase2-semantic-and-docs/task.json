@@ -35,5 +35,18 @@
       "src/test/java/com/anatomist/semantic/SemanticPostProcessorTest.java",
       "src/test/java/com/anatomist/cli/IndexDocsCommandIT.java"
     ]
-  }
+  },
+  "consolidate": {
+    "noop": false,
+    "updated_files": [
+      "knowledge/facts/glossary.json",
+      "knowledge/facts/domain-model.md"
+    ]
+  },
+  "amendments": [
+    {
+      "date": "2026-05-31",
+      "summary": "AC-010 baseline 修正：--no-classpath 下 Spring 注解 unresolved，IT 仅断言 ≥6 命名规则；annotation 与 javadoc 覆盖由单测保证"
+    }
+  ]
 }
