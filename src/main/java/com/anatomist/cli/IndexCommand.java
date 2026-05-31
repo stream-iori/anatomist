@@ -76,6 +76,12 @@ public class IndexCommand implements Callable<Integer> {
     @Option(names = "--full", description = "Force full re-index (default behavior).")
     boolean full;
 
+    @Option(names = "--legacy-solver",
+            description = "Fall back to the javassist-backed JarTypeSolver for jar bytecode "
+                        + "instead of the default AsmTypeSolver. Use when AsmTypeSolver "
+                        + "misbehaves on a specific dep — please file an issue with the jar.")
+    boolean legacySolver;
+
     @Override
     public Integer call() {
         long started = System.currentTimeMillis();
@@ -114,7 +120,7 @@ public class IndexCommand implements Callable<Integer> {
             }
             System.err.println("Parsing with Java " + jv);
             JavaParserFactory factory = new JavaParserFactory(
-                    jv, classpathEntries, sourcePaths, vmClasspath);
+                    jv, classpathEntries, sourcePaths, vmClasspath, /*useAsmSolver=*/ !legacySolver);
 
             Path dbPath = output == null
                     ? projectRoot.resolve(".anatomist").resolve("index.db")

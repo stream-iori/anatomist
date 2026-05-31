@@ -1,5 +1,7 @@
 package com.anatomist.core;
 
+import com.anatomist.core.asmsolver.AsmTypeSolver;
+import com.anatomist.core.asmsolver.JarClassFileSource;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ParserConfiguration;
@@ -28,8 +30,9 @@ import java.util.function.BiConsumer;
  * <ul>
  *   <li>Source roots → {@link JavaParserTypeSolver}</li>
  *   <li>Dependency jars → {@link JarTypeSolver} (JavaParser's stock
- *       javassist-backed jar reader; gives full symbol resolution for
- *       external types, methods, fields, and annotations)</li>
+ *       javassist-backed jar reader) — or {@link AsmTypeSolver} when
+ *       {@link #useAsmSolver} is set (scenario 6 Task C; native-image
+ *       compatible, no class loading)</li>
  *   <li>JDK classes → {@link ReflectionTypeSolver} (optional, with a version
  *       compatibility guard to avoid leaking the running JDK's API surface
  *       into analyses of older targets)</li>
@@ -41,15 +44,25 @@ public class JavaParserFactory {
     private final List<Path> classpathEntries;
     private final List<Path> sourcePaths;
     private final boolean includeRunningVmClasspath;
+    private final boolean useAsmSolver;
 
     public JavaParserFactory(int javaVersion,
                              List<Path> classpathEntries,
                              List<Path> sourcePaths,
                              boolean includeRunningVmClasspath) {
+        this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath, false);
+    }
+
+    public JavaParserFactory(int javaVersion,
+                             List<Path> classpathEntries,
+                             List<Path> sourcePaths,
+                             boolean includeRunningVmClasspath,
+                             boolean useAsmSolver) {
         this.javaVersion = javaVersion;
         this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
         this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
         this.includeRunningVmClasspath = includeRunningVmClasspath;
+        this.useAsmSolver = useAsmSolver;
     }
 
     /** Build the combined TypeSolver matching the configured environment. */
@@ -65,11 +78,20 @@ public class JavaParserFactory {
         }
         for (Path jar : classpathEntries) {
             if (jar != null && Files.isRegularFile(jar)) {
-                try {
-                    ts.add(new JarTypeSolver(jar));
-                } catch (IOException e) {
-                    System.err.println("WARN: failed to open jar for symbol resolution: "
-                            + jar + " (" + e.getMessage() + ")");
+                if (useAsmSolver) {
+                    try {
+                        ts.add(new AsmTypeSolver(new JarClassFileSource(jar)));
+                    } catch (RuntimeException e) {
+                        System.err.println("WARN: failed to open jar (asm) for symbol resolution: "
+                                + jar + " (" + e.getMessage() + ")");
+                    }
+                } else {
+                    try {
+                        ts.add(new JarTypeSolver(jar));
+                    } catch (IOException e) {
+                        System.err.println("WARN: failed to open jar for symbol resolution: "
+                                + jar + " (" + e.getMessage() + ")");
+                    }
                 }
             }
         }
