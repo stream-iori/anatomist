@@ -94,33 +94,33 @@
 
 ### T3: WatchCommand [REQ-008, REQ-009, REQ-010, REQ-011]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 #### Phase 1: Skeleton
 
-- [ ] WatchCommand — class — picocli Callable，WatchService + debounce + 增量索引集成
-- [ ] AnatomistCli — 修改 — subcommands 新增 WatchCommand.class
+- [x] WatchCommand — class — picocli Callable，WatchService + debounce + 增量索引集成
+- [x] AnatomistCli — 修改 — subcommands 新增 WatchCommand.class
 
 **Gate**: `mvn compile -q` — exit 0
 
 #### Phase 2: DSL Test
 
-- [ ] WatchCommandIT#testWatchDetectsModification — 场景 S8 — 核心断言: 修改文件后 watch 输出包含 [MODIFY] 行
-- [ ] WatchCommandIT#testWatchAutoIndex — 场景 S9 — 核心断言: --auto-index 模式下修改文件触发增量索引输出
-- [ ] WatchCommandIT#testWatchPomChangeTriggersFullReindex — 场景 S10 — 核心断言: pom.xml 变更导致全量重索引
-- [ ] WatchCommandIT#testWatchExtensionsFilter — 场景 S8 变体 — 核心断言: --extensions ".java" 过滤 .xml 文件事件
+- [x] WatchCommandIT#testWatchDetectsModification — 场景 S8 — 核心断言: 修改文件后 watch 输出包含 [MODIFY] 行
+- [x] WatchCommandIT#testWatchAutoIndex — 场景 S9 — 核心断言: --auto-index 模式下修改文件触发增量索引输出
+- [x] WatchCommandIT#testWatchPomChangeTriggersFullReindex — 场景 S10 — 核心断言: pom.xml 变更导致全量重索引
+- [x] WatchCommandIT#testWatchExtensionsFilter — 场景 S8 变体 — 核心断言: --extensions ".java" 过滤 .xml 文件事件
 
 **Gate**: `mvn test-compile -q && mvn test -Dtest="WatchCommandIT#testWatchDetectsModification" -q` — ① test-compile exit 0 ② test fails with AssertionError (红灯)
 
 #### Phase 3: Implementation
 
-- [ ] WatchCommand: WatchService 注册源码目录监听
-- [ ] WatchCommand: 500ms ScheduledExecutorService 防抖
-- [ ] WatchCommand: 变更事件收集 → hash 对比 → 输出变更摘要
-- [ ] WatchCommand: --auto-index 模式调用 IncrementalIndexer
-- [ ] WatchCommand: --extensions 参数解析，过滤非目标扩展名
-- [ ] WatchCommand: pom.xml / build.gradle 变更检测 → classpath hash 比较 → 触发全量重索引
-- [ ] WatchCommand: Ctrl+C (SIGINT) 优雅关闭
-- [ ] AnatomistCli: subcommands 新增 WatchCommand.class
+- [x] WatchCommand: WatchService 注册源码目录监听
+- [x] WatchCommand: 500ms ScheduledExecutorService 防抖
+- [x] WatchCommand: 变更事件收集 → hash 对比 → 输出变更摘要
+- [x] WatchCommand: --auto-index 模式调用 IncrementalIndexer
+- [x] WatchCommand: --extensions 参数解析，过滤非目标扩展名
+- [x] WatchCommand: pom.xml / build.gradle 变更检测 → classpath hash 比较 → 触发全量重索引
+- [x] WatchCommand: Ctrl+C (SIGINT) 优雅关闭
+- [x] AnatomistCli: subcommands 新增 WatchCommand.class
 
 **Gate**: `mvn test -Dtest="WatchCommandIT" -q` — exit 0, all tests green
