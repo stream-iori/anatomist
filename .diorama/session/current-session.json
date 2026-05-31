@@ -1,10 +1,10 @@
 {
   "session": {
-    "current_phase": "generate",
+    "current_phase": "consolidate",
     "current_task": "20260531-002-phase4-watch-incremental",
     "dirty": false,
-    "last_checkpoint_commit": "f08e0c0f378546a4c1800b6337b6c2b5f7862e28",
-    "last_task_checkpoint": "f08e0c0f378546a4c1800b6337b6c2b5f7862e28",
-    "last_updated_at": "2026-05-31T04:49:13.480759Z"
+    "last_checkpoint_commit": "",
+    "last_task_checkpoint": "",
+    "last_updated_at": "2026-05-31T04:50:27.070275Z"
   }
 }

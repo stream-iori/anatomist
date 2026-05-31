@@ -14,7 +14,7 @@
 
 ## 任务清单
 
-### T1: Schema + Model + SqliteStore 扩展 [REQ-001, REQ-002, REQ-003]
+### T1: Schema + Model + SqliteStore 扩展 [REQ-001, REQ-002, REQ-003, BR-002, BR-003, BR-010, AC-001, AC-002, AC-003]
 
 **Status**: [x] done
 
@@ -50,7 +50,7 @@
 
 ---
 
-### T2: FileCacheService + 增量索引 + IndexCommand 改造 [REQ-004, REQ-005, REQ-006, REQ-007]
+### T2: FileCacheService + 增量索引 + IndexCommand 改造 [REQ-004, REQ-005, REQ-006, REQ-007, BR-001, BR-004, BR-005, BR-006, AC-004, AC-005, AC-006, AC-007, AC-008, AC-012]
 
 **Status**: [x] done
 
@@ -92,7 +92,7 @@
 
 ---
 
-### T3: WatchCommand [REQ-008, REQ-009, REQ-010, REQ-011]
+### T3: WatchCommand [REQ-008, REQ-009, REQ-010, REQ-011, BR-007, BR-008, BR-009, AC-009, AC-010, AC-011]
 
 **Status**: [x] done
 
