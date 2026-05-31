@@ -34,6 +34,8 @@
 
 ### T2: SemanticPostProcessor — CONVENTION + JAVADOC 推导 [REQ-004, REQ-005, REQ-006, BR-003, BR-004, BR-005, BR-008, AC-004, AC-005, AC-006]
 
+**Status**: [x] done
+
 新建 `com.anatomist.semantic.SemanticPostProcessor`(纯 Java，输入 `ExtractionResult`，填充 `semanticAnnotations`)；内部含 `ConventionRule` 定义(record/enum) + 11 条规则常量(6 注解 + 5 命名)；`applyConventionRules` 遍历 `annotations` 表/`nodes.label` 命中即写入(source=CONVENTION, confidence=MEDIUM)；`applyJavadocRules` 遍历 `nodes.javadoc` 非空者，截取第一段(`firstBlankLineOrTag` 启发式)写入 `business_description`(source=JAVADOC, confidence=HIGH)。注解类规则只对持有该注解的 Node 生效；命名类规则仅对 `kind ∈ {CLASS, INTERFACE, ENUM, RECORD}` 生效。
 
 - **Phase 1 (Skeleton)**: 新建 `SemanticPostProcessor.java` + `ConventionRule.java`(规则常量表 + 空 `process(ExtractionResult)` 方法)
