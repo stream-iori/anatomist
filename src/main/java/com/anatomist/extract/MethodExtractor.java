@@ -13,6 +13,7 @@ import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -65,6 +66,12 @@ public class MethodExtractor implements Extractor {
             @Override
             public void visit(LambdaExpr n, Void arg) {
                 emitLambda(n, sf, result);
+                super.visit(n, arg);
+            }
+
+            @Override
+            public void visit(MethodReferenceExpr n, Void arg) {
+                emitMethodRef(n, sf, result);
                 super.visit(n, arg);
             }
         }.visit(unit, null);
@@ -200,6 +207,67 @@ public class MethodExtractor implements Extractor {
         result.nodes.add(n);
 
         result.edges.add(containsEdge(parentId, id, sourceFile, n.sourceLocation));
+    }
+
+    private void emitMethodRef(MethodReferenceExpr ref, String sourceFile, ExtractionResult result) {
+        String parentId;
+        try { parentId = enclosing.ownerIdOf(ref); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        if (parentId == null) return;
+
+        int line = ref.getBegin().map(p -> p.line).orElse(0);
+        int col  = ref.getBegin().map(p -> p.column).orElse(0);
+        String id = NodeIdGenerator.forMethodRef(parentId, line, col);
+
+        boolean bindingResolved = false;
+        ResolvedMethodDeclaration target = null;
+        try {
+            target = ref.resolve();
+            bindingResolved = true;
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved();
+        }
+
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("identifier", ref.getIdentifier());
+        meta.put("bindingResolved", bindingResolved);
+
+        Node n = new Node();
+        n.id = id;
+        n.label = "$methodref:" + ref.getIdentifier();
+        n.kind = "METHOD_REF";
+        n.qualifiedName = id;
+        n.sourceFile = sourceFile;
+        n.sourceLocation = "L" + line;
+        n.module = ctx.module();
+        n.scope = ctx.scope();
+        try { n.metadata = JSON.writeValueAsString(meta); }
+        catch (JsonProcessingException e) { n.metadata = "{}"; }
+        result.nodes.add(n);
+
+        result.edges.add(containsEdge(parentId, id, sourceFile, n.sourceLocation));
+
+        if (target != null) {
+            Edge call = new Edge();
+            call.sourceId = id;
+            call.relation = "CALLS";
+            call.callKind = target.isStatic() ? "STATIC" : "INSTANCE";
+            call.confidence = "EXTRACTED";
+            call.sourceLocation = "L" + line;
+            try {
+                ResolvedTypeDeclaration decl = target.declaringType();
+                if (ctx.isProjectInternal(decl)) {
+                    call.targetId = ctx.idGenerator().forMethod(target);
+                    call.isExternal = false;
+                } else {
+                    call.externalTargetFqn = NodeIdGenerator.externalMethodFqn(target);
+                    call.isExternal = true;
+                }
+                result.edges.add(call);
+            } catch (RuntimeException e) {
+                ctx.incrementUnresolved();
+            }
+        }
     }
 
     /**

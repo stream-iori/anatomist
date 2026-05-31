@@ -130,7 +130,7 @@
 
 ### T4: METHOD_REF Node 提取 + CALLS 边 [REQ-002, BR-001, BR-007]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 **目标**:
 1. `MethodExtractor` 新增 `visit(MethodReferenceExpr)` 产出 METHOD_REF Node + CONTAINS 边 + CALLS 边

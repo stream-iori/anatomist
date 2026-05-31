@@ -170,4 +170,66 @@ class MethodExtractorTest {
                 .map(n -> n.id).collect(Collectors.toSet());
         assertEquals(2, ids.size(), "nested lambda ids must be distinct; got " + ids);
     }
+
+    @Test
+    void visit_methodReferenceExpr_emitsMethodRefNodeAndCallsEdge() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.List; import java.util.stream.Stream;"
+                + "public class A {"
+                + "  static String upper(String s) { return s.toUpperCase(); }"
+                + "  Stream<String> run(List<String> xs) { return xs.stream().map(A::upper); }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        Node methodRef = r.nodes.stream().filter(n -> "METHOD_REF".equals(n.kind)).findFirst()
+                .orElseThrow(() -> new AssertionError("no METHOD_REF; got " + r.nodes));
+        assertTrue(methodRef.id.contains("$methodref@L"), "id format; got " + methodRef.id);
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CONTAINS".equals(e.relation) && methodRef.id.equals(e.targetId)),
+                "CONTAINS edge for METHOD_REF missing; got " + r.edges);
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CALLS".equals(e.relation)
+                        && methodRef.id.equals(e.sourceId)
+                        && !e.isExternal
+                        && "pkg.A#upper(java.lang.String)".equals(e.targetId)),
+                "CALLS edge from METHOD_REF to A.upper missing; got " + r.edges);
+    }
+
+    @Test
+    void visit_methodReferenceExpr_resolveFailure_emitsNodeWithoutCallsEdge() {
+        // Reference to an unknown identifier on an unresolved scope — SymbolSolver
+        // can't resolve the target. We still expect a METHOD_REF Node, but no CALLS.
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.function.Supplier;"
+                + "public class A {"
+                + "  Supplier<Object> s = unknownVar::doesNotExist;"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        Node methodRef = r.nodes.stream().filter(n -> "METHOD_REF".equals(n.kind)).findFirst()
+                .orElseThrow(() -> new AssertionError("no METHOD_REF; got " + r.nodes));
+        assertTrue(methodRef.metadata.contains("\"bindingResolved\":false"),
+                "bindingResolved=false expected; got " + methodRef.metadata);
+        assertFalse(r.edges.stream().anyMatch(e ->
+                "CALLS".equals(e.relation) && methodRef.id.equals(e.sourceId)),
+                "no CALLS edge for unresolved METHOD_REF; got " + r.edges);
+    }
+
+    @Test
+    void visit_constructorReference_gracefulDegrade() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.function.Supplier;"
+                + "public class A {"
+                + "  Supplier<Object> make = Object::new;"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        // Must not throw.
+        new MethodExtractor(ctx).extract(cu, r);
+
+        // METHOD_REF Node always emitted for graceful degrade.
+        assertTrue(r.nodes.stream().anyMatch(n -> "METHOD_REF".equals(n.kind)),
+                "constructor reference should still emit METHOD_REF Node; got " + r.nodes);
+    }
 }
