@@ -17,7 +17,7 @@
   },
   "phase": {
     "checkpoints": {
-      "generate": "",
+      "generate": "0bc20b5fc4e83c0920d3ed5d602758f693bd25ba",
       "plan": "f1578b6aca74f1492e154aa2bdca92fdf74286d8",
       "specify": "074c0169c7d6bc4b606930c276dba4b8a342cfaa"
     },
