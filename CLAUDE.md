@@ -72,7 +72,7 @@ The single source of truth for SQLite DDL is `src/main/resources/schema.sql`. Th
 
 ### Fixture
 
-`fixtures/mini-spring-shop/` — three-module Maven project (api / domain / service). It's the canonical end-to-end input. Baseline after the JavaParser Phase 1 rewrite (only `TypeExtractor` + `MethodExtractor` active): **16 types, 46 methods, 46 CONTAINS edges**. These numbers should grow **monotonically** as more Extractors come back online — use them as a regression baseline.
+`fixtures/mini-spring-shop/` — three-module Maven project (api / domain / service). It's the canonical end-to-end input. Baseline after the Phase 1 scenario-1 gap-closure (LAMBDA / METHOD_REF / RECORD / Java version detection / isAccessor all live): **16 types, 47 methods, 75 CONTAINS edges, ≥1 LAMBDA, ≥1 METHOD_REF**. Residual `Pruned dangling` (~6 on this fixture) comes from a pre-existing anonymous-class id-encoding mismatch between TypeExtractor (`$anon@L<line>`) and CallGraphExtractor resolution (`Anonymous-<uuid>`); not in REQ-001..005 scope. Numbers must grow **monotonically** as more Extractors come back online — use them as a regression baseline.
 
 ## Workflow conventions
 

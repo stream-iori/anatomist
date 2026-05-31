@@ -14,6 +14,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumConstantDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
@@ -58,6 +59,12 @@ public class TypeExtractor implements Extractor {
 
             @Override
             public void visit(AnnotationDeclaration n, Void arg) {
+                emitTypeDecl(n, sourceFile, result);
+                super.visit(n, arg);
+            }
+
+            @Override
+            public void visit(RecordDeclaration n, Void arg) {
                 emitTypeDecl(n, sourceFile, result);
                 super.visit(n, arg);
             }
@@ -148,6 +155,7 @@ public class TypeExtractor implements Extractor {
 
     private static String kindOf(TypeDeclaration<?> decl, ResolvedReferenceTypeDeclaration rt) {
         if (decl instanceof EnumDeclaration) return "ENUM";
+        if (decl instanceof RecordDeclaration) return "RECORD";
         if (decl instanceof AnnotationDeclaration) return "INTERFACE"; // annotations stored as INTERFACE per Phase 1 kind set
         if (rt.isInterface()) return "INTERFACE";
         return "CLASS";

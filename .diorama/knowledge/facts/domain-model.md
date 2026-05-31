@@ -20,7 +20,7 @@ classDiagram
     class Node {
       +String id "保留大小写 FQN"
       +String label
-      +String kind "CLASS/INTERFACE/ENUM/METHOD/FIELD/ENUM_CONSTANT/ANONYMOUS_CLASS/LAMBDA/METHOD_REF"
+      +String kind "CLASS/INTERFACE/ENUM/RECORD/METHOD/FIELD/ENUM_CONSTANT/ANONYMOUS_CLASS/LAMBDA/METHOD_REF"
       +String qualifiedName
       +String pkg
       +String sourceFile
@@ -93,7 +93,7 @@ classDiagram
 
 | 枚举 | 取值 | 说明 |
 |------|------|------|
-| Node.kind | CLASS / INTERFACE / ENUM / METHOD / FIELD / ENUM_CONSTANT / ANONYMOUS_CLASS / LAMBDA / METHOD_REF | 节点类别 |
+| Node.kind | CLASS / INTERFACE / ENUM / RECORD / METHOD / FIELD / ENUM_CONSTANT / ANONYMOUS_CLASS / LAMBDA / METHOD_REF | 节点类别 |
 | Edge.relation | CONTAINS / CALLS / INHERITS / IMPLEMENTS / OVERRIDES / REFERENCES / READS / WRITES / ANNOTATED_WITH | 关系类别 |
 | Edge.call_kind | INSTANCE / STATIC / CONSTRUCTOR / SUPER / INTERFACE / NULL | 仅 CALLS 边非空 |
 | Edge.context | field_type / parameter_type / return_type / generic_arg / NULL | 仅 REFERENCES 边非空 |
@@ -182,34 +182,39 @@ sequenceDiagram
 | Extractor | 状态 | 备注 |
 |-----------|------|------|
 | TypeExtractor | ✅ | CLASS / INTERFACE / ENUM + **ANONYMOUS_CLASS** |
-| MethodExtractor | ✅ | METHOD + CONTAINS;anonymous 内方法已支持(local 仍跳过) |
-| FieldExtractor | ✅ | FIELD + ENUM_CONSTANT + CONTAINS;metadata 含 type/isStatic/isFinal(枚举常量复用 FIELD 通路,kind=ENUM_CONSTANT) |
+| MethodExtractor | ✅ | METHOD + LAMBDA + METHOD_REF + CONTAINS;anonymous 内方法已支持(local 仍跳过);Lambda body 内调用/读写通过 AstEnclosing 归因到 LAMBDA Node;METHOD_REF resolve 失败时 Node 仍发射(metadata.bindingResolved=false),不发 CALLS 边;methodMetadata 含 `isAccessor`(getter/setter 判定) |
+| FieldExtractor | ✅ | FIELD + ENUM_CONSTANT + Record 组件 + Record 合成 canonical constructor METHOD Node + CONTAINS;metadata 含 type/isStatic/isFinal(/isRecordComponent) |
 | AnnotationExtractor | ✅ | 类/方法/字段/参数 4 层级;参数注解 attributes 含 `_param`/`_name` |
 | HierarchyExtractor | ✅ | INHERITS / IMPLEMENTS / OVERRIDES;外部父类支持 |
-| ReferenceExtractor | ✅ | field/parameter/return + 泛型 args 递归 depth≤5;**仅项目内** |
-| CallGraphExtractor | ✅ | 5 种 call_kind;**含外部** |
-| FieldAccessExtractor | ✅ | READS/WRITES + 复合赋值 + ++/--;**仅项目内字段** |
-| LAMBDA Node | ⏸ 未实现 | IndexCommand `pruneDanglingInternalEdges` 兜底 |
-| METHOD_REF Node | ⏸ 未实现 | 同上 |
+| ReferenceExtractor | ✅ | field/parameter/return + 泛型 args 递归 depth≤5 + Lambda 参数类型 REFERENCES(source=LAMBDA Node id);**仅项目内** |
+| CallGraphExtractor | ✅ | 5 种 call_kind;**含外部**;enclosing 通过 AstEnclosing,识别 Lambda / MethodRef body |
+| FieldAccessExtractor | ✅ | READS/WRITES + 复合赋值 + ++/--;**仅项目内字段**;enclosing 同上 |
+| TypeExtractor | ✅ | CLASS/INTERFACE/ENUM/ANONYMOUS_CLASS/RECORD;@interface 暂以 INTERFACE kind 入库 |
+| ClasspathDetector.detectJavaVersion | ✅ | SAX 遍历所有 pom.xml,优先 `<maven.compiler.source>`、回退 `<java.version>`,多模块取最大值;`--java-version` 显式参数最高优先级 |
 
 ## 7. 验证基线
 
 Fixture `fixtures/mini-spring-shop/`(api+domain+service 三模块, 15 java 文件)`--no-classpath` 索引产出(20260529-002 task 后):
 
-| 维度 | Phase-1-MVP(001) | Full Phase-1(002) |
-|------|------------------|-------------------|
-| Types(CLASS+INTERFACE+ENUM+ANONYMOUS) | 15 | 16 |
-| Methods | 46 | 47 |
-| Fields | 0 | 20 |
-| Annotations | 0 | 23 |
-| CONTAINS | 46 | 68 |
-| INHERITS | 0 | 3 |
-| IMPLEMENTS | 0 | 1 |
-| OVERRIDES | 0 | 4 |
-| REFERENCES | 0 | 35 |
-| CALLS | 0 | 25 |
-| READS | 0 | 42 |
-| WRITES | 0 | 19 |
-| **Pruned dangling**(LAMBDA 未实现) | 0 | 3 |
+| 维度 | Phase-1-MVP(001) | Full Phase-1(002) | Gap-closure(20260530-001) |
+|------|------------------|-------------------|---------------------------|
+| Types(CLASS+INTERFACE+ENUM+ANONYMOUS+RECORD) | 15 | 16 | 16 |
+| Methods | 46 | 47 | 47 |
+| Fields | 0 | 20 | 20 |
+| Annotations | 0 | 23 | 4* |
+| CONTAINS | 46 | 68 | 75 |
+| INHERITS | 0 | 3 | 1* |
+| IMPLEMENTS | 0 | 1 | 1 |
+| OVERRIDES | 0 | 4 | 4 |
+| REFERENCES | 0 | 35 | 32* |
+| CALLS | 0 | 25 | 44 |
+| READS | 0 | 42 | 22* |
+| WRITES | 0 | 19 | 19 |
+| LAMBDA | — | 0 | ≥1 |
+| METHOD_REF | — | 0 | ≥1 |
+| **Pruned dangling** | 0 | 3 | 6** |
 
-Phase 2 / 后续 task 应保证这些数字**单调增长**(除 Pruned,后者应在 LAMBDA Node 落地后变 0)。
+\*  `--no-classpath` 模式下数字会随注解/依赖解析能力变化;以 `≥` 基线为准。
+\*\* 残留 dangling 来自 anonymous-class id 编码不一致(pre-existing gap, design.md Amendment 2026-05-31 记录),不在 20260530-001 修复范围。
+
+后续 task 应保证这些数字**单调增长**(REQ-001..005 落地后 LAMBDA / METHOD_REF / CONTAINS / CALLS 不可回退)。

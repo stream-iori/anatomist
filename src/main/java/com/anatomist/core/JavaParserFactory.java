@@ -137,8 +137,18 @@ public class JavaParserFactory {
 
     static LanguageLevel toLanguageLevel(int v) {
         return switch (v) {
+            case 9 -> LanguageLevel.JAVA_9;
+            case 10 -> LanguageLevel.JAVA_10;
             case 11 -> LanguageLevel.JAVA_11;
+            case 12 -> LanguageLevel.JAVA_12;
+            case 13 -> LanguageLevel.JAVA_13;
+            case 14 -> LanguageLevel.JAVA_14;
+            case 15 -> LanguageLevel.JAVA_15;
+            case 16 -> LanguageLevel.JAVA_16;
             case 17 -> LanguageLevel.JAVA_17;
+            case 18 -> LanguageLevel.JAVA_18;
+            case 19 -> LanguageLevel.JAVA_19;
+            case 20 -> LanguageLevel.JAVA_20;
             case 21 -> LanguageLevel.JAVA_21;
             default -> LanguageLevel.JAVA_8;
         };

@@ -41,6 +41,16 @@ public class NodeIdGenerator {
         return decl.getQualifiedName() + "#" + f.getName();
     }
 
+    /** ID for a LAMBDA Node: parent method id + "$lambda@L<line>C<column>". */
+    public static String forLambda(String parentId, int line, int column) {
+        return parentId + "$lambda@L" + line + "C" + column;
+    }
+
+    /** ID for a METHOD_REF Node: parent method id + "$methodref@L<line>C<column>". */
+    public static String forMethodRef(String parentId, int line, int column) {
+        return parentId + "$methodref@L" + line + "C" + column;
+    }
+
     private String forMethodLike(ResolvedMethodLikeDeclaration m) {
         if (m == null) throw new IllegalArgumentException("method is null");
         String classFqn = m.declaringType().getQualifiedName();

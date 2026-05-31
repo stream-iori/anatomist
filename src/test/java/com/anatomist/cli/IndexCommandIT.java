@@ -57,13 +57,22 @@ class IndexCommandIT {
                     "SELECT count(*) FROM nodes WHERE qualified_name='com.example.shop.service.OrderService'");
             int fts      = scalar(st,
                     "SELECT count(*) FROM node_names WHERE label MATCH 'OrderService'");
+            int lambdas    = scalar(st, "SELECT count(*) FROM nodes WHERE kind='LAMBDA'");
+            int methodRefs = scalar(st, "SELECT count(*) FROM nodes WHERE kind='METHOD_REF'");
 
+            // Baseline post-gap-closure (monotonic floor — see CLAUDE.md Fixture section).
             assertTrue(classes  >= 4, "expected ≥4 CLASS nodes; got "  + classes);
-            assertTrue(methods  >= 1, "expected ≥1 METHOD; got "       + methods);
-            assertTrue(contains >= 1, "expected ≥1 CONTAINS edge; got " + contains);
+            assertTrue(methods  >= 47, "expected ≥47 METHOD nodes; got " + methods);
+            assertTrue(contains >= 75, "expected ≥75 CONTAINS edges; got " + contains);
             assertEquals(1, orderSvc,
                     "OrderService node missing or duplicated; got " + orderSvc);
             assertTrue(fts >= 1, "FTS5 should match OrderService; got " + fts);
+
+            // REQ-001 / REQ-002 — at least one LAMBDA and one METHOD_REF from
+            // the existing fixture (OrderService filter lambda, PriceCalculator
+            // OrderItem::getPrice method reference).
+            assertTrue(lambdas >= 1, "expected ≥1 LAMBDA node; got " + lambdas);
+            assertTrue(methodRefs >= 1, "expected ≥1 METHOD_REF node; got " + methodRefs);
         }
     }
 

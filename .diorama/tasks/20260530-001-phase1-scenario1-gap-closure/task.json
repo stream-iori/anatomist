@@ -1,0 +1,63 @@
+{
+  "task": {
+    "name": "20260530-001-phase1-scenario1-gap-closure",
+    "branch": "task/20260530-001-phase1-scenario1-gap-closure",
+    "base_branch": "main",
+    "created_at": "2026-05-30T05:38:00Z"
+  },
+  "phase": {
+    "current": "done",
+    "completed": ["incept", "specify", "plan", "generate", "consolidate"],
+    "checkpoints": {
+      "incept": "",
+      "specify": "5ea41c4d2db5e78d6660893fe40f6c7490a7e72e",
+      "plan": "829d7cda76cdaae60808e9af12c5a5012749316f",
+      "generate": "e7c6a300e415a41ac374fcb5dce67e7bf04c5e89",
+      "consolidate": "86760da6d2f79339a65e46efd374ecc8b693eee6"
+    },
+    "task_checkpoints": {
+      "T1": "2e455b1bf4df29c8bdda478b3c937097067b06d1",
+      "T2": "ac73f55906b99e99285f52a9baa41370935aaf3a",
+      "T3": "1a5e8815a3d4421277013d146a9c816bfa808825",
+      "T4": "8d00c34a23638a974c3067cbb13576020d630ab9",
+      "T5": "2f15df5edfdbbfdc3e396cb0aea2899dd02c778b",
+      "T6": "efbd6ad0769daf7ab6cef4348413e81aaa72fe5d",
+      "T7": "e927847fbcffc00f196ff4e904566f61514e7e5c"
+    }
+  },
+  "consolidate": {
+    "noop": false,
+    "updated_files": [
+      "knowledge/facts/glossary.json",
+      "knowledge/facts/domain-model.md",
+      "knowledge/rules/experience.md",
+      "knowledge/rules/index.md"
+    ]
+  },
+  "anchors": {
+    "dev_entries": [
+      "src/main/java/com/anatomist/extract/MethodExtractor.java",
+      "src/main/java/com/anatomist/extract/TypeExtractor.java",
+      "src/main/java/com/anatomist/extract/CallGraphExtractor.java",
+      "src/main/java/com/anatomist/extract/FieldAccessExtractor.java",
+      "src/main/java/com/anatomist/extract/ReferenceExtractor.java",
+      "src/main/java/com/anatomist/extract/FieldExtractor.java",
+      "src/main/java/com/anatomist/core/NodeIdGenerator.java",
+      "src/main/java/com/anatomist/core/ClasspathDetector.java",
+      "src/main/java/com/anatomist/core/JavaParserFactory.java",
+      "src/main/java/com/anatomist/cli/IndexCommand.java"
+    ],
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/extract/MethodExtractorTest.java",
+      "src/test/java/com/anatomist/extract/TypeExtractorTest.java",
+      "src/test/java/com/anatomist/extract/CallGraphExtractorTest.java",
+      "src/test/java/com/anatomist/extract/FieldAccessExtractorTest.java",
+      "src/test/java/com/anatomist/extract/ReferenceExtractorTest.java",
+      "src/test/java/com/anatomist/extract/FieldExtractorTest.java",
+      "src/test/java/com/anatomist/core/ClasspathDetectorTest.java",
+      "src/test/java/com/anatomist/core/NodeIdGeneratorTest.java",
+      "src/test/java/com/anatomist/core/JavaParserFactoryTest.java",
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java"
+    ]
+  }
+}

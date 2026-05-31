@@ -45,4 +45,16 @@ class JavaParserFactoryTest {
         cus.get(0).findAll(com.github.javaparser.ast.body.MethodDeclaration.class)
                 .forEach(m -> assertDoesNotThrow(m::resolve));
     }
+
+    @Test
+    void toLanguageLevel_supportsJava17() {
+        assertEquals(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_17,
+                JavaParserFactory.toLanguageLevel(17));
+    }
+
+    @Test
+    void toLanguageLevel_supportsJava16ForRecords() {
+        assertEquals(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_16,
+                JavaParserFactory.toLanguageLevel(16));
+    }
 }

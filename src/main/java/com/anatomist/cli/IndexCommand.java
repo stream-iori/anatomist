@@ -96,7 +96,13 @@ public class IndexCommand implements Callable<Integer> {
                 return 1;
             }
 
-            int jv = javaVersion == null ? 8 : javaVersion;
+            int jv;
+            if (javaVersion != null) {
+                jv = javaVersion;
+            } else {
+                jv = cd.detectJavaVersion(projectRoot).orElse(8);
+            }
+            System.err.println("Parsing with Java " + jv);
             JavaParserFactory factory = new JavaParserFactory(
                     jv, classpathEntries, sourcePaths, vmClasspath);
 
@@ -218,7 +224,7 @@ public class IndexCommand implements Callable<Integer> {
 
     private static boolean isType(String kind) {
         return "CLASS".equals(kind) || "INTERFACE".equals(kind) || "ENUM".equals(kind)
-                || "ANONYMOUS_CLASS".equals(kind);
+                || "ANONYMOUS_CLASS".equals(kind) || "RECORD".equals(kind);
     }
 
     private static long countEdges(ExtractionResult r, String relation) {
