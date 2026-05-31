@@ -89,7 +89,7 @@
 
 **Gate**: `mvn test -Dtest=EnrichQueryIT -q` — exit 0, all green
 
-**Status**: [ ] done
+**Status**: [x] done
 
 ---
 
