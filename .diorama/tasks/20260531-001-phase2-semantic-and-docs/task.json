@@ -15,7 +15,9 @@
       "generate": "",
       "consolidate": ""
     },
-    "task_checkpoints": {}
+    "task_checkpoints": {
+      "T1": "7c211da1cd5c895bab52332a3c84b87741b863d4"
+    }
   },
   "anchors": {
     "dev_entries": [
