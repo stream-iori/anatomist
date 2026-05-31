@@ -2,11 +2,14 @@ package com.anatomist.core;
 
 import com.anatomist.core.asmsolver.AsmTypeSolver;
 import com.anatomist.core.asmsolver.JarClassFileSource;
+import com.anatomist.core.nativeimage.EmbeddedJdkTypeSolver;
+import com.anatomist.core.nativeimage.JdkTypeCatalog;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.resolution.TypeSolver;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
@@ -15,6 +18,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import com.github.javaparser.utils.SourceRoot;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -69,7 +73,12 @@ public class JavaParserFactory {
     public CombinedTypeSolver newTypeSolver() {
         CombinedTypeSolver ts = new CombinedTypeSolver();
         if (includeRunningVmClasspath) {
-            ts.add(new ReflectionTypeSolver(/*jreOnly*/ true));
+            TypeSolver jdkSolver = tryLoadEmbeddedJdkSolver();
+            if (jdkSolver != null) {
+                ts.add(jdkSolver);
+            } else {
+                ts.add(new ReflectionTypeSolver(/*jreOnly*/ true));
+            }
         }
         for (Path src : sourcePaths) {
             if (src != null && Files.isDirectory(src)) {
@@ -96,6 +105,29 @@ public class JavaParserFactory {
             }
         }
         return ts;
+    }
+
+    /** Look up a pre-generated JDK catalog under
+     *  {@code META-INF/anatomist/jdkN-types.bin} matching the build target's
+     *  Java version (falling back to the runtime's version). Returns {@code null}
+     *  when no catalog ships with the current build — the caller then falls
+     *  back to {@link ReflectionTypeSolver}. */
+    private TypeSolver tryLoadEmbeddedJdkSolver() {
+        int targetRelease = Math.max(javaVersion, 8);
+        // Try the requested target first, then walk DOWN to the highest catalog
+        // we shipped that's ≤ target. Catalogs are forward-compatible enough for
+        // anatomist's erased-type needs.
+        for (int v = targetRelease; v >= 8; v--) {
+            String res = "/META-INF/anatomist/jdk" + v + "-types.bin";
+            try (InputStream in = JavaParserFactory.class.getResourceAsStream(res)) {
+                if (in == null) continue;
+                JdkTypeCatalog cat = JdkTypeCatalog.readFrom(in);
+                return new EmbeddedJdkTypeSolver(cat);
+            } catch (IOException ignore) {
+                // try next version
+            }
+        }
+        return null;
     }
 
     public ParserConfiguration newConfiguration() {
