@@ -91,7 +91,7 @@
 
 ### T3: LAMBDA Node 提取 + enclosingId 扩展 + Lambda REFERENCES [REQ-001, BR-001, BR-004]
 
-**Status**: [ ] done
+**Status**: [x] done
 
 **目标**:
 1. `MethodExtractor` 新增 `visit(LambdaExpr)` 产出 LAMBDA Node（含 parameters/returnType/signature metadata）+ CONTAINS 边（parent method → LAMBDA）

@@ -130,4 +130,44 @@ class MethodExtractorTest {
             assertTrue(n.metadata.contains("\"isAccessor\":false"), id + " must be non-accessor; got " + n.metadata);
         }
     }
+
+    @Test
+    void visit_lambdaExpr_emitsLambdaNodeAndContainsEdge() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.List; import java.util.function.Predicate;"
+                + "public class A {"
+                + "  void run(List<String> xs) {"
+                + "    Predicate<String> p = s -> s.isEmpty();"
+                + "  }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        Node lambda = r.nodes.stream().filter(n -> "LAMBDA".equals(n.kind)).findFirst()
+                .orElseThrow(() -> new AssertionError("no LAMBDA node; got " + r.nodes));
+        assertTrue(lambda.id.startsWith("pkg.A#run(java.util.List)$lambda@L"),
+                "lambda id format; got " + lambda.id);
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CONTAINS".equals(e.relation)
+                        && "pkg.A#run(java.util.List)".equals(e.sourceId)
+                        && lambda.id.equals(e.targetId)),
+                "CONTAINS edge from parent method missing; got " + r.edges);
+    }
+
+    @Test
+    void visit_nestedLambda_emitsDistinctIds() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.function.Function;"
+                + "public class A {"
+                + "  Function<String, Function<String, String>> f = a -> b -> a + b;"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        long lambdas = r.nodes.stream().filter(n -> "LAMBDA".equals(n.kind)).count();
+        assertEquals(2, lambdas, "expected 2 LAMBDA nodes (outer + inner); got " + r.nodes);
+        Set<String> ids = r.nodes.stream().filter(n -> "LAMBDA".equals(n.kind))
+                .map(n -> n.id).collect(Collectors.toSet());
+        assertEquals(2, ids.size(), "nested lambda ids must be distinct; got " + ids);
+    }
 }

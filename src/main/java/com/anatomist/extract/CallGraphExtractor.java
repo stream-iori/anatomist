@@ -23,9 +23,11 @@ import java.util.Optional;
 public class CallGraphExtractor implements Extractor {
 
     private final ExtractionContext ctx;
+    private final AstEnclosing enclosing;
 
     public CallGraphExtractor(ExtractionContext ctx) {
         this.ctx = ctx;
+        this.enclosing = new AstEnclosing(ctx.idGenerator());
     }
 
     @Override
@@ -103,19 +105,6 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private String enclosingMethodId(com.github.javaparser.ast.Node node) {
-        Optional<CallableDeclaration> enclosing = node.findAncestor(CallableDeclaration.class);
-        if (enclosing.isEmpty()) return null;
-        try {
-            CallableDeclaration<?> cd = enclosing.get();
-            if (cd instanceof MethodDeclaration md) {
-                return ctx.idGenerator().forMethod(md.resolve());
-            }
-            if (cd instanceof ConstructorDeclaration ctor) {
-                return ctx.idGenerator().forConstructor(ctor.resolve());
-            }
-            return null;
-        } catch (RuntimeException e) {
-            return null;
-        }
+        return enclosing.ownerIdOf(node);
     }
 }

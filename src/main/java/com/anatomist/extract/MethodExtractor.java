@@ -1,6 +1,7 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
+import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
@@ -8,8 +9,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -28,9 +31,11 @@ public class MethodExtractor implements Extractor {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final ExtractionContext ctx;
+    private final AstEnclosing enclosing;
 
     public MethodExtractor(ExtractionContext ctx) {
         this.ctx = ctx;
+        this.enclosing = new AstEnclosing(ctx.idGenerator());
     }
 
     @Override
@@ -54,6 +59,12 @@ public class MethodExtractor implements Extractor {
             @Override
             public void visit(ConstructorDeclaration n, Void arg) {
                 emitConstructor(n, sf, result);
+                super.visit(n, arg);
+            }
+
+            @Override
+            public void visit(LambdaExpr n, Void arg) {
+                emitLambda(n, sf, result);
                 super.visit(n, arg);
             }
         }.visit(unit, null);
@@ -134,6 +145,61 @@ public class MethodExtractor implements Extractor {
         result.nodes.add(n);
 
         result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
+    }
+
+    private void emitLambda(LambdaExpr lambda, String sourceFile, ExtractionResult result) {
+        String parentId;
+        try { parentId = enclosing.ownerIdOf(lambda); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        if (parentId == null) return;
+
+        int line = lambda.getBegin().map(p -> p.line).orElse(0);
+        int col  = lambda.getBegin().map(p -> p.column).orElse(0);
+        String id = NodeIdGenerator.forLambda(parentId, line, col);
+
+        boolean bindingResolved = true;
+        String returnType = null;
+        try { returnType = NodeIdGenerator.erasedTypeDescribe(lambda.calculateResolvedType()); }
+        catch (RuntimeException e) { bindingResolved = false; ctx.incrementUnresolved(); }
+
+        List<Map<String, String>> params = new ArrayList<>();
+        for (com.github.javaparser.ast.body.Parameter p : lambda.getParameters()) {
+            Map<String, String> entry = new LinkedHashMap<>();
+            entry.put("name", p.getNameAsString());
+            String typeDesc;
+            try { typeDesc = NodeIdGenerator.erasedTypeDescribe(p.getType().resolve()); }
+            catch (RuntimeException e) { typeDesc = "<unresolved>"; }
+            entry.put("type", typeDesc);
+            params.add(entry);
+        }
+
+        StringBuilder sig = new StringBuilder("(");
+        for (int i = 0; i < params.size(); i++) {
+            if (i > 0) sig.append(", ");
+            sig.append(params.get(i).get("type")).append(' ').append(params.get(i).get("name"));
+        }
+        sig.append(") -> ").append(returnType == null ? "<unresolved>" : returnType);
+
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("parameters", params);
+        meta.put("returnType", returnType);
+        meta.put("signature", sig.toString());
+        meta.put("bindingResolved", bindingResolved);
+
+        Node n = new Node();
+        n.id = id;
+        n.label = "$lambda";
+        n.kind = "LAMBDA";
+        n.qualifiedName = id;
+        n.sourceFile = sourceFile;
+        n.sourceLocation = "L" + line;
+        n.module = ctx.module();
+        n.scope = ctx.scope();
+        try { n.metadata = JSON.writeValueAsString(meta); }
+        catch (JsonProcessingException e) { n.metadata = "{}"; }
+        result.nodes.add(n);
+
+        result.edges.add(containsEdge(parentId, id, sourceFile, n.sourceLocation));
     }
 
     /**

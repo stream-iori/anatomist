@@ -71,4 +71,25 @@ class CallGraphExtractorTest {
         assertTrue(ctor.isExternal);
         assertEquals("java.lang.Object#Object()", ctor.externalTargetFqn);
     }
+
+    @Test
+    void enclosingId_lambdaBodyCall_attributesToLambdaNode() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.function.Supplier;"
+                + "public class A {"
+                + "  String s;"
+                + "  void run() {"
+                + "    Supplier<Integer> sup = () -> Math.abs(-1);"
+                + "  }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new CallGraphExtractor(ctx).extract(cu, r);
+
+        Edge mathAbs = r.edges.stream()
+                .filter(e -> "CALLS".equals(e.relation) && e.isExternal
+                        && "java.lang.Math#abs(int)".equals(e.externalTargetFqn))
+                .findFirst().orElseThrow(() -> new AssertionError("no Math.abs call; got " + r.edges));
+        assertTrue(mathAbs.sourceId.startsWith("pkg.A#run()$lambda@L"),
+                "call inside lambda must attribute to LAMBDA node; got source=" + mathAbs.sourceId);
+    }
 }

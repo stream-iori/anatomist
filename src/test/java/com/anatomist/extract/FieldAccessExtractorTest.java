@@ -93,4 +93,24 @@ class FieldAccessExtractorTest {
                 "READS".equals(e.relation) && "pkg.A#x".equals(e.targetId)).count();
         assertEquals(0, reads, "x++ shouldn't emit READS; got " + r.edges);
     }
+
+    @Test
+    void enclosingId_lambdaBodyFieldAccess_attributesToLambdaNode() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.function.Supplier;"
+                + "public class A {"
+                + "  int x;"
+                + "  void run() {"
+                + "    Supplier<Integer> sup = () -> x + 1;"
+                + "  }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new FieldAccessExtractor(ctx).extract(cu, r);
+
+        var read = r.edges.stream()
+                .filter(e -> "READS".equals(e.relation) && "pkg.A#x".equals(e.targetId))
+                .findFirst().orElseThrow(() -> new AssertionError("no READS; got " + r.edges));
+        assertTrue(read.sourceId.startsWith("pkg.A#run()$lambda@L"),
+                "field access inside lambda must attribute to LAMBDA node; got " + read.sourceId);
+    }
 }

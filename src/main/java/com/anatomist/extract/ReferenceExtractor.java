@@ -8,6 +8,8 @@ import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.LambdaExpr;
+import com.github.javaparser.ast.type.UnknownType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -20,9 +22,11 @@ public class ReferenceExtractor implements Extractor {
     private static final int MAX_GENERIC_DEPTH = 5;
 
     private final ExtractionContext ctx;
+    private final AstEnclosing enclosing;
 
     public ReferenceExtractor(ExtractionContext ctx) {
         this.ctx = ctx;
+        this.enclosing = new AstEnclosing(ctx.idGenerator());
     }
 
     @Override
@@ -64,6 +68,28 @@ public class ReferenceExtractor implements Extractor {
                 for (Parameter p : n.getParameters()) {
                     try {
                         emitTypeRef(methodId, p.getType().resolve(), "parameter_type", result, 0);
+                    } catch (RuntimeException e) { ctx.incrementUnresolved(); }
+                }
+                super.visit(n, arg);
+            }
+
+            @Override
+            public void visit(LambdaExpr n, Void arg) {
+                String lambdaId = enclosing.lambdaId(n);
+                if (lambdaId != null) {
+                    for (Parameter p : n.getParameters()) {
+                        if (p.getType() instanceof UnknownType) continue;
+                        try {
+                            emitTypeRef(lambdaId, p.getType().resolve(), "parameter_type", result, 0);
+                        } catch (RuntimeException e) { ctx.incrementUnresolved(); }
+                    }
+                    try {
+                        ResolvedType functional = n.calculateResolvedType();
+                        if (functional != null && functional.isReferenceType()) {
+                            // Functional interface return type is the descriptor's return.
+                            // We can't easily isolate it without resolving the SAM, but we
+                            // already cover parameter_type which is the common signal.
+                        }
                     } catch (RuntimeException e) { ctx.incrementUnresolved(); }
                 }
                 super.visit(n, arg);

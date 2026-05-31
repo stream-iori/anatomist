@@ -80,4 +80,26 @@ class ReferenceExtractorTest {
                         && "pkg.A.Order".equals(e.targetId));
         assertTrue(genericArg, "expected generic_arg REFERENCES; got " + r.edges);
     }
+
+    @Test
+    void visit_lambdaParameterType_emitsReferencesEdge() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import java.util.function.Function;"
+                + "public class A {"
+                + "  static class Req {}"
+                + "  static class Res {}"
+                + "  Function<Req, Res> f = (Req r) -> new Res();"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new ReferenceExtractor(ctx).extract(cu, r);
+
+        boolean lambdaParamRef = r.edges.stream().anyMatch(e ->
+                "REFERENCES".equals(e.relation)
+                        && "parameter_type".equals(e.context)
+                        && e.sourceId != null
+                        && e.sourceId.contains("$lambda@L")
+                        && "pkg.A.Req".equals(e.targetId));
+        assertTrue(lambdaParamRef,
+                "lambda parameter_type REFERENCES (source=LAMBDA id, target=Req) missing; got " + r.edges);
+    }
 }
