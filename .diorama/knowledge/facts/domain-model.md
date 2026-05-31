@@ -47,9 +47,26 @@ classDiagram
       +String attributes "JSON"
     }
 
+    class SemanticAnnotation {
+      +String nodeId "nullable"
+      +Integer docId "nullable"
+      +String category "BUSINESS_SERVICE/DATA_ACCESS/API_ENDPOINT/DOMAIN_MODEL/TRANSACTION_BOUNDARY/INFRASTRUCTURE/DTO/..."
+      +String businessDescription
+      +String source "CONVENTION/JAVADOC/DOC/LLM"
+      +String confidence "HIGH/MEDIUM/LOW"
+    }
+
+    class Document {
+      +String path
+      +String title
+      +String content
+      +String docType "README/DOC/ADR/CHANGELOG/API_SPEC"
+      +String module
+    }
+
     class IndexDb {
       +Path path "<project>/.anatomist/index.db"
-      +SqliteSchema schema "nodes + edges + annotations + node_names(FTS5)"
+      +SqliteSchema schema "nodes + edges + annotations + semantic_annotations + documents + node_names(FTS5) + doc_content(FTS5)"
     }
 
     class Extractor {
@@ -61,9 +78,13 @@ classDiagram
     IndexDb o-- Node
     IndexDb o-- Edge
     IndexDb o-- Annotation
+    IndexDb o-- SemanticAnnotation
+    IndexDb o-- Document
     Edge --> Node : source_id
     Edge --> Node : target_id (when internal)
     Annotation --> Node : node_id
+    SemanticAnnotation --> Node : node_id (nullable, ON DELETE SET NULL)
+    SemanticAnnotation --> Document : doc_id (nullable, ON DELETE SET NULL)
     Extractor ..> Node : emits
     Extractor ..> Edge : emits
     Extractor ..> Annotation : emits
@@ -77,8 +98,12 @@ classDiagram
 | Node | 一个 Java 代码实体的索引快照 | index 时写入 SQLite;`anatomist index --incremental` 时增量更新(Phase 4) |
 | Edge | Node 间的关系。CASCADE DELETE 跟随 Node | 同 Node |
 | Annotation | Node 上的注解。CASCADE DELETE 跟随 Node | 同 Node |
+| SemanticAnnotation | 业务语义记录(CONVENTION/JAVADOC/DOC/LLM)。FK SET NULL,Node 删除不连带 | index 期由 SemanticPostProcessor 产出,或后续 LLM 工作流注入 |
+| Document | 项目文档记录,触发器同步到 doc_content FTS5 | `anatomist index-docs <path>` 每次覆盖写入 |
 | IndexDb | SQLite 物理文件,默认 `<project>/.anatomist/index.db` | 重复索引时覆盖(MVP) |
 | Extractor | VoidVisitorAdapter,从 CompilationUnit 产出 Node/Edge/Annotation | 每次 index 实例化,与 ExtractionContext 绑定 |
+| SemanticPostProcessor | index 末尾后处理器,applyConventionRules + applyJavadocRules | 每次 index 实例化,纯内存,无 IO |
+| DocScanner | 文件树遍历,产出 Document 列表 | `index-docs` 命令实例化 |
 
 ## 3. 核心业务规则
 
@@ -98,6 +123,9 @@ classDiagram
 | Edge.call_kind | INSTANCE / STATIC / CONSTRUCTOR / SUPER / INTERFACE / NULL | 仅 CALLS 边非空 |
 | Edge.context | field_type / parameter_type / return_type / generic_arg / NULL | 仅 REFERENCES 边非空 |
 | Node.scope | MAIN / TEST | 区分 src/main/java 与 src/test/java |
+| SemanticAnnotation.source | CONVENTION / JAVADOC / DOC / LLM | 语义来源,CHECK 约束 |
+| SemanticAnnotation.confidence | HIGH / MEDIUM / LOW | JAVADOC=HIGH, CONVENTION=MEDIUM |
+| Document.doc_type | README / DOC / ADR / CHANGELOG / API_SPEC | 路径模式判定 |
 
 ## 5. 核心场景与时序图
 
@@ -111,6 +139,7 @@ sequenceDiagram
     participant PS as ProjectScanner
     participant JF as JavaParserFactory
     participant Ext as Extractors
+    participant PP as SemanticPostProcessor
     participant SS as SqliteStore
 
     CLI->>CD: detectSourcePaths(root) + detect(root)
@@ -123,8 +152,27 @@ sequenceDiagram
         JF->>Ext: extract(unit, result)
         Ext-->>JF: nodes + edges + annotations
     end
+    CLI->>PP: process(result)
+    PP->>PP: applyConventionRules + applyJavadocRules
+    PP-->>CLI: result + semanticAnnotations
     CLI->>SS: initSchema + write(result)
     SS-->>CLI: ok
+```
+
+### 场景 1b: 文档索引(Index Docs)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CLI as IndexDocsCommand
+    participant DS as DocScanner
+    participant SS as SqliteStore
+
+    CLI->>DS: scan(projectRoot)
+    DS-->>CLI: List~Document~
+    CLI->>SS: initSchema() + insertDocuments(docs)
+    SS-->>CLI: ok
+    Note over SS: doc_content FTS5 由 documents_ai/ad/au 触发器自动同步
 ```
 
 ### 场景 2: Agent 驱动的语义查询(Query)
@@ -191,6 +239,8 @@ sequenceDiagram
 | FieldAccessExtractor | ✅ | READS/WRITES + 复合赋值 + ++/--;**仅项目内字段**;enclosing 同上 |
 | TypeExtractor | ✅ | CLASS/INTERFACE/ENUM/ANONYMOUS_CLASS/RECORD;@interface 暂以 INTERFACE kind 入库 |
 | ClasspathDetector.detectJavaVersion | ✅ | SAX 遍历所有 pom.xml,优先 `<maven.compiler.source>`、回退 `<java.version>`,多模块取最大值;`--java-version` 显式参数最高优先级 |
+| SemanticPostProcessor (Phase 2) | ✅ | CONVENTION(7 注解 + 9 命名规则,naming 仅对类型 kind 生效)+ JAVADOC(首段提炼);填充 semantic_annotations 表 |
+| DocScanner + IndexDocsCommand (Phase 2) | ✅ | README/docs/**/*.md/**/ADR-*.md;排除 CHANGELOG/swagger/openapi;FTS5 同步由触发器 |
 
 ## 7. 验证基线
 

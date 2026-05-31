@@ -1,5 +1,5 @@
--- anatomist Phase 1 schema. Matches docs/scenario-1-index.md §完整 DDL.
--- documents / semantic_annotations tables belong to Phase 2 and are not created here.
+-- anatomist schema. Phase 1 covers nodes/edges/annotations + node_names FTS5.
+-- Phase 2 adds documents / doc_content FTS5 / semantic_annotations.
 
 CREATE TABLE nodes (
     id TEXT PRIMARY KEY,
@@ -86,3 +86,62 @@ CREATE TRIGGER nodes_au AFTER UPDATE ON nodes BEGIN
     INSERT INTO node_names(rowid, qualified_name, label, javadoc)
     VALUES (new.rowid, new.qualified_name, new.label, new.javadoc);
 END;
+
+CREATE TABLE documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path TEXT NOT NULL,
+    title TEXT,
+    content TEXT,
+    doc_type TEXT NOT NULL,
+    module TEXT,
+    indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_documents_path ON documents(path);
+CREATE INDEX idx_documents_doc_type ON documents(doc_type);
+CREATE INDEX idx_documents_module ON documents(module);
+
+CREATE VIRTUAL TABLE doc_content USING fts5(
+    title,
+    content,
+    doc_type,
+    content='documents',
+    content_rowid='id'
+);
+
+CREATE TRIGGER documents_ai AFTER INSERT ON documents BEGIN
+    INSERT INTO doc_content(rowid, title, content, doc_type)
+    VALUES (new.id, new.title, new.content, new.doc_type);
+END;
+
+CREATE TRIGGER documents_ad AFTER DELETE ON documents BEGIN
+    INSERT INTO doc_content(doc_content, rowid, title, content, doc_type)
+    VALUES ('delete', old.id, old.title, old.content, old.doc_type);
+END;
+
+CREATE TRIGGER documents_au AFTER UPDATE ON documents BEGIN
+    INSERT INTO doc_content(doc_content, rowid, title, content, doc_type)
+    VALUES ('delete', old.id, old.title, old.content, old.doc_type);
+    INSERT INTO doc_content(rowid, title, content, doc_type)
+    VALUES (new.id, new.title, new.content, new.doc_type);
+END;
+
+CREATE TABLE semantic_annotations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL,
+    doc_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+    category TEXT,
+    business_label TEXT,
+    business_description TEXT,
+    domain_context TEXT,
+    source TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (source IN ('CONVENTION','JAVADOC','DOC','LLM')),
+    CHECK (confidence IN ('HIGH','MEDIUM','LOW'))
+);
+
+CREATE INDEX idx_semantic_annotations_node_id ON semantic_annotations(node_id);
+CREATE INDEX idx_semantic_annotations_doc_id ON semantic_annotations(doc_id);
+CREATE INDEX idx_semantic_annotations_category ON semantic_annotations(category);
+CREATE INDEX idx_semantic_annotations_source ON semantic_annotations(source);

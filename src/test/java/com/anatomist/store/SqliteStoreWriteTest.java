@@ -3,6 +3,8 @@ package com.anatomist.store;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
+import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.model.Document;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -105,5 +107,44 @@ class SqliteStoreWriteTest {
             assertTrue(rs.next());
             return rs.getInt(1);
         }
+    }
+
+    @Test
+    void writeSemanticAnnotations_persistsRows(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        ExtractionResult r = new ExtractionResult();
+        r.nodes.add(node("com.x.OrderService", "OrderService", "CLASS"));
+        SemanticAnnotation sa = new SemanticAnnotation();
+        sa.nodeId = "com.x.OrderService";
+        sa.category = "BUSINESS_SERVICE";
+        sa.source = "CONVENTION";
+        sa.confidence = "MEDIUM";
+        r.semanticAnnotations.add(sa);
+
+        store.write(r);
+
+        Connection c = store.connection();
+        assertEquals(1, count(c,
+                "SELECT count(*) FROM semantic_annotations WHERE node_id='com.x.OrderService' AND source='CONVENTION' AND category='BUSINESS_SERVICE'"));
+    }
+
+    @Test
+    void insertDocuments_persistsRowsAndSyncsFts(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        Document d = new Document();
+        d.path = "README.md";
+        d.title = "Mini Spring Shop";
+        d.content = "A demo Spring Boot project for testing anatomist.";
+        d.docType = "README";
+        d.module = null;
+        store.insertDocuments(java.util.List.of(d));
+
+        Connection c = store.connection();
+        assertEquals(1, count(c, "SELECT count(*) FROM documents WHERE path='README.md'"));
+        assertEquals(1, count(c, "SELECT count(*) FROM doc_content WHERE doc_content MATCH 'anatomist'"));
     }
 }

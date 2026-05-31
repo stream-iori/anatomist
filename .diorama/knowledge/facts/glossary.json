@@ -141,6 +141,55 @@
       "definition": "JavaParser 不在 RecordDeclaration 下产出 ConstructorDeclaration AST。FieldExtractor.emitRecordComponents 合成一个 METHOD Node (metadata.isSynthetic=true, isRecordCanonical=true),id 与 SymbolSolver 解析 record 构造方法时返回的 (recordFqn#simpleName(componentTypes)) 形式对齐,避免 CALLS 边出现 dangling target。",
       "aliases": ["合成构造方法"],
       "last_verified": "2026-05-31"
+    },
+    {
+      "term": "SemanticAnnotation",
+      "english": "Semantic Annotation",
+      "definition": "semantic_annotations 表的一条记录。描述一个 Node 或 Document 的业务语义 (category / business_label / business_description / domain_context)。source ∈ {CONVENTION, JAVADOC, DOC, LLM}, confidence ∈ {HIGH, MEDIUM, LOW}。node_id / doc_id 均可空(ON DELETE SET NULL)。Phase 2 索引期产出 CONVENTION 与 JAVADOC 两类。",
+      "aliases": ["语义注解"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "Document",
+      "english": "Document",
+      "definition": "documents 表的一条记录,代表项目中一份 markdown 文档。doc_type ∈ {README, DOC, ADR, CHANGELOG, API_SPEC}。content/title 镜像到 doc_content FTS5 虚拟表(external content 模式)。由 `anatomist index-docs <path>` 子命令独立维护,与 `index` 命令不耦合。",
+      "aliases": ["文档"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "ConventionRule",
+      "english": "Convention Rule",
+      "definition": "SemanticPostProcessor 内 16 条约定推导规则。annotation 变体匹配 annotations.annotation_fqn(7 条:@Service/@Repository/@RestController/@Controller/@Entity/@Transactional/@Component);naming 变体匹配 nodes.label endsWith(9 条:Service/DTO/Request/Response/Repository/Dao/Controller/Config/Configuration),仅对 kind ∈ {CLASS,INTERFACE,ENUM,RECORD} 生效(BR-004)。命中即写 source=CONVENTION, confidence=MEDIUM。",
+      "aliases": ["约定规则"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "SemanticPostProcessor",
+      "english": "Semantic Post Processor",
+      "definition": "com.anatomist.semantic.SemanticPostProcessor。纯 Java 后处理器,在 IndexCommand 内 pruneDanglingInternalEdges 之后、SqliteStore.write 之前对 ExtractionResult 执行 applyConventionRules + applyJavadocRules,填充 semanticAnnotations 列表。无 IO,无 SymbolSolver 依赖。",
+      "aliases": [],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "DocScanner",
+      "english": "Doc Scanner",
+      "definition": "com.anatomist.doc.DocScanner。Files.walkFileTree 扫描 projectRoot,匹配 README.md / docs/**/*.md / **/ADR-*.md,排除 CHANGELOG.md / swagger*.json / openapi*.json(BR-007)、target / build / .git / node_modules / .anatomist 子树。title 由手写 H1 正则解析,fallback 到文件名 stem。doc_type 与 module 按路径推断。",
+      "aliases": [],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "doc_content FTS5",
+      "english": "doc_content FTS5",
+      "definition": "SQLite FTS5 虚拟表,external content 模式,镜像 documents 表的 title/content/doc_type 三列。由 documents_ai/ad/au 三个触发器与 documents 表同步。与 node_names FTS5 同构(BR-006)。",
+      "aliases": ["文档全文索引"],
+      "last_verified": "2026-05-31"
+    },
+    {
+      "term": "JAVADOC summary",
+      "english": "Javadoc Summary",
+      "definition": "SemanticPostProcessor.firstBlankLineOrTag(javadoc): 取 javadoc 文本中第一个空行(`\\n\\n`)或第一个 javadoc tag(`^\\s*@\\w+`)之前的内容,trim 后写入 semantic_annotations.business_description, source=JAVADOC, confidence=HIGH。javadoc 为空或空白则跳过(S6)。",
+      "aliases": ["javadoc 摘要"],
+      "last_verified": "2026-05-31"
     }
   ]
 }

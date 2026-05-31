@@ -1,0 +1,52 @@
+{
+  "task": {
+    "name": "20260531-001-phase2-semantic-and-docs",
+    "branch": "task/20260531-001-phase2-semantic-and-docs",
+    "base_branch": "main",
+    "created_at": "2026-05-31T03:40:00Z"
+  },
+  "phase": {
+    "current": "done",
+    "completed": ["incept", "specify", "plan", "generate", "consolidate"],
+    "checkpoints": {
+      "incept": "",
+      "specify": "ef92c45a12ea20bbf11008c2643c6cbbe118299d",
+      "plan": "c4d81392da9917298a2da7e3e8827a017fd5057c",
+      "generate": "bf3738e8f96a2c1f98216b51ff9a5ee931dab96e",
+      "consolidate": "22e4a7dd3c8d513e110558e4248b851c00b499d2"
+    },
+    "task_checkpoints": {
+      "T1": "7c211da1cd5c895bab52332a3c84b87741b863d4",
+      "T2": "02e825cb99034d23c4731f51088c27dea8fffd9d",
+      "T3": "e012e96a9a9c119348c781b48bd0fc666d4ebbe6",
+      "T4": "bf3738e8f96a2c1f98216b51ff9a5ee931dab96e"
+    }
+  },
+  "anchors": {
+    "dev_entries": [
+      "src/main/java/com/anatomist/cli/IndexCommand.java",
+      "src/main/resources/schema.sql",
+      "src/main/java/com/anatomist/store/SqliteStore.java",
+      "src/main/java/com/anatomist/cli/AnatomistCli.java"
+    ],
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java",
+      "src/test/java/com/anatomist/store/SqliteStoreWriteTest.java",
+      "src/test/java/com/anatomist/semantic/SemanticPostProcessorTest.java",
+      "src/test/java/com/anatomist/cli/IndexDocsCommandIT.java"
+    ]
+  },
+  "consolidate": {
+    "noop": false,
+    "updated_files": [
+      "knowledge/facts/glossary.json",
+      "knowledge/facts/domain-model.md"
+    ]
+  },
+  "amendments": [
+    {
+      "date": "2026-05-31",
+      "summary": "AC-010 baseline 修正：--no-classpath 下 Spring 注解 unresolved，IT 仅断言 ≥6 命名规则；annotation 与 javadoc 覆盖由单测保证"
+    }
+  ]
+}

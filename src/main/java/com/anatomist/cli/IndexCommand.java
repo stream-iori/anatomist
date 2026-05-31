@@ -14,6 +14,7 @@ import com.anatomist.extract.MethodExtractor;
 import com.anatomist.extract.ReferenceExtractor;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.semantic.SemanticPostProcessor;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -145,6 +146,8 @@ public class IndexCommand implements Callable<Integer> {
                 if (dropped > 0) {
                     System.err.println("WARN: dropped " + dropped + " edges with dangling internal target (extractor gaps)");
                 }
+                // TODO T3.P3: invoke SemanticPostProcessor here
+                new SemanticPostProcessor().process(result);
                 store.write(result);
             }
 
@@ -177,6 +180,7 @@ public class IndexCommand implements Callable<Integer> {
             System.out.println("  CALLS:        " + calls);
             System.out.println("  READS:        " + reads);
             System.out.println("  WRITES:       " + writes);
+            System.out.println("  Semantic annotations: " + result.semanticAnnotations.size());
             System.out.println("  Unresolved:   " + ctx.unresolvedCount());
             System.out.println("  Output:       " + dbPath);
             System.out.println("Done in " + elapsed + "ms");
