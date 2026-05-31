@@ -6,19 +6,41 @@
     "created_at": "2026-05-30T05:38:00Z"
   },
   "phase": {
-    "current": "plan",
-    "completed": ["incept", "specify"],
+    "current": "generate",
+    "completed": ["incept", "specify", "plan"],
     "checkpoints": {
       "incept": "",
       "specify": "5ea41c4d2db5e78d6660893fe40f6c7490a7e72e",
-      "plan": "",
+      "plan": "829d7cda76cdaae60808e9af12c5a5012749316f",
       "generate": "",
       "consolidate": ""
     },
     "task_checkpoints": {}
   },
   "anchors": {
-    "dev_entries": [],
-    "acceptance_entries": []
+    "dev_entries": [
+      "src/main/java/com/anatomist/extract/MethodExtractor.java",
+      "src/main/java/com/anatomist/extract/TypeExtractor.java",
+      "src/main/java/com/anatomist/extract/CallGraphExtractor.java",
+      "src/main/java/com/anatomist/extract/FieldAccessExtractor.java",
+      "src/main/java/com/anatomist/extract/ReferenceExtractor.java",
+      "src/main/java/com/anatomist/extract/FieldExtractor.java",
+      "src/main/java/com/anatomist/core/NodeIdGenerator.java",
+      "src/main/java/com/anatomist/core/ClasspathDetector.java",
+      "src/main/java/com/anatomist/core/JavaParserFactory.java",
+      "src/main/java/com/anatomist/cli/IndexCommand.java"
+    ],
+    "acceptance_entries": [
+      "src/test/java/com/anatomist/extract/MethodExtractorTest.java",
+      "src/test/java/com/anatomist/extract/TypeExtractorTest.java",
+      "src/test/java/com/anatomist/extract/CallGraphExtractorTest.java",
+      "src/test/java/com/anatomist/extract/FieldAccessExtractorTest.java",
+      "src/test/java/com/anatomist/extract/ReferenceExtractorTest.java",
+      "src/test/java/com/anatomist/extract/FieldExtractorTest.java",
+      "src/test/java/com/anatomist/core/ClasspathDetectorTest.java",
+      "src/test/java/com/anatomist/core/NodeIdGeneratorTest.java",
+      "src/test/java/com/anatomist/core/JavaParserFactoryTest.java",
+      "src/test/java/com/anatomist/cli/IndexCommandIT.java"
+    ]
   }
 }
