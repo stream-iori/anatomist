@@ -294,3 +294,46 @@ anatomist used-by OrderService
 ## Phase 归属
 
 Phase 2（核心实现）
+
+## 实现状态
+
+**所有 8 个子命令已落地并通过测试**（截至 2026-05-31）。
+
+### 代码入口
+
+| 命令 | picocli 类 | QueryService 方法 |
+|------|-----------|-------------------|
+| `search` | `com.anatomist.cli.SearchCommand` | `search(...)` / `searchByAnnotation(...)` |
+| `context` | `com.anatomist.cli.ContextCommand` | `context(fqn, withCalleesDepth)` |
+| `callees-of` | `com.anatomist.cli.CalleesOfCommand` | `calleesOf(methodRef, depth)` |
+| `callers-of` | `com.anatomist.cli.CallersOfCommand` | `callersOf(methodRef, depth)` |
+| `hierarchy` | `com.anatomist.cli.HierarchyCommand` | `hierarchy(typeRef)` |
+| `implementors-of` | `com.anatomist.cli.ImplementorsOfCommand` | `implementorsOf(typeRef)` |
+| `deps-of` | `com.anatomist.cli.DepsOfCommand` | `depsOf(typeRef)` |
+| `used-by` | `com.anatomist.cli.UsedByCommand` | `usedBy(typeRef)` |
+
+底座是 `com.anatomist.query.QueryService`（每条命令开新 SQLite 连接 → 跑 SQL → 关），输出统一封装为 `QueryEnvelope { query, results[], stats }`，通过 `JsonFormatter`（snake_case + INDENT_OUTPUT）序列化到 stdout。
+
+### FQN 解析约定
+
+- 类型：`resolveTypeIds(input)` 先按 `nodes.qualified_name = ?` 精确匹配，未命中回退到 `nodes.label = ?` 短名匹配
+- 方法：`resolveMethodIds(input)` 支持四种语法
+  - `pkg.Class#method(p1,p2)` — 精确匹配 `nodes.id`
+  - `pkg.Class#method` — 匹配 `qualified_name`（所有 overload）
+  - `pkg.Class.method` / `Class.method` — 改写为前两种之一
+  - `method`（裸名）— 匹配 `nodes.label`，全项目所有同名方法
+
+### 递归 CTE 防护
+
+- 深度上限 `QueryService.MAX_DEPTH = 20`
+- 应用层 `dedup(source, target, depth)` 去重，处理 fan-in 图在同 depth 多次访问同一节点
+- SQLite 不支持 PostgreSQL 的 `CYCLE` 子句，靠 `depth < ?` + dedup 等价实现
+
+### 测试覆盖矩阵
+
+| 层 | 类 | 覆盖 |
+|----|----|------|
+| L2 集成 | `QueryServiceIT` | 17 条，B1/B2/B3/B4/B5 + C1/C2/C3/C4/C5 + D1/D2/D3 + F1/F2/F3 + 递归深度安全 |
+| L3 golden | `GoldenFileIT` + `tests/scenarios/` | 8 种子场景（B1/B3/C1/C2/D1/D2/D3/F1），`-Dgolden.update=true` 刷新 |
+
+详细 fixture 与刷新机制见 [`docs/testing-strategy.md` §四 Golden File 模式](testing-strategy.md#四golden-file-模式)。

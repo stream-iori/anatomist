@@ -113,4 +113,32 @@ class FieldAccessExtractorTest {
         assertTrue(read.sourceId.startsWith("pkg.A#run()$lambda@L"),
                 "field access inside lambda must attribute to LAMBDA node; got " + read.sourceId);
     }
+
+    /**
+     * Regression for the structural-equality bug in the write-site set:
+     * a vanilla {@code HashSet<Node>} would mark BOTH sides of {@code x = x + 1}
+     * as write sites (because two NameExprs spelling "x" are
+     * {@link com.github.javaparser.ast.Node#equals(Object) Node.equals}-equal),
+     * silently dropping the RHS READ and — worse — every other READ of
+     * {@code x} elsewhere in the file. Identity-only membership fixes it.
+     */
+    @Test
+    void selfAssignment_rhsEmitsRead_andOtherReadsInSameClassSurvive() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  int x;\n"
+                + "  void inc()   { x = x + 1; }\n"
+                + "  int  value() { return x; }\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new FieldAccessExtractor(ctx).extract(cu, r);
+
+        long writes = r.edges.stream().filter(e ->
+                "WRITES".equals(e.relation) && "pkg.A#x".equals(e.targetId)).count();
+        long reads  = r.edges.stream().filter(e ->
+                "READS".equals(e.relation) && "pkg.A#x".equals(e.targetId)).count();
+        assertEquals(1, writes, "got " + r.edges);
+        assertEquals(2, reads, "expected RHS read + return read; got " + r.edges);
+    }
 }

@@ -1,0 +1,42 @@
+{
+  "query" : "search OrderService --limit 5",
+  "results" : [ {
+    "id" : "com.example.shop.service.OrderService",
+    "label" : "OrderService",
+    "kind" : "CLASS",
+    "qualified_name" : "com.example.shop.service.OrderService",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_location" : "L18"
+  }, {
+    "id" : "com.example.shop.controller.OrderController#orderService",
+    "label" : "orderService",
+    "kind" : "FIELD",
+    "qualified_name" : "com.example.shop.controller.OrderController#orderService",
+    "source_file" : "api/src/main/java/com/example/shop/controller/OrderController.java",
+    "source_location" : "L20"
+  }, {
+    "id" : "com.example.shop.service.OrderService#orderRepository",
+    "label" : "orderRepository",
+    "kind" : "FIELD",
+    "qualified_name" : "com.example.shop.service.OrderService#orderRepository",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_location" : "L22"
+  }, {
+    "id" : "com.example.shop.service.OrderService#validator",
+    "label" : "validator",
+    "kind" : "FIELD",
+    "qualified_name" : "com.example.shop.service.OrderService#validator",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_location" : "L24"
+  }, {
+    "id" : "com.example.shop.service.OrderService#calculator",
+    "label" : "calculator",
+    "kind" : "FIELD",
+    "qualified_name" : "com.example.shop.service.OrderService#calculator",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_location" : "L26"
+  } ],
+  "stats" : {
+    "total" : 5
+  }
+}

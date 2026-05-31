@@ -1,0 +1,41 @@
+{
+  "query" : "callers-of com.example.shop.service.OrderValidator#validate --depth 5",
+  "results" : [ {
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "target" : "com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "validate",
+    "target_qualified_name" : "com.example.shop.service.OrderValidator#validate",
+    "relation" : "CALLS",
+    "call_kind" : "INSTANCE",
+    "is_external" : false,
+    "depth" : 1,
+    "source_location" : "L33"
+  }, {
+    "source" : "com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "create",
+    "target" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "createOrder",
+    "target_qualified_name" : "com.example.shop.service.OrderService#createOrder",
+    "relation" : "CALLS",
+    "call_kind" : "INSTANCE",
+    "is_external" : false,
+    "depth" : 2,
+    "source_location" : "L24"
+  }, {
+    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
+    "source_label" : "createOrder",
+    "target" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "createOrder",
+    "target_qualified_name" : "com.example.shop.service.OrderService#createOrder",
+    "relation" : "CALLS",
+    "call_kind" : "INSTANCE",
+    "is_external" : false,
+    "depth" : 2,
+    "source_location" : "L47"
+  } ],
+  "stats" : {
+    "total" : 3,
+    "max_depth" : 2
+  }
+}

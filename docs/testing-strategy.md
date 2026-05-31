@@ -33,7 +33,9 @@ fixtures/micro/
 └── InterfaceDefaultMethod.java  # JDK 8 default method 归属
 ```
 
-不需要 build，直接喂给 `JavaParser.parse(...)`。每个片段 < 30 行。Phase 1 起逐个补齐。
+不需要 build，直接喂给 `JavaParser.parse(...)`。每个片段 < 30 行。
+
+**实现状态**：8 个 fixture 文件已落地。`src/test/java/com/anatomist/cli/MicroFixtureIT` 走完整 IndexCommand 管道索引整个 `fixtures/micro/`，对每个 fixture 一条 `@Test` 断言（Node ID 字符串、边数、call_kind 分支等），外加两条 JDK 8 negative 断言（无 RECORD 节点、无 JRE 21 `Sequenced*` 类型泄漏）。`mvn test -Dtest=MicroFixtureIT` 触发。
 
 ### Fixture B — `fixtures/mini-spring-shop/`（L2/L3 主战场）
 
@@ -49,14 +51,24 @@ fixtures/micro/
 
 **fixture 自身用 JUnit 5 自测**（验证业务逻辑正确），同时它是 anatomist 的索引目标。
 
-### Fixture C — 真实开源项目（L3 烟雾测试，Phase 2 末期引入）
+### Fixture C — 真实开源项目（L3 烟雾测试）
 
-| 候选 | 用途 |
-|------|------|
-| Spring PetClinic 1.5.x（JDK 8 分支） | E1/E2/E3 业务场景验证 |
-| Apache Commons Lang 3.12.0 | 规模性能基线 |
+| 项目 | 用途 | 状态 |
+|------|------|------|
+| **Apache Commons Lang 3.12.0** | 规模性能基线 + dropped-edges 退化监控 | **已接入** → `CommonsLangSmokeIT` |
+| Spring PetClinic | 业务场景验证 | 未接入（历史 1.5.x 分支已被上游删除；如需复活，挑一个真实存在的 tag 走相同 submodule 模式） |
 
-git submodule 锁版本，vendored 到 `fixtures/external/`,不联网。
+git submodule 锁版本，vendored 到 `fixtures/external/`，**不联网即跑测试**。具体接入命令、跳过语义、为什么选这个 fixture 见 [`fixtures/external/README.md`](../fixtures/external/README.md)。
+
+`CommonsLangSmokeIT` 三条断言：
+
+1. **规模基线** — `types ≥ 100 && methods ≥ 1000 && edges ≥ 1000`
+2. **关键类存在** — `org.apache.commons.lang3.StringUtils` / `ObjectUtils` / `ArrayUtils` 都能在 nodes 表精确找到
+3. **查询层联通** — `QueryService.search(...)` 在 `StringUtils` / `ObjectUtils` / `ArrayUtils` / `Validate` 任一上返回非空
+
+**Dropped-edges 基线**：commons-lang 3.12.0 当前会触发 `Pruned dangling = 188`（CLAUDE.md §Fixture 已记录）。这个数字应**单调下降**——任何 extractor 修复都会带它一起降低；如果它涨了，说明回归了或上游 fixture 升了。
+
+**跳过语义**：每个 @Test 顶部调 `requireSubmodule()` → `assumeTrue(...)`，submodule 未 checkout 时 Surefire 报 `Tests run: 3, Skipped: 3`（不是误导性的 `Tests run: 0`），并在 stderr 打一行接入提示。
 
 ## 三、JDK 8 语义边界验证
 
@@ -74,16 +86,20 @@ L1 fixture 各加一条 negative 断言覆盖。
 每个场景一个目录：
 
 ```
-tests/scenarios/D3-multi-hop-call-chain/
-├── input.cmd               # anatomist callees-of ... --depth 5 --format json
-├── expected.json           # 期望输出（JSON 结构对比,字段顺序无关）
-├── expected.sql.txt        # 实际执行 SQL（验查询计划）
-└── README.md               # 用例说明
+tests/scenarios/<scenario-id>/
+├── input.cmd               # 一行 CLI 命令（args 用空格分隔，支持 # 注释与 "..." 引号段）
+└── expected.json           # 期望输出（结构对比；规范化时绝对路径替换为 ${PROJECT}）
 ```
 
-- 用 **JsonUnit / AssertJ JSON** 做结构对比,允许字段乱序但严格匹配值
-- `--update-golden` 一键刷新；CI diff 不为空即 fail
-- **这套用例同时作为对外的命令使用手册**
+**Driver**：`src/test/java/com/anatomist/cli/GoldenFileIT` — `@TestFactory` 自动遍历 `tests/scenarios/*/input.cmd`，对每个目录跑一条 `DynamicTest`，命令通过 `AnatomistCli` 一次性执行后比对。规范化策略：
+
+- Jackson `ORDER_MAP_ENTRIES_BY_KEYS` 让 map 输出顺序稳定（不依赖 JsonUnit / AssertJ JSON 这种额外依赖，保持 4 dep 预算）
+- 项目根绝对路径替换为 `${PROJECT}`，跨机器/CI 稳定
+- 自动注入 `--index <built-db>`，input.cmd 不用写 `--index`
+
+**刷新机制**：`mvn test -Dtest=GoldenFileIT -Dgolden.update=true` 重新生成所有 `expected.json`。CI 默认不带这个开关，diff 不为空即 fail。**这套用例同时作为对外的命令使用手册**。
+
+**当前 8 个种子场景**：`B1-search-by-label` / `B3-context-by-fqn` / `C1-context-members` / `C2-hierarchy-extends` / `D1-callees-single-hop` / `D2-callers-single-hop` / `D3-callees-multi-hop` / `F1-callers-deep-impact`，覆盖 scenario-2-query.md 里 B/C/D/F 四类的代表路径。
 
 ## 五、增量测试拆分
 
@@ -123,9 +139,11 @@ jobs:
 
 ## 八、Phase 对齐
 
-| Phase | 引入的测试资产 |
-|-------|--------------|
-| Phase 1 | Fixture A 全集 + Fixture B 编译通过 + L1 全部 Extractor 单测 |
-| Phase 2 | L2 集成（SQLite + 查询） + L3 golden file 主场景（B/C/D/F） |
-| Phase 3 | Skill 文件与 CLI 契约 e2e（脚本驱动 CLI） |
-| Phase 4 | Fixture C 接入 + 性能基线 trend + 增量回归 |
+| Phase | 引入的测试资产 | 状态 |
+|-------|--------------|------|
+| Phase 1 | Fixture A 全集 + Fixture B 编译通过 + L1 全部 Extractor 单测 | ✅ Fixture A 8 文件 + `MicroFixtureIT` 10 用例；Fixture B 全程；8 Extractor 单测共 30+ 条 |
+| Phase 2 | L2 集成（SQLite + 查询） + L3 golden file 主场景（B/C/D/F） | ✅ `QueryServiceIT` 17 条覆盖 B1–F3；`GoldenFileIT` 8 种子场景 |
+| Phase 3 | Skill 文件与 CLI 契约 e2e（脚本驱动 CLI） | golden-file 套件已部分承担（CLI → JSON 契约锁定） |
+| Phase 4 | Fixture C 接入 + 性能基线 trend + 增量回归 | ✅ Fixture C = commons-lang 3.12.0；增量见 `IncrementalIndexerIT` / `WatchCommandIT`；性能 trend 未接入 |
+
+**触发约定**：所有 `*IT` 走 Surefire 默认 include 模式之外（与 unit `*Test` 区分），必须显式 `mvn test -Dtest=<ClassName>` 触发。CLAUDE.md §Commands 列了高频组合。

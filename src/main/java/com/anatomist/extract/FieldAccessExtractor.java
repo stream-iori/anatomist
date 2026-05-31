@@ -18,7 +18,8 @@ import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 
-import java.util.HashSet;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Optional;
 import java.util.Set;
 
@@ -38,7 +39,14 @@ public class FieldAccessExtractor implements Extractor {
 
         // Pass 1: collect write-site AST node identities so the read pass
         // can skip them.
-        Set<Node> writeSites = new HashSet<>();
+        //
+        // IdentityHashMap is load-bearing: JavaParser's Node.equals() is
+        // *structural*, so two NameExpr instances spelling "x" compare equal
+        // even when they live on opposite sides of `x = x + 1`. A vanilla
+        // HashSet would mark every `x` in the file as a write-site, silently
+        // dropping ALL READS for the same name. Identity-only membership keeps
+        // the LHS instance distinct from the RHS / return-expression / etc.
+        Set<Node> writeSites = Collections.newSetFromMap(new IdentityHashMap<>());
         new VoidVisitorAdapter<Void>() {
             @Override
             public void visit(AssignExpr n, Void arg) {

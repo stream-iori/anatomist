@@ -1,5 +1,8 @@
 package com.anatomist.core;
 
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -7,7 +10,9 @@ import com.github.javaparser.resolution.declarations.ResolvedMethodLikeDeclarati
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedType;
+import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserAnonymousClassDeclaration;
 
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -18,12 +23,21 @@ import java.util.stream.IntStream;
  *   <li>CLASS/INTERFACE/ENUM: FQN preserved as-is</li>
  *   <li>METHOD: {@code <classFqn>#<name>(<erased,param,fqns>)}</li>
  *   <li>FIELD: {@code <classFqn>#<fieldName>}</li>
+ *   <li>ANONYMOUS_CLASS: {@code <enclosingMethodId>$anon@L<line>}
+ *       — derived from the wrapping {@link ObjectCreationExpr}'s position so
+ *       the id is stable across runs (JavaParser's own
+ *       {@code JavaParserAnonymousClassDeclaration.getQualifiedName()} embeds
+ *       an unstable generated name and must not be used as an id).</li>
  * </ul>
  */
 public class NodeIdGenerator {
 
     public String forType(ResolvedTypeDeclaration t) {
         if (t == null) throw new IllegalArgumentException("declaration is null");
+        if (t instanceof JavaParserAnonymousClassDeclaration anon) {
+            String stable = stableAnonymousId(anon);
+            if (stable != null) return stable;
+        }
         return t.getQualifiedName();
     }
 
@@ -37,8 +51,7 @@ public class NodeIdGenerator {
 
     public String forField(ResolvedFieldDeclaration f) {
         if (f == null) throw new IllegalArgumentException("field is null");
-        ResolvedTypeDeclaration decl = f.declaringType();
-        return decl.getQualifiedName() + "#" + f.getName();
+        return forType(f.declaringType()) + "#" + f.getName();
     }
 
     /** ID for a LAMBDA Node: parent method id + "$lambda@L<line>C<column>". */
@@ -53,7 +66,7 @@ public class NodeIdGenerator {
 
     private String forMethodLike(ResolvedMethodLikeDeclaration m) {
         if (m == null) throw new IllegalArgumentException("method is null");
-        String classFqn = m.declaringType().getQualifiedName();
+        String classFqn = forType(m.declaringType());
         String params = IntStream.range(0, m.getNumberOfParams())
                 .mapToObj(i -> paramTypeOrUnresolved(m, i))
                 .collect(Collectors.joining(","));
@@ -67,6 +80,30 @@ public class NodeIdGenerator {
         } catch (RuntimeException e) {
             return "<unresolved>";
         }
+    }
+
+    /**
+     * Compute the stable {@code $anon@L<line>} id for an anonymous class by
+     * walking up to the enclosing method/constructor. Returns null when the
+     * AST can't be reached (synthesized declaration) — callers fall back to
+     * {@link ResolvedTypeDeclaration#getQualifiedName()}.
+     */
+    private String stableAnonymousId(JavaParserAnonymousClassDeclaration anon) {
+        Optional<com.github.javaparser.ast.Node> astOpt = anon.toAst();
+        if (astOpt.isEmpty() || !(astOpt.get() instanceof ObjectCreationExpr expr)) return null;
+        int line = expr.getBegin().map(p -> p.line).orElse(0);
+        // Prefer the enclosing method; fall back to enclosing constructor.
+        Optional<MethodDeclaration> m = expr.findAncestor(MethodDeclaration.class);
+        if (m.isPresent()) {
+            try { return forMethod(m.get().resolve()) + "$anon@L" + line; }
+            catch (RuntimeException ignore) { /* fall through */ }
+        }
+        Optional<ConstructorDeclaration> c = expr.findAncestor(ConstructorDeclaration.class);
+        if (c.isPresent()) {
+            try { return forConstructor(c.get().resolve()) + "$anon@L" + line; }
+            catch (RuntimeException ignore) { /* fall through */ }
+        }
+        return null;
     }
 
     /**

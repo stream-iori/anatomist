@@ -114,3 +114,14 @@
 **坑**: AnnotationExtractor 通过 `AnnotationExpr.resolve()` 取 FQN。Spring 注解(`@Service`/`@Autowired`/`@Transactional`)需要 classpath 才能解析,无 classpath 时这些 `resolve()` 调用抛 `UnsolvedSymbolException`,annotations 表里只剩 `ReflectionTypeSolver` 命中的 JDK 内置注解(`@Override` / `@Deprecated` / `@SuppressWarnings`)。
 
 **对策**: 测试断言用 `@Override`(JDK 内置,只要 `--vm-classpath true` 即可解析)而非 Spring 注解。若要测 Spring 注解,需要在 IT 中先确保 ClasspathDetector 工作正常,或显式传 `--classpath`。生产场景下用户跑 `anatomist index` 默认走 ClasspathDetector,不受此限制。
+
+## E14: JavaParser `Node.equals()` 是结构相等 — Set/Map 必须用身份语义
+
+**情景**: 任何 Extractor 需要把 AST Node 放进 Set/Map 做"标记过/跳过"判定时（写点集、已访问集、归因缓存）。
+
+**坑**: `com.github.javaparser.ast.Node.equals()` 走 `EqualsVisitor`，是**结构相等**：两个不同实例只要 AST 子树相同就判等。最直观的"踩雷"是 `x = x + 1` —— LHS 和 RHS 各是一个 `NameExpr("x")`，结构完全相同。如果 `Set<Node> writeSites = new HashSet<>()` 加了 LHS，那么 `writeSites.contains(rhsNameExpr)` 返回 `true`，RHS 被当成写点跳过，**整个 READS 边静默丢失**。更隐蔽的是辐射效应：同一个类里**其它方法**的 `return x` 因为也是 `NameExpr("x")`，同样命中 `contains`，导致该字段在全类范围内的 READS 全部消失。`FieldAccessExtractor` 曾因此让 `MicroFixtureIT.fieldReadWrite_emitsReadsAndWrites` 报 0 READS——而 5 条单元测试全过(因为每个单测要么不带写、要么写 + 字面量 RHS，恰好回避了"同名 NameExpr 出现在写点和读点"组合)。
+
+**对策**:
+- 任何 `Set<Node>` / `Map<Node, ?>` 一律用 `Collections.newSetFromMap(new IdentityHashMap<>())` 或 `new IdentityHashMap<>()`，绝不用 `HashSet` / `HashMap`
+- 写注释解释**为什么** load-bearing（防止后来人"清理"成普通 HashSet），见 `FieldAccessExtractor.extract()` Pass 1 上方注释
+- 单元测试要覆盖"同名 Node 同时出现在写点和读点"组合，否则结构相等 bug 一律抓不到。`FieldAccessExtractorTest.selfAssignment_rhsEmitsRead_andOtherReadsInSameClassSurvive` 是模板

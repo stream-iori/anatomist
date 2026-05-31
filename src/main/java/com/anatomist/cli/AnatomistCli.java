@@ -11,7 +11,19 @@ import picocli.CommandLine.Command;
         subcommands = {
                 IndexCommand.class,
                 IndexDocsCommand.class,
-                WatchCommand.class
+                WatchCommand.class,
+                SearchCommand.class,
+                ContextCommand.class,
+                CalleesOfCommand.class,
+                CallersOfCommand.class,
+                HierarchyCommand.class,
+                ImplementorsOfCommand.class,
+                DepsOfCommand.class,
+                UsedByCommand.class,
+                FieldReadersCommand.class,
+                FieldWritersCommand.class,
+                CallPathCommand.class,
+                PackageDepsCommand.class
         }
 )
 public class AnatomistCli implements Runnable {

@@ -23,9 +23,15 @@ See [DESIGN.md](DESIGN.md) for the full design rationale and [docs/scenario-1-in
 | Run one test class | `mvn test -Dtest=SqliteStoreWriteTest` |
 | Run one test method | `mvn test -Dtest=MethodExtractorTest#extract_distinguishesOverloads` |
 | Run several at once | `mvn test -Dtest=NodeIdGeneratorTest,JavaParserFactoryTest` |
-| Run the fixture IT | `mvn test -Dtest=IndexCommandIT` |
+| Run the canonical fixture IT | `mvn test -Dtest=IndexCommandIT` |
+| Run scenario-2 query L2 IT | `mvn test -Dtest=QueryServiceIT` |
+| Run golden-file L3 IT | `mvn test -Dtest=GoldenFileIT` |
+| Refresh all golden files | `mvn test -Dtest=GoldenFileIT -Dgolden.update=true` |
+| Run micro-fixture L1 IT | `mvn test -Dtest=MicroFixtureIT` |
+| Run commons-lang scale IT (needs submodule) | `mvn test -Dtest=CommonsLangSmokeIT` (see `fixtures/external/README.md`; auto-skips when missing) |
 | Package fat jar | `mvn -q package` (output: `target/anatomist.jar`) |
 | End-to-end index against fixture | `java -jar target/anatomist.jar index fixtures/mini-spring-shop --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java --no-classpath --output /tmp/x.db` |
+| Run a query against an index | `java -jar target/anatomist.jar callees-of com.example.shop.service.OrderService#createOrder --depth 3 --index /tmp/x.db` |
 
 Build target: `release=21`. The runtime JDK declared in `.sdkmanrc` is `25.0.3-graal` (the `release=21` target is decoupled from runtime, so JDK 21+ works).
 
@@ -37,7 +43,8 @@ Build target: `release=21`. The runtime JDK declared in `.sdkmanrc` is `25.0.3-g
 - `core/`  — Index-phase plumbing: `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, `NodeIdGenerator`, `ExtractionContext`
 - `extract/` — `Extractor` interface + 8 implementations. Phase 1 of the JavaParser rewrite ships `TypeExtractor` and `MethodExtractor` as real impls; the other 6 (`FieldExtractor`, `AnnotationExtractor`, `CallGraphExtractor`, `HierarchyExtractor`, `ReferenceExtractor`, `FieldAccessExtractor`) are no-op skeletons with TODO Phase 1.5 markers pointing at the JavaParser / SymbolSolver APIs that should replace each former implementation call.
 - `store/` — `SqliteStore` (schema + atomic batched write)
-- `cli/` — `AnatomistCli` (picocli root) + `IndexCommand`
+- `query/` — Read-only query layer over the built SQLite index. `QueryService` is the single SQL-bearing class; `QueryEnvelope` / `NodeRow` / `EdgeRow` / `ContextResult` / `HierarchyResult` are Jackson-serializable result POJOs; `JsonFormatter` owns the snake_case + INDENT_OUTPUT mapper. Never imports `com.github.javaparser.*`.
+- `cli/` — `AnatomistCli` (picocli root) + `IndexCommand` / `IndexDocsCommand` / `WatchCommand` (index-side) + 8 query subcommands (`SearchCommand` / `ContextCommand` / `CalleesOfCommand` / `CallersOfCommand` / `HierarchyCommand` / `ImplementorsOfCommand` / `DepsOfCommand` / `UsedByCommand`). Query subcommands resolve the index db via `IndexPath` (explicit `--index` flag → fallback `./.anatomist/index.db`).
 
 ### Index-phase data flow
 
@@ -70,9 +77,13 @@ IndexCommand
 
 The single source of truth for SQLite DDL is `src/main/resources/schema.sql`. The structure mirrors `docs/scenario-1-index.md §完整 DDL` exactly. `documents` and `semantic_annotations` tables belong to Phase 2 and are intentionally **not** created yet.
 
-### Fixture
+### Fixtures
 
-`fixtures/mini-spring-shop/` — three-module Maven project (api / domain / service). It's the canonical end-to-end input. Baseline after the Phase 1 scenario-1 gap-closure (LAMBDA / METHOD_REF / RECORD / Java version detection / isAccessor all live): **16 types, 47 methods, 75 CONTAINS edges, ≥1 LAMBDA, ≥1 METHOD_REF**. Residual `Pruned dangling` (~6 on this fixture) comes from a pre-existing anonymous-class id-encoding mismatch between TypeExtractor (`$anon@L<line>`) and CallGraphExtractor resolution (`Anonymous-<uuid>`); not in REQ-001..005 scope. Numbers must grow **monotonically** as more Extractors come back online — use them as a regression baseline.
+**`fixtures/mini-spring-shop/`** — three-module Maven project (api / domain / service). The canonical end-to-end input. Baseline after the Phase 1 scenario-1 gap-closure (LAMBDA / METHOD_REF / RECORD / Java version detection / isAccessor all live): **16 types, 47 methods, 75 CONTAINS edges, ≥1 LAMBDA, ≥1 METHOD_REF**. Residual `Pruned dangling` is now **2 on this fixture** after `NodeIdGenerator` learned the stable `$anon@L<line>` id for `JavaParserAnonymousClassDeclaration`; remaining 2 come from edge cases (nested anon inside lambda, etc.) — should reach 0 in a future extractor sweep. Numbers must grow **monotonically** as more Extractors come back online — use them as a regression baseline.
+
+**`fixtures/micro/`** — 8 single-file <30-line fixtures (LambdaInStream / AnonymousRunnable / OverloadedMethods / StaticVsInstance / GenericRepository / FieldReadWrite / EnumWithMethods / InterfaceDefaultMethod) — each pins one language feature. Driven end-to-end by `MicroFixtureIT` (10 tests, including 2 JDK 8 negative assertions). See `docs/testing-strategy.md §二 Fixture A`.
+
+**`fixtures/external/commons-lang/`** — git submodule pinned to `rel/commons-lang-3.12.0` (Apache Commons Lang 3.12.0, JDK 8). Scale baseline: indexes in ~5s, `Pruned dangling = 54` (down from 188 before the anon-class id fix; vs. 2 on mini-spring-shop). **The 54 number must trend down** as extractor coverage improves; if it grows, a regression has slipped in. Driver `CommonsLangSmokeIT` runs only when the submodule is checked out (per-test `assumeTrue` → visible "Skipped: N" in Surefire). Setup command lives in `fixtures/external/README.md`.
 
 ## Workflow conventions
 

@@ -1,0 +1,30 @@
+{
+  "query" : "callers-of com.example.shop.service.OrderService#createOrder --depth 1",
+  "results" : [ {
+    "source" : "com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "create",
+    "target" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "createOrder",
+    "target_qualified_name" : "com.example.shop.service.OrderService#createOrder",
+    "relation" : "CALLS",
+    "call_kind" : "INSTANCE",
+    "is_external" : false,
+    "depth" : 1,
+    "source_location" : "L24"
+  }, {
+    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
+    "source_label" : "createOrder",
+    "target" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "createOrder",
+    "target_qualified_name" : "com.example.shop.service.OrderService#createOrder",
+    "relation" : "CALLS",
+    "call_kind" : "INSTANCE",
+    "is_external" : false,
+    "depth" : 1,
+    "source_location" : "L47"
+  } ],
+  "stats" : {
+    "total" : 2,
+    "max_depth" : 1
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "query" : "hierarchy com.example.shop.service.OrderService",
+  "results" : [ {
+    "extends_chain" : [ {
+      "id" : "com.example.shop.service.OrderService",
+      "label" : "OrderService",
+      "qualified_name" : "com.example.shop.service.OrderService",
+      "role" : "self",
+      "depth" : 0,
+      "is_external" : null,
+      "external_target_fqn" : null
+    }, {
+      "id" : "com.example.shop.service.BaseService",
+      "label" : "BaseService",
+      "qualified_name" : "com.example.shop.service.BaseService",
+      "role" : "extends",
+      "depth" : 1,
+      "is_external" : null,
+      "external_target_fqn" : null
+    } ],
+    "implements_list" : [ ]
+  } ],
+  "stats" : {
+    "extends_depth" : 1,
+    "implements" : 0
+  }
+}
