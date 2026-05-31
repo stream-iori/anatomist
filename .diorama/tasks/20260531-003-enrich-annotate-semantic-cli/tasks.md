@@ -125,7 +125,7 @@
 
 **Gate**: `mvn test -Dtest=MarkdownFormatterTest,EnrichCommandIT -q` — exit 0, all green
 
-**Status**: [ ] done
+**Status**: [x] done
 
 ---
 
