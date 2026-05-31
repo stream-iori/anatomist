@@ -9,5 +9,6 @@ public class ExtractionResult {
     public final List<Node> nodes = new ArrayList<>();
     public final List<Edge> edges = new ArrayList<>();
     public final List<Annotation> annotations = new ArrayList<>();
+    public final List<SemanticAnnotation> semanticAnnotations = new ArrayList<>();
     public final Map<String, Object> stats = new HashMap<>();
 }

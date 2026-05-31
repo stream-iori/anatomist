@@ -1,9 +1,11 @@
 package com.anatomist.store;
 
 import com.anatomist.model.Annotation;
+import com.anatomist.model.Document;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
+import com.anatomist.model.SemanticAnnotation;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -76,6 +78,7 @@ public class SqliteStore implements AutoCloseable {
             insertNodes(c, result.nodes);
             insertEdges(c, result.edges);
             insertAnnotations(c, result.annotations);
+            insertSemanticAnnotations(c, result.semanticAnnotations);
             c.commit();
         } catch (SQLException e) {
             try { c.rollback(); } catch (SQLException ignore) {}
@@ -144,6 +147,62 @@ public class SqliteStore implements AutoCloseable {
                 ps.addBatch();
             }
             ps.executeBatch();
+        }
+    }
+
+    static void insertSemanticAnnotations(Connection c, java.util.List<SemanticAnnotation> sas) throws SQLException {
+        if (sas == null || sas.isEmpty()) return;
+        String sql = "INSERT INTO semantic_annotations" +
+                "(node_id,doc_id,category,business_label,business_description,domain_context,source,confidence)" +
+                " VALUES (?,?,?,?,?,?,?,?)";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            for (SemanticAnnotation sa : sas) {
+                if (sa.nodeId == null) ps.setNull(1, Types.VARCHAR); else ps.setString(1, sa.nodeId);
+                if (sa.docId == null) ps.setNull(2, Types.INTEGER); else ps.setInt(2, sa.docId);
+                if (sa.category == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, sa.category);
+                if (sa.businessLabel == null) ps.setNull(4, Types.VARCHAR); else ps.setString(4, sa.businessLabel);
+                if (sa.businessDescription == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, sa.businessDescription);
+                if (sa.domainContext == null) ps.setNull(6, Types.VARCHAR); else ps.setString(6, sa.domainContext);
+                ps.setString(7, sa.source);
+                ps.setString(8, sa.confidence);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    public void insertDocuments(java.util.List<Document> docs) {
+        if (docs == null || docs.isEmpty()) return;
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        boolean priorAutoCommit;
+        try {
+            priorAutoCommit = c.getAutoCommit();
+            c.setAutoCommit(false);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to begin transaction", e);
+        }
+        String sql = "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            for (Document d : docs) {
+                ps.setString(1, d.path);
+                if (d.title == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, d.title);
+                if (d.content == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, d.content);
+                ps.setString(4, d.docType);
+                if (d.module == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, d.module);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+            c.commit();
+        } catch (SQLException e) {
+            try { c.rollback(); } catch (SQLException ignore) {}
+            throw new RuntimeException("Failed to write documents", e);
+        } finally {
+            try { c.setAutoCommit(priorAutoCommit); } catch (SQLException ignore) {}
         }
     }
 

@@ -21,6 +21,8 @@
 
 ### T1: Schema 扩展 + Model 类 + SqliteStore 写入 [REQ-001, REQ-002, REQ-003, BR-001, BR-002, BR-006, AC-001, AC-002, AC-003]
 
+**Status**: [x] done
+
 新增 `SemanticAnnotation` / `Document` model 类；`ExtractionResult` 新增 `List<SemanticAnnotation> semanticAnnotations` 字段；`schema.sql` 追加 `documents` 表 + `doc_content` FTS5 虚拟表(external content)+ ai/ad/au 三触发器 + `semantic_annotations` 表(含 FK ON DELETE SET NULL)+ 必要索引；`SqliteStore` 新增 `insertSemanticAnnotations(...)` 和 `insertDocuments(...)`，并在 `write()` 末尾调用 `insertSemanticAnnotations`。
 
 - **Phase 1 (Skeleton)**: 新建 `SemanticAnnotation.java` / `Document.java` 字段壳；`ExtractionResult` 加字段 + getter；`SqliteStore` 加方法签名(空实现)；`schema.sql` 追加表/触发器/索引 DDL
