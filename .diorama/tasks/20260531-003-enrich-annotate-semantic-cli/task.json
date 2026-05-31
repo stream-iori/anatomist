@@ -15,7 +15,19 @@
     "task_checkpoints": {}
   },
   "anchors": {
-    "dev_entries": [],
-    "acceptance_entries": []
+    "dev_entries": [
+      "src/main/java/com/anatomist/cli/AnatomistCli.java",
+      "src/main/java/com/anatomist/query/QueryService.java",
+      "src/main/java/com/anatomist/store/SqliteStore.java",
+      "src/main/resources/schema.sql"
+    ],
+    "acceptance_entries": [
+      "anatomist enrich --node OrderService",
+      "anatomist enrich --package com.example.service",
+      "anatomist enrich --node OrderService --format json",
+      "anatomist annotate <node-id> --label ... --category ...",
+      "anatomist annotate ... --source CONVENTION (expect exit 1)",
+      "anatomist annotate --from-json batch.json"
+    ]
   }
 }
