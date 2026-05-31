@@ -60,6 +60,8 @@
 
 ### T4: DocScanner + IndexDocsCommand 子命令 [REQ-008, BR-007, BR-009, AC-008]
 
+**Status**: [x] done
+
 新建 `com.anatomist.doc.DocScanner`：`scan(Path projectRoot) → List<Document>`，匹配 `README.md` / `docs/**/*.md` / `**/ADR-*.md`，排除 `CHANGELOG.md` / `swagger*.json` / `openapi*.json`；title 取首个 `^# ` 行(正则手写，BR-009 不引依赖)，否则文件名 stem；doc_type 由路径模式判定(README/DOC/ADR)；module 取项目根之下首个目录段(`<module>/...`)，单模块为 null。新建 `com.anatomist.cli.IndexDocsCommand`(picocli `Callable<Integer>`，参数 `<path>` + `--output`)；`AnatomistCli.subcommands` 注册之。
 
 - **Phase 1 (Skeleton)**: 新建 `DocScanner.java` / `IndexDocsCommand.java` 壳；`AnatomistCli` 注册子命令

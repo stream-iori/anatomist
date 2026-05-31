@@ -9,7 +9,8 @@ import picocli.CommandLine.Command;
         version = "anatomist 0.1.0",
         description = "JavaParser + SymbolSolver based Java code intelligence for Agent LLMs",
         subcommands = {
-                IndexCommand.class
+                IndexCommand.class,
+                IndexDocsCommand.class
         }
 )
 public class AnatomistCli implements Runnable {
