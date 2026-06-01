@@ -1,13 +1,11 @@
 package com.anatomist.query;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class HierarchyResult {
     public List<Entry> extendsChain = new ArrayList<>();
     public List<Entry> implementsList = new ArrayList<>();

@@ -1,6 +1,5 @@
 package com.anatomist.query;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -9,7 +8,6 @@ import java.util.Map;
 
 /** Aggregate result for the {@code enrich} command. Either {@link #node} (single-node
  *  mode) or {@link #pkg} (package mode) is populated. */
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class EnrichResult {
     public NodeRow node;
     public String pkg;

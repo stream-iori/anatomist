@@ -19,9 +19,10 @@
         <javaparser.version>3.28.1</javaparser.version>
         <sqlite.version>3.47.0.0</sqlite.version>
         <picocli.version>4.7.6</picocli.version>
-        <jackson.version>2.17.0</jackson.version>
+        <asm.version>9.8</asm.version>
         <junit.version>5.10.2</junit.version>
         <surefire.version>3.2.5</surefire.version>
+        <native.version>0.10.3</native.version>
     </properties>
 
     <dependencies>
@@ -43,10 +44,18 @@
             <version>${picocli.version}</version>
         </dependency>
 
+        <!--
+          ASM is used by JdkTypeCatalogBuilder (build-time tool: scans
+          $JAVA_HOME modules and produces META-INF/anatomist/jdkN-types.bin).
+          It is NOT used by the production runtime today; once AsmTypeSolver
+          replaces javassist (scenario 6 Task C) the scope here will rise.
+          Marked compile because the catalog builder ships in the same jar
+          alongside test infrastructure that exercises it.
+        -->
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>${asm.version}</version>
         </dependency>
 
         <dependency>
@@ -66,6 +75,16 @@
                 <version>3.13.0</version>
                 <configuration>
                     <release>${maven.compiler.release}</release>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>info.picocli</groupId>
+                            <artifactId>picocli-codegen</artifactId>
+                            <version>${picocli.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                    <compilerArgs>
+                        <arg>-Aproject=anatomist</arg>
+                    </compilerArgs>
                 </configuration>
             </plugin>
             <plugin>
@@ -75,4 +94,65 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          mvn -Pnative -DskipTests package
+            => target/anatomist (single binary)
+
+          Produces a GraalVM native binary covering all CLI subcommands
+          (index, query, watch, enrich, annotate). See
+          docs/scenario-6-native-image.md for the architectural notes.
+
+          Build args rationale:
+            * no-fallback           : never silently bake the JVM in;
+                                      if config is missing, fail loudly.
+            * UnlockExperimentalVMOptions / ReportExceptionStackTraces
+                                    : surface full stack traces during dev.
+            * enable-url-protocols=jar
+                                    : sqlite-jdbc's feature already requests
+                                      this; declaring at top level is harmless.
+            * initialize-at-build-time
+                                    : freeze anatomist / javaparser / asm at
+                                      build time. SecureRandom + sqlite-jdbc
+                                      stay runtime-init.
+        -->
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>${native.version}</version>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>build-native</id>
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                                <phase>package</phase>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <imageName>anatomist</imageName>
+                            <mainClass>com.anatomist.cli.AnatomistCli</mainClass>
+                            <fallback>false</fallback>
+                            <verbose>false</verbose>
+                            <buildArgs>
+                                <buildArg>--no-fallback</buildArg>
+                                <buildArg>-H:+UnlockExperimentalVMOptions</buildArg>
+                                <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+                                <buildArg>--enable-url-protocols=jar</buildArg>
+                                <buildArg>--initialize-at-build-time=com.anatomist</buildArg>
+                                <buildArg>--initialize-at-build-time=com.github.javaparser</buildArg>
+                                <buildArg>--initialize-at-build-time=org.objectweb.asm</buildArg>
+                            </buildArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

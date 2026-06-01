@@ -1,10 +1,8 @@
 package com.anatomist.query;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 
 /** Tabular projection of an {@code edges} row, optionally joined with the
  *  target node for human-readable labels. */
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class EdgeRow {
     public String source;
     public String sourceLabel;

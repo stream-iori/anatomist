@@ -5,3 +5,5 @@ target/
 .DS_Store
 .qoder/
 .claude/
+.m2-cache/
+dist/anatomist-*

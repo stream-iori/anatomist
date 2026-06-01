@@ -163,18 +163,123 @@ Open these in order:
 
 Build target is `release=21`; runtime JDK 21+ works.
 
+### Native image (GraalVM)
+
+A single self-contained binary covering every CLI subcommand
+(`index` / `query` / `watch` / `enrich` / `annotate` / ...). See
+[`docs/scenario-6-native-image.md`](docs/scenario-6-native-image.md) for the
+architectural rationale.
+
+**Prereq**: GraalVM JDK 21+ with `native-image` on `$PATH`
+(`sdk install java 25.0.3-graal` via SDKMAN, or any equivalent).
+
+```bash
+# 1. Build (~1 minute on M-series, ~3 min on x86)
+mvn -Pnative -DskipTests package
+# → target/anatomist  (~44 MB, single Mach-O / ELF binary)
+
+# 2. (macOS only) strip provenance + re-stamp the adhoc signature so
+#    Gatekeeper/amfid lets the binary run. Linux & Windows can skip this.
+xattr -cr target/anatomist
+codesign --force --sign - target/anatomist
+
+# 3. Smoke: index the bundled fixture then run a few queries
+./target/anatomist index fixtures/mini-spring-shop \
+    --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java \
+    --no-classpath \
+    --output /tmp/smoke.db
+./target/anatomist search OrderService --index /tmp/smoke.db
+./target/anatomist callees-of com.example.shop.service.OrderService#createOrder \
+    --depth 2 --index /tmp/smoke.db
+./target/anatomist context com.example.shop.service.OrderService --index /tmp/smoke.db
+./target/anatomist hierarchy com.example.shop.service.OrderService --index /tmp/smoke.db
+```
+
+Verified end-to-end on GraalVM 25.0.3 / macOS 14 arm64:
+
+| | native | JVM jar (cold) |
+|---|---:|---:|
+| `index mini-spring-shop` | **234 ms** | 879 ms |
+| `search OrderService` (warm) | **~160 ms** | ~410 ms |
+| Binary size | 43.6 MB | 256 KB jar + ~30 MB classpath |
+
+#### macOS Gatekeeper note
+
+On macOS 14+ (Sonoma / Sequoia) the first execution of a freshly built
+native binary may be killed silently (exit 137, empty output) — amfid
+rejects ad-hoc-signed local binaries with
+`Code=-423 "The file is adhoc signed or signed by an unknown certificate chain"`.
+
+Most cases are fixed by the `xattr -cr` + `codesign` round-trip shown
+above. If amfid still rejects after that, open
+**System Settings → Privacy & Security**, scroll to the bottom, click
+**"Allow Anyway"** once after the first kill. Linux and Windows builds
+do not need this dance.
+
+#### Regenerating the reachability metadata
+
+The bundled
+[`reachability-metadata.json`](src/main/resources/META-INF/native-image/com.antcodes/anatomist/reachability-metadata.json)
+covers JavaParser's MetaModel reflective field accesses (`variables` on
+`FieldDeclaration` / `VariableDeclarationExpr` and friends). If a new
+extractor surfaces additional reflection, regenerate with the GraalVM
+tracing agent:
+
+```bash
+mvn -q compile
+CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt && cat /tmp/cp.txt)
+mkdir -p target/native-agent-config
+java -agentlib:native-image-agent=config-output-dir=target/native-agent-config \
+    -cp "target/classes:$CP" com.anatomist.cli.AnatomistCli \
+    index fixtures/mini-spring-shop \
+    --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java \
+    --no-classpath --output /tmp/agent-trace.db
+# Then merge into the shipped config:
+cp target/native-agent-config/reachability-metadata.json \
+   src/main/resources/META-INF/native-image/com.antcodes/anatomist/
+mvn -Pnative -DskipTests package
+```
+
+#### Cross-build for Linux amd64 (from any host)
+
+The macOS / arm64 `target/anatomist` only runs on macOS / arm64. To
+produce a binary that runs on **Linux x86_64 hosts with glibc ≥ 2.17**
+(CentOS 7+, RHEL 7+, Ubuntu 16.04+, Debian 9+), use the bundled
+Dockerfile that bakes a CentOS 7.9 + GraalVM JDK 25 + Maven 3.9 build
+toolchain:
+
+```bash
+./docker/build-linux-amd64.sh
+# 1st run:  builds the docker image (~10 min, mostly yum install + GraalVM download)
+# 2nd run:  re-uses the image; native compile finishes in ~6 min
+# Output:   target/anatomist  (Linux ELF amd64, ~44 MB)
+```
+
+(See [`docker/Dockerfile.amd64-build`](docker/Dockerfile.amd64-build) for
+the exact toolchain. The user-suggested `centos:6.10` base cannot host
+GraalVM 21+ — its glibc 2.12 predates the JDK's 2.17 ABI floor — so we
+pin to `centos:centos7.9.2009` from the same SWR mirror, which has
+glibc 2.17.)
+
 ### Dependency budget
 
-**4 direct production dependencies**, on purpose:
+**3 direct production dependencies**, on purpose:
 
-- `javaparser-symbol-solver-core` (transitively pulls `javassist` for jar
-  reading) — AST + symbol resolution
-- `sqlite-jdbc` — storage + FTS5
-- `picocli` — CLI
-- `jackson-databind` — JSON I/O
+- `javaparser-symbol-solver-core` — AST + symbol resolution
+- `sqlite-jdbc` — storage + FTS5 (ships GraalVM `META-INF/native-image/`
+  feature, so no extra config to make it work in a native binary)
+- `picocli` — CLI (with `picocli-codegen` as a compile-time annotation
+  processor only — generates the reflect-config that native-image needs)
 
-No Spring, no Guava, no Lombok. New dependencies require justification in a
-new task's `proposal.md`.
+Plus `asm` as a build-time + runtime helper for our self-written
+`AsmTypeSolver` (replaces `javassist` for jar bytecode reading in a
+native-image-friendly way; see scenario 6 §决策 1) and
+`JdkTypeCatalogBuilder`. JSON I/O is hand-written
+([`com.anatomist.json`](src/main/java/com/anatomist/json/Json.java)) — no
+jackson at runtime.
+
+No Spring, no Guava (apart from javaparser's transitive dep), no Lombok.
+New dependencies require justification in a new task's `proposal.md`.
 
 ---
 

@@ -1,11 +1,11 @@
 package com.anatomist.extract;
 
+import com.anatomist.json.Json;
+
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.EnumConstantDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
@@ -23,8 +23,6 @@ import java.util.Map;
 import static com.anatomist.core.NodeIdGenerator.erasedTypeDescribe;
 
 public class FieldExtractor implements Extractor {
-
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final ExtractionContext ctx;
 
@@ -88,8 +86,7 @@ public class FieldExtractor implements Extractor {
             meta.put("isStatic", false);
             meta.put("isFinal", true);
             meta.put("isRecordComponent", true);
-            try { n.metadata = JSON.writeValueAsString(meta); }
-            catch (JsonProcessingException e) { n.metadata = "{}"; }
+            n.metadata = Json.writeCompact(meta);
             result.nodes.add(n);
 
             result.edges.add(containsEdge(classId, fieldId, sourceFile, n.sourceLocation));
@@ -118,8 +115,7 @@ public class FieldExtractor implements Extractor {
         cmeta.put("isConstructor", true);
         cmeta.put("isSynthetic", true);
         cmeta.put("isRecordCanonical", true);
-        try { ctor.metadata = JSON.writeValueAsString(cmeta); }
-        catch (JsonProcessingException e) { ctor.metadata = "{}"; }
+        ctor.metadata = Json.writeCompact(cmeta);
         result.nodes.add(ctor);
         result.edges.add(containsEdge(classId, ctorId, sourceFile, ctor.sourceLocation));
     }
@@ -243,7 +239,6 @@ public class FieldExtractor implements Extractor {
         catch (RuntimeException e) { meta.put("type", var.getTypeAsString()); }
         meta.put("isStatic", decl.isStatic());
         meta.put("isFinal", decl.isFinal());
-        try { return JSON.writeValueAsString(meta); }
-        catch (JsonProcessingException e) { return "{}"; }
+        return Json.writeCompact(meta);
     }
 }

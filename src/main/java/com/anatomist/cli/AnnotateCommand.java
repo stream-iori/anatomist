@@ -2,9 +2,6 @@ package com.anatomist.cli;
 
 import com.anatomist.model.SemanticAnnotation;
 import com.anatomist.store.SqliteStore;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -118,12 +115,8 @@ public class AnnotateCommand implements Callable<Integer> {
         if (!Files.isRegularFile(file)) {
             throw new IllegalArgumentException("--from-json file not found: " + file);
         }
-        ObjectMapper m = new ObjectMapper()
-                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-        byte[] bytes = Files.readAllBytes(file);
-        List<SemanticAnnotation> list = m.readValue(bytes,
-                new TypeReference<List<SemanticAnnotation>>() {});
-        // null-protect: ensure required fields are non-null for downstream checks.
+        String text = new String(Files.readAllBytes(file), java.nio.charset.StandardCharsets.UTF_8);
+        List<SemanticAnnotation> list = SemanticAnnotation.listFromJson(text);
         for (SemanticAnnotation sa : list) {
             if (sa.source == null) sa.source = "LLM";
             if (sa.confidence == null) sa.confidence = "MEDIUM";

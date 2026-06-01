@@ -1,9 +1,7 @@
 package com.anatomist.cli;
 
+import com.anatomist.json.Json;
 import com.anatomist.query.JsonFormatter;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
@@ -39,9 +37,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class GoldenFileIT {
 
     private static final boolean UPDATE = Boolean.getBoolean("golden.update");
-    private static final ObjectMapper CANONICAL = new ObjectMapper()
-            .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
-            .enable(SerializationFeature.INDENT_OUTPUT);
 
     private static Path repoRoot;
     private static Path fixture;
@@ -149,10 +144,9 @@ class GoldenFileIT {
     }
 
     /** Re-emit JSON with sorted map keys and project-root scrubbed. */
-    private String normalize(String raw) throws Exception {
+    private String normalize(String raw) {
         String scrubbed = raw.replace(repoRoot.toString(), "${PROJECT}");
-        JsonNode tree = JsonFormatter.mapper().readTree(scrubbed);
-        return CANONICAL.writeValueAsString(tree);
+        return Json.writeCanonical(Json.parseTree(scrubbed));
     }
 
     /** Minimal shell-like tokenizer — supports double-quoted segments. */

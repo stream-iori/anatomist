@@ -1,10 +1,10 @@
 package com.anatomist.extract;
 
+import com.anatomist.json.Json;
+
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.ExtractionResult;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -38,8 +38,6 @@ import java.util.List;
 import java.util.Map;
 
 public class AnnotationExtractor implements Extractor {
-
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final ExtractionContext ctx;
 
@@ -177,8 +175,7 @@ public class AnnotationExtractor implements Extractor {
         } else if (ann instanceof SingleMemberAnnotationExpr sm) {
             attrs.put("value", stringify(sm.getMemberValue()));
         }
-        try { return JSON.writeValueAsString(attrs); }
-        catch (JsonProcessingException e) { return "{}"; }
+        return Json.writeCompact(attrs);
     }
 
     private static Object stringify(Expression e) {

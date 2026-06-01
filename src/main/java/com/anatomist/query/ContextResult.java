@@ -1,6 +1,5 @@
 package com.anatomist.query;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -9,7 +8,6 @@ import java.util.Map;
 
 /** Composite result for the {@code context} command: a single node + its
  *  contained members + annotations + optional outgoing callees. */
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class ContextResult {
     public NodeRow node;
     public List<NodeRow> members = new ArrayList<>();

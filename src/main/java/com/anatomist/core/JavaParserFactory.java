@@ -1,10 +1,15 @@
 package com.anatomist.core;
 
+import com.anatomist.core.asmsolver.AsmTypeSolver;
+import com.anatomist.core.asmsolver.JarClassFileSource;
+import com.anatomist.core.nativeimage.EmbeddedJdkTypeSolver;
+import com.anatomist.core.nativeimage.JdkTypeCatalog;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.resolution.TypeSolver;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
@@ -13,6 +18,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import com.github.javaparser.utils.SourceRoot;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -28,8 +34,9 @@ import java.util.function.BiConsumer;
  * <ul>
  *   <li>Source roots → {@link JavaParserTypeSolver}</li>
  *   <li>Dependency jars → {@link JarTypeSolver} (JavaParser's stock
- *       javassist-backed jar reader; gives full symbol resolution for
- *       external types, methods, fields, and annotations)</li>
+ *       javassist-backed jar reader) — or {@link AsmTypeSolver} when
+ *       {@link #useAsmSolver} is set (scenario 6 Task C; native-image
+ *       compatible, no class loading)</li>
  *   <li>JDK classes → {@link ReflectionTypeSolver} (optional, with a version
  *       compatibility guard to avoid leaking the running JDK's API surface
  *       into analyses of older targets)</li>
@@ -41,22 +48,37 @@ public class JavaParserFactory {
     private final List<Path> classpathEntries;
     private final List<Path> sourcePaths;
     private final boolean includeRunningVmClasspath;
+    private final boolean useAsmSolver;
 
     public JavaParserFactory(int javaVersion,
                              List<Path> classpathEntries,
                              List<Path> sourcePaths,
                              boolean includeRunningVmClasspath) {
+        this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath, false);
+    }
+
+    public JavaParserFactory(int javaVersion,
+                             List<Path> classpathEntries,
+                             List<Path> sourcePaths,
+                             boolean includeRunningVmClasspath,
+                             boolean useAsmSolver) {
         this.javaVersion = javaVersion;
         this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
         this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
         this.includeRunningVmClasspath = includeRunningVmClasspath;
+        this.useAsmSolver = useAsmSolver;
     }
 
     /** Build the combined TypeSolver matching the configured environment. */
     public CombinedTypeSolver newTypeSolver() {
         CombinedTypeSolver ts = new CombinedTypeSolver();
         if (includeRunningVmClasspath) {
-            ts.add(new ReflectionTypeSolver(/*jreOnly*/ true));
+            TypeSolver jdkSolver = tryLoadEmbeddedJdkSolver();
+            if (jdkSolver != null) {
+                ts.add(jdkSolver);
+            } else {
+                ts.add(new ReflectionTypeSolver(/*jreOnly*/ true));
+            }
         }
         for (Path src : sourcePaths) {
             if (src != null && Files.isDirectory(src)) {
@@ -65,15 +87,47 @@ public class JavaParserFactory {
         }
         for (Path jar : classpathEntries) {
             if (jar != null && Files.isRegularFile(jar)) {
-                try {
-                    ts.add(new JarTypeSolver(jar));
-                } catch (IOException e) {
-                    System.err.println("WARN: failed to open jar for symbol resolution: "
-                            + jar + " (" + e.getMessage() + ")");
+                if (useAsmSolver) {
+                    try {
+                        ts.add(new AsmTypeSolver(new JarClassFileSource(jar)));
+                    } catch (RuntimeException e) {
+                        System.err.println("WARN: failed to open jar (asm) for symbol resolution: "
+                                + jar + " (" + e.getMessage() + ")");
+                    }
+                } else {
+                    try {
+                        ts.add(new JarTypeSolver(jar));
+                    } catch (IOException e) {
+                        System.err.println("WARN: failed to open jar for symbol resolution: "
+                                + jar + " (" + e.getMessage() + ")");
+                    }
                 }
             }
         }
         return ts;
+    }
+
+    /** Look up a pre-generated JDK catalog under
+     *  {@code META-INF/anatomist/jdkN-types.bin} matching the build target's
+     *  Java version (falling back to the runtime's version). Returns {@code null}
+     *  when no catalog ships with the current build — the caller then falls
+     *  back to {@link ReflectionTypeSolver}. */
+    private TypeSolver tryLoadEmbeddedJdkSolver() {
+        int targetRelease = Math.max(javaVersion, 8);
+        // Try the requested target first, then walk DOWN to the highest catalog
+        // we shipped that's ≤ target. Catalogs are forward-compatible enough for
+        // anatomist's erased-type needs.
+        for (int v = targetRelease; v >= 8; v--) {
+            String res = "/META-INF/anatomist/jdk" + v + "-types.bin";
+            try (InputStream in = JavaParserFactory.class.getResourceAsStream(res)) {
+                if (in == null) continue;
+                JdkTypeCatalog cat = JdkTypeCatalog.readFrom(in);
+                return new EmbeddedJdkTypeSolver(cat);
+            } catch (IOException ignore) {
+                // try next version
+            }
+        }
+        return null;
     }
 
     public ParserConfiguration newConfiguration() {
