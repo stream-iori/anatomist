@@ -178,21 +178,30 @@ architectural rationale.
 mvn -Pnative -DskipTests package
 # → target/anatomist  (~44 MB, single Mach-O / ELF binary)
 
-# 2. Smoke: index the bundled fixture then search it
+# 2. (macOS only) strip provenance + re-stamp the adhoc signature so
+#    Gatekeeper/amfid lets the binary run. Linux & Windows can skip this.
+xattr -cr target/anatomist
+codesign --force --sign - target/anatomist
+
+# 3. Smoke: index the bundled fixture then run a few queries
 ./target/anatomist index fixtures/mini-spring-shop \
     --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java \
     --no-classpath \
     --output /tmp/smoke.db
-
 ./target/anatomist search OrderService --index /tmp/smoke.db
 ./target/anatomist callees-of com.example.shop.service.OrderService#createOrder \
     --depth 2 --index /tmp/smoke.db
+./target/anatomist context com.example.shop.service.OrderService --index /tmp/smoke.db
+./target/anatomist hierarchy com.example.shop.service.OrderService --index /tmp/smoke.db
 ```
 
-Expected: `index` finishes in well under a second and prints node/edge
-counts; `search OrderService` returns a JSON envelope listing
-`com.example.shop.service.OrderService` and friends; `callees-of` returns
-the resolved method-call chain.
+Verified end-to-end on GraalVM 25.0.3 / macOS 14 arm64:
+
+| | native | JVM jar (cold) |
+|---|---:|---:|
+| `index mini-spring-shop` | **234 ms** | 879 ms |
+| `search OrderService` (warm) | **~160 ms** | ~410 ms |
+| Binary size | 43.6 MB | 256 KB jar + ~30 MB classpath |
 
 #### macOS Gatekeeper note
 
@@ -201,17 +210,35 @@ native binary may be killed silently (exit 137, empty output) — amfid
 rejects ad-hoc-signed local binaries with
 `Code=-423 "The file is adhoc signed or signed by an unknown certificate chain"`.
 
-Two-step workaround (no `sudo` required):
+Most cases are fixed by the `xattr -cr` + `codesign` round-trip shown
+above. If amfid still rejects after that, open
+**System Settings → Privacy & Security**, scroll to the bottom, click
+**"Allow Anyway"** once after the first kill. Linux and Windows builds
+do not need this dance.
+
+#### Regenerating the reachability metadata
+
+The bundled
+[`reachability-metadata.json`](src/main/resources/META-INF/native-image/com.antcodes/anatomist/reachability-metadata.json)
+covers JavaParser's MetaModel reflective field accesses (`variables` on
+`FieldDeclaration` / `VariableDeclarationExpr` and friends). If a new
+extractor surfaces additional reflection, regenerate with the GraalVM
+tracing agent:
 
 ```bash
-xattr -cr target/anatomist                            # strip provenance / quarantine xattrs
-codesign --force --deep --sign - target/anatomist     # re-stamp the adhoc signature
+mvn -q compile
+CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt && cat /tmp/cp.txt)
+mkdir -p target/native-agent-config
+java -agentlib:native-image-agent=config-output-dir=target/native-agent-config \
+    -cp "target/classes:$CP" com.anatomist.cli.AnatomistCli \
+    index fixtures/mini-spring-shop \
+    --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java \
+    --no-classpath --output /tmp/agent-trace.db
+# Then merge into the shipped config:
+cp target/native-agent-config/reachability-metadata.json \
+   src/main/resources/META-INF/native-image/com.antcodes/anatomist/
+mvn -Pnative -DskipTests package
 ```
-
-If amfid still rejects (macOS keeps recreating provenance), the cleanest
-escape hatch today is **System Settings → Privacy & Security → "Allow
-anyway"** once after the first kill. Linux and Windows builds do not need
-this dance.
 
 ### Dependency budget
 
