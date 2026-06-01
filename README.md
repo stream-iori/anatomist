@@ -152,14 +152,24 @@ Open these in order:
 
 ### Build & test
 
-| Task | Command |
-|---|---|
-| Compile | `mvn -q compile` |
-| Unit tests (default; excludes `*IT`) | `mvn test` |
-| One IT class | `mvn test -Dtest=QueryServiceIT` |
-| Refresh golden files after intended change | `mvn test -Dtest=GoldenFileIT -Dgolden.update=true` |
-| Scale smoke (needs submodule, see [`fixtures/external/README.md`](fixtures/external/README.md)) | `mvn test -Dtest=CommonsLangSmokeIT` |
-| Fat jar | `mvn -q package` → `target/anatomist.jar` |
+The repo ships a [`justfile`](justfile) — install [`just`](https://github.com/casey/just)
+once (`brew install just` / `cargo install just`) and run `just` in the
+project root for the full list. The most common ones:
+
+| Task | `just` recipe | Underlying command |
+|---|---|---|
+| Compile | `just compile` | `mvn -q compile` |
+| Unit tests | `just test` | `mvn test` |
+| Full regression (unit + 16 IT classes) | `just test-all` | `mvn clean test` + targeted IT run |
+| Run one test | `just test-one QueryServiceIT` | `mvn test -Dtest=…` |
+| Refresh golden files | `just golden-update` | `mvn test -Dtest=GoldenFileIT -Dgolden.update=true` |
+| Build the JVM fat jar | `just jar` | `mvn -q -DskipTests package` |
+| Build host-arch native binary | `just native` | `mvn -Pnative -DskipTests package` |
+| Cross-build Linux amd64 binary | `just native-linux-amd64` | `./docker/build-linux-amd64.sh` |
+| Install to `~/.local/bin/anatomist` | `just install` | builds + `./docker/install-local.sh` |
+| Smoke test installed binary | `just smoke-installed` | indexes mini-spring-shop, queries it |
+| Startup-latency comparison | `just bench-startup` | 3 runs each, native vs JVM |
+| Uninstall (restores `.bak` if present) | `just uninstall` | |
 
 Build target is `release=21`; runtime JDK 21+ works.
 
