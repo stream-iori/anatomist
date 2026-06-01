@@ -28,7 +28,7 @@ public class SearchCommand implements Callable<Integer> {
     @Option(names = "--by-annotation", description = "Treat <term> as an annotation FQN/substring.")
     boolean byAnnotation;
 
-    @Option(names = "--index", description = "Path to index.db (default: ./.anatomist/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
     @Override

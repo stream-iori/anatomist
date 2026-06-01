@@ -68,7 +68,7 @@ public class WatchCommand implements Callable<Integer> {
     String exclude;
 
     @Option(names = "--output",
-            description = "Output SQLite database path (default: <project>/.anatomist/index.db).")
+            description = "Output SQLite database path (default: ~/.anatomist/<repo>/index.db).")
     Path output;
 
     @Option(names = "--classpath",
@@ -126,7 +126,7 @@ public class WatchCommand implements Callable<Integer> {
                 : new HashSet<>(Arrays.asList(exclude.split(",")));
 
         Path dbPath = output == null
-                ? projectRoot.resolve(".anatomist").resolve("index.db")
+                ? DefaultIndexPath.forIndexWrite(projectRoot)
                 : output.toAbsolutePath().normalize();
 
         try (WatchService ws = projectRoot.getFileSystem().newWatchService()) {

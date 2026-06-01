@@ -37,7 +37,7 @@ public class EnrichCommand implements Callable<Integer> {
     @Option(names = "--depth", description = "Callees depth for --node enrich (default 1).")
     int depth = 1;
 
-    @Option(names = "--index", description = "Path to index.db (default: ./.anatomist/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
     @Override

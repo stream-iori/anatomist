@@ -51,7 +51,7 @@ public class AnnotateCommand implements Callable<Integer> {
     @Option(names = "--from-json", description = "Read a JSON array of annotation objects instead of CLI args.")
     Path fromJson;
 
-    @Option(names = "--index", description = "Path to index.db (default: ./.anatomist/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
     @Override

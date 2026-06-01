@@ -104,6 +104,33 @@ Full subcommand reference + flags: `java -jar target/anatomist.jar --help` or
 
 ---
 
+## Where the index database lives
+
+Per-project, under your home directory:
+
+```
+~/.anatomist/<project-basename>/index.db
+```
+
+So `anatomist index /work/order-service` writes to
+`~/.anatomist/order-service/index.db`, and `cd /work/order-service ; anatomist
+search Foo` reads from the same path. The DB is a single SQLite file
+(~400 KB for a small project, ~10 MB for commons-lang3 scale).
+
+Overrides:
+
+| When you want… | Pass |
+|---|---|
+| A specific DB location | `--output /tmp/x.db` (index) / `--index /tmp/x.db` (query) |
+| Sandboxed storage root (e.g. tests) | `export ANATOMIST_HOME=/tmp/anatomist-test` |
+| Keep the DB inside the project (old default) | Create `<project>/.anatomist/index.db` manually before first index — anatomist detects the legacy location and keeps writing there |
+
+Index DB lifecycle is independent of source: deleting the project does
+**not** delete its index unless you also remove the directory under
+`~/.anatomist/`.
+
+---
+
 ## Use it from an Agent
 
 Drop [`anatomist-skill.md`](anatomist-skill.md) into your Agent's skills /

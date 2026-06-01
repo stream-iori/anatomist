@@ -50,7 +50,7 @@ public class IndexCommand implements Callable<Integer> {
     @Option(names = "--exclude", description = "Comma-separated directory names to exclude.")
     String exclude;
 
-    @Option(names = "--output", description = "Output SQLite database path (default: <project>/.anatomist/index.db).")
+    @Option(names = "--output", description = "Output SQLite database path (default: ~/.anatomist/<repo>/index.db).")
     Path output;
 
     @Option(names = "--classpath", description = "Override classpath entries (path-separator delimited).")
@@ -123,7 +123,7 @@ public class IndexCommand implements Callable<Integer> {
                     jv, classpathEntries, sourcePaths, vmClasspath, /*useAsmSolver=*/ !legacySolver);
 
             Path dbPath = output == null
-                    ? projectRoot.resolve(".anatomist").resolve("index.db")
+                    ? DefaultIndexPath.forIndexWrite(projectRoot)
                     : output.toAbsolutePath().normalize();
             Files.createDirectories(dbPath.getParent());
 

@@ -21,7 +21,7 @@ public class IndexDocsCommand implements Callable<Integer> {
     @Parameters(index = "0", description = "Path to the project root.")
     Path projectPath;
 
-    @Option(names = "--output", description = "Output SQLite database path (default: <project>/.anatomist/index.db).")
+    @Option(names = "--output", description = "Output SQLite database path (default: ~/.anatomist/<repo>/index.db).")
     Path output;
 
     @Override
@@ -35,7 +35,7 @@ public class IndexDocsCommand implements Callable<Integer> {
             Path projectRoot = projectPath.toAbsolutePath().normalize();
 
             Path dbPath = output == null
-                    ? projectRoot.resolve(".anatomist").resolve("index.db")
+                    ? DefaultIndexPath.forIndexWrite(projectRoot)
                     : output.toAbsolutePath().normalize();
             Files.createDirectories(dbPath.getParent());
 

@@ -24,7 +24,7 @@ public class ContextCommand implements Callable<Integer> {
             description = "Include outgoing CALLS, N hops (default 1 when flag present).")
     Integer withCallees;
 
-    @Option(names = "--index", description = "Path to index.db (default: ./.anatomist/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
     @Override
