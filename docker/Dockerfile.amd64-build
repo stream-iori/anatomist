@@ -1,0 +1,72 @@
+# =====================================================================
+# anatomist Linux/amd64 native-image build environment.
+#
+# CentOS 7.9.2009 (glibc 2.17) is the oldest mainstream base that can host
+# GraalVM JDK 21+. The user-suggested centos:6.10 (glibc 2.12) cannot run
+# GraalVM 21+ — the runtime linker refuses to load the JDK.
+#
+# Usage:
+#   docker build --platform linux/amd64 -t anatomist-build -f docker/Dockerfile.amd64-build .
+#   docker run --rm --platform linux/amd64 -v "$PWD:/workspace" anatomist-build \
+#       mvn -Pnative -DskipTests package
+#   # → target/anatomist (Linux amd64 binary, requires glibc >= 2.17 to run)
+#
+# Or one-shot build + extract:
+#   ./docker/build-linux-amd64.sh
+# =====================================================================
+FROM --platform=linux/amd64 swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/centos:centos7.9.2009
+
+# ---- 1. Switch CentOS 7 yum to vault (official mirror is dead post-EOL) ----
+RUN set -eux; \
+    sed -i 's/mirrorlist=/#mirrorlist=/g'   /etc/yum.repos.d/CentOS-Base.repo; \
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=https://vault.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo; \
+    yum -y install epel-release || true; \
+    yum -y update; \
+    yum -y install \
+        gcc gcc-c++ make glibc-devel zlib-devel \
+        wget tar gzip unzip which \
+        git ca-certificates \
+        findutils diffutils file; \
+    yum clean all; \
+    rm -rf /var/cache/yum
+
+# ---- 2. Install GraalVM JDK 25 (Oracle GraalVM CE-compatible build) -------
+ENV GRAALVM_VERSION=25.0.3
+ENV GRAALVM_HOME=/opt/graalvm
+RUN set -eux; \
+    cd /tmp; \
+    wget -q "https://download.oracle.com/graalvm/25/archive/graalvm-jdk-${GRAALVM_VERSION}_linux-x64_bin.tar.gz" \
+        -O graalvm.tar.gz; \
+    mkdir -p ${GRAALVM_HOME}; \
+    tar -xzf graalvm.tar.gz -C ${GRAALVM_HOME} --strip-components=1; \
+    rm -f graalvm.tar.gz; \
+    ${GRAALVM_HOME}/bin/java -version; \
+    ${GRAALVM_HOME}/bin/native-image --version
+
+ENV JAVA_HOME=${GRAALVM_HOME}
+ENV PATH=${GRAALVM_HOME}/bin:${PATH}
+
+# ---- 3. Maven 3.9.x --------------------------------------------------------
+ENV MAVEN_VERSION=3.9.9
+ENV MAVEN_HOME=/opt/maven
+RUN set -eux; \
+    cd /tmp; \
+    wget -q "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+        -O maven.tar.gz; \
+    mkdir -p ${MAVEN_HOME}; \
+    tar -xzf maven.tar.gz -C ${MAVEN_HOME} --strip-components=1; \
+    rm -f maven.tar.gz; \
+    ${MAVEN_HOME}/bin/mvn -version
+ENV PATH=${MAVEN_HOME}/bin:${PATH}
+
+# ---- 4. Working directory + warm Maven cache ------------------------------
+# A non-root user keeps file ownership sane when mounting source from the host.
+RUN groupadd -g 1000 anatomist && useradd -u 1000 -g 1000 -m -s /bin/bash anatomist
+WORKDIR /workspace
+RUN chown -R anatomist:anatomist /workspace /home/anatomist
+
+USER anatomist
+ENV MAVEN_OPTS="-Xmx4g"
+
+# Default command: run a native build assuming source is mounted at /workspace.
+CMD ["mvn", "-Pnative", "-DskipTests", "package"]

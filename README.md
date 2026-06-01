@@ -240,6 +240,27 @@ cp target/native-agent-config/reachability-metadata.json \
 mvn -Pnative -DskipTests package
 ```
 
+#### Cross-build for Linux amd64 (from any host)
+
+The macOS / arm64 `target/anatomist` only runs on macOS / arm64. To
+produce a binary that runs on **Linux x86_64 hosts with glibc ≥ 2.17**
+(CentOS 7+, RHEL 7+, Ubuntu 16.04+, Debian 9+), use the bundled
+Dockerfile that bakes a CentOS 7.9 + GraalVM JDK 25 + Maven 3.9 build
+toolchain:
+
+```bash
+./docker/build-linux-amd64.sh
+# 1st run:  builds the docker image (~10 min, mostly yum install + GraalVM download)
+# 2nd run:  re-uses the image; native compile finishes in ~6 min
+# Output:   target/anatomist  (Linux ELF amd64, ~44 MB)
+```
+
+(See [`docker/Dockerfile.amd64-build`](docker/Dockerfile.amd64-build) for
+the exact toolchain. The user-suggested `centos:6.10` base cannot host
+GraalVM 21+ — its glibc 2.12 predates the JDK's 2.17 ABI floor — so we
+pin to `centos:centos7.9.2009` from the same SWR mirror, which has
+glibc 2.17.)
+
 ### Dependency budget
 
 **3 direct production dependencies**, on purpose:
