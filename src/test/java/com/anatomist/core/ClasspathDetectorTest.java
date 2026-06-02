@@ -73,6 +73,20 @@ class ClasspathDetectorTest {
     }
 
     @Test
+    void detectSourcePaths_collectsAllModuleRootsForMultiModuleReactor(@TempDir Path tmp) throws Exception {
+        // Root reactor pom with no src/main/java of its own.
+        Files.writeString(tmp.resolve("pom.xml"), "<project/>");
+        Path a = Files.createDirectories(tmp.resolve("app/api/src/main/java"));
+        Path b = Files.createDirectories(tmp.resolve("app/core/service/src/main/java"));
+        // Noise that must be excluded.
+        Files.createDirectories(tmp.resolve("app/api/target/classes/src/main/java"));
+        Files.createDirectories(tmp.resolve("app/api/src/test/java"));
+
+        List<Path> paths = new ClasspathDetector().detectSourcePaths(tmp);
+        assertEquals(List.of(a, b), paths);
+    }
+
+    @Test
     void detect_parsesClasspathFromMockedMvnOutput(@TempDir Path tmp) throws Exception {
         Files.writeString(tmp.resolve("pom.xml"), "<project/>");
         String mockOutput = "/lib/a.jar" + File.pathSeparator + "/lib/b.jar";
@@ -80,7 +94,8 @@ class ClasspathDetectorTest {
         ClasspathDetector det = new ClasspathDetector() {
             @Override
             protected int runMvn(Path workingDir, List<String> args) throws IOException {
-                Path out = extractOutputFile(args);
+                // Mimic Maven writing the relative outputFile into the module basedir.
+                Path out = workingDir.resolve(extractOutputFile(args));
                 Files.writeString(out, mockOutput);
                 return 0;
             }
@@ -88,6 +103,35 @@ class ClasspathDetectorTest {
 
         List<String> cp = det.detect(tmp);
         assertEquals(List.of("/lib/a.jar", "/lib/b.jar"), cp);
+    }
+
+    @Test
+    void detect_unionsAndDedupesAcrossReactorModules(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project/>");
+        Path modA = Files.createDirectories(tmp.resolve("app/core"));
+        Path modB = Files.createDirectories(tmp.resolve("app/web"));
+
+        ClasspathDetector det = new ClasspathDetector() {
+            @Override
+            protected int runMvn(Path workingDir, List<String> args) throws IOException {
+                // Simulate the reactor: each module writes its own relative file.
+                String rel = extractOutputFile(args).toString();
+                Files.writeString(tmp.resolve(rel),
+                        "/lib/shared.jar" + File.pathSeparator + "/lib/a.jar");
+                Files.writeString(modA.resolve(rel),
+                        "/lib/shared.jar" + File.pathSeparator + "/lib/core.jar");
+                Files.writeString(modB.resolve(rel),
+                        "/lib/shared.jar" + File.pathSeparator + "/lib/web.jar");
+                return 0;
+            }
+        };
+
+        List<String> cp = det.detect(tmp);
+        // shared.jar appears once; union covers every module; no leftover files.
+        assertEquals(List.of("/lib/shared.jar", "/lib/a.jar", "/lib/core.jar", "/lib/web.jar"), cp);
+        assertEquals(0, java.nio.file.Files.walk(tmp)
+                .filter(p -> p.getFileName().toString().equals("anatomist-classpath.txt"))
+                .count(), "generated classpath files must be cleaned up");
     }
 
     private static Path extractOutputFile(List<String> args) {

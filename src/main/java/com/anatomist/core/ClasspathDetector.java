@@ -20,43 +20,78 @@ import org.xml.sax.helpers.DefaultHandler;
 
 public class ClasspathDetector {
 
+    /** Filename written by {@code dependency:build-classpath}. Relative (not
+     *  absolute) on purpose: in a multi-module reactor Maven runs the goal once
+     *  per module and a relative path lands one file in *each* module's basedir,
+     *  letting us union the full reactor classpath. An absolute path would be
+     *  overwritten by every module, leaving only the last one's deps. */
+    static final String CP_FILE = "anatomist-classpath.txt";
+
     public List<String> detect(Path projectRoot) {
         if (projectRoot == null || !isMavenProject(projectRoot)) {
             return Collections.emptyList();
         }
-        Path outFile;
-        try {
-            outFile = Files.createTempFile("anatomist-cp-", ".txt");
-        } catch (IOException e) {
-            warn("failed to create temp file for mvn classpath: " + e.getMessage());
-            return Collections.emptyList();
-        }
+        // Clear any stragglers from a prior interrupted run so the union is clean.
+        deleteClasspathFiles(projectRoot);
         try {
             int code = runMvn(projectRoot, Arrays.asList(
                     "dependency:build-classpath",
-                    "-DincludeScope=compile",
+                    // scope=test is the widest Maven scope (compile + provided +
+                    // runtime + system + test); a code-intelligence index wants to
+                    // resolve as many types as possible, and extra jars are nearly
+                    // free for AsmTypeSolver.
+                    "-DincludeScope=test",
                     "-q",
-                    "-Dmdep.outputFile=" + outFile.toAbsolutePath()
+                    "-Dmdep.outputFile=" + CP_FILE
             ));
             if (code != 0) {
                 warn("mvn dependency:build-classpath exited with code " + code
                         + ", proceeding with empty classpath");
                 return Collections.emptyList();
             }
-            String content = Files.readString(outFile, StandardCharsets.UTF_8).trim();
-            if (content.isEmpty()) return Collections.emptyList();
-            return Arrays.stream(content.split(java.io.File.pathSeparator))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toList());
+            // Union every module's output, preserving first-seen order.
+            java.util.LinkedHashSet<String> union = new java.util.LinkedHashSet<>();
+            for (Path f : findClasspathFiles(projectRoot)) {
+                String content = Files.readString(f, StandardCharsets.UTF_8).trim();
+                if (content.isEmpty()) continue;
+                for (String entry : content.split(java.io.File.pathSeparator)) {
+                    String t = entry.trim();
+                    if (!t.isEmpty()) union.add(t);
+                }
+            }
+            return new ArrayList<>(union);
         } catch (IOException | InterruptedException e) {
             warn("mvn classpath detection failed (" + e.getMessage() + "), proceeding with empty classpath");
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             return Collections.emptyList();
         } finally {
+            deleteClasspathFiles(projectRoot);
+        }
+    }
+
+    /** Locate every per-module {@link #CP_FILE} under the reactor, sorted for
+     *  deterministic union order. */
+    private List<Path> findClasspathFiles(Path projectRoot) {
+        try (Stream<Path> walk = Files.walk(projectRoot)) {
+            return walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName() != null
+                            && CP_FILE.equals(p.getFileName().toString()))
+                    .sorted()
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            warn("failed to collect classpath files under " + projectRoot + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /** Remove generated {@link #CP_FILE} files so they don't pollute the work tree. */
+    private void deleteClasspathFiles(Path projectRoot) {
+        for (Path f : findClasspathFiles(projectRoot)) {
             try {
-                Files.deleteIfExists(outFile);
+                Files.deleteIfExists(f);
             } catch (IOException ignore) {
+                // best-effort cleanup
             }
         }
     }
@@ -65,11 +100,44 @@ public class ClasspathDetector {
         if (projectRoot == null) return Collections.emptyList();
         if (isMavenProject(projectRoot)) {
             Path src = projectRoot.resolve("src/main/java");
-            return Files.isDirectory(src)
-                    ? List.of(src)
-                    : Collections.emptyList();
+            if (Files.isDirectory(src)) {
+                return List.of(src);
+            }
+            // Multi-module reactor: no src/main/java at the root, so collect
+            // every module's main source root instead.
+            List<Path> modules = findModuleSourceRoots(projectRoot);
+            if (!modules.isEmpty()) return modules;
+            return Collections.emptyList();
         }
         return Files.isDirectory(projectRoot) ? List.of(projectRoot) : Collections.emptyList();
+    }
+
+    /** Walk the reactor for every {@code src/main/java} directory, skipping
+     *  build-output and VCS trees. Returns sorted, deduplicated roots. */
+    private List<Path> findModuleSourceRoots(Path projectRoot) {
+        try (Stream<Path> walk = Files.walk(projectRoot)) {
+            return walk
+                    .filter(Files::isDirectory)
+                    .filter(p -> p.endsWith(Path.of("src", "main", "java")))
+                    .filter(p -> !isUnderExcludedDir(projectRoot.relativize(p)))
+                    .sorted()
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            warn("failed to scan for module source roots under " + projectRoot
+                    + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private static boolean isUnderExcludedDir(Path relative) {
+        for (Path part : relative) {
+            String name = part.toString();
+            if (name.equals("target") || name.equals("build")
+                    || name.equals(".git") || name.equals("node_modules")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected boolean isMavenProject(Path root) {
@@ -174,9 +242,9 @@ public class ClasspathDetector {
                 .directory(workingDir.toFile())
                 .redirectErrorStream(true);
         Process p = pb.start();
-        if (!p.waitFor(60, TimeUnit.SECONDS)) {
+        if (!p.waitFor(300, TimeUnit.SECONDS)) {
             p.destroyForcibly();
-            throw new IOException("mvn timed out after 60s");
+            throw new IOException("mvn timed out after 300s");
         }
         return p.exitValue();
     }
