@@ -153,12 +153,9 @@ CREATE TABLE file_cache (
     schema_version INTEGER NOT NULL,
     last_indexed TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     node_count INTEGER NOT NULL DEFAULT 0,
-    edge_count INTEGER NOT NULL DEFAULT 0,
-    stale INTEGER NOT NULL DEFAULT 0,
-    stale_reason TEXT
+    edge_count INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX idx_file_cache_stale ON file_cache(stale);
 CREATE INDEX idx_file_cache_schema_version ON file_cache(schema_version);
 
 CREATE TABLE project_meta (

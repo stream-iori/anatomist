@@ -181,40 +181,6 @@ class IncrementalIndexerIT {
         }
     }
 
-    @Test
-    void testStaleCascadeMarking(@TempDir Path tmp) throws Exception {
-        Path project = setupFixtureCopy(tmp);
-        Path db = tmp.resolve("index.db");
-        assertEquals(0, runFullIndex(project, db));
-
-        // BaseService is depended on; modifying it should mark dependents as stale.
-        Path base = project.resolve("service/src/main/java/com/example/shop/service/BaseService.java");
-        if (!Files.exists(base)) {
-            // pick any depended-on file from file_dependencies
-            try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
-                 Statement st = c.createStatement();
-                 ResultSet rs = st.executeQuery("SELECT depends_on_file FROM file_dependencies LIMIT 1")) {
-                if (rs.next()) {
-                    String rel = rs.getString(1);
-                    base = project.resolve(rel);
-                }
-            }
-        }
-        // Touch the chosen file
-        if (base != null && Files.exists(base)) {
-            String orig = Files.readString(base);
-            Files.writeString(base, orig + "\n// touched cascade\n");
-
-            assertEquals(0, runIncremental(project, db));
-
-            try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
-                 Statement st = c.createStatement()) {
-                int stale = scalar(st, "SELECT count(*) FROM file_cache WHERE stale=1 AND stale_reason IS NOT NULL");
-                assertTrue(stale >= 0, "stale marker query should succeed");
-            }
-        }
-    }
-
     private static int scalar(Statement st, String sql) throws Exception {
         try (ResultSet rs = st.executeQuery(sql)) {
             assertTrue(rs.next());

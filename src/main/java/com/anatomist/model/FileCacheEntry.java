@@ -6,8 +6,6 @@ public record FileCacheEntry(
         int schemaVersion,
         String lastIndexed,
         int nodeCount,
-        int edgeCount,
-        int stale,
-        String staleReason
+        int edgeCount
 ) {
 }

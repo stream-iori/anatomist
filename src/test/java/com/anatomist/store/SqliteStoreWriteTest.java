@@ -136,7 +136,7 @@ class SqliteStoreWriteTest {
         store = new SqliteStore(tmp.resolve("index.db"));
         store.initSchema();
 
-        FileCacheEntry e = new FileCacheEntry("src/A.java", "abc123", 1, "2026-05-31T00:00:00Z", 5, 7, 0, null);
+        FileCacheEntry e = new FileCacheEntry("src/A.java", "abc123", 1, "2026-05-31T00:00:00Z", 5, 7);
         store.updateFileCache(java.util.List.of(e));
 
         java.util.Map<String, FileCacheEntry> cache = store.readFileCache();
@@ -147,7 +147,6 @@ class SqliteStoreWriteTest {
         assertEquals(1, read.schemaVersion());
         assertEquals(5, read.nodeCount());
         assertEquals(7, read.edgeCount());
-        assertEquals(0, read.stale());
     }
 
     @Test
@@ -214,25 +213,20 @@ class SqliteStoreWriteTest {
     }
 
     @Test
-    void testMarkStaleDependents(@TempDir Path tmp) throws Exception {
+    void testDependentsOf(@TempDir Path tmp) throws Exception {
         store = new SqliteStore(tmp.resolve("index.db"));
         store.initSchema();
 
-        // Set up file_cache entries
-        store.updateFileCache(java.util.List.of(
-                new FileCacheEntry("A.java", "h1", 1, "2026-05-31T00:00:00Z", 1, 0, 0, null),
-                new FileCacheEntry("B.java", "h2", 1, "2026-05-31T00:00:00Z", 1, 0, 0, null)
-        ));
-        // Set up file_dependencies: A.java depends on B.java
+        // file_dependencies: A.java depends on B.java
         Connection c = store.connection();
         try (Statement st = c.createStatement()) {
             st.execute("INSERT INTO file_dependencies(source_file, depends_on_file) VALUES ('A.java', 'B.java')");
         }
 
-        store.markStaleDependents(java.util.List.of("B.java"));
-
-        assertEquals(1, count(c, "SELECT count(*) FROM file_cache WHERE source_file='A.java' AND stale=1 AND stale_reason IS NOT NULL"));
-        assertEquals(0, count(c, "SELECT count(*) FROM file_cache WHERE source_file='B.java' AND stale=1"));
+        java.util.Set<String> deps = store.dependentsOf(java.util.List.of("B.java"));
+        assertEquals(1, deps.size());
+        assertTrue(deps.contains("A.java"));
+        assertTrue(store.dependentsOf(java.util.List.of("A.java")).isEmpty());
     }
 
     @Test

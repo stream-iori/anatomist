@@ -37,17 +37,20 @@ public class IncrementalIndexer {
     private final JavaParserFactory parserFactory;
     private final SqliteStore store;
     private final int javaVersion;
+    private final int maxRealignFiles;
 
     public IncrementalIndexer(Path projectRoot,
                               List<Path> sourcePaths,
                               JavaParserFactory parserFactory,
                               SqliteStore store,
-                              int javaVersion) {
+                              int javaVersion,
+                              int maxRealignFiles) {
         this.projectRoot = projectRoot;
         this.sourcePaths = sourcePaths;
         this.parserFactory = parserFactory;
         this.store = store;
         this.javaVersion = javaVersion;
+        this.maxRealignFiles = maxRealignFiles;
     }
 
     public static final class Summary {
@@ -56,7 +59,7 @@ public class IncrementalIndexer {
         public int deletedFiles;
         public int newNodes;
         public int newEdges;
-        public List<String> staleAfter = new ArrayList<>();
+        public int realignedDependents;
         public boolean degradedToFull;
         public String degradationReason;
     }
@@ -77,6 +80,43 @@ public class IncrementalIndexer {
         Set<String> toDelete = new LinkedHashSet<>();
         toDelete.addAll(changedFiles);
         toDelete.addAll(deletedFiles);
+
+        // Transitively realign dependents of changed/deleted files (not of new files —
+        // a brand-new file has no dependents yet). Closure is computed against the
+        // *current* file_dependencies table, which reflects the last committed state.
+        Set<String> realignTargets = new LinkedHashSet<>();
+        Set<String> seed = new LinkedHashSet<>();
+        seed.addAll(changedFiles);
+        seed.addAll(deletedFiles);
+        Set<String> frontier = seed;
+        Set<String> visited = new HashSet<>(seed);
+        while (!frontier.isEmpty()) {
+            Set<String> next = store.dependentsOf(new ArrayList<>(frontier));
+            Set<String> fresh = new LinkedHashSet<>();
+            for (String dep : next) {
+                if (visited.add(dep)) fresh.add(dep);
+            }
+            frontier = fresh;
+            for (String dep : fresh) {
+                // Only realign dependents still present on disk; vanished ones are
+                // handled via the deleted path of detectChanges.
+                if (diskHashes.containsKey(dep)
+                        && !toReparse.contains(dep)
+                        && !deletedFiles.contains(dep)) {
+                    realignTargets.add(dep);
+                }
+            }
+        }
+        toReparse.addAll(realignTargets);
+        toDelete.addAll(realignTargets);
+
+        if (toReparse.size() > maxRealignFiles) {
+            s.degradedToFull = true;
+            s.degradationReason = "realign closure " + toReparse.size()
+                    + ">" + maxRealignFiles;
+            return s;
+        }
+        s.realignedDependents = realignTargets.size();
 
         Connection c;
         try {
@@ -135,7 +175,7 @@ public class IncrementalIndexer {
                     fieldAccessExtractor.extract(cu, result);
                 });
 
-                pruneDanglingInternalEdges(result);
+                pruneDanglingInternalEdges(result, store.allNodeIds());
                 new SemanticPostProcessor().process(result);
                 store.write(result);
             }
@@ -160,19 +200,17 @@ public class IncrementalIndexer {
                 if (hash == null) continue;
                 int[] cnt = perFile.getOrDefault(rel, new int[]{0, 0});
                 entries.add(new FileCacheEntry(rel, hash, FileCacheService.CURRENT_SCHEMA_VERSION,
-                        now, cnt[0], cnt[1], 0, null));
+                        now, cnt[0], cnt[1]));
             }
             if (!entries.isEmpty()) store.updateFileCache(entries);
 
             s.newNodes = result.nodes.size();
             s.newEdges = result.edges.size();
 
-            // Re-derive file_dependencies and mark dependents stale.
+            // Dependents were reparsed in this same pass and are now aligned, so the
+            // re-derived file_dependencies reflects the new state with nothing stale.
             store.clearFileDependencies();
             store.deriveFileDependencies();
-            List<String> changedForStale = new ArrayList<>(changedFiles);
-            changedForStale.addAll(deletedFiles);
-            if (!changedForStale.isEmpty()) store.markStaleDependents(changedForStale);
 
             c.commit();
         } catch (RuntimeException | SQLException e) {
@@ -184,8 +222,8 @@ public class IncrementalIndexer {
         return s;
     }
 
-    private static int pruneDanglingInternalEdges(ExtractionResult r) {
-        Set<String> known = new HashSet<>();
+    private static int pruneDanglingInternalEdges(ExtractionResult r, Set<String> survivingDbNodeIds) {
+        Set<String> known = new HashSet<>(survivingDbNodeIds);
         for (Node n : r.nodes) known.add(n.id);
         int before = r.edges.size() + r.annotations.size();
         r.edges.removeIf(e -> !e.isExternal && (e.targetId == null || !known.contains(e.targetId)));

@@ -104,7 +104,7 @@ classDiagram
 | Extractor | VoidVisitorAdapter,从 CompilationUnit 产出 Node/Edge/Annotation | 每次 index 实例化,与 ExtractionContext 绑定 |
 | SemanticPostProcessor | index 末尾后处理器,applyConventionRules + applyJavadocRules | 每次 index 实例化,纯内存,无 IO |
 | DocScanner | 文件树遍历,产出 Document 列表 | `index-docs` 命令实例化 |
-| FileCache | file_cache 表的行实体,绑定单个源文件的 SHA-256 + 节点/边计数 + schema_version + stale 标记 | 全量索引时按所有源文件写入;增量索引时按 changed/new 更新、按 deleted 删除 |
+| FileCache | file_cache 表的行实体,绑定单个源文件的 SHA-256 + 节点/边计数 + schema_version | 全量索引时按所有源文件写入;增量索引时按 changed/new 更新、按 deleted 删除 |
 | ProjectMeta | project_meta key-value 元数据 | 全量索引时写入 java_version/classpath_hash/index_version |
 | FileDependency | file_dependencies 跨文件依赖,从 edges 表 post-hoc 推导 | 每次索引完成后 clearFileDependencies + deriveFileDependencies 重建 |
 | FileCacheService | SHA-256 hash + 变更检测(changed/added/deleted) | 增量索引调用,无 IO 缓存 |
@@ -119,12 +119,13 @@ classDiagram
 - **R4: 符号解析失败跳过** — 任何 `MethodCallExpr.resolve()` / `decl.resolve()` 抛 `UnsolvedSymbolException` / `UnsupportedOperationException` 的实体均跳过,不产生半成品 Node;统计 unresolved 计数
 - **R5: 两阶段隔离** — Index 阶段调 JavaParser+SymbolSolver,Query 阶段**不**调解析器,只走 SQLite。Agent 多次查询 O(1) 而非 O(N) 重解析
 - **R6: SUT 单 DB** — 多模块项目共享一个 index.db,通过 nodes.module 列区分
-- **R7: 增量单事务** — `IncrementalIndexer.indexIncremental` 在单 SQLite 事务内完成 deleteBySourceFiles → write → updateFileCache → deriveFileDependencies → markStaleDependents,任一失败回滚整事务,避免中间状态被查询读到
+- **R7: 增量单事务** — `IncrementalIndexer.indexIncremental` 在单 SQLite 事务内完成 deleteBySourceFiles → write → updateFileCache → clearFileDependencies → deriveFileDependencies,任一失败回滚整事务,避免中间状态被查询读到
 - **R8: semantic_annotations 显式清理** — 删除文件时 ON DELETE SET NULL 不会清理 semantic_annotations,必须先 DELETE semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?) 再 DELETE nodes
 - **R9: annotate source 白名单** — annotate CLI 只允许 `source ∈ {DOC, LLM}`；CONVENTION 由 SemanticPostProcessor 自动产出，JAVADOC 由 javadoc 提取器自动产出，手动写入会与自动产出冲突，CLI 层拒绝并 exit 1
 - **R10: (node_id, category, source) 是 upsert 键** — semantic_annotations 表上有 UNIQUE INDEX `idx_semantic_annotations_upsert_key`；SqliteStore.upsertSemanticAnnotation 用 DELETE + INSERT 在单事务内实现幂等
 - **R9: schema_version 整库失效** — `--incremental` 检测 file_cache 任一行 schema_version != FileCacheService.CURRENT_SCHEMA_VERSION 时降级为全量;空 file_cache 同样降级
 - **R10: build 文件触发全量** — pom.xml / build.gradle 变更经 classpath_hash 比较,差异时触发全量重索引(增量无法处理符号解析范围变化)
+- **R11: 同趟传递重对齐** — 被改/删文件的依赖方沿 `file_dependencies` 闭包(不动点迭代)一并并入本趟重解析集合,delete-then-reinsert 重建跨文件边,索引始终对齐磁盘;闭包文件数 > `--max-realign-files`(默认 200)时退回全量。无 stale 标记机制
 
 ## 4. 状态/枚举
 
@@ -237,19 +238,20 @@ sequenceDiagram
     CLI->>FC: detectChanges(projectRoot)
     FC->>FC: compute disk hashes vs file_cache
     FC-->>CLI: changedFiles + deletedFiles + newFiles
+    CLI->>SS: dependentsOf 闭包(changed+deleted)→ realign 目标
+    CLI->>CLI: 闭包文件数 > maxRealignFiles ? 退全量
     CLI->>SS: beginTransaction()
-    CLI->>SS: deleteBySourceFiles(changed + deleted)
-    CLI->>JF: parseFiles(changed + new)
+    CLI->>SS: deleteBySourceFiles(changed + deleted + realign)
+    CLI->>JF: parseFiles(changed + new + realign)
     JF->>Ext: extract(cu, result)
     Ext-->>JF: nodes + edges + annotations
     CLI->>PP: process(result)
     PP-->>CLI: result + semanticAnnotations
     CLI->>SS: write(result)
-    CLI->>SS: updateFileCache(changed + new + deleted)
+    CLI->>SS: updateFileCache(changed + new + realign)
     CLI->>SS: clearFileDependencies + deriveFileDependencies
-    CLI->>SS: markStaleDependents(changedFiles + deletedFiles)
     CLI->>SS: commit()
-    CLI-->>CLI: output incremental summary
+    CLI-->>CLI: output incremental summary (含 realigned deps)
 ```
 
 ### 场景 4: 监控 + 自动增量(Watch)
@@ -274,7 +276,7 @@ sequenceDiagram
         W->>CLI: indexIncremental(changedFiles)
         CLI->>SS: incremental update (同场景 3)
         SS-->>CLI: summary
-        CLI-->>W: nodes/edges diff + stale list
+        CLI-->>W: nodes/edges diff + realigned deps
     end
     W-->>W: output to stdout
 ```

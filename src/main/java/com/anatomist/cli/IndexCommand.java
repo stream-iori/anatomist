@@ -77,6 +77,11 @@ public class IndexCommand implements Callable<Integer> {
     @Option(names = "--full", description = "Force full re-index (default behavior).")
     boolean full;
 
+    @Option(names = "--max-realign-files",
+            description = "Cap on the realign closure size; above it, incremental degrades to full.",
+            defaultValue = "200")
+    int maxRealignFiles;
+
     @Override
     public Integer call() {
         long started = System.currentTimeMillis();
@@ -156,15 +161,24 @@ public class IndexCommand implements Callable<Integer> {
                     FileCacheService.Changes ch = fcs.detectChanges(diskHashes, cache);
 
                     IncrementalIndexer ii = new IncrementalIndexer(
-                            projectRoot, sourcePaths, factory, store, jv);
+                            projectRoot, sourcePaths, factory, store, jv,
+                            maxRealignFiles);
                     IncrementalIndexer.Summary summary = ii.indexIncremental(
                             ch.changed, ch.added, ch.deleted, diskHashes);
+
+                    if (summary.degradedToFull) {
+                        System.err.println("INFO: incremental degraded to full ("
+                                + summary.degradationReason + ")");
+                        return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
+                                jv, factory, dbPath, classpath, started);
+                    }
 
                     long elapsed = System.currentTimeMillis() - started;
                     System.out.println("Indexed " + projectRoot + " (incremental)");
                     System.out.println("  Changed files: " + summary.changedFiles);
                     System.out.println("  New files:     " + summary.newFiles);
                     System.out.println("  Deleted files: " + summary.deletedFiles);
+                    System.out.println("  Realigned deps:" + summary.realignedDependents);
                     System.out.println("  New nodes:     " + summary.newNodes);
                     System.out.println("  New edges:     " + summary.newEdges);
                     System.out.println("  Output:        " + dbPath);
@@ -329,7 +343,7 @@ public class IndexCommand implements Callable<Integer> {
             String hash = FileCacheService.sha256(f.toAbsolutePath().normalize());
             int[] cnt = perFile.getOrDefault(rel, new int[]{0, 0});
             entries.add(new FileCacheEntry(rel, hash, FileCacheService.CURRENT_SCHEMA_VERSION,
-                    now, cnt[0], cnt[1], 0, null));
+                    now, cnt[0], cnt[1]));
         }
         if (!entries.isEmpty()) store.updateFileCache(entries);
     }

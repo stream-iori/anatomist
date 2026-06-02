@@ -119,14 +119,14 @@ DELETE FROM nodes WHERE source_file = ?;
 -- 6. 插入新数据（复用全量索引的 Extractor 逻辑）
 ```
 
-**符号解析影响扩散（级联 stale 标记）**：如果修改的是接口、基类或常被引用的类型，依赖它的源文件的符号解析/OVERRIDES/CALLS 边可能失效，但 anatomist 没有重解析它们——这会产生**沉默的陈旧数据**。
+**符号解析影响扩散（同趟传递重对齐）**：如果修改的是接口、基类或常被引用的类型，依赖它的源文件的符号解析 / OVERRIDES / CALLS 边会随之失效。SQLite 的 `edges.target_id ... ON DELETE CASCADE` 在被依赖文件重解析（先删后插）时，会顺带删除依赖方指向它的跨文件边——只有把这些依赖方在**同一趟**里一并重解析，才能重建这些边。
 
-MVP 的处理策略是**显式标记 stale 而非自动重解析**：
+处理策略是**同趟传递重对齐（transitive realign）而非仅标记**：
 
 1. 索引阶段维护 `file_dependencies` 反向依赖表：记录"文件 A 的解析结果引用了文件 B 中的类型"。
-2. 文件 B 变更时，反查所有把 B 列为依赖的文件 A，将它们标记为 `stale = 1`。
-3. 查询 / watch 输出附带 stale 文件清单，**提示用户运行 `anatomist index --full`** 做权威重解析。
-4. 可选 `--cascade` 模式自动限半径地（例如只跨 1 跳）重解析受影响文件。
+2. 文件 B 变更 / 删除时，沿 `file_dependencies` 反查依赖闭包（迭代到不动点），把仍存在于磁盘的依赖方文件一并并入本趟的重解析集合。
+3. 重解析集合在单事务内 delete-then-reinsert，跨文件边随之重建，索引始终与磁盘对齐——不再遗留陈旧数据，也无需用户手动 `--full`。
+4. 闭包文件数超过 `--max-realign-files`（默认 200）时，增量自动退回全量索引（`degraded to full`），保证可预测的上界开销。
 
 ```sql
 CREATE TABLE file_dependencies (
@@ -135,20 +135,15 @@ CREATE TABLE file_dependencies (
     PRIMARY KEY (source_file, depends_on_file)
 );
 CREATE INDEX idx_file_deps_target ON file_dependencies(depends_on_file);
-
-ALTER TABLE file_cache ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE file_cache ADD COLUMN stale_reason TEXT;  -- "依赖的 BaseService.java 已变更"
 ```
+
+`file_dependencies` 每趟末尾全量重建（`clearFileDependencies` + `deriveFileDependencies`），两端文件名都从 `nodes.source_file` 推导，反映上次提交后的稳定状态。
 
 watch 输出示例：
 ```
 [MODIFY] src/main/java/com/example/BaseService.java
   Index updated: ~2 nodes, ~4 edges
-  ⚠ 3 file(s) may now contain stale bindings:
-    - src/main/java/com/example/OrderService.java (depends on BaseService)
-    - src/main/java/com/example/PaymentService.java (depends on BaseService)
-    - src/main/java/com/example/UserService.java (depends on BaseService)
-  → Run `anatomist index /path --full` to refresh, or `--cascade` to auto-reparse dependents.
+  Realigned 3 dependent file(s): OrderService, PaymentService, UserService
 ```
 
 ### WatchService 监控
@@ -197,16 +192,14 @@ CREATE TABLE file_cache (
     schema_version INTEGER NOT NULL,      -- 索引器版本；版本升级时整库失效
     last_indexed TEXT NOT NULL,
     node_count INTEGER,
-    edge_count INTEGER,
-    stale INTEGER NOT NULL DEFAULT 0,     -- 1 = 依赖文件变更，需要重解析
-    stale_reason TEXT
+    edge_count INTEGER
 );
 ```
 
 **何时视为需要重解析**：
 - `hash` 与磁盘 SHA-256 不同 → 本文件内容变更
 - `schema_version` 与当前索引器版本不同 → DDL / Extractor 升级，整库失效
-- `stale = 1` → 上游依赖文件变更触发（见 [符号解析影响扩散](#符号解析影响扩散级联-stale-标记)）
+- 被依赖文件变更 → 沿 `file_dependencies` 闭包将依赖方一并纳入本趟重解析（见 [符号解析影响扩散](#符号解析影响扩散同趟传递重对齐)）
 - pom.xml / build.gradle 的 classpath hash 变化 → 全量重解析
 
 ### 新增：项目元数据表
@@ -233,6 +226,9 @@ anatomist index /path/to/project --incremental
 
 # 监控特定扩展名
 anatomist watch /path/to/project --extensions ".java,.xml,.gradle"
+
+# 调整重对齐闭包上限（默认 200，超限退全量）
+anatomist index /path/to/project --incremental --max-realign-files 500
 ```
 
 **watch 输出示例**：

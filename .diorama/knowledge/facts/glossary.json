@@ -235,7 +235,7 @@
     {
       "term": "FileCache",
       "english": "File Cache",
-      "definition": "file_cache 表的一条记录,记录已索引源文件的 SHA-256 hash、schema_version、last_indexed、节点/边计数、stale 标记与原因。增量索引时用于比较磁盘内容与数据库索引状态,识别 changed/new/deleted 文件。schema_version != FileCacheService.CURRENT_SCHEMA_VERSION 时整库失效。",
+      "definition": "file_cache 表的一条记录,记录已索引源文件的 SHA-256 hash、schema_version、last_indexed、节点/边计数。增量索引时用于比较磁盘内容与数据库索引状态,识别 changed/new/deleted 文件。schema_version != FileCacheService.CURRENT_SCHEMA_VERSION 时整库失效。",
       "aliases": [
         "文件缓存"
       ],
@@ -253,7 +253,7 @@
     {
       "term": "FileDependency",
       "english": "File Dependency",
-      "definition": "file_dependencies 表 (source_file, depends_on_file) 复合 PK。每次索引后从 edges 表 post-hoc 推导:JOIN nodes ON edges.target_id WHERE is_external=0 AND source_file<>n.source_file。用于级联 stale 标记。",
+      "definition": "file_dependencies 表 (source_file, depends_on_file) 复合 PK。每次索引后从 edges 表 post-hoc 推导:JOIN nodes 两端 ON edges.source_id/target_id WHERE is_external=0 AND 两端 source_file<>。增量索引时反查(dependentsOf)被改/删文件的依赖闭包,用于同趟传递重对齐。",
       "aliases": [
         "文件依赖"
       ],
@@ -262,7 +262,7 @@
     {
       "term": "IncrementalIndexer",
       "english": "Incremental Indexer",
-      "definition": "com.anatomist.incremental.IncrementalIndexer。协调 FileCacheService + JavaParserFactory + Extractors + SemanticPostProcessor + SqliteStore 在单事务内执行 deleteBySourceFiles(changed+deleted) → parseAll(filter to changed+new) → write → updateFileCache → clearFileDependencies → deriveFileDependencies → markStaleDependents(changed+deleted)。任何步骤失败回滚整事务。",
+      "definition": "com.anatomist.incremental.IncrementalIndexer。协调 FileCacheService + JavaParserFactory + Extractors + SemanticPostProcessor + SqliteStore。先用 dependentsOf 沿 file_dependencies 算出被改/删文件的依赖闭包(realign 目标),闭包 > maxRealignFiles 时退全量;否则在单事务内执行 deleteBySourceFiles(changed+deleted+realign) → parseAll(filter to changed+new+realign) → pruneDanglingInternalEdges(本批 ∪ allNodeIds) → write → updateFileCache → clearFileDependencies → deriveFileDependencies。任何步骤失败回滚整事务。",
       "aliases": [
         "增量索引器"
       ],
@@ -285,13 +285,14 @@
       "last_verified": "2026-05-31"
     },
     {
-      "term": "Stale",
-      "english": "Stale",
-      "definition": "file_cache.stale=1 状态,表示文件本身未变但其上游依赖已变更,索引数据可能失效。stale_reason 记录变更来源。stale 不自动重解析,仅供 watch 输出和后续工具提示;用户需手动 --full 或显式重索引该文件。",
+      "term": "Realign",
+      "english": "Transitive Realign",
+      "definition": "增量索引的跨文件对齐机制:被改/删文件的依赖方沿 file_dependencies 闭包(不动点迭代)一并并入本趟重解析集合,delete-then-reinsert 重建被 ON DELETE CASCADE 删除的跨文件边,使索引始终与磁盘对齐。闭包文件数 > --max-realign-files(默认 200)时退回全量索引。Summary.realignedDependents 报告重对齐文件数。取代了旧的 stale 标记机制(已删除)。",
       "aliases": [
-        "失效"
+        "传递重对齐",
+        "重对齐"
       ],
-      "last_verified": "2026-05-31"
+      "last_verified": "2026-06-02"
     },
     {
       "term": "Debounce",

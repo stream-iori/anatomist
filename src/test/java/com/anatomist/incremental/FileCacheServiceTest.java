@@ -23,7 +23,7 @@ class FileCacheServiceTest {
         Map<String, String> disk = svc.computeFileHashes(tmp, List.of(a));
 
         Map<String, FileCacheEntry> cache = new HashMap<>();
-        cache.put("A.java", new FileCacheEntry("A.java", "oldhash", 1, "x", 0, 0, 0, null));
+        cache.put("A.java", new FileCacheEntry("A.java", "oldhash", 1, "x", 0, 0));
 
         FileCacheService.Changes ch = svc.detectChanges(disk, cache);
 
@@ -53,7 +53,7 @@ class FileCacheServiceTest {
         FileCacheService svc = new FileCacheService();
         Map<String, String> disk = new HashMap<>();
         Map<String, FileCacheEntry> cache = new HashMap<>();
-        cache.put("Gone.java", new FileCacheEntry("Gone.java", "h", 1, "x", 0, 0, 0, null));
+        cache.put("Gone.java", new FileCacheEntry("Gone.java", "h", 1, "x", 0, 0));
 
         FileCacheService.Changes ch = svc.detectChanges(disk, cache);
 

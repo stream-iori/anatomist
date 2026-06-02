@@ -1,12 +1,7 @@
 package com.anatomist.cli;
 
 import com.anatomist.core.ClasspathDetector;
-import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.ProjectScanner;
-import com.anatomist.incremental.FileCacheService;
-import com.anatomist.incremental.IncrementalIndexer;
-import com.anatomist.model.FileCacheEntry;
-import com.anatomist.store.SqliteStore;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -87,6 +82,11 @@ public class WatchCommand implements Callable<Integer> {
     @Option(names = "--java-version",
             description = "Target Java language version (default: 8 or detected).")
     Integer javaVersion;
+
+    @Option(names = "--max-realign-files",
+            description = "Cap on the realign closure size; above it, incremental degrades to full.",
+            defaultValue = "200")
+    int maxRealignFiles;
 
     @Option(names = "--max-iterations",
             description = "Stop after N debounce cycles (for testing).",
@@ -254,20 +254,9 @@ public class WatchCommand implements Callable<Integer> {
             if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
             args.add("--output"); args.add(dbPath.toString());
             args.add("--incremental");
+            args.add("--max-realign-files"); args.add(String.valueOf(maxRealignFiles));
             new CommandLine(ic).parseArgs(args.toArray(new String[0]));
             ic.call();
-
-            // After incremental, report stale dependents
-            try (SqliteStore store = new SqliteStore(dbPath)) {
-                Map<String, FileCacheEntry> cache = store.readFileCache();
-                List<String> stale = new ArrayList<>();
-                for (FileCacheEntry e : cache.values()) {
-                    if (e.stale() == 1) stale.add(e.sourceFile());
-                }
-                if (!stale.isEmpty()) {
-                    System.out.println("Stale dependents: " + stale);
-                }
-            }
         } catch (Exception ex) {
             System.err.println("WARN: auto-index failed: " + ex.getMessage());
         }
@@ -313,12 +302,5 @@ public class WatchCommand implements Callable<Integer> {
     /** Tiny shim so this file compiles cleanly on any JDK regardless of throws lists. */
     private static final class ClosedWatchServiceCompat extends RuntimeException {
         ClosedWatchServiceCompat(String msg) { super(msg); }
-    }
-
-    private static String classpathFingerprint(List<Path> entries, String override) {
-        if (override != null && !override.isEmpty()) return override;
-        if (entries == null || entries.isEmpty()) return "";
-        List<String> sorted = entries.stream().map(Path::toString).sorted().collect(Collectors.toList());
-        return String.join(File.pathSeparator, sorted);
     }
 }

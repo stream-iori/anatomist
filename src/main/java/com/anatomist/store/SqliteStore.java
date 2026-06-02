@@ -281,8 +281,8 @@ public class SqliteStore implements AutoCloseable {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
         String sql = "INSERT OR REPLACE INTO file_cache" +
-                "(source_file,hash,schema_version,last_indexed,node_count,edge_count,stale,stale_reason)" +
-                " VALUES (?,?,?,?,?,?,?,?)";
+                "(source_file,hash,schema_version,last_indexed,node_count,edge_count)" +
+                " VALUES (?,?,?,?,?,?)";
         try (PreparedStatement ps = c.prepareStatement(sql)) {
             for (FileCacheEntry e : entries) {
                 ps.setString(1, e.sourceFile());
@@ -291,8 +291,6 @@ public class SqliteStore implements AutoCloseable {
                 ps.setString(4, e.lastIndexed() == null ? java.time.Instant.now().toString() : e.lastIndexed());
                 ps.setInt(5, e.nodeCount());
                 ps.setInt(6, e.edgeCount());
-                ps.setInt(7, e.stale());
-                if (e.staleReason() == null) ps.setNull(8, Types.VARCHAR); else ps.setString(8, e.staleReason());
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -309,7 +307,7 @@ public class SqliteStore implements AutoCloseable {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
         java.util.Map<String, FileCacheEntry> out = new java.util.LinkedHashMap<>();
-        String sql = "SELECT source_file,hash,schema_version,last_indexed,node_count,edge_count,stale,stale_reason FROM file_cache";
+        String sql = "SELECT source_file,hash,schema_version,last_indexed,node_count,edge_count FROM file_cache";
         try (PreparedStatement ps = c.prepareStatement(sql);
              java.sql.ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
@@ -319,9 +317,7 @@ public class SqliteStore implements AutoCloseable {
                         rs.getInt(3),
                         rs.getString(4),
                         rs.getInt(5),
-                        rs.getInt(6),
-                        rs.getInt(7),
-                        rs.getString(8)
+                        rs.getInt(6)
                 );
                 out.put(e.sourceFile(), e);
             }
@@ -377,35 +373,16 @@ public class SqliteStore implements AutoCloseable {
         try (Statement st = c.createStatement()) {
             st.execute(
                     "INSERT OR IGNORE INTO file_dependencies(source_file, depends_on_file) " +
-                            "SELECT DISTINCT e.source_file, n.source_file " +
-                            "FROM edges e JOIN nodes n ON e.target_id = n.id " +
-                            "WHERE e.is_external=0 AND e.source_file IS NOT NULL " +
-                            "AND n.source_file IS NOT NULL AND e.source_file <> n.source_file"
+                            "SELECT DISTINCT sn.source_file, tn.source_file " +
+                            "FROM edges e " +
+                            "JOIN nodes sn ON e.source_id = sn.id " +
+                            "JOIN nodes tn ON e.target_id = tn.id " +
+                            "WHERE e.is_external=0 " +
+                            "AND sn.source_file IS NOT NULL AND tn.source_file IS NOT NULL " +
+                            "AND sn.source_file <> tn.source_file"
             );
         } catch (SQLException e) {
             throw new RuntimeException("Failed to derive file_dependencies", e);
-        }
-    }
-
-    public void markStaleDependents(java.util.List<String> changedFiles) {
-        if (changedFiles == null || changedFiles.isEmpty()) return;
-        Connection c;
-        try {
-            c = connection();
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to acquire SQLite connection", e);
-        }
-        String sql = "UPDATE file_cache SET stale=1, stale_reason=? " +
-                "WHERE source_file IN (SELECT source_file FROM file_dependencies WHERE depends_on_file=?)";
-        try (PreparedStatement ps = c.prepareStatement(sql)) {
-            for (String f : changedFiles) {
-                ps.setString(1, "依赖的 " + f + " 已变更");
-                ps.setString(2, f);
-                ps.addBatch();
-            }
-            ps.executeBatch();
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to mark stale dependents", e);
         }
     }
 
@@ -449,6 +426,48 @@ public class SqliteStore implements AutoCloseable {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete by source files", e);
         }
+    }
+
+    /** Files that directly depend on any of {@code seed} (single-level reverse lookup). */
+    public java.util.Set<String> dependentsOf(java.util.List<String> seed) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        if (seed == null || seed.isEmpty()) return out;
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        try (PreparedStatement ps = c.prepareStatement(
+                "SELECT source_file FROM file_dependencies WHERE depends_on_file = ?")) {
+            for (String f : seed) {
+                ps.setString(1, f);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) out.add(rs.getString(1));
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to query file_dependencies", e);
+        }
+        return out;
+    }
+
+    /** All node ids currently present in the DB (reflects prior deletes in the same tx). */
+    public java.util.Set<String> allNodeIds() {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        try (Statement st = c.createStatement();
+             java.sql.ResultSet rs = st.executeQuery("SELECT id FROM nodes")) {
+            while (rs.next()) out.add(rs.getString(1));
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read node ids", e);
+        }
+        return out;
     }
 
     private static String readSchema() {
