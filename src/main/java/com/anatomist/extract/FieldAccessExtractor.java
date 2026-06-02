@@ -162,6 +162,7 @@ public class FieldAccessExtractor implements Extractor {
         e.confidence = "EXTRACTED";
         e.isExternal = false;
         e.sourceLocation = "L" + at.getBegin().map(p -> p.line).orElse(0);
+        e.context = ControlContext.of(at);
         result.edges.add(e);
     }
 }

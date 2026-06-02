@@ -83,6 +83,7 @@ public class CallGraphExtractor implements Extractor {
         e.callKind = callKind;
         e.confidence = "EXTRACTED";
         e.sourceLocation = "L" + callNode.getBegin().map(p -> p.line).orElse(0);
+        e.context = ControlContext.of(callNode);
 
         ResolvedTypeDeclaration decl;
         try { decl = target.declaringType(); }

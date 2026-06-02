@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.query.ContextFilter;
 import com.anatomist.query.EdgeRow;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
@@ -21,11 +22,17 @@ public class FieldReadersCommand implements Callable<Integer> {
 
     @Option(names = "--index") Path index;
 
+    @Option(names = "--in-loop", description = "Keep only edges occurring inside a loop (for/foreach/while/do).")
+    boolean inLoop;
+
+    @Option(names = "--in-branch", description = "Keep only edges occurring inside a branch (if/else/case/catch/ternary).")
+    boolean inBranch;
+
     @Override
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
-            List<EdgeRow> rows = q.fieldReaders(field);
+            List<EdgeRow> rows = ContextFilter.apply(q.fieldReaders(field), inLoop, inBranch);
             JsonFormatter.emit(System.out, new QueryEnvelope("field-readers " + field, rows));
             return 0;
         }

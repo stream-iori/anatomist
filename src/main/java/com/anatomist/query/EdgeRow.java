@@ -16,4 +16,5 @@ public class EdgeRow {
     public Integer depth;
     public String sourceFile;
     public String sourceLocation;
+    public String context;
 }

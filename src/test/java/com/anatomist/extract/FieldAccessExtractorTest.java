@@ -141,4 +141,42 @@ class FieldAccessExtractorTest {
         assertEquals(1, writes, "got " + r.edges);
         assertEquals(2, reads, "expected RHS read + return read; got " + r.edges);
     }
+
+    @Test
+    void context_recordedForWriteInsideCatch() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  boolean failed;\n"
+                + "  void run(){\n"
+                + "    try { risky(); }\n"
+                + "    catch (RuntimeException e) { this.failed = true; }\n"
+                + "  }\n"
+                + "  void risky(){}\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new FieldAccessExtractor(ctx).extract(cu, r);
+
+        var write = r.edges.stream()
+                .filter(e -> "WRITES".equals(e.relation) && "pkg.A#failed".equals(e.targetId))
+                .findFirst().orElseThrow(() -> new AssertionError("got " + r.edges));
+        assertEquals("catch@L6", write.context);
+    }
+
+    @Test
+    void context_nullForUnconditionalRead() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  int x;\n"
+                + "  int get() { return x; }\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new FieldAccessExtractor(ctx).extract(cu, r);
+
+        var read = r.edges.stream()
+                .filter(e -> "READS".equals(e.relation) && "pkg.A#x".equals(e.targetId))
+                .findFirst().orElseThrow();
+        assertNull(read.context);
+    }
 }

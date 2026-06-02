@@ -92,4 +92,42 @@ class CallGraphExtractorTest {
         assertTrue(mathAbs.sourceId.startsWith("pkg.A#run()$lambda@L"),
                 "call inside lambda must attribute to LAMBDA node; got source=" + mathAbs.sourceId);
     }
+
+    @Test
+    void context_recordedForCallInsideLoopAndBranch() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  void caller(int[] xs){\n"
+                + "    for (int i=0;i<xs.length;i++){\n"
+                + "      if (xs[i] > 0) { callee(); }\n"
+                + "    }\n"
+                + "  }\n"
+                + "  void callee(){}\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new CallGraphExtractor(ctx).extract(cu, r);
+
+        Edge call = r.edges.stream()
+                .filter(e -> "CALLS".equals(e.relation) && "pkg.A#callee()".equals(e.targetId))
+                .findFirst().orElseThrow(() -> new AssertionError("got " + r.edges));
+        assertEquals("for@L4>if-then@L5", call.context);
+    }
+
+    @Test
+    void context_nullForUnconditionalCall() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  void caller(){ callee(); }\n"
+                + "  void callee(){}\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new CallGraphExtractor(ctx).extract(cu, r);
+
+        Edge call = r.edges.stream()
+                .filter(e -> "CALLS".equals(e.relation) && "pkg.A#callee()".equals(e.targetId))
+                .findFirst().orElseThrow();
+        assertNull(call.context);
+    }
 }

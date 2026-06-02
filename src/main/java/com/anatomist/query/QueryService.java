@@ -293,17 +293,17 @@ public class QueryService implements AutoCloseable {
         String placeholders = qmarks(seedIds.size());
         String sql = "WITH RECURSIVE chain AS ("
                 + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, 1 AS depth"
+                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, 1 AS depth"
                 + "    FROM edges e "
                 + "   WHERE e.source_id IN (" + placeholders + ") AND e.relation = 'CALLS' "
                 + "  UNION ALL "
                 + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, c.depth + 1"
+                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, c.depth + 1"
                 + "    FROM edges e JOIN chain c ON e.source_id = c.target_id "
                 + "   WHERE e.relation = 'CALLS' AND c.depth < ? AND c.is_external = 0 "
                 + ") SELECT c.source_id, c.target_id, c.external_target_fqn, c.relation, c.call_kind,"
                 + "         c.is_external, c.source_file, c.source_location, c.depth,"
-                + "         src.label AS src_label, tgt.label AS tgt_label, tgt.qualified_name AS tgt_q"
+                + "         src.label AS src_label, tgt.label AS tgt_label, tgt.qualified_name AS tgt_q, c.context"
                 + "    FROM chain c "
                 + "    LEFT JOIN nodes src ON c.source_id = src.id "
                 + "    LEFT JOIN nodes tgt ON c.target_id = tgt.id "
@@ -318,17 +318,17 @@ public class QueryService implements AutoCloseable {
         String placeholders = qmarks(seedIds.size());
         String sql = "WITH RECURSIVE chain AS ("
                 + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, 1 AS depth"
+                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, 1 AS depth"
                 + "    FROM edges e "
                 + "   WHERE e.target_id IN (" + placeholders + ") AND e.relation = 'CALLS' AND e.is_external = 0 "
                 + "  UNION ALL "
                 + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, c.depth + 1"
+                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, c.depth + 1"
                 + "    FROM edges e JOIN chain c ON e.target_id = c.source_id "
                 + "   WHERE e.relation = 'CALLS' AND e.is_external = 0 AND c.depth < ? "
                 + ") SELECT c.source_id, c.target_id, c.external_target_fqn, c.relation, c.call_kind,"
                 + "         c.is_external, c.source_file, c.source_location, c.depth,"
-                + "         src.label AS src_label, tgt.label AS tgt_label, tgt.qualified_name AS tgt_q"
+                + "         src.label AS src_label, tgt.label AS tgt_label, tgt.qualified_name AS tgt_q, c.context"
                 + "    FROM chain c "
                 + "    LEFT JOIN nodes src ON c.source_id = src.id "
                 + "    LEFT JOIN nodes tgt ON c.target_id = tgt.id "
@@ -349,7 +349,7 @@ public class QueryService implements AutoCloseable {
         String ph = qmarks(sources.size());
         String sql = "SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
                 + "         e.is_external, e.source_file, e.source_location, 1 AS depth,"
-                + "         src.label, tgt.label, tgt.qualified_name "
+                + "         src.label, tgt.label, tgt.qualified_name, e.context "
                 + " FROM edges e "
                 + " LEFT JOIN nodes src ON e.source_id = src.id "
                 + " LEFT JOIN nodes tgt ON e.target_id = tgt.id "
@@ -366,7 +366,7 @@ public class QueryService implements AutoCloseable {
         String ph = qmarks(targets.size());
         String sql = "SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
                 + "         e.is_external, e.source_file, e.source_location, 1 AS depth,"
-                + "         src.label, tgt.label, tgt.qualified_name "
+                + "         src.label, tgt.label, tgt.qualified_name, e.context "
                 + " FROM edges e "
                 + " LEFT JOIN nodes src ON e.source_id = src.id "
                 + " LEFT JOIN nodes tgt ON e.target_id = tgt.id "
@@ -416,7 +416,7 @@ public class QueryService implements AutoCloseable {
         String ph = qmarks(fieldIds.size());
         String sql = "SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
                 + "         e.is_external, e.source_file, e.source_location, 1 AS depth,"
-                + "         src.label, tgt.label, tgt.qualified_name "
+                + "         src.label, tgt.label, tgt.qualified_name, e.context "
                 + " FROM edges e "
                 + " LEFT JOIN nodes src ON e.source_id = src.id "
                 + " LEFT JOIN nodes tgt ON e.target_id = tgt.id "
@@ -514,7 +514,7 @@ public class QueryService implements AutoCloseable {
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
                   + "         e.is_external, e.source_file, e.source_location, ? AS depth,"
-                  + "         src.label, tgt.label, tgt.qualified_name "
+                  + "         src.label, tgt.label, tgt.qualified_name, e.context "
                   + " FROM edges e "
                   + " LEFT JOIN nodes src ON e.source_id = src.id "
                   + " LEFT JOIN nodes tgt ON e.target_id = tgt.id "
@@ -538,6 +538,7 @@ public class QueryService implements AutoCloseable {
                         r.sourceLabel = rs.getString(10);
                         r.targetLabel = rs.getString(11);
                         r.targetQualifiedName = rs.getString(12);
+                        r.context = rs.getString(13);
                         rows.add(r);
                     }
                 }
@@ -900,6 +901,7 @@ public class QueryService implements AutoCloseable {
                     r.sourceLabel = rs.getString(10);
                     r.targetLabel = rs.getString(11);
                     r.targetQualifiedName = rs.getString(12);
+                    r.context = rs.getString(13);
                     out.add(r);
                 }
                 return out;

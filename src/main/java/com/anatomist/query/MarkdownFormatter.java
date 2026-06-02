@@ -85,7 +85,9 @@ public final class MarkdownFormatter {
                     : (e.externalTargetFqn != null ? e.externalTargetFqn : "?");
             sb.append("- depth=").append(e.depth == null ? 1 : e.depth)
               .append(" `").append(nullSafe(e.source))
-              .append("` → `").append(tgt).append("`\n");
+              .append("` → `").append(tgt).append("`");
+            if (e.context != null) sb.append(" _[").append(e.context).append("]_");
+            sb.append("\n");
             written++;
         }
         if (r.callees.isEmpty()) sb.append("_No callees._\n");

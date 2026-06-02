@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.query.ContextFilter;
 import com.anatomist.query.EdgeRow;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
@@ -24,11 +25,17 @@ public class CalleesOfCommand implements Callable<Integer> {
 
     @Option(names = "--index") Path index;
 
+    @Option(names = "--in-loop", description = "Keep only edges occurring inside a loop (for/foreach/while/do).")
+    boolean inLoop;
+
+    @Option(names = "--in-branch", description = "Keep only edges occurring inside a branch (if/else/case/catch/ternary).")
+    boolean inBranch;
+
     @Override
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
-            List<EdgeRow> rows = q.calleesOf(method, depth);
+            List<EdgeRow> rows = ContextFilter.apply(q.calleesOf(method, depth), inLoop, inBranch);
             QueryEnvelope env = new QueryEnvelope("callees-of " + method + " --depth " + depth, rows);
             int maxDepth = rows.stream().mapToInt(r -> r.depth == null ? 0 : r.depth).max().orElse(0);
             env.stats.put("max_depth", maxDepth);

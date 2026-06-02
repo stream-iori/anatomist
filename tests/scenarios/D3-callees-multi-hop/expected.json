@@ -169,7 +169,8 @@
     "call_kind" : "CONSTRUCTOR",
     "is_external" : true,
     "depth" : 3,
-    "source_location" : "L10"
+    "source_location" : "L10",
+    "context" : "if-then@L9"
   }, {
     "source" : "com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
     "source_label" : "validate",

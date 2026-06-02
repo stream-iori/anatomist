@@ -92,6 +92,7 @@ public final class DtoCodecs {
             put(m, "depth", e.depth);
             put(m, "source_file", e.sourceFile);
             put(m, "source_location", e.sourceLocation);
+            put(m, "context", e.context);
             return m;
         }
         @Override public EdgeRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
