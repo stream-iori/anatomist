@@ -53,7 +53,7 @@ public class HierarchyExtractor implements Extractor {
                                   ExtractionResult result) {
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         String sourceId = ctx.idGenerator().forType(rt);
         boolean isInterface = rt.isInterface();
 
@@ -66,7 +66,7 @@ public class HierarchyExtractor implements Extractor {
                         .filter(s -> !"java.lang.Enum".equals(s.getQualifiedName()))
                         .ifPresent(s -> result.edges.add(
                                 hierarchyEdge(sourceId, s, "INHERITS")));
-            } catch (RuntimeException ignore) { ctx.incrementUnresolved(); }
+            } catch (RuntimeException ignore) { ctx.incrementUnresolved(ignore); }
         }
 
         // Direct interfaces / parent interfaces.
@@ -78,7 +78,7 @@ public class HierarchyExtractor implements Extractor {
                 String relation = isInterface ? "INHERITS" : "IMPLEMENTS";
                 result.edges.add(hierarchyEdge(sourceId, i, relation));
             }
-        } catch (RuntimeException ignore) { ctx.incrementUnresolved(); }
+        } catch (RuntimeException ignore) { ctx.incrementUnresolved(ignore); }
     }
 
     private Edge hierarchyEdge(String sourceId, ResolvedReferenceType target, String relation) {
@@ -102,7 +102,7 @@ public class HierarchyExtractor implements Extractor {
         if (decl.isInterface()) return; // skip — interfaces overriding interface methods is rarely meaningful here
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
 
         // Gather candidate super methods (BFS via getAllAncestors, dedup by FQN+erased-signature).
         List<ResolvedMethodDeclaration> superMethods;
@@ -121,7 +121,7 @@ public class HierarchyExtractor implements Extractor {
         for (MethodDeclaration md : decl.getMethods()) {
             ResolvedMethodDeclaration sub;
             try { sub = md.resolve(); }
-            catch (RuntimeException e) { ctx.incrementUnresolved(); continue; }
+            catch (RuntimeException e) { ctx.incrementUnresolved(e); continue; }
 
             String subSig = methodSignatureKey(sub);
             Set<String> seenTargets = new HashSet<>();

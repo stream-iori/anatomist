@@ -7,11 +7,14 @@ import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParse
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserInterfaceDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
+import com.github.javaparser.resolution.UnsolvedSymbolException;
 
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -29,6 +32,16 @@ public class ExtractionContext {
     private final String module;
     private final String scope;
     private final AtomicLong unresolved = new AtomicLong();
+
+    /** Opt-in diagnostic: when {@code -Danatomist.sampleUnresolved=true}, every
+     *  unresolved symbol's name is aggregated by frequency so an index run can
+     *  report what's actually failing (project-internal vs third-party vs JDK).
+     *  Bounded so a pathological project can't OOM the map. Null when disabled
+     *  → zero overhead on the hot path. */
+    private static final boolean SAMPLE = Boolean.getBoolean("anatomist.sampleUnresolved");
+    private static final int MAX_SAMPLE_KEYS = 50_000;
+    private final ConcurrentHashMap<String, Long> unresolvedSamples =
+            SAMPLE ? new ConcurrentHashMap<>() : null;
 
     public ExtractionContext(Path projectRoot,
                              List<Path> sourcePaths,
@@ -49,7 +62,44 @@ public class ExtractionContext {
     public String scope() { return scope; }
 
     public long unresolvedCount() { return unresolved.get(); }
-    public void incrementUnresolved() { unresolved.incrementAndGet(); }
+    public void incrementUnresolved() { incrementUnresolved(null); }
+
+    /** Count one unresolved symbol; when sampling is enabled and {@code cause}
+     *  carries a symbol name (e.g. {@link UnsolvedSymbolException}), aggregate it. */
+    public void incrementUnresolved(Throwable cause) {
+        unresolved.incrementAndGet();
+        if (unresolvedSamples == null || cause == null) return;
+        String key = sampleKey(cause);
+        if (key == null) return;
+        // Don't grow unboundedly: stop adding new keys past the cap, but keep
+        // counting hits on keys we've already seen.
+        if (unresolvedSamples.size() >= MAX_SAMPLE_KEYS && !unresolvedSamples.containsKey(key)) return;
+        unresolvedSamples.merge(key, 1L, Long::sum);
+    }
+
+    public boolean samplingEnabled() { return unresolvedSamples != null; }
+
+    /** Snapshot of the unresolved-symbol frequency map (empty when sampling off). */
+    public Map<String, Long> unresolvedSamples() {
+        return unresolvedSamples == null ? Map.of() : Map.copyOf(unresolvedSamples);
+    }
+
+    private static String sampleKey(Throwable t) {
+        String name = null;
+        if (t instanceof UnsolvedSymbolException u) {
+            name = u.getName();
+        }
+        if (name == null) {
+            String msg = t.getMessage();
+            if (msg != null) {
+                int idx = msg.lastIndexOf(" : ");
+                if (idx >= 0) name = msg.substring(idx + 3);
+            }
+        }
+        if (name == null) return "[" + t.getClass().getSimpleName() + "]";
+        name = name.trim();
+        return name.isEmpty() ? "[" + t.getClass().getSimpleName() + "]" : name;
+    }
 
     /**
      * A symbol is "project internal" iff the SymbolSolver returned it through

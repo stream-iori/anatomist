@@ -152,7 +152,7 @@ public class FieldAccessExtractor implements Extractor {
                       Node at, ExtractionResult result) {
         ResolvedTypeDeclaration decl;
         try { decl = field.declaringType(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         if (!ctx.isProjectInternal(decl)) return; // external field access not tracked in Phase 1.5
 
         Edge e = new Edge();

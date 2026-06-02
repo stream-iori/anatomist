@@ -18,7 +18,6 @@ import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
@@ -121,8 +120,11 @@ public class TypeExtractor implements Extractor {
 
         String baseType = expr.getType().getNameAsString();
         try {
-            ResolvedConstructorDeclaration ctor = expr.resolve();
-            baseType = ctor.declaringType().getName();
+            // Resolve the instantiated supertype reference (e.g. java.lang.Runnable),
+            // NOT expr.resolve() — for an anonymous class the resolved ctor's
+            // declaringType is the anon class itself, whose generated name embeds
+            // a per-parse UUID and would break re-index idempotency.
+            baseType = expr.getType().resolve().describe();
         } catch (RuntimeException ignore) { /* keep simple-name baseType */ }
 
         Node n = new Node();

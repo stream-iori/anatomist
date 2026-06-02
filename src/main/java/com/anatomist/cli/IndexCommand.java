@@ -5,6 +5,7 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.ProjectScanner;
+import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.extract.AnnotationExtractor;
 import com.anatomist.extract.CallGraphExtractor;
 import com.anatomist.extract.FieldAccessExtractor;
@@ -76,12 +77,6 @@ public class IndexCommand implements Callable<Integer> {
     @Option(names = "--full", description = "Force full re-index (default behavior).")
     boolean full;
 
-    @Option(names = "--legacy-solver",
-            description = "Fall back to the javassist-backed JarTypeSolver for jar bytecode "
-                        + "instead of the default AsmTypeSolver. Use when AsmTypeSolver "
-                        + "misbehaves on a specific dep — please file an issue with the jar.")
-    boolean legacySolver;
-
     @Override
     public Integer call() {
         long started = System.currentTimeMillis();
@@ -92,6 +87,10 @@ public class IndexCommand implements Callable<Integer> {
             }
             Path projectRoot = projectPath.toAbsolutePath().normalize();
 
+            Path home = DefaultIndexPath.resolveHome(
+                    System.getenv(DefaultIndexPath.ENV_HOME), System.getProperty("user.home"));
+            AnatomistLog.configure(home.resolve(DefaultIndexPath.repoNameOf(projectRoot)), home);
+
             ClasspathDetector cd = new ClasspathDetector();
 
             List<Path> sourcePaths = resolveSourcePaths(cd, projectRoot);
@@ -100,6 +99,10 @@ public class IndexCommand implements Callable<Integer> {
                 return 1;
             }
 
+            boolean willDetectClasspath = !noClasspath && (classpath == null || classpath.isEmpty());
+            if (willDetectClasspath) {
+                System.err.println("Detecting classpath via Maven (this can take a while)...");
+            }
             List<Path> classpathEntries = resolveClasspath(cd, projectRoot);
 
             Set<String> extraExcludes = exclude == null || exclude.isEmpty()
@@ -120,7 +123,7 @@ public class IndexCommand implements Callable<Integer> {
             }
             System.err.println("Parsing with Java " + jv);
             JavaParserFactory factory = new JavaParserFactory(
-                    jv, classpathEntries, sourcePaths, vmClasspath, /*useAsmSolver=*/ !legacySolver);
+                    jv, classpathEntries, sourcePaths, vmClasspath);
 
             Path dbPath = output == null
                     ? DefaultIndexPath.forIndexWrite(projectRoot)
@@ -203,6 +206,7 @@ public class IndexCommand implements Callable<Integer> {
 
         ExtractionResult result = new ExtractionResult();
 
+        Progress progress = new Progress(sourceFiles.size());
         factory.parseAll((filePath, cu) -> {
             String relative = filePath == null ? null : relativize(projectRoot, filePath);
             if (relative != null) cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
@@ -214,7 +218,9 @@ public class IndexCommand implements Callable<Integer> {
             referenceExtractor.extract(cu, result);
             callGraphExtractor.extract(cu, result);
             fieldAccessExtractor.extract(cu, result);
+            progress.tick();
         });
+        progress.done();
 
         try (SqliteStore store = new SqliteStore(dbPath)) {
             boolean schemaExists;
@@ -239,13 +245,19 @@ public class IndexCommand implements Callable<Integer> {
             }
             int dropped = pruneDanglingInternalEdges(result);
             if (dropped > 0) {
-                System.err.println("WARN: dropped " + dropped + " edges with dangling internal target (extractor gaps)");
+                // Recorded, not printed to the console: dangling-internal-target
+                // edges come from extractor coverage gaps (LOCAL_CLASS / nested
+                // anon / LAMBDA nodes not yet emitted). Written to the per-repo
+                // warn.log and persisted to project_meta so it's queryable.
+                AnatomistLog.warn("dropped " + dropped + " edges with dangling internal target "
+                        + "(extractor gaps) for " + projectRoot);
             }
             new SemanticPostProcessor().process(result);
             store.write(result);
 
             // Phase 4: populate file_cache / project_meta / file_dependencies
             populateFileCache(store, projectRoot, sourceFiles, result);
+            store.upsertProjectMeta("dropped_dangling_edges", String.valueOf(dropped));
             store.upsertProjectMeta("java_version", String.valueOf(jv));
             store.upsertProjectMeta("classpath_hash",
                     FileCacheService.sha256OfString(classpathFingerprint(classpathEntries, classpathOverride)));
@@ -286,6 +298,9 @@ public class IndexCommand implements Callable<Integer> {
             System.out.println("  Unresolved:   " + ctx.unresolvedCount());
             System.out.println("  File cache:   " + store.readFileCache().size() + " entries");
             System.out.println("  Output:       " + dbPath);
+            if (ctx.samplingEnabled()) {
+                printUnresolvedSampling(ctx, result);
+            }
             System.out.println("Done in " + elapsed + "ms");
         }
         return 0;
@@ -371,6 +386,104 @@ public class IndexCommand implements Callable<Integer> {
     }
 
     /**
+     * Diagnostic (opt-in via {@code -Danatomist.sampleUnresolved=true}): bucket
+     * the captured unresolved-symbol names into PROJECT-INTERNAL / THIRD-PARTY /
+     * JDK / UNQUALIFIED-or-GENERIC / OTHER, and list the heaviest package
+     * prefixes. Tells us whether the remaining Unresolved count is worth chasing
+     * (e.g. by adding module target/classes) or is just generics / inference noise.
+     */
+    private static void printUnresolvedSampling(ExtractionContext ctx,
+                                                ExtractionResult result) {
+        java.util.Map<String, Long> samples = ctx.unresolvedSamples();
+        System.out.println("  --- Unresolved sampling ---");
+        if (samples.isEmpty()) {
+            System.out.println("    (no samples captured; most unresolved sites carry no symbol name)");
+            return;
+        }
+        // Project package names: the package of every internal type node. A
+        // sample is "internal" if its name sits under one of these packages.
+        java.util.Set<String> projectPackages = new java.util.HashSet<>();
+        for (com.anatomist.model.Node n : result.nodes) {
+            if (!isType(n.kind) || n.qualifiedName == null) continue;
+            int dot = n.qualifiedName.lastIndexOf('.');
+            if (dot > 0) projectPackages.add(n.qualifiedName.substring(0, dot));
+        }
+
+        long captured = samples.values().stream().mapToLong(Long::longValue).sum();
+        java.util.Map<String, Long> byCategory = new java.util.TreeMap<>();
+        java.util.Map<String, Long> byPrefix = new java.util.HashMap<>();
+        for (java.util.Map.Entry<String, Long> e : samples.entrySet()) {
+            String name = e.getKey();
+            long cnt = e.getValue();
+            String category = categorize(name, projectPackages);
+            byCategory.merge(category, cnt, Long::sum);
+            // Only the genuine missing-type categories are classpath-actionable;
+            // bucket those by package prefix to see which libs/modules are absent.
+            if (category.equals("MISSING-TYPE-INTERNAL") || category.equals("MISSING-TYPE-THIRDPARTY")) {
+                byPrefix.merge(prefixOf(name), cnt, Long::sum);
+            }
+        }
+
+        System.out.println("    Captured " + captured + " named hits across "
+                + samples.size() + " distinct symbols"
+                + " (of " + ctx.unresolvedCount() + " total unresolved).");
+        System.out.println("    By category:");
+        byCategory.entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed())
+                .forEach(en -> System.out.printf("      %-26s %8d  (%4.1f%%)%n",
+                        en.getKey(), en.getValue(),
+                        100.0 * en.getValue() / captured));
+        if (byPrefix.isEmpty()) {
+            System.out.println("    No classpath-actionable missing types — remainder is "
+                    + "method-inference / generics / snippets.");
+            return;
+        }
+        System.out.println("    Top 30 missing-type prefixes (classpath-actionable):");
+        byPrefix.entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(30)
+                .forEach(en -> System.out.printf("      %8d  %s%n", en.getValue(), en.getKey()));
+    }
+
+    /**
+     * Bucket a captured failure key. Most non-{@code UnsolvedSymbolException}
+     * failures surface as a sentence or code snippet, not a type FQN — those are
+     * method-overload / generics inference limits, NOT something a wider
+     * classpath fixes. Only clean dotted/simple type names count as missing types.
+     */
+    private static String categorize(String name, java.util.Set<String> projectPackages) {
+        if (name.startsWith("[")) return "OTHER-INFERENCE";
+        if (name.contains("unable to find the method declaration")) return "METHOD-NOT-FOUND";
+        if (name.endsWith("is not a class")) return "NOT-A-CLASS";
+        // Whitespace / call syntax / braces ⇒ a code snippet or message, not a symbol.
+        if (name.indexOf(' ') >= 0 || name.indexOf('(') >= 0
+                || name.indexOf('{') >= 0 || name.indexOf('\n') >= 0) {
+            return "OTHER-INFERENCE";
+        }
+        if (name.indexOf('.') < 0) return "UNQUALIFIED-OR-GENERIC";
+        if (name.startsWith("java.") || name.startsWith("javax.")
+                || name.startsWith("jakarta.") || name.startsWith("sun.")
+                || name.startsWith("jdk.") || name.startsWith("com.sun.")) {
+            return "JDK";
+        }
+        for (String pkg : projectPackages) {
+            if (name.equals(pkg) || name.startsWith(pkg + ".")) return "MISSING-TYPE-INTERNAL";
+        }
+        return "MISSING-TYPE-THIRDPARTY";
+    }
+
+    /** First up to 3 dot-segments of a symbol name, for prefix bucketing. */
+    private static String prefixOf(String name) {
+        int idx = 0;
+        for (int seg = 0; seg < 3; seg++) {
+            int next = name.indexOf('.', idx);
+            if (next < 0) return name;
+            idx = next + 1;
+        }
+        return name.substring(0, idx - 1);
+    }
+
+    /**
      * Drop any edge / annotation whose source / internal target does not
      * resolve to a known node — would otherwise blow the FK on insert. The
      * underlying coverage gap (LOCAL_CLASS / LAMBDA / METHOD_REF nodes not
@@ -384,5 +497,47 @@ public class IndexCommand implements Callable<Integer> {
         r.edges.removeIf(e -> e.sourceId == null || !known.contains(e.sourceId));
         r.annotations.removeIf(a -> a.nodeId == null || !known.contains(a.nodeId));
         return before - r.edges.size() - r.annotations.size();
+    }
+
+    /**
+     * Per-file progress for the parse+extract loop, where lazy symbol
+     * resolution dominates wall time. Live {@code \r} updates when stderr is a
+     * terminal; periodic newline-terminated lines when piped/redirected so the
+     * output stays readable in logs. {@code System.console()} is native-image
+     * safe and returns null when stderr isn't a TTY.
+     */
+    private static final class Progress {
+        private final int total;
+        private final boolean tty;
+        private int done;
+        private long lastEmit;
+
+        Progress(int total) {
+            this.total = total;
+            this.tty = System.console() != null;
+        }
+
+        void tick() {
+            done++;
+            if (tty) {
+                long now = System.currentTimeMillis();
+                if (now - lastEmit >= 100) {
+                    System.err.print("\rParsing & extracting: " + done + "/" + total + " files");
+                    System.err.flush();
+                    lastEmit = now;
+                }
+            } else if (done % 200 == 0) {
+                System.err.println("Parsing & extracting: " + done + "/" + total + " files");
+            }
+        }
+
+        void done() {
+            if (tty) {
+                System.err.print("\rParsing & extracting: " + done + "/" + total + " files\n");
+                System.err.flush();
+            } else {
+                System.err.println("Parsing & extracting: " + done + "/" + total + " files (done)");
+            }
+        }
     }
 }

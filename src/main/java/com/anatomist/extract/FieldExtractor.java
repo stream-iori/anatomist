@@ -61,7 +61,7 @@ public class FieldExtractor implements Extractor {
     private void emitRecordComponents(RecordDeclaration decl, String sourceFile, ExtractionResult result) {
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         String classId = ctx.idGenerator().forType(rt);
         StringBuilder ctorParams = new StringBuilder();
         for (com.github.javaparser.ast.body.Parameter p : decl.getParameters()) {

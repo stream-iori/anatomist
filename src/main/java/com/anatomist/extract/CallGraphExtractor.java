@@ -38,7 +38,7 @@ public class CallGraphExtractor implements Extractor {
             public void visit(MethodCallExpr n, Void arg) {
                 ResolvedMethodDeclaration target;
                 try { target = n.resolve(); }
-                catch (RuntimeException e) { ctx.incrementUnresolved(); super.visit(n, arg); return; }
+                catch (RuntimeException e) { ctx.incrementUnresolved(e); super.visit(n, arg); return; }
                 String callKind = classify(target, n);
                 emit(n, target, callKind, result);
                 super.visit(n, arg);
@@ -52,7 +52,7 @@ public class CallGraphExtractor implements Extractor {
                 }
                 ResolvedConstructorDeclaration target;
                 try { target = n.resolve(); }
-                catch (RuntimeException e) { ctx.incrementUnresolved(); super.visit(n, arg); return; }
+                catch (RuntimeException e) { ctx.incrementUnresolved(e); super.visit(n, arg); return; }
                 emit(n, target, "CONSTRUCTOR", result);
                 super.visit(n, arg);
             }
@@ -86,7 +86,7 @@ public class CallGraphExtractor implements Extractor {
 
         ResolvedTypeDeclaration decl;
         try { decl = target.declaringType(); }
-        catch (RuntimeException ex) { ctx.incrementUnresolved(); return; }
+        catch (RuntimeException ex) { ctx.incrementUnresolved(ex); return; }
 
         if (ctx.isProjectInternal(decl)) {
             if (target instanceof ResolvedMethodDeclaration m) {

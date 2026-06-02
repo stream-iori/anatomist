@@ -101,7 +101,7 @@ public class MethodExtractor implements Extractor {
         n.id = methodId;
         n.label = r.getName();
         n.kind = "METHOD";
-        n.qualifiedName = declType.getQualifiedName() + "#" + r.getName();
+        n.qualifiedName = classId + "#" + r.getName();
         n.pkg = declType.getPackageName();
         n.sourceFile = sourceFile;
         n.sourceLocation = "L" + lineOf(decl);
@@ -139,7 +139,7 @@ public class MethodExtractor implements Extractor {
         n.id = methodId;
         n.label = r.getName();
         n.kind = "METHOD";
-        n.qualifiedName = declType.getQualifiedName() + "#" + r.getName();
+        n.qualifiedName = classId + "#" + r.getName();
         n.pkg = declType.getPackageName();
         n.sourceFile = sourceFile;
         n.sourceLocation = "L" + lineOf(decl);
@@ -155,7 +155,7 @@ public class MethodExtractor implements Extractor {
     private void emitLambda(LambdaExpr lambda, String sourceFile, ExtractionResult result) {
         String parentId;
         try { parentId = enclosing.ownerIdOf(lambda); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         if (parentId == null) return;
 
         int line = lambda.getBegin().map(p -> p.line).orElse(0);
@@ -165,7 +165,7 @@ public class MethodExtractor implements Extractor {
         boolean bindingResolved = true;
         String returnType = null;
         try { returnType = NodeIdGenerator.erasedTypeDescribe(lambda.calculateResolvedType()); }
-        catch (RuntimeException e) { bindingResolved = false; ctx.incrementUnresolved(); }
+        catch (RuntimeException e) { bindingResolved = false; ctx.incrementUnresolved(e); }
 
         List<Map<String, String>> params = new ArrayList<>();
         for (com.github.javaparser.ast.body.Parameter p : lambda.getParameters()) {
@@ -209,7 +209,7 @@ public class MethodExtractor implements Extractor {
     private void emitMethodRef(MethodReferenceExpr ref, String sourceFile, ExtractionResult result) {
         String parentId;
         try { parentId = enclosing.ownerIdOf(ref); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         if (parentId == null) return;
 
         int line = ref.getBegin().map(p -> p.line).orElse(0);

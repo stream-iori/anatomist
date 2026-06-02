@@ -27,9 +27,6 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
-import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
-import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 
 import java.util.ArrayList;
@@ -90,20 +87,18 @@ public class AnnotationExtractor implements Extractor {
     private void emitTypeAnnotations(com.github.javaparser.ast.body.TypeDeclaration<?> decl,
                                      ExtractionResult result) {
         if (decl.getAnnotations().isEmpty()) return;
-        ResolvedReferenceTypeDeclaration rt;
-        try { rt = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
-        String nodeId = ctx.idGenerator().forType(rt);
+        String nodeId;
+        try { nodeId = ctx.idGenerator().forType(decl.resolve()); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
         }
     }
 
     private void emitMethodAnnotations(MethodDeclaration decl, ExtractionResult result) {
-        ResolvedMethodDeclaration r;
-        try { r = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
-        String nodeId = ctx.idGenerator().forMethod(r);
+        String nodeId;
+        try { nodeId = ctx.idGenerator().forMethod(decl.resolve()); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
         }
@@ -111,10 +106,9 @@ public class AnnotationExtractor implements Extractor {
     }
 
     private void emitConstructorAnnotations(ConstructorDeclaration decl, ExtractionResult result) {
-        ResolvedConstructorDeclaration r;
-        try { r = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(); return; }
-        String nodeId = ctx.idGenerator().forConstructor(r);
+        String nodeId;
+        try { nodeId = ctx.idGenerator().forConstructor(decl.resolve()); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
         }
@@ -138,11 +132,12 @@ public class AnnotationExtractor implements Extractor {
     private void emitFieldAnnotations(FieldDeclaration decl, ExtractionResult result) {
         if (decl.getAnnotations().isEmpty()) return;
         for (VariableDeclarator var : decl.getVariables()) {
-            ResolvedValueDeclaration v;
-            try { v = var.resolve(); }
-            catch (RuntimeException e) { ctx.incrementUnresolved(); continue; }
-            if (!(v instanceof com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration field)) continue;
-            String nodeId = ctx.idGenerator().forField(field);
+            String nodeId;
+            try {
+                ResolvedValueDeclaration v = var.resolve();
+                if (!(v instanceof com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration field)) continue;
+                nodeId = ctx.idGenerator().forField(field);
+            } catch (RuntimeException e) { ctx.incrementUnresolved(e); continue; }
             for (AnnotationExpr ann : decl.getAnnotations()) {
                 collectOne(nodeId, ann, null, result);
             }
