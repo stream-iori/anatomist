@@ -145,6 +145,7 @@
                                 <buildArg>-H:+UnlockExperimentalVMOptions</buildArg>
                                 <buildArg>-H:+ReportExceptionStackTraces</buildArg>
                                 <buildArg>--enable-url-protocols=jar</buildArg>
+                                <buildArg>--enable-native-access=ALL-UNNAMED</buildArg>
                                 <buildArg>--initialize-at-build-time=com.anatomist</buildArg>
                                 <buildArg>--initialize-at-build-time=com.github.javaparser</buildArg>
                                 <buildArg>--initialize-at-build-time=org.objectweb.asm</buildArg>

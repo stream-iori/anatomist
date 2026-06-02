@@ -90,9 +90,6 @@
           "name": "javaVersion"
         },
         {
-          "name": "legacySolver"
-        },
-        {
           "name": "noClasspath"
         },
         {
@@ -152,22 +149,6 @@
     },
     {
       "type": "com.anatomist.cli.WatchCommand"
-    },
-    {
-      "type": "com.github.javaparser.ast.body.FieldDeclaration",
-      "fields": [
-        {
-          "name": "variables"
-        }
-      ]
-    },
-    {
-      "type": "com.github.javaparser.ast.expr.VariableDeclarationExpr",
-      "fields": [
-        {
-          "name": "variables"
-        }
-      ]
     },
     {
       "type": "com.sun.org.apache.xerces.internal.jaxp.SAXParserFactoryImpl",
@@ -671,6 +652,9 @@
   "resources": [
     {
       "glob": "META-INF/anatomist/jdk8-types.bin"
+    },
+    {
+      "glob": "schema.sql"
     },
     {
       "glob": "META-INF/maven/org.xerial/sqlite-jdbc/pom.properties"
