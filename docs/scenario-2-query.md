@@ -25,8 +25,8 @@
 | C1 | 查看类的全貌 | `anatomist context OrderService` | nodes + CONTAINS edges + annotations（不含 callees，需用 `--with-callees`） |
 | C2 | 查看继承链 | `anatomist hierarchy OrderService` | 递归 CTE on INHERITS |
 | C3 | 查看方法签名 | `anatomist context OrderService.checkout` | nodes + metadata JSON |
-| C4 | 查看类的依赖 | `anatomist deps-of OrderService` | edges CALLS + REFERENCES |
-| C5 | 查看谁依赖了这个类 | `anatomist used-by OrderService` | edges CALLS + REFERENCES 反向 |
+| C4 | 查看类的依赖 | `anatomist deps-of OrderService` | edges CALLS + REFERENCES + WIRES |
+| C5 | 查看谁依赖了这个类 | `anatomist used-by OrderService` | edges CALLS + REFERENCES + WIRES 反向 |
 
 ### D. 调用链追踪
 
@@ -43,7 +43,7 @@
 |---|--------|------|---------|
 | F1 | 方法修改影响 | `anatomist callers-of checkout --depth 5` | 递归 CTE on CALLS 反向 |
 | F2 | 接口变更影响 | `anatomist implementors-of OrderRepository` | edges IMPLEMENTS |
-| F3 | 类删除影响 | `anatomist used-by DiscountService` | edges CALLS + REFERENCES 反向 |
+| F3 | 类删除影响 | `anatomist used-by DiscountService` | edges CALLS + REFERENCES + WIRES 反向 |
 
 ## 技术方案
 
@@ -58,7 +58,7 @@ flowchart TD
     ROUTER -->|callers-of / callees-of| CALL_QUERY["edges 查询 + 可选递归 CTE"]
     ROUTER -->|hierarchy| HIER_QUERY["递归 CTE on INHERITS"]
     ROUTER -->|implementors-of| IMPL_QUERY["edges IMPLEMENTS 反向"]
-    ROUTER -->|deps-of / used-by| DEP_QUERY["edges CALLS + REFERENCES"]
+    ROUTER -->|deps-of / used-by| DEP_QUERY["edges CALLS + REFERENCES + WIRES"]
 
     FTS5_QUERY --> FORMAT["结果格式化 → JSON"]
     CONTEXT_QUERY --> FORMAT

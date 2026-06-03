@@ -179,6 +179,10 @@ flowchart TD
     CP_CHANGE -->|否| SKIP["跳过，无需重解析"]
 ```
 
+> **Spring bean XML（`--spring-xml`）**：开启后 `.xml` 自动加入监控扩展名，且 watch 会递归注册整个
+> 项目树（`<beans>` 配置通常在 `resources/` 下、不在 Java 源根内）。任一 `<beans>` XML 变更进入
+> 增量闭包时整体重建 bean 子图，详见 [scenario-1-index.md](scenario-1-index.md) §Spring XML 装配。
+
 ## 数据模型变更
 
 增量更新需要额外存储：
@@ -226,6 +230,10 @@ anatomist index /path/to/project --incremental
 
 # 监控特定扩展名
 anatomist watch /path/to/project --extensions ".java,.xml,.gradle"
+
+# 监控 + 自动增量，并解析 Spring bean XML（<beans>）
+# 自动把 .xml 纳入监控扩展名，并把 --spring-xml 透传给增量/全量子进程
+anatomist watch /path/to/project --auto-index --spring-xml
 
 # 调整重对齐闭包上限（默认 200，超限退全量）
 anatomist index /path/to/project --incremental --max-realign-files 500

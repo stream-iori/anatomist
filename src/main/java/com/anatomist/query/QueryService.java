@@ -39,6 +39,7 @@ public class QueryService implements AutoCloseable {
             "CLASS", "INTERFACE", "ENUM", "ANNOTATION", "RECORD", "ANONYMOUS_CLASS");
 
     private final Connection conn;
+    private final NodeResolver resolver;
 
     public QueryService(Path dbPath) {
         try {
@@ -46,6 +47,7 @@ public class QueryService implements AutoCloseable {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to open index db: " + dbPath, e);
         }
+        this.resolver = new NodeResolver(conn);
     }
 
     @Override
@@ -66,8 +68,7 @@ public class QueryService implements AutoCloseable {
         if (!ftsExpr.matches(".*[\\s\"():*-].*")) ftsExpr = ftsExpr + "*";
 
         StringBuilder sql = new StringBuilder()
-                .append("SELECT n.id, n.label, n.kind, n.qualified_name, n.source_file,")
-                .append("       n.source_location, n.module ")
+                .append("SELECT ").append(RowMappers.NODE_COLS).append(" ")
                 .append("FROM node_names nn ")
                 .append("JOIN nodes n ON nn.rowid = n.rowid ")
                 .append("WHERE node_names MATCH ? ");
@@ -85,8 +86,7 @@ public class QueryService implements AutoCloseable {
     /** B4: search by annotation FQN substring. */
     public List<NodeRow> searchByAnnotation(String annotationTerm, String kind, int limit) {
         StringBuilder sql = new StringBuilder()
-                .append("SELECT DISTINCT n.id, n.label, n.kind, n.qualified_name, n.source_file,")
-                .append("       n.source_location, n.module ")
+                .append("SELECT DISTINCT ").append(RowMappers.NODE_COLS).append(" ")
                 .append("FROM nodes n JOIN annotations a ON n.id = a.node_id ")
                 .append("WHERE a.annotation_fqn LIKE ? ");
         String like = "%" + annotationTerm.replace("@", "") + "%";
@@ -107,8 +107,7 @@ public class QueryService implements AutoCloseable {
         if (targetIds.isEmpty()) return Collections.emptyList();
 
         String placeholders = qmarks(targetIds.size());
-        String sql = "SELECT n.id, n.label, n.kind, n.qualified_name, n.source_file,"
-                + "        n.source_location, n.module "
+        String sql = "SELECT " + RowMappers.NODE_COLS
                 + " FROM edges e JOIN nodes n ON e.source_id = n.id "
                 + " WHERE e.relation IN ('IMPLEMENTS','INHERITS') "
                 + "   AND e.is_external = 0 AND e.target_id IN (" + placeholders + ") "
@@ -130,14 +129,13 @@ public class QueryService implements AutoCloseable {
 
         // CONTAINS edges → members
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT n.id, n.label, n.kind, n.qualified_name, n.source_file,"
-              + "        n.source_location, n.module "
+                "SELECT " + RowMappers.NODE_COLS
               + " FROM edges e JOIN nodes n ON e.target_id = n.id "
               + " WHERE e.source_id = ? AND e.relation = 'CONTAINS' "
               + " ORDER BY n.kind, n.source_location")) {
             ps.setString(1, node.id);
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) r.members.add(readNodeRow(rs));
+                while (rs.next()) r.members.add(RowMappers.mapNode(rs));
             }
         } catch (SQLException e) {
             throw rethrow(e);
@@ -292,18 +290,14 @@ public class QueryService implements AutoCloseable {
         if (seedIds.isEmpty()) return Collections.emptyList();
         String placeholders = qmarks(seedIds.size());
         String sql = "WITH RECURSIVE chain AS ("
-                + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, 1 AS depth"
+                + "  SELECT " + RowMappers.CHAIN_CTE_COLS + ", 1 AS depth"
                 + "    FROM edges e "
                 + "   WHERE e.source_id IN (" + placeholders + ") AND e.relation = 'CALLS' "
                 + "  UNION ALL "
-                + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, c.depth + 1"
+                + "  SELECT " + RowMappers.CHAIN_CTE_COLS + ", c.depth + 1"
                 + "    FROM edges e JOIN chain c ON e.source_id = c.target_id "
                 + "   WHERE e.relation = 'CALLS' AND c.depth < ? AND c.is_external = 0 "
-                + ") SELECT c.source_id, c.target_id, c.external_target_fqn, c.relation, c.call_kind,"
-                + "         c.is_external, c.source_file, c.source_location, c.depth,"
-                + "         src.label AS src_label, tgt.label AS tgt_label, tgt.qualified_name AS tgt_q, c.context"
+                + ") SELECT " + RowMappers.EDGE_COLS_CHAIN
                 + "    FROM chain c "
                 + "    LEFT JOIN nodes src ON c.source_id = src.id "
                 + "    LEFT JOIN nodes tgt ON c.target_id = tgt.id "
@@ -317,18 +311,14 @@ public class QueryService implements AutoCloseable {
         if (seedIds.isEmpty()) return Collections.emptyList();
         String placeholders = qmarks(seedIds.size());
         String sql = "WITH RECURSIVE chain AS ("
-                + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, 1 AS depth"
+                + "  SELECT " + RowMappers.CHAIN_CTE_COLS + ", 1 AS depth"
                 + "    FROM edges e "
                 + "   WHERE e.target_id IN (" + placeholders + ") AND e.relation = 'CALLS' AND e.is_external = 0 "
                 + "  UNION ALL "
-                + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, c.depth + 1"
+                + "  SELECT " + RowMappers.CHAIN_CTE_COLS + ", c.depth + 1"
                 + "    FROM edges e JOIN chain c ON e.target_id = c.source_id "
                 + "   WHERE e.relation = 'CALLS' AND e.is_external = 0 AND c.depth < ? "
-                + ") SELECT c.source_id, c.target_id, c.external_target_fqn, c.relation, c.call_kind,"
-                + "         c.is_external, c.source_file, c.source_location, c.depth,"
-                + "         src.label AS src_label, tgt.label AS tgt_label, tgt.qualified_name AS tgt_q, c.context"
+                + ") SELECT " + RowMappers.EDGE_COLS_CHAIN
                 + "    FROM chain c "
                 + "    LEFT JOIN nodes src ON c.source_id = src.id "
                 + "    LEFT JOIN nodes tgt ON c.target_id = tgt.id "
@@ -347,14 +337,10 @@ public class QueryService implements AutoCloseable {
         List<String> sources = expandTypeToMembers(typeRef);
         if (sources.isEmpty()) return Collections.emptyList();
         String ph = qmarks(sources.size());
-        String sql = "SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
-                + "         e.is_external, e.source_file, e.source_location, 1 AS depth,"
-                + "         src.label, tgt.label, tgt.qualified_name, e.context "
-                + " FROM edges e "
-                + " LEFT JOIN nodes src ON e.source_id = src.id "
-                + " LEFT JOIN nodes tgt ON e.target_id = tgt.id "
+        String sql = "SELECT " + RowMappers.edgeColsFlat("1")
+                + RowMappers.EDGE_FROM_JOINS
                 + " WHERE e.source_id IN (" + ph + ") "
-                + "   AND e.relation IN ('CALLS','REFERENCES') "
+                + "   AND e.relation IN ('CALLS','REFERENCES','WIRES') "
                 + " ORDER BY e.relation, e.source_id";
         return runEdgeQuery(sql, new ArrayList<>(sources));
     }
@@ -364,15 +350,11 @@ public class QueryService implements AutoCloseable {
         List<String> targets = expandTypeToMembers(typeRef);
         if (targets.isEmpty()) return Collections.emptyList();
         String ph = qmarks(targets.size());
-        String sql = "SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
-                + "         e.is_external, e.source_file, e.source_location, 1 AS depth,"
-                + "         src.label, tgt.label, tgt.qualified_name, e.context "
-                + " FROM edges e "
-                + " LEFT JOIN nodes src ON e.source_id = src.id "
-                + " LEFT JOIN nodes tgt ON e.target_id = tgt.id "
+        String sql = "SELECT " + RowMappers.edgeColsFlat("1")
+                + RowMappers.EDGE_FROM_JOINS
                 + " WHERE e.target_id IN (" + ph + ") "
                 + "   AND e.is_external = 0 "
-                + "   AND e.relation IN ('CALLS','REFERENCES') "
+                + "   AND e.relation IN ('CALLS','REFERENCES','WIRES') "
                 + " ORDER BY e.relation, e.source_id";
         return runEdgeQuery(sql, new ArrayList<>(targets));
     }
@@ -414,12 +396,8 @@ public class QueryService implements AutoCloseable {
         List<String> fieldIds = resolveFieldIds(fieldRef);
         if (fieldIds.isEmpty()) return Collections.emptyList();
         String ph = qmarks(fieldIds.size());
-        String sql = "SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
-                + "         e.is_external, e.source_file, e.source_location, 1 AS depth,"
-                + "         src.label, tgt.label, tgt.qualified_name, e.context "
-                + " FROM edges e "
-                + " LEFT JOIN nodes src ON e.source_id = src.id "
-                + " LEFT JOIN nodes tgt ON e.target_id = tgt.id "
+        String sql = "SELECT " + RowMappers.edgeColsFlat("1")
+                + RowMappers.EDGE_FROM_JOINS
                 + " WHERE e.target_id IN (" + ph + ") AND e.relation = ? AND e.is_external = 0 "
                 + " ORDER BY e.source_id, e.source_location";
         List<Object> args = new ArrayList<>(fieldIds);
@@ -428,31 +406,7 @@ public class QueryService implements AutoCloseable {
     }
 
     private List<String> resolveFieldIds(String input) {
-        if (input == null || input.isEmpty()) return Collections.emptyList();
-        // pkg.Class#field — exact id (FIELD id = <classFqn>#<name>, no parens)
-        if (input.contains("#")) {
-            return runStringColumn(
-                    "SELECT id FROM nodes WHERE kind='FIELD' AND id = ? ORDER BY id",
-                    List.of(input));
-        }
-        // Class.field — split at last dot; if typePart is qualified, exact match
-        int dot = input.lastIndexOf('.');
-        if (dot > 0) {
-            String typePart = input.substring(0, dot);
-            String fname = input.substring(dot + 1);
-            if (typePart.contains(".")) {
-                return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind='FIELD' AND id = ? ORDER BY id",
-                        List.of(typePart + "#" + fname));
-            }
-            return runStringColumn(
-                    "SELECT id FROM nodes WHERE kind='FIELD' AND id LIKE ? ORDER BY id",
-                    List.of("%." + typePart + "#" + fname));
-        }
-        // bare name — by label
-        return runStringColumn(
-                "SELECT id FROM nodes WHERE kind='FIELD' AND label = ? ORDER BY qualified_name",
-                List.of(input));
+        return resolver.resolveFieldIds(input);
     }
 
     /** Bidirectional BFS via two recursive CTEs from each end, then intersect.
@@ -512,12 +466,8 @@ public class QueryService implements AutoCloseable {
             String src = chain.get(i - 1);
             String tgt = chain.get(i);
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
-                  + "         e.is_external, e.source_file, e.source_location, ? AS depth,"
-                  + "         src.label, tgt.label, tgt.qualified_name, e.context "
-                  + " FROM edges e "
-                  + " LEFT JOIN nodes src ON e.source_id = src.id "
-                  + " LEFT JOIN nodes tgt ON e.target_id = tgt.id "
+                    "SELECT " + RowMappers.edgeColsFlat("?")
+                  + RowMappers.EDGE_FROM_JOINS
                   + " WHERE e.source_id = ? AND e.target_id = ? AND e.relation = 'CALLS' "
                   + " LIMIT 1")) {
                 ps.setInt(1, i);
@@ -525,21 +475,7 @@ public class QueryService implements AutoCloseable {
                 ps.setString(3, tgt);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
-                        EdgeRow r = new EdgeRow();
-                        r.source = rs.getString(1);
-                        r.target = rs.getString(2);
-                        r.externalTargetFqn = rs.getString(3);
-                        r.relation = rs.getString(4);
-                        r.callKind = rs.getString(5);
-                        r.isExternal = rs.getInt(6) == 1;
-                        r.sourceFile = rs.getString(7);
-                        r.sourceLocation = rs.getString(8);
-                        r.depth = rs.getInt(9);
-                        r.sourceLabel = rs.getString(10);
-                        r.targetLabel = rs.getString(11);
-                        r.targetQualifiedName = rs.getString(12);
-                        r.context = rs.getString(13);
-                        rows.add(r);
+                        rows.add(RowMappers.mapEdge(rs));
                     }
                 }
             } catch (SQLException e) {
@@ -617,8 +553,8 @@ public class QueryService implements AutoCloseable {
 
         // Verify there's at least one node in this package.
         List<NodeRow> types = runNodeQuery(
-                "SELECT id, label, kind, qualified_name, source_file, source_location, module"
-              + "  FROM nodes WHERE package = ? AND kind IN ("
+                "SELECT " + RowMappers.NODE_COLS
+              + "  FROM nodes n WHERE package = ? AND kind IN ("
               + qmarks(TYPE_KINDS.size()) + ") "
               + " ORDER BY label",
                 concat(List.of(pkg), new ArrayList<>(TYPE_KINDS)));
@@ -746,110 +682,20 @@ public class QueryService implements AutoCloseable {
     }
 
     // ──────────────────────────────────────────────────────────────────
-    // FQN resolution
+    // FQN resolution (delegated to NodeResolver)
     // ──────────────────────────────────────────────────────────────────
 
-    /** Resolve a free-form input to one or more type node IDs.
-     *  Accepts FQN (`com.x.Foo`) or short label (`Foo`). */
     public List<String> resolveTypeIds(String input) {
-        if (input == null || input.isEmpty()) return Collections.emptyList();
-        // strip a trailing method-part if user passed `Foo#bar` to a type cmd
-        String t = input;
-        int hash = t.indexOf('#');
-        if (hash >= 0) t = t.substring(0, hash);
-
-        // Try exact qualified_name first.
-        String sql = "SELECT id FROM nodes WHERE qualified_name = ? AND kind IN ("
-                + qmarks(TYPE_KINDS.size()) + ")";
-        List<Object> args = new ArrayList<>();
-        args.add(t);
-        args.addAll(TYPE_KINDS);
-        List<String> ids = runStringColumn(sql, args);
-        if (!ids.isEmpty()) return ids;
-
-        // Else label match
-        sql = "SELECT id FROM nodes WHERE label = ? AND kind IN ("
-                + qmarks(TYPE_KINDS.size()) + ") ORDER BY qualified_name";
-        args.clear();
-        args.add(t);
-        args.addAll(TYPE_KINDS);
-        return runStringColumn(sql, args);
+        return resolver.resolveTypeIds(input);
     }
 
-    /** Resolve a free-form input to one or more method node IDs.
-     *  Accepts {@code pkg.Class#method}, {@code pkg.Class#method(p1,p2)},
-     *  or {@code Class.method} / {@code method} shorthand. */
     public List<String> resolveMethodIds(String input) {
-        if (input == null || input.isEmpty()) return Collections.emptyList();
-
-        // Exact id (with parens)?
-        if (input.contains("(") && input.endsWith(")")) {
-            List<String> exact = runStringColumn(
-                    "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') AND id = ?",
-                    List.of(input));
-            if (!exact.isEmpty()) return exact;
-        }
-
-        // `pkg.Class#method` — match qualified_name exactly (any overload).
-        if (input.contains("#")) {
-            String[] parts = input.split("#", 2);
-            String typePart = parts[0];
-            String methodPart = parts[1];
-            // strip any trailing `(...)` from methodPart for qualified_name match
-            int p = methodPart.indexOf('(');
-            String mname = p >= 0 ? methodPart.substring(0, p) : methodPart;
-
-            if (typePart.contains(".")) {
-                String q = typePart + "#" + mname;
-                return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') "
-                      + "  AND qualified_name = ? ORDER BY id", List.of(q));
-            } else {
-                // short class name
-                return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') "
-                      + "  AND qualified_name LIKE ? ORDER BY id",
-                        List.of("%." + typePart + "#" + mname));
-            }
-        }
-
-        // `Class.method` shorthand — split at last dot.
-        int dot = input.lastIndexOf('.');
-        if (dot > 0) {
-            String typePart = input.substring(0, dot);
-            String mname = input.substring(dot + 1);
-            if (typePart.contains(".")) {
-                return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') "
-                      + "  AND qualified_name = ? ORDER BY id",
-                        List.of(typePart + "#" + mname));
-            } else {
-                return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') "
-                      + "  AND qualified_name LIKE ? ORDER BY id",
-                        List.of("%." + typePart + "#" + mname));
-            }
-        }
-
-        // bare method name
-        return runStringColumn(
-                "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') AND label = ? "
-              + " ORDER BY qualified_name", List.of(input));
+        return resolver.resolveMethodIds(input);
     }
 
     /** Resolve to a single NodeRow when caller wants one row (e.g. context). */
     public NodeRow resolveNodeRow(String input) {
-        // Try as method first if input contains '#' or paren.
-        if (input.contains("#") || input.contains("(")) {
-            List<String> mids = resolveMethodIds(input);
-            if (!mids.isEmpty()) return readNodeById(mids.get(0));
-        }
-        List<String> tids = resolveTypeIds(input);
-        if (!tids.isEmpty()) return readNodeById(tids.get(0));
-        // last resort: method shorthand
-        List<String> mids = resolveMethodIds(input);
-        if (!mids.isEmpty()) return readNodeById(mids.get(0));
-        return null;
+        return resolver.resolveNodeRow(input);
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -857,16 +703,7 @@ public class QueryService implements AutoCloseable {
     // ──────────────────────────────────────────────────────────────────
 
     private NodeRow readNodeById(String id) {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT id, label, kind, qualified_name, source_file, source_location, module "
-              + " FROM nodes WHERE id = ?")) {
-            ps.setString(1, id);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? readNodeRow(rs) : null;
-            }
-        } catch (SQLException e) {
-            throw rethrow(e);
-        }
+        return resolver.readNodeById(id);
     }
 
     private List<NodeRow> runNodeQuery(String sql, List<Object> args) {
@@ -874,7 +711,7 @@ public class QueryService implements AutoCloseable {
             bind(ps, args);
             try (ResultSet rs = ps.executeQuery()) {
                 List<NodeRow> out = new ArrayList<>();
-                while (rs.next()) out.add(readNodeRow(rs));
+                while (rs.next()) out.add(RowMappers.mapNode(rs));
                 return out;
             }
         } catch (SQLException e) {
@@ -887,53 +724,12 @@ public class QueryService implements AutoCloseable {
             bind(ps, args);
             try (ResultSet rs = ps.executeQuery()) {
                 List<EdgeRow> out = new ArrayList<>();
-                while (rs.next()) {
-                    EdgeRow r = new EdgeRow();
-                    r.source = rs.getString(1);
-                    r.target = rs.getString(2);
-                    r.externalTargetFqn = rs.getString(3);
-                    r.relation = rs.getString(4);
-                    r.callKind = rs.getString(5);
-                    r.isExternal = rs.getInt(6) == 1;
-                    r.sourceFile = rs.getString(7);
-                    r.sourceLocation = rs.getString(8);
-                    r.depth = rs.getInt(9);
-                    r.sourceLabel = rs.getString(10);
-                    r.targetLabel = rs.getString(11);
-                    r.targetQualifiedName = rs.getString(12);
-                    r.context = rs.getString(13);
-                    out.add(r);
-                }
+                while (rs.next()) out.add(RowMappers.mapEdge(rs));
                 return out;
             }
         } catch (SQLException e) {
             throw rethrow(e);
         }
-    }
-
-    private List<String> runStringColumn(String sql, List<Object> args) {
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            bind(ps, args);
-            try (ResultSet rs = ps.executeQuery()) {
-                List<String> out = new ArrayList<>();
-                while (rs.next()) out.add(rs.getString(1));
-                return out;
-            }
-        } catch (SQLException e) {
-            throw rethrow(e);
-        }
-    }
-
-    private static NodeRow readNodeRow(ResultSet rs) throws SQLException {
-        NodeRow n = new NodeRow();
-        n.id = rs.getString("id");
-        n.label = rs.getString("label");
-        n.kind = rs.getString("kind");
-        n.qualifiedName = rs.getString("qualified_name");
-        n.sourceFile = rs.getString("source_file");
-        n.sourceLocation = rs.getString("source_location");
-        n.module = rs.getString("module");
-        return n;
     }
 
     private static void bind(PreparedStatement ps, List<Object> args) throws SQLException {

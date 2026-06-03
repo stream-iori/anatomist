@@ -3,6 +3,8 @@ package com.anatomist.incremental;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.NodeIdGenerator;
+import com.anatomist.core.ProjectScanner;
+import com.anatomist.core.SpringBeanParser;
 import com.anatomist.extract.AnnotationExtractor;
 import com.anatomist.extract.CallGraphExtractor;
 import com.anatomist.extract.FieldAccessExtractor;
@@ -11,6 +13,7 @@ import com.anatomist.extract.HierarchyExtractor;
 import com.anatomist.extract.MethodExtractor;
 import com.anatomist.extract.ReferenceExtractor;
 import com.anatomist.extract.TypeExtractor;
+import com.anatomist.extract.XmlBeanExtractor;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
@@ -38,6 +41,7 @@ public class IncrementalIndexer {
     private final SqliteStore store;
     private final int javaVersion;
     private final int maxRealignFiles;
+    private final boolean springXml;
 
     public IncrementalIndexer(Path projectRoot,
                               List<Path> sourcePaths,
@@ -45,12 +49,23 @@ public class IncrementalIndexer {
                               SqliteStore store,
                               int javaVersion,
                               int maxRealignFiles) {
+        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles, false);
+    }
+
+    public IncrementalIndexer(Path projectRoot,
+                              List<Path> sourcePaths,
+                              JavaParserFactory parserFactory,
+                              SqliteStore store,
+                              int javaVersion,
+                              int maxRealignFiles,
+                              boolean springXml) {
         this.projectRoot = projectRoot;
         this.sourcePaths = sourcePaths;
         this.parserFactory = parserFactory;
         this.store = store;
         this.javaVersion = javaVersion;
         this.maxRealignFiles = maxRealignFiles;
+        this.springXml = springXml;
     }
 
     public static final class Summary {
@@ -180,7 +195,37 @@ public class IncrementalIndexer {
                 store.write(result);
             }
 
-            // Count nodes/edges per source file in this batch
+            // Spring-bean graph rebuild. bean refs can cross XML files, so whenever
+            // any <beans> XML enters the reparse/delete closure (edited directly, or
+            // pulled in via file_dependencies because a referenced Java class changed,
+            // or deleted) we wipe the whole bean subgraph and re-derive it from every
+            // XML on disk against the just-written Java node set. beans are few, so the
+            // wholesale rebuild is cheap and immune to partial cross-file state.
+            ExtractionResult beanResult = new ExtractionResult();
+            List<Path> rebuiltXml = new ArrayList<>();
+            if (springXml && touchesSpringXml(toReparse, toDelete)) {
+                store.deleteSpringBeanGraph();
+                rebuiltXml = new ProjectScanner().scanSpringXml(projectRoot);
+                if (!rebuiltXml.isEmpty()) {
+                    Set<String> knownIds = store.allNodeIds();
+                    XmlBeanExtractor xmlExtractor = new XmlBeanExtractor("MAIN");
+                    SpringBeanParser beanParser = new SpringBeanParser();
+                    for (Path xml : rebuiltXml) {
+                        Path abs = xml.toAbsolutePath().normalize();
+                        String rel;
+                        try {
+                            rel = projectRoot.relativize(abs).toString();
+                        } catch (IllegalArgumentException ex) {
+                            rel = abs.toString();
+                        }
+                        xmlExtractor.extract(beanParser.parse(xml), knownIds, rel, beanResult);
+                    }
+                    pruneDanglingInternalEdges(beanResult, store.allNodeIds());
+                    store.write(beanResult);
+                }
+            }
+
+            // Count nodes/edges per source file in this batch (Java + bean rebuild)
             Map<String, int[]> perFile = new HashMap<>();
             for (Node n : result.nodes) {
                 String f = n.sourceFile;
@@ -192,10 +237,31 @@ public class IncrementalIndexer {
                 if (f == null) continue;
                 perFile.computeIfAbsent(f, k -> new int[2])[1]++;
             }
+            for (Node n : beanResult.nodes) {
+                String f = n.sourceFile;
+                if (f == null) continue;
+                perFile.computeIfAbsent(f, k -> new int[2])[0]++;
+            }
+            for (Edge e : beanResult.edges) {
+                String f = e.sourceFile;
+                if (f == null) continue;
+                perFile.computeIfAbsent(f, k -> new int[2])[1]++;
+            }
 
             String now = Instant.now().toString();
+            LinkedHashSet<String> cacheTargets = new LinkedHashSet<>(toReparse);
+            for (Path xml : rebuiltXml) {
+                Path abs = xml.toAbsolutePath().normalize();
+                String rel;
+                try {
+                    rel = projectRoot.relativize(abs).toString();
+                } catch (IllegalArgumentException ex) {
+                    rel = abs.toString();
+                }
+                cacheTargets.add(rel);
+            }
             List<FileCacheEntry> entries = new ArrayList<>();
-            for (String rel : toReparse) {
+            for (String rel : cacheTargets) {
                 String hash = diskHashes.get(rel);
                 if (hash == null) continue;
                 int[] cnt = perFile.getOrDefault(rel, new int[]{0, 0});
@@ -204,8 +270,8 @@ public class IncrementalIndexer {
             }
             if (!entries.isEmpty()) store.updateFileCache(entries);
 
-            s.newNodes = result.nodes.size();
-            s.newEdges = result.edges.size();
+            s.newNodes = result.nodes.size() + beanResult.nodes.size();
+            s.newEdges = result.edges.size() + beanResult.edges.size();
 
             // Dependents were reparsed in this same pass and are now aligned, so the
             // re-derived file_dependencies reflects the new state with nothing stale.
@@ -220,6 +286,12 @@ public class IncrementalIndexer {
             try { c.setAutoCommit(priorAutoCommit); } catch (SQLException ignore) {}
         }
         return s;
+    }
+
+    private static boolean touchesSpringXml(Set<String> reparse, Set<String> delete) {
+        for (String f : reparse) if (f.endsWith(".xml")) return true;
+        for (String f : delete) if (f.endsWith(".xml")) return true;
+        return false;
     }
 
     private static int pruneDanglingInternalEdges(ExtractionResult r, Set<String> survivingDbNodeIds) {

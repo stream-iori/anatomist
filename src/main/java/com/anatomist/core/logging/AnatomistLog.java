@@ -30,13 +30,29 @@ public final class AnatomistLog {
 
     private static volatile Sink warnSink;
     private static volatile Sink debugSink;
+    private static volatile boolean debugEnabled;
 
     private AnatomistLog() {}
 
-    /** Point the sinks at a concrete project. Safe to call more than once. */
+    /** Point the sinks at a concrete project. Safe to call more than once.
+     *  Debug logging stays off (the {@code debug.log} sink is wired but inert)
+     *  unless {@link #configure(Path, Path, boolean)} turns it on. */
     public static void configure(Path repoDir, Path home) {
+        configure(repoDir, home, false);
+    }
+
+    /** As {@link #configure(Path, Path)}, but {@code debug} gates whether
+     *  {@link #debug(String)} actually writes. Off by default so a normal index
+     *  run produces no debug.log churn. */
+    public static void configure(Path repoDir, Path home, boolean debug) {
         warnSink = new Sink(repoDir.resolve("warn.log"), MAX_BYTES);
         debugSink = new Sink(home.resolve("logs").resolve("debug.log"), MAX_BYTES);
+        debugEnabled = debug;
+    }
+
+    /** Cheap guard so hot paths can skip building a debug message string. */
+    public static boolean isDebugEnabled() {
+        return debugEnabled && debugSink != null;
     }
 
     public static void warn(String message) {
@@ -46,9 +62,10 @@ public final class AnatomistLog {
     }
 
     public static void debug(String message) {
+        if (!debugEnabled) return;
         Sink s = debugSink;
         if (s != null) s.write("DEBUG", message);
-        // No console fallback for debug — it's opt-in via the file only.
+        // No console fallback for debug — it's opt-in via --debug, file only.
     }
 
     /** Append-only file with a single-backup size cap. */

@@ -44,6 +44,11 @@ public class WatchCommand implements Callable<Integer> {
             description = "Override project source roots (path-separator delimited).")
     String projectSource;
 
+    @Option(names = "--include-tests",
+            description = "Also watch/index src/test/java (test-only modules included). "
+                    + "Off by default. Ignored when --project-source is given.")
+    boolean includeTests;
+
     @Option(names = "--auto-index",
             description = "Trigger incremental index on change.")
     boolean autoIndex;
@@ -88,6 +93,10 @@ public class WatchCommand implements Callable<Integer> {
             defaultValue = "200")
     int maxRealignFiles;
 
+    @Option(names = "--spring-xml",
+            description = "Also watch + index Spring bean XML (<beans>) configs. Off by default.")
+    boolean springXml;
+
     @Option(names = "--max-iterations",
             description = "Stop after N debounce cycles (for testing).",
             defaultValue = "0", hidden = true)
@@ -120,6 +129,7 @@ public class WatchCommand implements Callable<Integer> {
                 .map(String::trim).filter(s -> !s.isEmpty())
                 .map(s -> s.startsWith(".") ? s : "." + s)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (springXml) exts.add(".xml");
 
         Set<String> extraExcludes = exclude == null || exclude.isEmpty()
                 ? Collections.emptySet()
@@ -137,6 +147,9 @@ public class WatchCommand implements Callable<Integer> {
             }
             // Also register project root non-recursively so we see build-file changes
             registerSingle(ws, projectRoot, keys);
+            // Spring XML lives under resources/, outside the Java source roots — watch
+            // the whole tree so <beans> config edits are seen.
+            if (springXml) registerRecursive(ws, projectRoot, keys, extraExcludes);
 
             System.out.println("Watching " + projectRoot + " (extensions=" + exts + ", debounce=" + debounceMs + "ms"
                     + (autoIndex ? ", auto-index" : "") + ")");
@@ -236,6 +249,7 @@ public class WatchCommand implements Callable<Integer> {
                 args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
                 if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
                 args.add("--output"); args.add(dbPath.toString());
+                if (springXml) args.add("--spring-xml");
                 args.add("--full");
                 new CommandLine(ic).parseArgs(args.toArray(new String[0]));
                 ic.call();
@@ -254,6 +268,7 @@ public class WatchCommand implements Callable<Integer> {
             if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
             args.add("--output"); args.add(dbPath.toString());
             args.add("--incremental");
+            if (springXml) args.add("--spring-xml");
             args.add("--max-realign-files"); args.add(String.valueOf(maxRealignFiles));
             new CommandLine(ic).parseArgs(args.toArray(new String[0]));
             ic.call();
@@ -296,7 +311,7 @@ public class WatchCommand implements Callable<Integer> {
             }
             return out;
         }
-        return cd.detectSourcePaths(projectRoot);
+        return cd.detectSourcePaths(projectRoot, includeTests);
     }
 
     /** Tiny shim so this file compiles cleanly on any JDK regardless of throws lists. */

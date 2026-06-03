@@ -1,5 +1,7 @@
 package com.anatomist.core;
 
+import com.anatomist.core.logging.AnatomistLog;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -34,31 +36,48 @@ public class ClasspathDetector {
         // Clear any stragglers from a prior interrupted run so the union is clean.
         deleteClasspathFiles(projectRoot);
         try {
-            int code = runMvn(projectRoot, Arrays.asList(
+            List<String> mvnArgs = Arrays.asList(
                     "dependency:build-classpath",
                     // scope=test is the widest Maven scope (compile + provided +
                     // runtime + system + test); a code-intelligence index wants to
                     // resolve as many types as possible, and extra jars are nearly
                     // free for AsmTypeSolver.
                     "-DincludeScope=test",
+                    // fail-at-end: one unresolvable module (e.g. a legacy
+                    // system-scope tools.jar dep that's gone on JDK 9+) must not
+                    // zero out the whole reactor's classpath. Good modules still
+                    // write their per-module file; we union whatever landed.
+                    "-fae",
                     "-q",
                     "-Dmdep.outputFile=" + CP_FILE
-            ));
-            if (code != 0) {
-                warn("mvn dependency:build-classpath exited with code " + code
-                        + ", proceeding with empty classpath");
-                return Collections.emptyList();
-            }
-            // Union every module's output, preserving first-seen order.
+            );
+            AnatomistLog.debug("classpath: running 'mvn " + String.join(" ", mvnArgs)
+                    + "' in " + projectRoot);
+            int code = runMvn(projectRoot, mvnArgs);
+            // Union every module's output, preserving first-seen order. Done even
+            // on non-zero exit: with -fae the modules that succeeded already wrote
+            // their files, and a partial classpath beats an empty one.
             java.util.LinkedHashSet<String> union = new java.util.LinkedHashSet<>();
-            for (Path f : findClasspathFiles(projectRoot)) {
+            List<Path> cpFiles = findClasspathFiles(projectRoot);
+            AnatomistLog.debug("classpath: mvn exited " + code + "; "
+                    + cpFiles.size() + " per-module classpath file(s) written");
+            for (Path f : cpFiles) {
                 String content = Files.readString(f, StandardCharsets.UTF_8).trim();
                 if (content.isEmpty()) continue;
+                int countBefore = union.size();
                 for (String entry : content.split(java.io.File.pathSeparator)) {
                     String t = entry.trim();
                     if (!t.isEmpty()) union.add(t);
                 }
+                AnatomistLog.debug("classpath:   " + projectRoot.relativize(f.getParent())
+                        + " contributed " + (union.size() - countBefore) + " new jar(s)");
             }
+            if (code != 0) {
+                warn("mvn dependency:build-classpath exited with code " + code
+                        + "; proceeding with classpath from the " + union.size()
+                        + " entries that did resolve (some modules failed)");
+            }
+            AnatomistLog.debug("classpath: union total = " + union.size() + " jar(s)");
             return new ArrayList<>(union);
         } catch (IOException | InterruptedException e) {
             warn("mvn classpath detection failed (" + e.getMessage() + "), proceeding with empty classpath");
@@ -97,28 +116,47 @@ public class ClasspathDetector {
     }
 
     public List<Path> detectSourcePaths(Path projectRoot) {
+        return detectSourcePaths(projectRoot, false);
+    }
+
+    /**
+     * Discover source roots. When {@code includeTests} is true, each module's
+     * {@code src/test/java} is collected alongside {@code src/main/java} — and
+     * test-only modules (no {@code src/main/java} of their own) are picked up
+     * too. Within a module the main root sorts before its test root.
+     */
+    public List<Path> detectSourcePaths(Path projectRoot, boolean includeTests) {
         if (projectRoot == null) return Collections.emptyList();
         if (isMavenProject(projectRoot)) {
-            Path src = projectRoot.resolve("src/main/java");
-            if (Files.isDirectory(src)) {
-                return List.of(src);
+            Path mainSrc = projectRoot.resolve("src/main/java");
+            Path testSrc = projectRoot.resolve("src/test/java");
+            boolean hasMain = Files.isDirectory(mainSrc);
+            boolean hasTest = Files.isDirectory(testSrc);
+            if (hasMain) {
+                List<Path> out = new ArrayList<>();
+                out.add(mainSrc);
+                if (includeTests && hasTest) out.add(testSrc);
+                return out;
             }
             // Multi-module reactor: no src/main/java at the root, so collect
-            // every module's main source root instead.
-            List<Path> modules = findModuleSourceRoots(projectRoot);
+            // every module's source root(s) instead.
+            List<Path> modules = findModuleSourceRoots(projectRoot, includeTests);
             if (!modules.isEmpty()) return modules;
             return Collections.emptyList();
         }
         return Files.isDirectory(projectRoot) ? List.of(projectRoot) : Collections.emptyList();
     }
 
-    /** Walk the reactor for every {@code src/main/java} directory, skipping
-     *  build-output and VCS trees. Returns sorted, deduplicated roots. */
-    private List<Path> findModuleSourceRoots(Path projectRoot) {
+    /** Walk the reactor for every {@code src/main/java} (and, when requested,
+     *  {@code src/test/java}) directory, skipping build-output and VCS trees.
+     *  Returns sorted, deduplicated roots. */
+    private List<Path> findModuleSourceRoots(Path projectRoot, boolean includeTests) {
+        Path mainTail = Path.of("src", "main", "java");
+        Path testTail = Path.of("src", "test", "java");
         try (Stream<Path> walk = Files.walk(projectRoot)) {
             return walk
                     .filter(Files::isDirectory)
-                    .filter(p -> p.endsWith(Path.of("src", "main", "java")))
+                    .filter(p -> p.endsWith(mainTail) || (includeTests && p.endsWith(testTail)))
                     .filter(p -> !isUnderExcludedDir(projectRoot.relativize(p)))
                     .sorted()
                     .collect(Collectors.toList());

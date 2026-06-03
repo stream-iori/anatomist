@@ -554,6 +554,39 @@ WRITES: com.example.OrderService#updateStatus(...) → com.example.OrderService#
 
 **注解全限定名的重要性**：`@Service` 在代码中是简写，但 SQLite 中必须存 `org.springframework.stereotype.Service`，否则 B4 场景（"所有 @RestController"）无法精确查询。
 
+##### Spring XML 装配（可选，`--spring-xml`，默认关）
+
+Spring 的 XML 装配（`<bean class="..."/>`、`property`/`constructor-arg` 的 `ref`）是
+**仅存在于 XML 的运行时依赖**——不开此功能时完全不进图谱，"谁注入谁"在 `deps-of`/`used-by`
+里看不到。`--spring-xml` 让 index 额外解析这些配置。
+
+XML **不参与 SymbolSolver**（只有 FQN 字符串），因此它不是一个 `Extractor`（拿不到
+`CompilationUnit`），而是在 Java 抽取**之后**跑的独立 pass：
+
+- `ProjectScanner.scanSpringXml` 走查 `.xml`，按根元素 `<beans>` 嗅探出 Spring 配置（忽略
+  `pom.xml`/`logback.xml` 等）。
+- `SpringBeanParser`（纯 SAX，native 安全）把每个 `<bean>` 解析为 `ParsedBean(name,
+  className, line, refs)`。
+- `XmlBeanExtractor` 拿到 `knownIds`（本批次 result 节点 id ∪ `store.allNodeIds()`，覆盖
+  Java 节点已在库中的增量场景），用**字符串相等**判定内部/外部：
+
+| 产出 | 说明 |
+|------|------|
+| `BEAN` 节点 | 一个 `<bean>` 一个，`metadata` 记录 `{className, refs[]}` |
+| `DEFINED_BY` 边 | `BEAN` → 它的 class 节点；class 已索引则 internal，否则 external |
+| `WIRES` 边 | **CLASS→CLASS**：owner bean 的 class → ref bean 的 class。建模为类间边即可
+  **零改动**地融入现有 `deps-of`/`used-by` 的 CTE（`relation IN ('CALLS','REFERENCES','WIRES')`） |
+
+`WIRES` 仅在 owner class 是已知内部节点时发（`source_id` 必须指向存在的节点）；ref class 已知→internal，
+未知（第三方 bean）→external。
+
+> **增量/watch**：bean ref 可能跨 XML 文件，为保证 bean 图自洽，只要 reparse/delete 闭包触及任一
+> spring-xml（直接改、新增、删除，或经 `file_dependencies` 被引用的 Java 类改动 realign 拉入），就
+> **整体重建** bean 子图：删除全部 `BEAN` 节点与 `WIRES` 边（`WIRES` 源在 CLASS 节点上、不随 `BEAN`
+> 删除级联，故显式删），在 Java 重写后对磁盘上**全部** spring-xml 重跑 XML pass。beans 数量小，整体重跑
+> 廉价且鲁棒。`deriveFileDependencies` 因 `BEAN.source_file` 是 xml、边指向 java 节点，会自动产出
+> `foo.xml → Bar.java` 依赖，改 `Bar.java` 即经现有 realign 闭包把 xml 拉回。
+
 ## 数据模型
 
 ### nodes 表
@@ -562,7 +595,7 @@ WRITES: com.example.OrderService#updateStatus(...) → com.example.OrderService#
 |----|------|------|---------|
 | `id` | TEXT PK | FQN 形式，保留大小写（含方法签名） | B3 精确查找 |
 | `label` | TEXT | 简名 | FTS5 搜索 |
-| `kind` | TEXT | CLASS/METHOD/FIELD/INTERFACE/ENUM/ENUM_CONSTANT/ANONYMOUS_CLASS/LAMBDA/METHOD_REF | B2 按类型筛选 |
+| `kind` | TEXT | CLASS/METHOD/FIELD/INTERFACE/ENUM/ENUM_CONSTANT/ANONYMOUS_CLASS/LAMBDA/METHOD_REF/BEAN | B2 按类型筛选 |
 | `qualified_name` | TEXT | 人类可读 FQN（方法不带签名） | B3 精确定位 |
 | `package` | TEXT | 所属包，从 `PackageDeclaration` 直接提取 | E2 / package-deps |
 | `source_file` | TEXT | 相对路径 | 按文件查询 |
@@ -581,6 +614,7 @@ WRITES: com.example.OrderService#updateStatus(...) → com.example.OrderService#
 | ENUM_CONSTANT | 枚举FQN + `#` + 常量名 | `com.example.OrderStatus#PENDING` |
 | ANONYMOUS_CLASS | 父方法ID + `$anon@L<line>` | `com.example.OrderService#checkout(...)$anon@L42` |
 | LAMBDA | 父方法ID + `$lambda@L<line>C<col>` | `com.example.OrderService#checkout(...)$lambda@L42C18` |
+| BEAN | `bean:<beanName>@<相对XML路径>`（无 `#`/`$` 后缀，避开合成符号命名空间） | `bean:orderService@service/src/main/resources/applicationContext.xml` |
 
 **关键决策**：
 
@@ -651,7 +685,7 @@ WRITES: com.example.OrderService#updateStatus(...) → com.example.OrderService#
 | `source_id` | TEXT FK→nodes.id | 调用方/子类/包含方 | D1/D2/C4 |
 | `target_id` | TEXT FK→nodes.id | 被调用方/父类/被包含方；**仅项目内**，外部依赖时为 NULL | D1/D2/C5 |
 | `external_target_fqn` | TEXT | 外部依赖时填写 FQN（含方法签名），项目内为 NULL | 显示外部方法 |
-| `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES | 按关系筛选 |
+| `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/WIRES | 按关系筛选 |
 | `call_kind` | TEXT | 仅 CALLS 边：INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE；其他为 NULL | 多态、构造调用筛选 |
 | `confidence` | TEXT | EXTRACTED | 符号解析成功均为 EXTRACTED |
 | `context` | TEXT | REFERENCES: `field_type`/`parameter_type`/`return_type`/`generic_arg`；CALLS: 空 | C4 区分引用类型 |
@@ -719,6 +753,9 @@ anatomist index /path/to/project --project-source "api/src/main/java:service/src
 
 # 无 classpath 索引（纯 AST 解析）
 anatomist index /path/to/project --no-classpath
+
+# 额外解析 Spring bean XML（<beans>）→ BEAN 节点 + DEFINED_BY / WIRES 边（默认关）
+anatomist index /path/to/project --spring-xml
 ```
 
 **自动检测 vs 手动指定**：

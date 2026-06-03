@@ -54,6 +54,35 @@ public class ProjectScanner {
         return out;
     }
 
+    /**
+     * Discover Spring bean XML configs under {@code root}: regular {@code .xml}
+     * files whose root element is a Spring {@code <beans>} element (sniffed via
+     * {@link SpringBeanParser#isSpringBeansFile}). Honours the same excluded-dir
+     * rules as {@link #scan(Path)}. Used only when {@code --spring-xml} is on.
+     */
+    public List<Path> scanSpringXml(Path root) {
+        if (root == null || !Files.isDirectory(root)) {
+            return Collections.emptyList();
+        }
+        List<Path> out = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(root)) {
+            stream.filter(this::notInExcludedDir)
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().endsWith(".xml"))
+                    .filter(SpringBeanParser::isSpringBeansFile)
+                    .forEach(out::add);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed scanning " + root, e);
+        }
+        return out;
+    }
+
+    public List<Path> scanSpringXml(List<Path> roots) {
+        List<Path> out = new ArrayList<>();
+        for (Path r : roots) out.addAll(scanSpringXml(r));
+        return out;
+    }
+
     private boolean notInExcludedDir(Path path) {
         for (Path part : path) {
             if (excludedDirs.contains(part.toString())) return false;

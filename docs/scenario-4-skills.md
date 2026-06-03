@@ -111,13 +111,21 @@ and analyze dependencies.
 ### Structure
 - `anatomist hierarchy <class>` — Inheritance chain and interfaces
 - `anatomist implementors-of <interface>` — Classes implementing an interface
-- `anatomist deps-of <class>` — What does this class depend on?
+- `anatomist deps-of <class>` — What does this class depend on? (incl. Spring `WIRES` when indexed with `--spring-xml`)
 - `anatomist used-by <class>` — Who depends on this class?
+- `anatomist call-path <from> <to> [--depth N]` — Shortest CALLS path between two methods
+- `anatomist package-deps` — Package → package edge aggregation
 
-### Export
-- `anatomist export --format mermaid --type call-graph` — Export call graph as Mermaid
-- `anatomist export --format mermaid --type class-deps` — Export class dependencies
-- `anatomist export --format json` — Export full graph as JSON
+### Field-level impact
+- `anatomist field-readers <field>` — Who reads this field?
+- `anatomist field-writers <field>` — Who writes this field?
+
+### Semantic enrichment (write business intent back to the index)
+- `anatomist enrich --node/--package <target>` — Aggregate structure + annotations for LLM reasoning
+- `anatomist annotate <node-id> --label --category --description --source --confidence` — Persist a semantic annotation
+
+> **Export is NOT implemented.** Mermaid / dot / GraphML export (DESIGN.md 场景 5)
+> is deferred — do not advertise `anatomist export` to the Agent.
 
 ## Typical Workflows
 
@@ -141,6 +149,10 @@ and analyze dependencies.
 ```
 
 ### ContextBuilder 设计
+
+> **实现现状**：ContextBuilder 未作为独立 Java 组件落地——它的"一次调用拿全貌"
+> 职责由 `context`（结构）与 `enrich`（结构 + 注解 + 一跳 callees + 相关文档，
+> 供 LLM 分析）两个 CLI 命令承担。下文描述其逻辑组装意图。
 
 ContextBuilder 为 Agent 的单次 LLM 调用组装最优上下文，减少 Agent 需要的 CLI 调用次数。
 
@@ -196,6 +208,28 @@ flowchart TD
 ]
 ```
 
+## FQN 语法约定
+
+解析器接受由严到松的多种写法，指向同一目标（与 scenario-2 §FQN 解析约定一致）：
+
+| 写法 | 例子 | 何时命中 |
+|---|---|---|
+| 全 FQN | `com.example.service.OrderService` | 精确 `qualified_name` |
+| 类 + 方法 | `com.example.service.OrderService#createOrder` | 该方法的所有 overload |
+| 类 + 方法 + 签名 | `...#createOrder(com.example.dto.CreateOrderRequest)` | 单个精确 overload（id 匹配） |
+| 简写 | `OrderService.createOrder` | 末位 `.` 拆类/方法，类按短名匹配 |
+| 裸名 | `OrderService`（类）/ `createOrder`（方法） | 按 `nodes.label` |
+
+> 方法参数 FQN 用**擦除签名**——`java.util.List`，不是 `java.util.List<String>`。
+
+## 重要契约（Agent 必须知道）
+
+- **JSON 形态被 golden file 锁死**（`tests/scenarios/*/expected.json`）：字段名、key 顺序、snake_case 跨运行稳定。
+- **递归 `--depth` 上限 20**（`QueryService.MAX_DEPTH`），传更大值静默 clamp。
+- **external 边**（指向 JDK / Spring 等项目外代码）带 `is_external=true` + `external_target_fqn`，**没有** `target` id——不要对它做递归追踪。
+- **`--no-classpath` 模式**抑制 Spring 注解解析，只剩 `@Override`/`@Deprecated`/`@SuppressWarnings`；要查 `@RestController`/`@Service` 必须**带** classpath 索引。
+- **匿名类方法**的 id 形如 `<外层方法>$anon@L<line>`，callers/callees 结果里以此形式出现。
+
 ## 领域分析工作流示例
 
 ### E3: "创建订单的流程是什么？"
@@ -245,9 +279,36 @@ sequenceDiagram
     Note over A: LLM 推理实体关系<br/>Order → OrderItem (1:N)<br/>Order → Customer (N:1)<br/>Order → Payment (1:1)
 ```
 
+## 语义闭环：enrich → reason → annotate → enrich
+
+skill 的最大增量能力——把"从代码反推出的业务语义"写回索引，让下一个会话受益。
+
+```mermaid
+flowchart LR
+    E1["enrich --node/--package<br/>聚合结构+注解+一跳callees+文档"] --> R["Agent LLM 推理<br/>业务标签/类别/描述"]
+    R --> AN["annotate <node-id><br/>--label --category --description<br/>--source --confidence"]
+    AN --> E2["enrich 复读<br/>验证语义注解已写入"]
+    E2 -.未达预期.-> R
+
+    style R fill:#fff7e6,stroke:#f59e0b
+```
+
+1. **aggregate** — `enrich` 拉出成员、注解、已有语义注解、一跳 callees、相关文档（`--with-docs`）+ 建议的后续查询，单个 markdown blob（≤200 行）。
+2. **reason** — Agent 据此合成业务标签 / 类别 / 描述。现有类别：`BUSINESS_SERVICE`/`BUSINESS_REPOSITORY`/`BUSINESS_CONTROLLER`/`BUSINESS_ENTITY`/`BUSINESS_VALUE_OBJECT`。
+3. **annotate** — 写回结论。同 `(node-id, category, source)` 重跑为 upsert，可反复细化措辞。
+4. **verify** — 复跑 `enrich` 确认语义注解出现在 *Semantic Annotations* 表。
+
+**source 字段规则**：
+
+| source | 含义 | CLI 允许？ |
+|---|---|---|
+| `LLM` | Agent 推理得出（默认） | ✅ |
+| `DOC` | 逐字摘自项目文档 | ✅ |
+| `CONVENTION` / `JAVADOC` | 保留给 `SemanticPostProcessor`（Spring stereotype 扫描）/ 未来 javadoc 抽取器 | ❌ CLI 传入即 exit 1 |
+
 ## 实现要点
 
-1. **Skill 文件位置**：放在项目 `skills/` 目录下。Claude Code 会自动识别 `skill.md`。用户也可以将 skill 复制到自己的 Claude Code 项目配置中。
+1. **Skill 文件位置**：实际交付为仓库根目录的 [`anatomist-skill.md`](../anatomist-skill.md)（一页 playbook）。用户把它放进自己 Agent 的 skills / context 即可；不再依赖 `skills/skill.md` 自动识别约定。
 
 2. **CLI 输出格式**：所有查询输出 JSON 到 stdout，Agent 直接解析。错误信息输出到 stderr，不影响 JSON 解析。
 

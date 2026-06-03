@@ -1,5 +1,6 @@
 package com.anatomist.core;
 
+import com.anatomist.core.logging.AnatomistLog;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserAnnotationDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserAnonymousClassDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserClassDeclaration;
@@ -65,9 +66,14 @@ public class ExtractionContext {
     public void incrementUnresolved() { incrementUnresolved(null); }
 
     /** Count one unresolved symbol; when sampling is enabled and {@code cause}
-     *  carries a symbol name (e.g. {@link UnsolvedSymbolException}), aggregate it. */
+     *  carries a symbol name (e.g. {@link UnsolvedSymbolException}), aggregate it.
+     *  Under {@code --debug} each failure is also logged verbatim. */
     public void incrementUnresolved(Throwable cause) {
         unresolved.incrementAndGet();
+        if (cause != null && AnatomistLog.isDebugEnabled()) {
+            AnatomistLog.debug("unresolved: " + cause.getClass().getSimpleName()
+                    + ": " + cause.getMessage());
+        }
         if (unresolvedSamples == null || cause == null) return;
         String key = sampleKey(cause);
         if (key == null) return;

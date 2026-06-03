@@ -62,6 +62,27 @@ public class SqliteStore implements AutoCloseable {
 
     public void write(ExtractionResult result) {
         if (result == null) return;
+        inTransaction(c -> {
+            insertNodes(c, result.nodes);
+            insertEdges(c, result.edges);
+            insertAnnotations(c, result.annotations);
+            insertSemanticAnnotations(c, result.semanticAnnotations);
+        });
+    }
+
+    /** Work to run inside a single SQLite transaction; may throw {@link SQLException}. */
+    @FunctionalInterface
+    public interface TxWork {
+        void run(Connection c) throws SQLException;
+    }
+
+    /**
+     * Runs {@code work} in a single transaction: disables autoCommit, commits on
+     * success, rolls back on any {@link SQLException}, and always restores the
+     * prior autoCommit flag. Centralizes the commit/rollback boilerplate that was
+     * previously copy-pasted across every multi-statement write.
+     */
+    public void inTransaction(TxWork work) {
         Connection c;
         try {
             c = connection();
@@ -76,14 +97,11 @@ public class SqliteStore implements AutoCloseable {
             throw new RuntimeException("Failed to begin transaction", e);
         }
         try {
-            insertNodes(c, result.nodes);
-            insertEdges(c, result.edges);
-            insertAnnotations(c, result.annotations);
-            insertSemanticAnnotations(c, result.semanticAnnotations);
+            work.run(c);
             c.commit();
         } catch (SQLException e) {
             try { c.rollback(); } catch (SQLException ignore) {}
-            throw new RuntimeException("Failed to write extraction result", e);
+            throw new RuntimeException("Transaction failed: " + e.getMessage(), e);
         } finally {
             try { c.setAutoCommit(priorAutoCommit); } catch (SQLException ignore) {}
         }
@@ -179,83 +197,49 @@ public class SqliteStore implements AutoCloseable {
 
     public void upsertSemanticAnnotations(java.util.List<SemanticAnnotation> sas) {
         if (sas == null || sas.isEmpty()) return;
-        Connection c;
-        try {
-            c = connection();
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to acquire SQLite connection", e);
-        }
-        boolean priorAutoCommit;
-        try {
-            priorAutoCommit = c.getAutoCommit();
-            c.setAutoCommit(false);
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to begin transaction", e);
-        }
         String del = "DELETE FROM semantic_annotations WHERE node_id=? AND category=? AND source=?";
         String ins = "INSERT INTO semantic_annotations" +
                 "(node_id,doc_id,category,business_label,business_description,domain_context,source,confidence)" +
                 " VALUES (?,?,?,?,?,?,?,?)";
-        try (PreparedStatement psDel = c.prepareStatement(del);
-             PreparedStatement psIns = c.prepareStatement(ins)) {
-            for (SemanticAnnotation sa : sas) {
-                psDel.setString(1, sa.nodeId);
-                psDel.setString(2, sa.category);
-                psDel.setString(3, sa.source);
-                psDel.executeUpdate();
+        inTransaction(c -> {
+            try (PreparedStatement psDel = c.prepareStatement(del);
+                 PreparedStatement psIns = c.prepareStatement(ins)) {
+                for (SemanticAnnotation sa : sas) {
+                    psDel.setString(1, sa.nodeId);
+                    psDel.setString(2, sa.category);
+                    psDel.setString(3, sa.source);
+                    psDel.executeUpdate();
 
-                if (sa.nodeId == null) psIns.setNull(1, Types.VARCHAR); else psIns.setString(1, sa.nodeId);
-                if (sa.docId == null) psIns.setNull(2, Types.INTEGER); else psIns.setInt(2, sa.docId);
-                if (sa.category == null) psIns.setNull(3, Types.VARCHAR); else psIns.setString(3, sa.category);
-                if (sa.businessLabel == null) psIns.setNull(4, Types.VARCHAR); else psIns.setString(4, sa.businessLabel);
-                if (sa.businessDescription == null) psIns.setNull(5, Types.VARCHAR); else psIns.setString(5, sa.businessDescription);
-                if (sa.domainContext == null) psIns.setNull(6, Types.VARCHAR); else psIns.setString(6, sa.domainContext);
-                psIns.setString(7, sa.source);
-                psIns.setString(8, sa.confidence);
-                psIns.executeUpdate();
+                    if (sa.nodeId == null) psIns.setNull(1, Types.VARCHAR); else psIns.setString(1, sa.nodeId);
+                    if (sa.docId == null) psIns.setNull(2, Types.INTEGER); else psIns.setInt(2, sa.docId);
+                    if (sa.category == null) psIns.setNull(3, Types.VARCHAR); else psIns.setString(3, sa.category);
+                    if (sa.businessLabel == null) psIns.setNull(4, Types.VARCHAR); else psIns.setString(4, sa.businessLabel);
+                    if (sa.businessDescription == null) psIns.setNull(5, Types.VARCHAR); else psIns.setString(5, sa.businessDescription);
+                    if (sa.domainContext == null) psIns.setNull(6, Types.VARCHAR); else psIns.setString(6, sa.domainContext);
+                    psIns.setString(7, sa.source);
+                    psIns.setString(8, sa.confidence);
+                    psIns.executeUpdate();
+                }
             }
-            c.commit();
-        } catch (SQLException e) {
-            try { c.rollback(); } catch (SQLException ignore) {}
-            throw new RuntimeException("Failed to upsert semantic_annotations", e);
-        } finally {
-            try { c.setAutoCommit(priorAutoCommit); } catch (SQLException ignore) {}
-        }
+        });
     }
 
     public void insertDocuments(java.util.List<Document> docs) {
         if (docs == null || docs.isEmpty()) return;
-        Connection c;
-        try {
-            c = connection();
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to acquire SQLite connection", e);
-        }
-        boolean priorAutoCommit;
-        try {
-            priorAutoCommit = c.getAutoCommit();
-            c.setAutoCommit(false);
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to begin transaction", e);
-        }
         String sql = "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
-        try (PreparedStatement ps = c.prepareStatement(sql)) {
-            for (Document d : docs) {
-                ps.setString(1, d.path);
-                if (d.title == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, d.title);
-                if (d.content == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, d.content);
-                ps.setString(4, d.docType);
-                if (d.module == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, d.module);
-                ps.addBatch();
+        inTransaction(c -> {
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                for (Document d : docs) {
+                    ps.setString(1, d.path);
+                    if (d.title == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, d.title);
+                    if (d.content == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, d.content);
+                    ps.setString(4, d.docType);
+                    if (d.module == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, d.module);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
             }
-            ps.executeBatch();
-            c.commit();
-        } catch (SQLException e) {
-            try { c.rollback(); } catch (SQLException ignore) {}
-            throw new RuntimeException("Failed to write documents", e);
-        } finally {
-            try { c.setAutoCommit(priorAutoCommit); } catch (SQLException ignore) {}
-        }
+        });
     }
 
     @Override
@@ -453,8 +437,7 @@ public class SqliteStore implements AutoCloseable {
     }
 
     /** All node ids currently present in the DB (reflects prior deletes in the same tx). */
-    public java.util.Set<String> allNodeIds() {
-        java.util.Set<String> out = new java.util.HashSet<>();
+    public java.util.Set<String> allNodeIds() {        java.util.Set<String> out = new java.util.HashSet<>();
         Connection c;
         try {
             c = connection();
@@ -468,6 +451,28 @@ public class SqliteStore implements AutoCloseable {
             throw new RuntimeException("Failed to read node ids", e);
         }
         return out;
+    }
+
+    /**
+     * Remove the entire Spring-bean subgraph: all BEAN nodes (their DEFINED_BY
+     * edges cascade via FK) plus WIRES edges, which originate from CLASS nodes and
+     * therefore do <em>not</em> cascade when only the bean nodes go away. Used by
+     * the incremental path to rebuild the bean graph wholesale whenever any
+     * {@code <beans>} XML in the reparse closure changes.
+     */
+    public void deleteSpringBeanGraph() {
+        Connection c;
+        try {
+            c = connection();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        try (Statement st = c.createStatement()) {
+            st.execute("DELETE FROM edges WHERE relation='WIRES'");
+            st.execute("DELETE FROM nodes WHERE kind='BEAN'");
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to delete spring bean graph", e);
+        }
     }
 
     private static String readSchema() {

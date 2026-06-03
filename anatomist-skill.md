@@ -14,11 +14,18 @@ runtime behavior, build/CI issues, or non-Java code.
 
 1. Is there a `.anatomist/index.db` in the project root?
    - **Yes** → skip to "Query playbook".
-   - **No** → build the index: `anatomist index <project-root>`. For a multi-
-     module Maven project, pass `--project-source` with `:` separated module
-     source roots (see `anatomist index --help`). On a Spring-style project
+   - **No** → build the index: `anatomist index <project-root>`. Multi-module
+     Maven projects work out of the box — every module's `src/main/java` is
+     auto-discovered, so you normally **don't** pass `--project-source` (only
+     reach for it to index a non-standard layout). On a Spring-style project
      where annotations matter, **do not** add `--no-classpath` — let
-     `ClasspathDetector` pull `mvn dependency:build-classpath`.
+     `ClasspathDetector` pull `mvn dependency:build-classpath`. If
+     classpath detection warns and exits non-zero, the project's internal
+     modules likely aren't installed yet; run `mvn install -DskipTests` once so
+     sibling-module deps resolve. If the project
+     wires beans via Spring **XML** (`<beans>` configs), add `--spring-xml` so
+     that XML-only injection (`ref`/`constructor-arg`) shows up as `WIRES`
+     edges in `deps-of` / `used-by`.
 
 2. Confirm the index is up to date: `anatomist index <project> --incremental`
    is cheap; the user can also run `anatomist watch <project>` in the
@@ -54,6 +61,7 @@ Every command emits JSON to stdout in the shape:
 | Extends chain + direct implements | `anatomist hierarchy <fqn>` |
 | Class-level outgoing CALLS+REFERENCES | `anatomist deps-of <fqn>` |
 | Class-level incoming CALLS+REFERENCES (who uses me) | `anatomist used-by <fqn>` |
+| Spring XML bean wiring (`WIRES`) folded into the two above | index with `anatomist index <project> --spring-xml` first |
 | Aggregated package → package edges | `anatomist package-deps` |
 
 ### Trace call chains

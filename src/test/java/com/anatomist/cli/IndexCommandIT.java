@@ -121,4 +121,86 @@ class IndexCommandIT {
             return rs.getInt(1);
         }
     }
+
+    private static int indexWithArgs(Path fixture, Path db, String projectSource, boolean springXml) {
+        IndexCommand cmd = new IndexCommand();
+        java.util.List<String> args = new java.util.ArrayList<>(java.util.List.of(
+                fixture.toString(),
+                "--project-source", projectSource,
+                "--no-classpath",
+                "--output", db.toString()));
+        if (springXml) args.add("--spring-xml");
+        new CommandLine(cmd).parseArgs(args.toArray(new String[0]));
+        ByteArrayOutputStream cap = new ByteArrayOutputStream();
+        PrintStream orig = System.out;
+        try {
+            System.setOut(new PrintStream(cap, true, StandardCharsets.UTF_8));
+            return cmd.call();
+        } finally {
+            System.setOut(orig);
+        }
+    }
+
+    @Test
+    void springXmlEmitsBeansWiresAndDefinedBy(@TempDir Path tmp) throws Exception {
+        Path repoRoot = Path.of(System.getProperty("user.dir"));
+        Path fixture = repoRoot.resolve("fixtures/mini-spring-shop");
+        assertTrue(Files.isDirectory(fixture));
+        String projectSource = String.join(File.pathSeparator,
+                fixture.resolve("api/src/main/java").toString(),
+                fixture.resolve("domain/src/main/java").toString(),
+                fixture.resolve("service/src/main/java").toString());
+
+        // With --spring-xml: BEAN nodes + DEFINED_BY + internal WIRES appear.
+        Path withDb = tmp.resolve("with.db");
+        assertEquals(0, indexWithArgs(fixture, withDb, projectSource, true));
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + withDb);
+             Statement st = c.createStatement()) {
+            int beans = scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'");
+            assertEquals(4, beans, "expected 4 BEAN nodes from applicationContext.xml; got " + beans);
+
+            int definedByInternal = scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='DEFINED_BY' AND is_external=0");
+            assertEquals(4, definedByInternal,
+                    "all 4 beans map to indexed classes; got " + definedByInternal);
+
+            // OrderService bean wires orderRepository/eventPublisher/priceCalculator,
+            // all CLASS->CLASS internal edges.
+            int wiresInternal = scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='WIRES' AND is_external=0 "
+                            + "AND source_id='com.example.shop.service.OrderService'");
+            assertEquals(3, wiresInternal,
+                    "OrderService should wire 3 collaborators; got " + wiresInternal);
+
+            // The bean's source_file is the xml, and it's cached for incremental.
+            int xmlCache = scalar(st,
+                    "SELECT count(*) FROM file_cache WHERE source_file LIKE '%applicationContext.xml'");
+            assertEquals(1, xmlCache, "xml should be in file_cache; got " + xmlCache);
+        }
+
+        // WIRES (CLASS->CLASS) must surface through the existing deps-of / used-by
+        // query path — the whole point of modelling wiring as CLASS edges.
+        try (com.anatomist.query.QueryService q = new com.anatomist.query.QueryService(withDb)) {
+            java.util.List<com.anatomist.query.EdgeRow> deps =
+                    q.depsOf("com.example.shop.service.OrderService");
+            assertTrue(deps.stream().anyMatch(r -> "WIRES".equals(r.relation)
+                            && "com.example.shop.service.PriceCalculator".equals(r.target)),
+                    "deps-of OrderService should include WIRES → PriceCalculator");
+
+            java.util.List<com.anatomist.query.EdgeRow> users =
+                    q.usedBy("com.example.shop.service.PriceCalculator");
+            assertTrue(users.stream().anyMatch(r -> "WIRES".equals(r.relation)
+                            && "com.example.shop.service.OrderService".equals(r.source)),
+                    "used-by PriceCalculator should include WIRES ← OrderService");
+        }
+
+        // Without the flag: zero BEAN nodes (default off — golden/query unaffected).
+        Path withoutDb = tmp.resolve("without.db");
+        assertEquals(0, indexWithArgs(fixture, withoutDb, projectSource, false));
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + withoutDb);
+             Statement st = c.createStatement()) {
+            assertEquals(0, scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'"),
+                    "no --spring-xml ⇒ no BEAN nodes");
+        }
+    }
 }

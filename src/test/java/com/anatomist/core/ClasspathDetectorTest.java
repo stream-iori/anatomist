@@ -87,6 +87,58 @@ class ClasspathDetectorTest {
     }
 
     @Test
+    void detectSourcePaths_includesTestRootsWhenRequested(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project/>");
+        Path main = Files.createDirectories(tmp.resolve("app/core/src/main/java"));
+        Path test = Files.createDirectories(tmp.resolve("app/core/src/test/java"));
+        // A test-only module (no src/main/java) — must still be picked up.
+        Path testOnly = Files.createDirectories(tmp.resolve("app/test/src/test/java"));
+
+        List<Path> withTests = new ClasspathDetector().detectSourcePaths(tmp, true);
+        assertTrue(withTests.contains(main), "expected main root; got " + withTests);
+        assertTrue(withTests.contains(test), "expected test root; got " + withTests);
+        assertTrue(withTests.contains(testOnly), "expected test-only module root; got " + withTests);
+
+        List<Path> withoutTests = new ClasspathDetector().detectSourcePaths(tmp, false);
+        assertEquals(List.of(main), withoutTests);
+    }
+
+    @Test
+    void detectSourcePaths_singleModuleIncludesTestRoot(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project/>");
+        Path main = Files.createDirectories(tmp.resolve("src/main/java"));
+        Path test = Files.createDirectories(tmp.resolve("src/test/java"));
+
+        assertEquals(List.of(main), new ClasspathDetector().detectSourcePaths(tmp, false));
+        assertEquals(List.of(main, test), new ClasspathDetector().detectSourcePaths(tmp, true));
+    }
+
+    @Test
+    void detect_unionsGoodModulesWhenOneModuleFails(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project/>");
+        Path good = Files.createDirectories(tmp.resolve("app/core"));
+        Path bad = Files.createDirectories(tmp.resolve("app/test"));
+
+        ClasspathDetector det = new ClasspathDetector() {
+            @Override
+            protected int runMvn(Path workingDir, List<String> args) throws IOException {
+                // Reactor with -fae: the good module writes its file; the bad one
+                // (unresolvable system dep) writes nothing, and mvn exits non-zero.
+                String rel = extractOutputFile(args).toString();
+                Files.writeString(good.resolve(rel),
+                        "/lib/shared.jar" + File.pathSeparator + "/lib/core.jar");
+                return 1; // overall reactor failure
+            }
+        };
+
+        List<String> cp = det.detect(tmp);
+        // Despite exit 1, the good module's classpath survives.
+        assertEquals(List.of("/lib/shared.jar", "/lib/core.jar"), cp);
+        String err = errCapture.toString(StandardCharsets.UTF_8);
+        assertTrue(err.contains("WARN"), "expected WARN about partial classpath; got: " + err);
+    }
+
+    @Test
     void detect_parsesClasspathFromMockedMvnOutput(@TempDir Path tmp) throws Exception {
         Files.writeString(tmp.resolve("pom.xml"), "<project/>");
         String mockOutput = "/lib/a.jar" + File.pathSeparator + "/lib/b.jar";

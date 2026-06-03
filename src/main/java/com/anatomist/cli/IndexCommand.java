@@ -5,6 +5,7 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.ProjectScanner;
+import com.anatomist.core.SpringBeanParser;
 import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.extract.AnnotationExtractor;
 import com.anatomist.extract.CallGraphExtractor;
@@ -14,6 +15,7 @@ import com.anatomist.extract.HierarchyExtractor;
 import com.anatomist.extract.MethodExtractor;
 import com.anatomist.extract.ReferenceExtractor;
 import com.anatomist.extract.TypeExtractor;
+import com.anatomist.extract.XmlBeanExtractor;
 import com.anatomist.incremental.FileCacheService;
 import com.anatomist.incremental.IncrementalIndexer;
 import com.anatomist.model.ExtractionResult;
@@ -57,8 +59,18 @@ public class IndexCommand implements Callable<Integer> {
     @Option(names = "--classpath", description = "Override classpath entries (path-separator delimited).")
     String classpath;
 
-    @Option(names = "--project-source", description = "Override project source roots (path-separator delimited).")
+    @Option(names = "--project-source",
+            description = "Override project source roots (path-separator delimited). "
+                    + "Usually unnecessary: when omitted, multi-module Maven "
+                    + "projects have every module's src/main/java auto-discovered. "
+                    + "Relative roots resolve against the project path argument.")
     String projectSource;
+
+    @Option(names = "--include-tests",
+            description = "Also index src/test/java (test-only modules included). "
+                    + "Off by default — only main sources are indexed. Ignored when "
+                    + "--project-source is given (you control the roots explicitly).")
+    boolean includeTests;
 
     @Option(names = "--no-classpath", description = "Skip classpath detection; external types will be unresolved.")
     boolean noClasspath;
@@ -82,6 +94,17 @@ public class IndexCommand implements Callable<Integer> {
             defaultValue = "200")
     int maxRealignFiles;
 
+    @Option(names = "--spring-xml",
+            description = "Also parse Spring bean XML (<beans>) configs into BEAN nodes "
+                    + "+ DEFINED_BY / WIRES edges. Off by default.")
+    boolean springXml;
+
+    @Option(names = "--debug",
+            description = "Write detailed diagnostics (classpath detection, symbol "
+                    + "resolution failures, dropped dangling edges) to "
+                    + "~/.anatomist/logs/debug.log. Off by default.")
+    boolean debug;
+
     @Override
     public Integer call() {
         long started = System.currentTimeMillis();
@@ -94,7 +117,7 @@ public class IndexCommand implements Callable<Integer> {
 
             Path home = DefaultIndexPath.resolveHome(
                     System.getenv(DefaultIndexPath.ENV_HOME), System.getProperty("user.home"));
-            AnatomistLog.configure(home.resolve(DefaultIndexPath.repoNameOf(projectRoot)), home);
+            AnatomistLog.configure(home.resolve(DefaultIndexPath.repoNameOf(projectRoot)), home, debug);
 
             ClasspathDetector cd = new ClasspathDetector();
 
@@ -157,12 +180,20 @@ public class IndexCommand implements Callable<Integer> {
                                 jv, factory, dbPath, classpath, started);
                     }
                     FileCacheService fcs = new FileCacheService();
-                    java.util.Map<String, String> diskHashes = fcs.computeFileHashes(projectRoot, sourceFiles);
+                    List<Path> hashTargets = sourceFiles;
+                    if (springXml) {
+                        List<Path> xmlFiles = scanner.scanSpringXml(projectRoot);
+                        if (!xmlFiles.isEmpty()) {
+                            hashTargets = new ArrayList<>(sourceFiles);
+                            hashTargets.addAll(xmlFiles);
+                        }
+                    }
+                    java.util.Map<String, String> diskHashes = fcs.computeFileHashes(projectRoot, hashTargets);
                     FileCacheService.Changes ch = fcs.detectChanges(diskHashes, cache);
 
                     IncrementalIndexer ii = new IncrementalIndexer(
                             projectRoot, sourcePaths, factory, store, jv,
-                            maxRealignFiles);
+                            maxRealignFiles, springXml);
                     IncrementalIndexer.Summary summary = ii.indexIncremental(
                             ch.changed, ch.added, ch.deleted, diskHashes);
 
@@ -236,6 +267,23 @@ public class IndexCommand implements Callable<Integer> {
         });
         progress.done();
 
+        // Spring bean XML pass (opt-in). Runs after Java extraction so bean
+        // class/ref FQNs can be joined against the just-extracted CLASS nodes.
+        List<Path> xmlFiles = Collections.emptyList();
+        if (springXml) {
+            xmlFiles = new ProjectScanner().scanSpringXml(projectRoot);
+            if (!xmlFiles.isEmpty()) {
+                java.util.Set<String> knownIds = new HashSet<>();
+                for (com.anatomist.model.Node n : result.nodes) knownIds.add(n.id);
+                XmlBeanExtractor xmlExtractor = new XmlBeanExtractor("MAIN");
+                SpringBeanParser beanParser = new SpringBeanParser();
+                for (Path xml : xmlFiles) {
+                    String rel = relativize(projectRoot, xml.toAbsolutePath().normalize());
+                    xmlExtractor.extract(beanParser.parse(xml), knownIds, rel, result);
+                }
+            }
+        }
+
         try (SqliteStore store = new SqliteStore(dbPath)) {
             boolean schemaExists;
             try (java.sql.Statement st = store.connection().createStatement();
@@ -269,8 +317,14 @@ public class IndexCommand implements Callable<Integer> {
             new SemanticPostProcessor().process(result);
             store.write(result);
 
-            // Phase 4: populate file_cache / project_meta / file_dependencies
-            populateFileCache(store, projectRoot, sourceFiles, result);
+            // Phase 4: populate file_cache / project_meta / file_dependencies.
+            // XML files participate in the cache so incremental detects their edits.
+            List<Path> cachedFiles = sourceFiles;
+            if (!xmlFiles.isEmpty()) {
+                cachedFiles = new ArrayList<>(sourceFiles);
+                cachedFiles.addAll(xmlFiles);
+            }
+            populateFileCache(store, projectRoot, cachedFiles, result);
             store.upsertProjectMeta("dropped_dangling_edges", String.valueOf(dropped));
             store.upsertProjectMeta("java_version", String.valueOf(jv));
             store.upsertProjectMeta("classpath_hash",
@@ -291,6 +345,7 @@ public class IndexCommand implements Callable<Integer> {
             long calls = countEdges(result, "CALLS");
             long reads = countEdges(result, "READS");
             long writes = countEdges(result, "WRITES");
+            long beans = result.nodes.stream().filter(n -> "BEAN".equals(n.kind)).count();
 
             System.out.println("Indexed " + projectRoot);
             System.out.println("  Source paths: " + sourcePaths);
@@ -308,12 +363,18 @@ public class IndexCommand implements Callable<Integer> {
             System.out.println("  CALLS:        " + calls);
             System.out.println("  READS:        " + reads);
             System.out.println("  WRITES:       " + writes);
+            if (springXml) {
+                System.out.println("  Beans:        " + beans
+                        + " (WIRES " + countEdges(result, "WIRES") + ")");
+            }
             System.out.println("  Semantic annotations: " + result.semanticAnnotations.size());
             System.out.println("  Unresolved:   " + ctx.unresolvedCount());
             System.out.println("  File cache:   " + store.readFileCache().size() + " entries");
             System.out.println("  Output:       " + dbPath);
             if (ctx.samplingEnabled()) {
-                printUnresolvedSampling(ctx, result);
+                com.anatomist.core.UnresolvedReporter.print(
+                        System.out, ctx.unresolvedSamples(),
+                        projectPackagesOf(result), ctx.unresolvedCount());
             }
             System.out.println("Done in " + elapsed + "ms");
         }
@@ -368,7 +429,7 @@ public class IndexCommand implements Callable<Integer> {
             }
             return out;
         }
-        return cd.detectSourcePaths(projectRoot);
+        return cd.detectSourcePaths(projectRoot, includeTests);
     }
 
     List<Path> resolveClasspath(ClasspathDetector cd, Path projectRoot) {
@@ -399,102 +460,15 @@ public class IndexCommand implements Callable<Integer> {
         return r.edges.stream().filter(e -> relation.equals(e.relation)).count();
     }
 
-    /**
-     * Diagnostic (opt-in via {@code -Danatomist.sampleUnresolved=true}): bucket
-     * the captured unresolved-symbol names into PROJECT-INTERNAL / THIRD-PARTY /
-     * JDK / UNQUALIFIED-or-GENERIC / OTHER, and list the heaviest package
-     * prefixes. Tells us whether the remaining Unresolved count is worth chasing
-     * (e.g. by adding module target/classes) or is just generics / inference noise.
-     */
-    private static void printUnresolvedSampling(ExtractionContext ctx,
-                                                ExtractionResult result) {
-        java.util.Map<String, Long> samples = ctx.unresolvedSamples();
-        System.out.println("  --- Unresolved sampling ---");
-        if (samples.isEmpty()) {
-            System.out.println("    (no samples captured; most unresolved sites carry no symbol name)");
-            return;
-        }
-        // Project package names: the package of every internal type node. A
-        // sample is "internal" if its name sits under one of these packages.
+    /** Package names of every project-internal type node, for unresolved bucketing. */
+    private static java.util.Set<String> projectPackagesOf(ExtractionResult result) {
         java.util.Set<String> projectPackages = new java.util.HashSet<>();
         for (com.anatomist.model.Node n : result.nodes) {
             if (!isType(n.kind) || n.qualifiedName == null) continue;
             int dot = n.qualifiedName.lastIndexOf('.');
             if (dot > 0) projectPackages.add(n.qualifiedName.substring(0, dot));
         }
-
-        long captured = samples.values().stream().mapToLong(Long::longValue).sum();
-        java.util.Map<String, Long> byCategory = new java.util.TreeMap<>();
-        java.util.Map<String, Long> byPrefix = new java.util.HashMap<>();
-        for (java.util.Map.Entry<String, Long> e : samples.entrySet()) {
-            String name = e.getKey();
-            long cnt = e.getValue();
-            String category = categorize(name, projectPackages);
-            byCategory.merge(category, cnt, Long::sum);
-            // Only the genuine missing-type categories are classpath-actionable;
-            // bucket those by package prefix to see which libs/modules are absent.
-            if (category.equals("MISSING-TYPE-INTERNAL") || category.equals("MISSING-TYPE-THIRDPARTY")) {
-                byPrefix.merge(prefixOf(name), cnt, Long::sum);
-            }
-        }
-
-        System.out.println("    Captured " + captured + " named hits across "
-                + samples.size() + " distinct symbols"
-                + " (of " + ctx.unresolvedCount() + " total unresolved).");
-        System.out.println("    By category:");
-        byCategory.entrySet().stream()
-                .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed())
-                .forEach(en -> System.out.printf("      %-26s %8d  (%4.1f%%)%n",
-                        en.getKey(), en.getValue(),
-                        100.0 * en.getValue() / captured));
-        if (byPrefix.isEmpty()) {
-            System.out.println("    No classpath-actionable missing types — remainder is "
-                    + "method-inference / generics / snippets.");
-            return;
-        }
-        System.out.println("    Top 30 missing-type prefixes (classpath-actionable):");
-        byPrefix.entrySet().stream()
-                .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(30)
-                .forEach(en -> System.out.printf("      %8d  %s%n", en.getValue(), en.getKey()));
-    }
-
-    /**
-     * Bucket a captured failure key. Most non-{@code UnsolvedSymbolException}
-     * failures surface as a sentence or code snippet, not a type FQN — those are
-     * method-overload / generics inference limits, NOT something a wider
-     * classpath fixes. Only clean dotted/simple type names count as missing types.
-     */
-    private static String categorize(String name, java.util.Set<String> projectPackages) {
-        if (name.startsWith("[")) return "OTHER-INFERENCE";
-        if (name.contains("unable to find the method declaration")) return "METHOD-NOT-FOUND";
-        if (name.endsWith("is not a class")) return "NOT-A-CLASS";
-        // Whitespace / call syntax / braces ⇒ a code snippet or message, not a symbol.
-        if (name.indexOf(' ') >= 0 || name.indexOf('(') >= 0
-                || name.indexOf('{') >= 0 || name.indexOf('\n') >= 0) {
-            return "OTHER-INFERENCE";
-        }
-        if (name.indexOf('.') < 0) return "UNQUALIFIED-OR-GENERIC";
-        if (name.startsWith("java.") || name.startsWith("javax.")
-                || name.startsWith("jakarta.") || name.startsWith("sun.")
-                || name.startsWith("jdk.") || name.startsWith("com.sun.")) {
-            return "JDK";
-        }
-        for (String pkg : projectPackages) {
-            if (name.equals(pkg) || name.startsWith(pkg + ".")) return "MISSING-TYPE-INTERNAL";
-        }
-        return "MISSING-TYPE-THIRDPARTY";
-    }
-
-    /** First up to 3 dot-segments of a symbol name, for prefix bucketing. */
-    private static String prefixOf(String name) {
-        int idx = 0;
-        for (int seg = 0; seg < 3; seg++) {
-            int next = name.indexOf('.', idx);
-            if (next < 0) return name;
-            idx = next + 1;
-        }
-        return name.substring(0, idx - 1);
+        return projectPackages;
     }
 
     /**
@@ -507,9 +481,28 @@ public class IndexCommand implements Callable<Integer> {
         java.util.Set<String> known = new java.util.HashSet<>();
         for (com.anatomist.model.Node n : r.nodes) known.add(n.id);
         int before = r.edges.size() + r.annotations.size();
-        r.edges.removeIf(e -> !e.isExternal && (e.targetId == null || !known.contains(e.targetId)));
-        r.edges.removeIf(e -> e.sourceId == null || !known.contains(e.sourceId));
-        r.annotations.removeIf(a -> a.nodeId == null || !known.contains(a.nodeId));
+        boolean dbg = com.anatomist.core.logging.AnatomistLog.isDebugEnabled();
+        r.edges.removeIf(e -> {
+            boolean drop = !e.isExternal && (e.targetId == null || !known.contains(e.targetId));
+            if (drop && dbg) com.anatomist.core.logging.AnatomistLog.debug(
+                    "pruned edge (dangling target): " + e.relation + " "
+                            + e.sourceId + " -> " + e.targetId);
+            return drop;
+        });
+        r.edges.removeIf(e -> {
+            boolean drop = e.sourceId == null || !known.contains(e.sourceId);
+            if (drop && dbg) com.anatomist.core.logging.AnatomistLog.debug(
+                    "pruned edge (dangling source): " + e.relation + " "
+                            + e.sourceId + " -> " + e.targetId);
+            return drop;
+        });
+        r.annotations.removeIf(a -> {
+            boolean drop = a.nodeId == null || !known.contains(a.nodeId);
+            if (drop && dbg) com.anatomist.core.logging.AnatomistLog.debug(
+                    "pruned annotation (dangling node): " + a.annotationFqn
+                            + " on " + a.nodeId);
+            return drop;
+        });
         return before - r.edges.size() - r.annotations.size();
     }
 

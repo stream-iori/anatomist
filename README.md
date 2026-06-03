@@ -36,8 +36,10 @@ mvn -q package
 # → target/anatomist.jar
 
 # 2. Index a project (use the bundled fixture as an example)
+#    --project-source roots are resolved *relative to the project path* above,
+#    so they're module-relative (api/… not fixtures/mini-spring-shop/api/…).
 java -jar target/anatomist.jar index fixtures/mini-spring-shop \
-    --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java \
+    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
     --no-classpath \
     --output /tmp/shop.db
 
@@ -81,8 +83,9 @@ Two phases, two command families.
 |---|---|
 | `index <path>` | Parse + extract + write SQLite |
 | `index --incremental` | Only re-parse files whose hash changed |
+| `index --spring-xml` | Also parse Spring bean XML (`<beans>`) → `BEAN` nodes + `DEFINED_BY` / `WIRES` edges (off by default) |
 | `index-docs <path>` | Index markdown/javadoc into `documents` FTS5 table |
-| `watch <path>` | Watch filesystem + auto-incremental |
+| `watch <path>` | Watch filesystem + auto-incremental (`--spring-xml` to also watch `<beans>` configs) |
 
 **Query-time** (millisecond, JSON):
 
@@ -95,12 +98,89 @@ Two phases, two command families.
 | `callers-of <method> [--depth N]` | Impact analysis |
 | `callees-of <method> [--depth N]` | Call chain |
 | `call-path <from> <to> [--depth N]` | Shortest CALLS chain between two methods |
-| `deps-of <type>` / `used-by <type>` | Class-level dependency graph |
+| `deps-of <type>` / `used-by <type>` | Class-level dependency graph (incl. Spring `WIRES` when indexed with `--spring-xml`) |
 | `field-readers <field>` / `field-writers <field>` | Field-level impact |
 | `package-deps` | Package → package edge aggregation |
 
 Full subcommand reference + flags: `java -jar target/anatomist.jar --help` or
 [`docs/scenario-2-query.md`](docs/scenario-2-query.md).
+
+---
+
+## Common commands (copy-paste cheat-sheet)
+
+Every example below runs against the bundled `fixtures/mini-spring-shop`
+project. Build the jar once (`mvn -q package`), then to save typing, alias the
+launcher and index the fixture:
+
+```bash
+alias anat='java -jar target/anatomist.jar'
+
+# Index the fixture (with Spring XML beans). Writes /tmp/shop.db.
+# --project-source roots are module-relative to the project path.
+anat index fixtures/mini-spring-shop \
+    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
+    --no-classpath --spring-xml --output /tmp/shop.db
+```
+
+Now ask questions (all read `--index /tmp/shop.db`):
+
+```bash
+# Find a symbol by name (FTS5)
+anat search OrderService --index /tmp/shop.db
+
+# Find every class carrying an annotation.
+# NOTE: --no-classpath above only resolves @Override/@Deprecated/@SuppressWarnings,
+# so Spring stereotypes like @Service won't match. Re-index *without* --no-classpath
+# (let ClasspathDetector run) to make @Service/@RestController/@Entity searchable.
+anat search Service --by-annotation --index /tmp/shop.db
+
+# What's inside a class — fields + method signatures
+anat context com.example.shop.service.OrderService --index /tmp/shop.db
+
+# Same, plus one layer of outgoing calls per method
+anat context com.example.shop.service.OrderService --with-callees --index /tmp/shop.db
+
+# Extends + implements chain
+anat hierarchy com.example.shop.service.OrderService --index /tmp/shop.db
+
+# Who implements this interface?
+anat implementors-of com.example.shop.repository.OrderRepository --index /tmp/shop.db
+
+# What does this method call, 3 hops deep? (call chain)
+anat callees-of com.example.shop.service.OrderService#createOrder --depth 3 --index /tmp/shop.db
+
+# Who calls this method? (impact analysis, recursive)
+anat callers-of com.example.shop.service.OrderService#createOrder --depth 5 --index /tmp/shop.db
+
+# Shortest CALLS path between two methods
+anat call-path \
+    com.example.shop.controller.OrderController#create \
+    com.example.shop.repository.OrderRepository#save \
+    --depth 6 --index /tmp/shop.db
+
+# Class-level dependencies — outgoing / incoming
+# (includes Spring WIRES because we indexed with --spring-xml)
+anat deps-of  com.example.shop.service.OrderService   --index /tmp/shop.db
+anat used-by  com.example.shop.service.PriceCalculator --index /tmp/shop.db
+
+# Field-level impact — who reads / writes a field
+anat field-readers com.example.shop.domain.entity.Order#status --index /tmp/shop.db
+anat field-writers com.example.shop.domain.entity.Order#status --index /tmp/shop.db
+
+# Package → package edge aggregation
+anat package-deps --index /tmp/shop.db
+
+# After editing source, refresh cheaply (only changed files re-parsed)
+anat index fixtures/mini-spring-shop \
+    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
+    --no-classpath --spring-xml --incremental --output /tmp/shop.db
+```
+
+> **FQN syntax**: methods are `pkg.Class#method` (signature optional — anatomist
+> disambiguates overloads for you), fields are `pkg.Class#field`. Bare labels
+> like `OrderService` also work where the name is unambiguous. The native
+> binary (`just native` → `./target/anatomist`) takes the exact same arguments.
 
 ---
 
@@ -153,6 +233,11 @@ caller.
 - Stable IDs for lambdas, method references, and anonymous classes
   (`$lambda@L<line>C<col>`, `$methodref@L<line>C<col>`, `$anon@L<line>`).
 - Incremental re-index — only the changed file's nodes/edges are recomputed.
+- Optionally index Spring bean XML (`--spring-xml`): each `<bean>` becomes a
+  `BEAN` node with a `DEFINED_BY` edge to its class, and `ref`/`constructor-arg`
+  wiring becomes CLASS→CLASS `WIRES` edges that fold straight into `deps-of` /
+  `used-by`. Incremental + `watch` rebuild the bean graph when any `<beans>`
+  XML — or a Java class it references — changes.
 - Index real-world projects: Apache Commons Lang 3.12.0 (~70k LOC) in ~5s.
 
 **Doesn't (yet)**
@@ -222,7 +307,7 @@ codesign --force --sign - target/anatomist
 
 # 3. Smoke: index the bundled fixture then run a few queries
 ./target/anatomist index fixtures/mini-spring-shop \
-    --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java \
+    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
     --no-classpath \
     --output /tmp/smoke.db
 ./target/anatomist search OrderService --index /tmp/smoke.db
@@ -269,7 +354,7 @@ mkdir -p target/native-agent-config
 java -agentlib:native-image-agent=config-output-dir=target/native-agent-config \
     -cp "target/classes:$CP" com.anatomist.cli.AnatomistCli \
     index fixtures/mini-spring-shop \
-    --project-source fixtures/mini-spring-shop/api/src/main/java:fixtures/mini-spring-shop/domain/src/main/java:fixtures/mini-spring-shop/service/src/main/java \
+    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
     --no-classpath --output /tmp/agent-trace.db
 # Then merge into the shipped config:
 cp target/native-agent-config/reachability-metadata.json \
