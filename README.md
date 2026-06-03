@@ -101,6 +101,8 @@ Two phases, two command families.
 | `deps-of <type>` / `used-by <type>` | Class-level dependency graph (incl. Spring `WIRES` when indexed with `--spring-xml`) |
 | `field-readers <field>` / `field-writers <field>` | Field-level impact |
 | `package-deps` | Package → package edge aggregation |
+| `overview [--format markdown\|json] [--depth N]` | Top-down project map: kind/edge/package tallies + package-dep skeleton (no symbol name needed) |
+| `export --format html --output f.html` | Single self-contained HTML: package tree + dependency graph, drill down to class level |
 
 Full subcommand reference + flags: `java -jar target/anatomist.jar --help` or
 [`docs/scenario-2-query.md`](docs/scenario-2-query.md).
@@ -170,6 +172,14 @@ anat field-writers com.example.shop.domain.entity.Order#status --index /tmp/shop
 
 # Package → package edge aggregation
 anat package-deps --index /tmp/shop.db
+
+# Top-down project map (great as an Agent's first call on an unfamiliar repo)
+anat overview --index /tmp/shop.db                       # markdown
+anat overview --format json --depth 2 --index /tmp/shop.db
+
+# Self-contained HTML for humans: package tree + dependency graph, drill to class
+anat export --format html --output /tmp/shop.html --index /tmp/shop.db
+# → open /tmp/shop.html in any browser (offline, no server, no CDN)
 
 # After editing source, refresh cheaply (only changed files re-parsed)
 anat index fixtures/mini-spring-shop \

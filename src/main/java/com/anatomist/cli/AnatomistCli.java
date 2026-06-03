@@ -25,6 +25,8 @@ import picocli.CommandLine.Command;
                 CallPathCommand.class,
                 PackageDepsCommand.class,
                 EnrichCommand.class,
+                OverviewCommand.class,
+                ExportCommand.class,
                 AnnotateCommand.class
         }
 )

@@ -18,6 +18,61 @@ public final class MarkdownFormatter {
         return formatNode(r);
     }
 
+    /** Render the {@code overview} command's top-down summary. */
+    public static String format(OverviewResult ov) {
+        if (ov == null) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Project Overview\n\n");
+
+        sb.append("## Node Kinds\n\n");
+        if (ov.kindCounts.isEmpty()) sb.append("_None._\n\n");
+        else {
+            sb.append("| Kind | Count |\n|---|---|\n");
+            for (Map.Entry<String, Long> e : ov.kindCounts.entrySet()) {
+                sb.append("| ").append(e.getKey()).append(" | ").append(e.getValue()).append(" |\n");
+            }
+            sb.append('\n');
+        }
+
+        sb.append("## Edges\n\n");
+        sb.append("| Relation | Internal | External |\n|---|---|---|\n");
+        java.util.LinkedHashSet<String> rels = new java.util.LinkedHashSet<>();
+        rels.addAll(ov.internalEdgeCounts.keySet());
+        rels.addAll(ov.externalEdgeCounts.keySet());
+        for (String rel : rels) {
+            sb.append("| ").append(rel)
+              .append(" | ").append(ov.internalEdgeCounts.getOrDefault(rel, 0L))
+              .append(" | ").append(ov.externalEdgeCounts.getOrDefault(rel, 0L))
+              .append(" |\n");
+        }
+        sb.append('\n');
+
+        sb.append("## Packages (").append(ov.packages.size()).append(")\n\n");
+        if (ov.packages.isEmpty()) sb.append("_None._\n\n");
+        else {
+            sb.append("| Package | Types | Methods |\n|---|---|---|\n");
+            for (PackageStat p : ov.packages) {
+                sb.append("| `").append(p.name).append("` | ")
+                  .append(p.types).append(" | ").append(p.methods).append(" |\n");
+            }
+            sb.append('\n');
+        }
+
+        sb.append("## Package Dependencies\n\n");
+        if (ov.packageDeps.isEmpty()) sb.append("_None._\n");
+        else {
+            sb.append("| Source | Target | Relation | Count |\n|---|---|---|---|\n");
+            for (Map<String, Object> d : ov.packageDeps) {
+                sb.append("| `").append(d.get("source_package"))
+                  .append("` | `").append(d.get("target_package"))
+                  .append("` | ").append(d.get("relation"))
+                  .append(" | ").append(d.get("edge_count"))
+                  .append(" |\n");
+            }
+        }
+        return sb.toString();
+    }
+
     private static String formatNode(EnrichResult r) {
         StringBuilder sb = new StringBuilder();
         NodeRow n = r.node;

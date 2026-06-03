@@ -1,7 +1,8 @@
 {
   "resources": {
     "includes": [
-      { "pattern": "schema.sql" }
+      { "pattern": "schema.sql" },
+      { "pattern": "export/template.html" }
     ]
   }
 }

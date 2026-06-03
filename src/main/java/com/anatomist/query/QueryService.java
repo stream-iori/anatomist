@@ -518,6 +518,120 @@ public class QueryService implements AutoCloseable {
     }
 
     // ──────────────────────────────────────────────────────────────────
+    // Overview (top-down project summary)
+    // ──────────────────────────────────────────────────────────────────
+
+    /** Project-wide summary: node-kind counts, edge-relation counts (internal /
+     *  external), per-package type/method tallies, and the package dependency
+     *  skeleton (reusing {@link #packageDeps()}). */
+    public OverviewResult overview() {
+        OverviewResult ov = new OverviewResult();
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT kind, COUNT(*) FROM nodes GROUP BY kind ORDER BY kind");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) ov.kindCounts.put(rs.getString(1), rs.getLong(2));
+        } catch (SQLException e) {
+            throw rethrow(e);
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT relation, is_external, COUNT(*) FROM edges "
+              + "GROUP BY relation, is_external ORDER BY relation");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String rel = rs.getString(1);
+                long count = rs.getLong(3);
+                if (rs.getInt(2) == 1) ov.externalEdgeCounts.merge(rel, count, Long::sum);
+                else ov.internalEdgeCounts.merge(rel, count, Long::sum);
+            }
+        } catch (SQLException e) {
+            throw rethrow(e);
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT package, kind, COUNT(*) FROM nodes "
+              + "WHERE package IS NOT NULL GROUP BY package, kind ORDER BY package");
+             ResultSet rs = ps.executeQuery()) {
+            Map<String, PackageStat> byPkg = new LinkedHashMap<>();
+            while (rs.next()) {
+                String pkg = rs.getString(1);
+                String kind = rs.getString(2);
+                long count = rs.getLong(3);
+                PackageStat ps2 = byPkg.computeIfAbsent(pkg, PackageStat::new);
+                if (TYPE_KINDS.contains(kind)) ps2.types += count;
+                else if ("METHOD".equals(kind) || "CONSTRUCTOR".equals(kind)) ps2.methods += count;
+            }
+            ov.packages.addAll(byPkg.values());
+        } catch (SQLException e) {
+            throw rethrow(e);
+        }
+
+        ov.packageDeps = packageDeps();
+        return ov;
+    }
+
+    /** Class-to-class internal edges, annotated with each endpoint's package, for
+     *  the HTML export drill-down. Aggregates CALLS / REFERENCES / WIRES /
+     *  IMPLEMENTS / INHERITS to the declaring type of each endpoint (method/field
+     *  edges roll up to their owning class via {@code CONTAINS}). When
+     *  {@code maxEdges > 0} the result is capped at that many rows (highest
+     *  edge_count first). */
+    public List<Map<String, Object>> classDepsInternal(int maxEdges) {
+        // Roll any node up to its nearest *named* enclosing type by walking
+        // CONTAINS edges upward. A single level isn't enough: lambdas, method
+        // references and anonymous classes are CONTAINED by a method, so they'd
+        // otherwise stop at the method instead of the class. ANONYMOUS_CLASS is
+        // deliberately NOT a stop kind — anon bodies fold into the named class.
+        // CONTAINS forms a tree, so the recursion terminates.
+        String sql =
+                "WITH RECURSIVE owner(node_id, cur_id, cur_kind) AS ("
+              + "  SELECT id, id, kind FROM nodes "
+              + "  UNION ALL "
+              + "  SELECT o.node_id, c.source_id, p.kind "
+              + "  FROM owner o "
+              + "  JOIN edges c ON c.target_id = o.cur_id AND c.relation = 'CONTAINS' AND c.is_external = 0 "
+              + "  JOIN nodes p ON p.id = c.source_id "
+              + "  WHERE o.cur_kind NOT IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD') "
+              + "), type_of AS ("
+              + "  SELECT node_id, cur_id AS type_id FROM owner "
+              + "  WHERE cur_kind IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD') "
+              + ") "
+              + "SELECT st.id AS source, st.label AS source_label, st.package AS source_package, "
+              + "       tt.id AS target, tt.label AS target_label, tt.package AS target_package, "
+              + "       COUNT(*) AS edge_count "
+              + "FROM edges e "
+              + "JOIN type_of so ON e.source_id = so.node_id "
+              + "JOIN type_of ot ON e.target_id = ot.node_id "
+              + "JOIN nodes st ON so.type_id = st.id "
+              + "JOIN nodes tt ON ot.type_id = tt.id "
+              + "WHERE e.is_external = 0 "
+              + "  AND e.relation IN ('CALLS','REFERENCES','WIRES','IMPLEMENTS','INHERITS') "
+              + "  AND so.type_id <> ot.type_id "
+              + "GROUP BY st.id, tt.id "
+              + "ORDER BY edge_count DESC, source, target";
+        List<Map<String, Object>> out = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                if (maxEdges > 0 && out.size() >= maxEdges) break;
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("source", rs.getString(1));
+                row.put("source_label", rs.getString(2));
+                row.put("source_package", rs.getString(3));
+                row.put("target", rs.getString(4));
+                row.put("target_label", rs.getString(5));
+                row.put("target_package", rs.getString(6));
+                row.put("edge_count", rs.getInt(7));
+                out.add(row);
+            }
+        } catch (SQLException e) {
+            throw rethrow(e);
+        }
+        return out;
+    }
+
+    // ──────────────────────────────────────────────────────────────────
     // Enrich (aggregate views for Agent consumption)
     // ──────────────────────────────────────────────────────────────────
 

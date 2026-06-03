@@ -7,6 +7,8 @@ import com.anatomist.query.EdgeRow;
 import com.anatomist.query.EnrichResult;
 import com.anatomist.query.HierarchyResult;
 import com.anatomist.query.NodeRow;
+import com.anatomist.query.OverviewResult;
+import com.anatomist.query.PackageStat;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.SemanticAnnotationRow;
 
@@ -48,6 +50,8 @@ public final class DtoCodecs {
         JsonCodecRegistry.register(EnrichResult.class, ENRICH);
         JsonCodecRegistry.register(QueryEnvelope.class, QUERY_ENVELOPE);
         JsonCodecRegistry.register(SemanticAnnotation.class, SEMANTIC_ANNOTATION);
+        JsonCodecRegistry.register(PackageStat.class, PACKAGE_STAT);
+        JsonCodecRegistry.register(OverviewResult.class, OVERVIEW);
     }
 
     // ── helpers ──
@@ -190,8 +194,31 @@ public final class DtoCodecs {
         @Override public QueryEnvelope fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };
 
-    private static final JsonCodec<SemanticAnnotation> SEMANTIC_ANNOTATION = new JsonCodec<>() {
-        @Override public Object toTree(SemanticAnnotation sa) {
+    private static final JsonCodec<PackageStat> PACKAGE_STAT = new JsonCodec<>() {
+        @Override public Object toTree(PackageStat p) {
+            Map<String, Object> m = obj();
+            put(m, "name", p.name);
+            put(m, "types", p.types);
+            put(m, "methods", p.methods);
+            return m;
+        }
+        @Override public PackageStat fromTree(Object tree) { throw new UnsupportedOperationException(); }
+    };
+
+    private static final JsonCodec<OverviewResult> OVERVIEW = new JsonCodec<>() {
+        @Override public Object toTree(OverviewResult r) {
+            Map<String, Object> m = obj();
+            put(m, "kind_counts", r.kindCounts);
+            put(m, "internal_edge_counts", r.internalEdgeCounts);
+            put(m, "external_edge_counts", r.externalEdgeCounts);
+            put(m, "packages", r.packages);
+            put(m, "package_deps", r.packageDeps);
+            return m;
+        }
+        @Override public OverviewResult fromTree(Object tree) { throw new UnsupportedOperationException(); }
+    };
+
+    private static final JsonCodec<SemanticAnnotation> SEMANTIC_ANNOTATION = new JsonCodec<>() {        @Override public Object toTree(SemanticAnnotation sa) {
             Map<String, Object> m = obj();
             put(m, "node_id", sa.nodeId);
             put(m, "doc_id", sa.docId);

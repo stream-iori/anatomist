@@ -16,6 +16,40 @@
 | 5.4 | 导出完整图为 JSON | `anatomist export --format json` |
 | 5.5 | 导出子图 | `anatomist export --format mermaid --root OrderService --depth 3` |
 | 5.6 | 导出包级依赖图 | `anatomist export --format mermaid --type package-deps` |
+| 5.7 | **导出自包含 HTML(已实现)** | `anatomist export --format html --output project.html` |
+| 5.8 | **项目概览(已实现)** | `anatomist overview --format markdown\|json [--depth N]` |
+
+> **实现状态(2026-06):** 5.7 `--format html` 与配套的 `overview` 命令已落地;mermaid / json / dot
+> 格式仍为设计草案。下文 §已实现 描述当前形态;其余小节为后续格式的设计参考。
+
+## 已实现:`overview` + `export --format html`
+
+### `overview`(给 Agent 的项目地图)
+
+`QueryService.overview()` 返回 `OverviewResult`:节点 kind 计数、边 relation 的 internal/external 计数、
+每包 `{types, methods}` 统计、以及复用 `packageDeps()` 的包依赖骨架。命令 `overview --format markdown|json`,
+`--depth N` 把包树折叠到前 N 段(大项目避免几千叶子)。这是"先看全貌再点查"的入口——无需先知道类名。
+
+### `export --format html`(给人看的单文件)
+
+`anatomist export --format html --output project.html [--max-edges N]` 产出**单个自包含 HTML**,
+离线可双击打开:
+
+- **左**:可折叠包树(每包标 `Nt/Mm`)。
+- **右**:包依赖力导向图(节点=包,边=`packageDeps` 聚合,粗细按 `edge_count`);点包节点**下钻**为
+  该包的类级子图。
+- **顶部**:`overview` 的 stereotype 计数条。
+
+实现要点:
+- `ExportHtmlWriter` 用 `getResourceAsStream("/export/template.html")` 读模板(镜像
+  `SqliteStore.readSchema()`),把 `/*__ANATOMIST_DATA__*/` 占位符替换成 `Json.writeCompact` 数据块。
+- `template.html` 内联 CSS + **纯 JS/SVG 力导向渲染器**(无 d3/vis、不联网拉 CDN),自包含。
+- 类级边来自 `QueryService.classDepsInternal(maxEdges)`:对 `CALLS/REFERENCES/WIRES/IMPLEMENTS/INHERITS`
+  internal 边做**递归 CONTAINS 上卷**——lambda / method-ref / 匿名类被某个 method CONTAINS,单层上卷会
+  停在 method,故用 `WITH RECURSIVE` 一路爬到最近的具名类型(`ANONYMOUS_CLASS` 不作停止点,融入具名外类)。
+- 单文件无后端,类级边须**一次性全量内嵌**;`--max-edges`(默认 20000)兜底裁剪超大项目。
+- native 安全:`export/template.html` 已登记进 `resource-config.json`;纯 SAX/JDBC/手写 Json,无反射。
+
 
 ## 技术方案
 
