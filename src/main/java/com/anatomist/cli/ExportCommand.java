@@ -1,6 +1,7 @@
 package com.anatomist.cli;
 
 import com.anatomist.export.ExportHtmlWriter;
+import com.anatomist.query.ClassEdge;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
@@ -11,7 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Callable;
 
 @Command(name = "export",
@@ -44,7 +44,7 @@ public class ExportCommand implements Callable<Integer> {
         String html;
         try (QueryService q = new QueryService(db)) {
             OverviewResult ov = q.overview();
-            List<Map<String, Object>> classDeps = q.classDepsInternal(maxEdges);
+            List<ClassEdge> classDeps = q.classDepsInternal(maxEdges);
             html = ExportHtmlWriter.render(ExportHtmlWriter.buildPayload(ov, classDeps));
         }
         try {

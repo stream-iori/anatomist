@@ -1,6 +1,8 @@
 package com.anatomist.export;
 
+import com.anatomist.json.DtoCodecs;
 import com.anatomist.json.Json;
+import com.anatomist.query.ClassEdge;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.PackageStat;
 
@@ -29,7 +31,7 @@ public final class ExportHtmlWriter {
 
     /** Build the JSON payload embedded into the HTML page. */
     public static Map<String, Object> buildPayload(OverviewResult ov,
-                                                    List<Map<String, Object>> classDeps) {
+                                                    List<ClassEdge> classDeps) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("kind_counts", ov.kindCounts);
         payload.put("internal_edge_counts", ov.internalEdgeCounts);
@@ -54,6 +56,7 @@ public final class ExportHtmlWriter {
 
     /** Render the full HTML document as a string. */
     public static String render(Map<String, Object> payload) {
+        DtoCodecs.ensureRegistered(); // export path bypasses JsonFormatter; register ClassEdge & friends
         String template = readTemplate();
         String dataBlob = Json.writeCompact(payload);
         int idx = template.indexOf(PLACEHOLDER);

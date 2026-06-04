@@ -64,13 +64,13 @@ class QueryServiceOverviewTest {
     @Test
     void classDepsInternal_returnsCrossClassEdgesWithPackages() {
         try (QueryService q = new QueryService(dbPath)) {
-            List<java.util.Map<String, Object>> deps = q.classDepsInternal(0);
+            List<ClassEdge> deps = q.classDepsInternal(0);
             assertTrue(deps.stream().anyMatch(d ->
-                    "com.a.Foo".equals(d.get("source")) && "com.b.Baz".equals(d.get("target"))
-                            && "com.a".equals(d.get("source_package"))
-                            && "com.b".equals(d.get("target_package"))));
+                    "com.a.Foo".equals(d.source()) && "com.b.Baz".equals(d.target())
+                            && "com.a".equals(d.sourcePackage())
+                            && "com.b".equals(d.targetPackage())));
             // external edge must not appear
-            assertFalse(deps.stream().anyMatch(d -> String.valueOf(d.get("target")).startsWith("java.")));
+            assertFalse(deps.stream().anyMatch(d -> String.valueOf(d.target()).startsWith("java.")));
         }
     }
 

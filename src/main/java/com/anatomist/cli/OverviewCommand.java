@@ -10,6 +10,9 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.Callable;
 
@@ -48,21 +51,21 @@ public class OverviewCommand implements Callable<Integer> {
 
     /** Fold packages to their first {@code n} dot-segments, summing tallies. */
     static List<PackageStat> collapse(List<PackageStat> packages, int n) {
-        java.util.LinkedHashMap<String, PackageStat> byPrefix = new java.util.LinkedHashMap<>();
+        LinkedHashMap<String, PackageStat> byPrefix = new LinkedHashMap<>();
         for (PackageStat p : packages) {
             String prefix = prefix(p.name, n);
             PackageStat agg = byPrefix.computeIfAbsent(prefix, PackageStat::new);
             agg.types += p.types;
             agg.methods += p.methods;
         }
-        return new java.util.ArrayList<>(byPrefix.values());
+        return new ArrayList<>(byPrefix.values());
     }
 
     private static String prefix(String pkg, int n) {
         if (pkg == null || pkg.isEmpty()) return pkg;
         String[] parts = pkg.split("\\.");
         if (parts.length <= n) return pkg;
-        return String.join(".", java.util.Arrays.copyOfRange(parts, 0, n));
+        return String.join(".", Arrays.copyOfRange(parts, 0, n));
     }
 
     private String buildQueryString() {

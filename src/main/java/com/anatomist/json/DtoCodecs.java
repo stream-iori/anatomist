@@ -1,6 +1,7 @@
 package com.anatomist.json;
 
 import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.query.ClassEdge;
 import com.anatomist.query.ContextResult;
 import com.anatomist.query.DocSnippet;
 import com.anatomist.query.EdgeRow;
@@ -51,6 +52,7 @@ public final class DtoCodecs {
         JsonCodecRegistry.register(QueryEnvelope.class, QUERY_ENVELOPE);
         JsonCodecRegistry.register(SemanticAnnotation.class, SEMANTIC_ANNOTATION);
         JsonCodecRegistry.register(PackageStat.class, PACKAGE_STAT);
+        JsonCodecRegistry.register(ClassEdge.class, CLASS_EDGE);
         JsonCodecRegistry.register(OverviewResult.class, OVERVIEW);
     }
 
@@ -203,6 +205,26 @@ public final class DtoCodecs {
             return m;
         }
         @Override public PackageStat fromTree(Object tree) { throw new UnsupportedOperationException(); }
+    };
+
+    private static final JsonCodec<ClassEdge> CLASS_EDGE = new JsonCodec<>() {
+        @Override public Object toTree(ClassEdge e) {
+            Map<String, Object> m = obj();
+            put(m, "source", e.source());
+            put(m, "source_label", e.sourceLabel());
+            put(m, "source_package", e.sourcePackage());
+            put(m, "source_kind", e.sourceKind());
+            put(m, "source_abstract", e.sourceAbstract());
+            put(m, "target", e.target());
+            put(m, "target_label", e.targetLabel());
+            put(m, "target_package", e.targetPackage());
+            put(m, "target_kind", e.targetKind());
+            put(m, "target_abstract", e.targetAbstract());
+            put(m, "is_inherit", e.isInherit());
+            put(m, "edge_count", e.edgeCount());
+            return m;
+        }
+        @Override public ClassEdge fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };
 
     private static final JsonCodec<OverviewResult> OVERVIEW = new JsonCodec<>() {

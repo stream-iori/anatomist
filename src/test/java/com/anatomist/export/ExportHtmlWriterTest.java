@@ -1,5 +1,6 @@
 package com.anatomist.export;
 
+import com.anatomist.query.ClassEdge;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.PackageStat;
 import org.junit.jupiter.api.Test;
@@ -24,12 +25,10 @@ class ExportHtmlWriterTest {
         dep.put("edge_count", 5);
         ov.packageDeps.add(dep);
 
-        Map<String, Object> classDep = new LinkedHashMap<>();
-        classDep.put("source", "com.a.Foo");
-        classDep.put("target", "com.b.Bar");
-        classDep.put("source_package", "com.a");
-        classDep.put("target_package", "com.b");
-        classDep.put("edge_count", 1);
+        ClassEdge classDep = new ClassEdge(
+                "com.a.Foo", "Foo", "com.a", "CLASS", false,
+                "com.b.Bar", "Bar", "com.b", "CLASS", false,
+                false, 1);
 
         String html = ExportHtmlWriter.render(
                 ExportHtmlWriter.buildPayload(ov, List.of(classDep)));
