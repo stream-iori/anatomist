@@ -20,11 +20,8 @@ import picocli.CommandLine.Command;
                 ImplementorsOfCommand.class,
                 DepsOfCommand.class,
                 UsedByCommand.class,
-                FieldReadersCommand.class,
-                FieldWritersCommand.class,
+                FieldAccessCommand.class,
                 CallPathCommand.class,
-                PackageDepsCommand.class,
-                EnrichCommand.class,
                 OverviewCommand.class,
                 ExportCommand.class,
                 AnnotateCommand.class

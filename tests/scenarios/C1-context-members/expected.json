@@ -1,54 +1,54 @@
 {
   "query" : "context com.example.shop.repository.InMemoryOrderRepository",
   "results" : [ {
-    "node" : {
-      "id" : "com.example.shop.repository.InMemoryOrderRepository",
-      "label" : "InMemoryOrderRepository",
-      "kind" : "CLASS",
-      "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_location" : "L11"
-    },
+    "annotations" : [ ],
     "members" : [ {
       "id" : "com.example.shop.repository.InMemoryOrderRepository#store",
-      "label" : "store",
       "kind" : "FIELD",
+      "label" : "store",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#store",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
       "source_location" : "L14"
     }, {
       "id" : "com.example.shop.repository.InMemoryOrderRepository#seq",
-      "label" : "seq",
       "kind" : "FIELD",
+      "label" : "seq",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#seq",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
       "source_location" : "L15"
     }, {
       "id" : "com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
-      "label" : "save",
       "kind" : "METHOD",
+      "label" : "save",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
       "source_location" : "L17"
     }, {
       "id" : "com.example.shop.repository.InMemoryOrderRepository#findById(java.lang.String)",
-      "label" : "findById",
       "kind" : "METHOD",
+      "label" : "findById",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#findById",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
       "source_location" : "L26"
     }, {
       "id" : "com.example.shop.repository.InMemoryOrderRepository#deleteAll()",
-      "label" : "deleteAll",
       "kind" : "METHOD",
+      "label" : "deleteAll",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#deleteAll",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
       "source_location" : "L31"
     } ],
-    "annotations" : [ ]
+    "node" : {
+      "id" : "com.example.shop.repository.InMemoryOrderRepository",
+      "kind" : "CLASS",
+      "label" : "InMemoryOrderRepository",
+      "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
+      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+      "source_location" : "L11"
+    }
   } ],
   "stats" : {
-    "members" : 5,
-    "annotations" : 0
+    "annotations" : 0,
+    "members" : 5
   }
 }

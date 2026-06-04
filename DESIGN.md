@@ -502,7 +502,7 @@ CREATE VIRTUAL TABLE node_names USING fts5(
 | **C5** 谁依赖了我 | edges WHERE (target_id = ? OR external_target_fqn = ?) AND relation IN ('CALLS', 'REFERENCES', 'WRITES', 'READS') |
 | **D1** 被谁调用 | `SELECT * FROM edges WHERE target_id = ? AND relation = 'CALLS' AND is_external = 0` |
 | **D2** 调用了谁 | `SELECT * FROM edges WHERE source_id = ? AND relation = 'CALLS'` |
-| **D3** 多跳调用链 | 递归 CTE on `CALLS` edges (depth = N)，遍历时跨越 LAMBDA 节点合并到所属外部方法 |
+| **D3** 多跳调用链 | Java BFS on `CALLS` edges (depth = N)，遍历时跨越 OVERRIDES 边穿透接口/抽象方法分派（默认开启），链中 OVERRIDES 边表示多态分派跳转 |
 | **D4** 入口追踪 | B4 查 @RequestMapping 方法 + 递归 CTE on `CALLS` edges |
 | **E1** 领域模型 | B4 查 @Entity + C1 看字段关系 |
 | **E2** 限界上下文 | B4 查 @Service/@RestController + C4 依赖 + 按 `nodes.package` 分组（package-deps） |

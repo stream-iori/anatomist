@@ -18,9 +18,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** L3 end-to-end test for {@link EnrichCommand} via the picocli CLI on
+/** L3 end-to-end test for {@code context --enrich} via the picocli CLI on
  *  {@code fixtures/mini-spring-shop}. */
-class EnrichCommandIT {
+class ContextEnrichIT {
 
     static Path dbPath;
 
@@ -70,19 +70,19 @@ class EnrichCommandIT {
 
     @Test
     void enrich_node_markdownDefault() {
-        String out = runCli("enrich", "--node", "OrderService",
+        String out = runCli("context", "--enrich", "OrderService",
                 "--index", dbPath.toString());
         assertTrue(out.contains("# OrderService"));
         assertTrue(out.contains("## Semantic Annotations"));
         assertTrue(out.contains("订单服务"));
         long lines = out.lines().count();
         assertTrue(lines <= MarkdownFormatter_LINE_CAP + 10,
-                "enrich --node OrderService should stay under cap; got " + lines);
+                "context --enrich OrderService should stay under cap; got " + lines);
     }
 
     @Test
     void enrich_node_json() {
-        String out = runCli("enrich", "--node", "OrderService",
+        String out = runCli("context", "--enrich", "OrderService",
                 "--format", "json",
                 "--index", dbPath.toString());
         assertTrue(out.contains("\"query\""));
@@ -92,7 +92,7 @@ class EnrichCommandIT {
 
     @Test
     void enrich_package_markdown() {
-        String out = runCli("enrich", "--package", "com.example.shop.service",
+        String out = runCli("context", "--enrich", "--package", "com.example.shop.service",
                 "--index", dbPath.toString());
         assertTrue(out.contains("# com.example.shop.service"));
         assertTrue(out.contains("OrderService"));
@@ -100,7 +100,7 @@ class EnrichCommandIT {
 
     @Test
     void enrich_node_withDocs_includesSnippet() {
-        String out = runCli("enrich", "--node", "OrderService", "--with-docs",
+        String out = runCli("context", "--enrich", "OrderService", "--with-docs",
                 "--index", dbPath.toString());
         assertTrue(out.contains("Related Documentation") || out.contains("OrderService overview"),
                 "expected related documentation section; got:\n" + out);
@@ -108,13 +108,11 @@ class EnrichCommandIT {
 
     @Test
     void enrich_missingTarget_exit2() {
-        int rc = runCliExit("enrich", "--node", "com.does.not.Exist",
+        int rc = runCliExit("context", "--enrich", "com.does.not.Exist",
                 "--index", dbPath.toString());
         assertEquals(2, rc);
     }
 
-    // The cap is taken from MarkdownFormatter.MAX_LINES; duplicate constant here
-    // so the test failure surfaces a clearer assertion message.
     static final int MarkdownFormatter_LINE_CAP =
             com.anatomist.query.MarkdownFormatter.MAX_LINES;
 

@@ -1,82 +1,82 @@
 {
   "query" : "context com.example.shop.service.OrderService",
   "results" : [ {
-    "node" : {
-      "id" : "com.example.shop.service.OrderService",
-      "label" : "OrderService",
-      "kind" : "CLASS",
-      "qualified_name" : "com.example.shop.service.OrderService",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L18"
-    },
+    "annotations" : [ ],
     "members" : [ {
       "id" : "com.example.shop.service.OrderService#orderRepository",
-      "label" : "orderRepository",
       "kind" : "FIELD",
+      "label" : "orderRepository",
       "qualified_name" : "com.example.shop.service.OrderService#orderRepository",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L22"
     }, {
       "id" : "com.example.shop.service.OrderService#validator",
-      "label" : "validator",
       "kind" : "FIELD",
+      "label" : "validator",
       "qualified_name" : "com.example.shop.service.OrderService#validator",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L24"
     }, {
       "id" : "com.example.shop.service.OrderService#calculator",
-      "label" : "calculator",
       "kind" : "FIELD",
+      "label" : "calculator",
       "qualified_name" : "com.example.shop.service.OrderService#calculator",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L26"
     }, {
       "id" : "com.example.shop.service.OrderService#publisher",
-      "label" : "publisher",
       "kind" : "FIELD",
+      "label" : "publisher",
       "qualified_name" : "com.example.shop.service.OrderService#publisher",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L28"
     }, {
       "id" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
-      "label" : "createOrder",
       "kind" : "METHOD",
+      "label" : "createOrder",
       "qualified_name" : "com.example.shop.service.OrderService#createOrder",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L30"
     }, {
       "id" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
-      "label" : "createOrder",
       "kind" : "METHOD",
+      "label" : "createOrder",
       "qualified_name" : "com.example.shop.service.OrderService#createOrder",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L43"
     }, {
       "id" : "com.example.shop.service.OrderService#applyDiscount(double)",
-      "label" : "applyDiscount",
       "kind" : "METHOD",
+      "label" : "applyDiscount",
       "qualified_name" : "com.example.shop.service.OrderService#applyDiscount",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L50"
     }, {
       "id" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
-      "label" : "countExpensiveItems",
       "kind" : "METHOD",
+      "label" : "countExpensiveItems",
       "qualified_name" : "com.example.shop.service.OrderService#countExpensiveItems",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L55"
     }, {
       "id" : "com.example.shop.service.OrderService#cleanupTask()",
-      "label" : "cleanupTask",
       "kind" : "METHOD",
+      "label" : "cleanupTask",
       "qualified_name" : "com.example.shop.service.OrderService#cleanupTask",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L61"
     } ],
-    "annotations" : [ ]
+    "node" : {
+      "id" : "com.example.shop.service.OrderService",
+      "kind" : "CLASS",
+      "label" : "OrderService",
+      "qualified_name" : "com.example.shop.service.OrderService",
+      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+      "source_location" : "L18"
+    }
   } ],
   "stats" : {
-    "members" : 9,
-    "annotations" : 0
+    "annotations" : 0,
+    "members" : 9
   }
 }

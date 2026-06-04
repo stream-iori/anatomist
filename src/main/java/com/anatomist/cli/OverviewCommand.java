@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 @Command(name = "overview",
@@ -28,6 +29,10 @@ public class OverviewCommand implements Callable<Integer> {
             description = "Collapse package tree to the first N dot-segments (default: 0 = no collapse).")
     int depth = 0;
 
+    @Option(names = "--deps-only",
+            description = "Output only package dependency edges (replaces package-deps command).")
+    boolean depsOnly;
+
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
@@ -35,6 +40,11 @@ public class OverviewCommand implements Callable<Integer> {
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
+            if (depsOnly) {
+                List<Map<String, Object>> rows = q.packageDeps();
+                JsonFormatter.emit(System.out, new QueryEnvelope(buildQueryString(), rows));
+                return 0;
+            }
             OverviewResult ov = q.overview();
             if (depth > 0) ov.packages = collapse(ov.packages, depth);
             if ("json".equalsIgnoreCase(format)) {
@@ -69,6 +79,7 @@ public class OverviewCommand implements Callable<Integer> {
     }
 
     private String buildQueryString() {
+        if (depsOnly) return "overview --deps-only";
         StringBuilder sb = new StringBuilder("overview --format ").append(format);
         if (depth > 0) sb.append(" --depth ").append(depth);
         return sb.toString();

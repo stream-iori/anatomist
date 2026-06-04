@@ -52,7 +52,7 @@ class PicocliCodegenIT {
         assertTrue(names.contains("com.anatomist.cli.AnatomistCli"),
                 "AnatomistCli not in reflect-config: " + names);
         assertTrue(names.contains("com.anatomist.cli.IndexCommand"));
-        assertTrue(names.contains("com.anatomist.cli.EnrichCommand"));
+        assertTrue(names.contains("com.anatomist.cli.FieldAccessCommand"));
         assertTrue(names.contains("com.anatomist.cli.AnnotateCommand"));
     }
 
