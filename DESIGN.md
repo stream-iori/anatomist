@@ -502,7 +502,7 @@ CREATE VIRTUAL TABLE node_names USING fts5(
 | **C5** 谁依赖了我 | edges WHERE (target_id = ? OR external_target_fqn = ?) AND relation IN ('CALLS', 'REFERENCES', 'WRITES', 'READS') |
 | **D1** 被谁调用 | `SELECT * FROM edges WHERE target_id = ? AND relation = 'CALLS' AND is_external = 0` |
 | **D2** 调用了谁 | `SELECT * FROM edges WHERE source_id = ? AND relation = 'CALLS'` |
-| **D3** 多跳调用链 | Java BFS on `CALLS` edges (depth = N)，遍历时跨越 OVERRIDES 边穿透接口/抽象方法分派（默认开启），链中 OVERRIDES 边表示多态分派跳转 |
+| **D3** 多跳调用链 | Java BFS on `CALLS` edges (depth = N)，遍历时跨越 OVERRIDES 边穿透接口/抽象方法分派（默认开启），链中 OVERRIDES 边表示多态分派跳转；`--blocks[=class\|package]` 将链路切分为架构块（按类或包+Spring 注解角色分组），每块包含方法列表、内部/入出边、字段读写、注解、depth 范围、控制流上下文 |
 | **D4** 入口追踪 | B4 查 @RequestMapping 方法 + 递归 CTE on `CALLS` edges |
 | **E1** 领域模型 | B4 查 @Entity + C1 看字段关系 |
 | **E2** 限界上下文 | B4 查 @Service/@RestController + C4 依赖 + 按 `nodes.package` 分组（package-deps） |
@@ -966,16 +966,15 @@ anatomist/
 | `anatomist search <query>` | FTS5 全文搜索符号 | B1, B2 |
 | `anatomist context <fqn>` | 获取类/方法的基本上下文（fields + method signatures + annotations，**不含 callees**） | C1, C3 |
 | `anatomist context <fqn> --with-callees[=N]` | 同上，并附加每个方法 N 层 callees（N 默认 1） | C1, C3 |
-| `anatomist callers-of <method>` | 谁调用了这个方法（`--depth N` 递归） | D2, F1 |
-| `anatomist callees-of <method>` | 这个方法调用了谁（`--depth N` 递归；遍历自动跨越 Lambda） | D1, D3, D4 |
+| `anatomist callers-of <method>` | 谁调用了这个方法（`--depth N` 递归，`--blocks[=class\|package]` 切块） | D2, F1 |
+| `anatomist callees-of <method>` | 这个方法调用了谁（`--depth N` 递归；遍历自动跨越 Lambda，`--blocks[=class\|package]` 切块） | D1, D3, D4 |
 | `anatomist hierarchy <class>` | 继承链/实现接口 | C2 |
 | `anatomist implementors-of <interface>` | 接口的实现类 | B5, F2 |
 | `anatomist deps-of <class>` | 类依赖了谁（默认折叠 REFERENCES context，`--detailed` 展开） | C4 |
 | `anatomist used-by <class>` | 谁依赖了这个类 | C5, F3 |
-| `anatomist field-readers <field>` | 谁读了这个字段 | F1（字段级） |
-| `anatomist field-writers <field>` | 谁修改了这个字段 | F1（字段级，"谁改了 order.status"） |
-| `anatomist call-path <from> <to>` | 两个方法间的调用路径 | D3 |
-| `anatomist package-deps` | 包级依赖聚合视图 | E2 |
+| `anatomist field-access <field>` | 谁读/写了这个字段（`--mode reads\|writes\|all`） | F1（字段级） |
+| `anatomist call-path <from> <to>` | 两个方法间的调用路径（`--blocks[=class\|package]` 切块） | D3 |
+| `anatomist overview` | 项目概览（`--deps-only` 仅包依赖） | E2 |
 | `anatomist index-docs <path>` | 索引项目文档到 documents 表 | Phase 2 |
 | `anatomist enrich --node/--package <target>` | 输出结构摘要供 LLM 分析 | Phase 2 |
 | `anatomist annotate <node-id> --label --category --context` | 写入语义注解 | Phase 2 |

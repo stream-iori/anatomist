@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.query.CallChainSlicer;
 import com.anatomist.query.EdgeRow;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
@@ -24,6 +25,10 @@ public class CallPathCommand implements Callable<Integer> {
 
     @Option(names = "--index") Path index;
 
+    @Option(names = "--blocks", arity = "0..1", fallbackValue = "package",
+            description = "Slice chain into blocks: class | package (default: package).")
+    String blocks;
+
     @Override
     public Integer call() {
         Path db = IndexPath.resolve(index);
@@ -33,6 +38,12 @@ public class CallPathCommand implements Callable<Integer> {
                     "call-path " + from + " " + to + " --depth " + depth, rows);
             env.stats.put("path_length", rows.size());
             env.stats.put("found", !rows.isEmpty());
+            if (blocks != null) {
+                CallChainSlicer slicer = new CallChainSlicer(q.connection());
+                CallChainSlicer.Level level = "class".equalsIgnoreCase(blocks)
+                        ? CallChainSlicer.Level.CLASS : CallChainSlicer.Level.PACKAGE;
+                env.blocks = slicer.slice(rows, level);
+            }
             JsonFormatter.emit(System.out, env);
             return rows.isEmpty() ? 2 : 0;
         }

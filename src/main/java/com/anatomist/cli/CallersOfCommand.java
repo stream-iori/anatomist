@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.query.CallChainSlicer;
 import com.anatomist.query.ContextFilter;
 import com.anatomist.query.EdgeRow;
 import com.anatomist.query.JsonFormatter;
@@ -31,6 +32,10 @@ public class CallersOfCommand implements Callable<Integer> {
     @Option(names = "--in-branch", description = "Keep only edges occurring inside a branch (if/else/case/catch/ternary).")
     boolean inBranch;
 
+    @Option(names = "--blocks", arity = "0..1", fallbackValue = "package",
+            description = "Slice chain into blocks: class | package (default: package).")
+    String blocks;
+
     @Override
     public Integer call() {
         Path db = IndexPath.resolve(index);
@@ -39,6 +44,12 @@ public class CallersOfCommand implements Callable<Integer> {
             QueryEnvelope env = new QueryEnvelope("callers-of " + method + " --depth " + depth, rows);
             int maxDepth = rows.stream().mapToInt(r -> r.depth == null ? 0 : r.depth).max().orElse(0);
             env.stats.put("max_depth", maxDepth);
+            if (blocks != null) {
+                CallChainSlicer slicer = new CallChainSlicer(q.connection());
+                CallChainSlicer.Level level = "class".equalsIgnoreCase(blocks)
+                        ? CallChainSlicer.Level.CLASS : CallChainSlicer.Level.PACKAGE;
+                env.blocks = slicer.slice(rows, level);
+            }
             JsonFormatter.emit(System.out, env);
             return 0;
         }

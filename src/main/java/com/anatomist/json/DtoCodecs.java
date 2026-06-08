@@ -1,6 +1,7 @@
 package com.anatomist.json;
 
 import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.query.BlockResult;
 import com.anatomist.query.ClassEdge;
 import com.anatomist.query.ContextResult;
 import com.anatomist.query.DocSnippet;
@@ -12,6 +13,7 @@ import com.anatomist.query.OverviewResult;
 import com.anatomist.query.PackageStat;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.SemanticAnnotationRow;
+import com.anatomist.query.SliceResult;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -53,6 +55,8 @@ public final class DtoCodecs {
         JsonCodecRegistry.register(SemanticAnnotation.class, SEMANTIC_ANNOTATION);
         JsonCodecRegistry.register(PackageStat.class, PACKAGE_STAT);
         JsonCodecRegistry.register(ClassEdge.class, CLASS_EDGE);
+        JsonCodecRegistry.register(BlockResult.class, BLOCK_RESULT);
+        JsonCodecRegistry.register(SliceResult.class, SLICE_RESULT);
         JsonCodecRegistry.register(OverviewResult.class, OVERVIEW);
     }
 
@@ -191,6 +195,7 @@ public final class DtoCodecs {
             put(m, "query", env.query);
             put(m, "results", env.results);
             put(m, "stats", env.stats);
+            put(m, "blocks", env.blocks);
             return m;
         }
         @Override public QueryEnvelope fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -256,5 +261,35 @@ public final class DtoCodecs {
         public SemanticAnnotation fromTree(Object tree) {
             return SemanticAnnotation.fromJson((Map<String, Object>) tree);
         }
+    };
+
+    private static final JsonCodec<BlockResult> BLOCK_RESULT = new JsonCodec<>() {
+        @Override public Object toTree(BlockResult b) {
+            Map<String, Object> m = obj();
+            put(m, "name", b.name);
+            put(m, "role", b.role);
+            put(m, "methods", b.methods);
+            put(m, "owning_types", new java.util.ArrayList<>(b.owningTypes));
+            put(m, "internal_edges", b.internalEdges);
+            put(m, "inbound_edges", b.inboundEdges);
+            put(m, "outbound_edges", b.outboundEdges);
+            put(m, "fields_read", b.fieldsRead);
+            put(m, "fields_written", b.fieldsWritten);
+            put(m, "annotations", b.annotations);
+            put(m, "depth_range", java.util.List.of(b.depthRange[0], b.depthRange[1]));
+            put(m, "control_flow_context", b.controlFlowContext);
+            return m;
+        }
+        @Override public BlockResult fromTree(Object tree) { throw new UnsupportedOperationException(); }
+    };
+
+    private static final JsonCodec<SliceResult> SLICE_RESULT = new JsonCodec<>() {
+        @Override public Object toTree(SliceResult s) {
+            Map<String, Object> m = obj();
+            put(m, "level", s.level);
+            put(m, "blocks", s.blocks);
+            return m;
+        }
+        @Override public SliceResult fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };
 }
