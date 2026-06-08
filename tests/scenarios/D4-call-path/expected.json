@@ -1,0 +1,31 @@
+{
+  "query" : "call-path com.example.shop.controller.OrderController#create com.example.shop.service.OrderValidator#validate --depth 5",
+  "results" : [ {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "create",
+    "source_location" : "L24",
+    "target" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "createOrder",
+    "target_qualified_name" : "com.example.shop.service.OrderService#createOrder"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 2,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L33",
+    "target" : "com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "validate",
+    "target_qualified_name" : "com.example.shop.service.OrderValidator#validate"
+  } ],
+  "stats" : {
+    "found" : true,
+    "path_length" : 2,
+    "total" : 2
+  }
+}
