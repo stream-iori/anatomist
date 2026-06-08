@@ -1,5 +1,6 @@
 package com.anatomist.incremental;
 
+import com.anatomist.config.ProjectConfig;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.NodeIdGenerator;
@@ -42,6 +43,7 @@ public class IncrementalIndexer {
     private final int javaVersion;
     private final int maxRealignFiles;
     private final boolean springXml;
+    private final ProjectConfig projectConfig;
 
     public IncrementalIndexer(Path projectRoot,
                               List<Path> sourcePaths,
@@ -49,7 +51,7 @@ public class IncrementalIndexer {
                               SqliteStore store,
                               int javaVersion,
                               int maxRealignFiles) {
-        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles, false);
+        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles, false, new ProjectConfig());
     }
 
     public IncrementalIndexer(Path projectRoot,
@@ -59,6 +61,17 @@ public class IncrementalIndexer {
                               int javaVersion,
                               int maxRealignFiles,
                               boolean springXml) {
+        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles, springXml, new ProjectConfig());
+    }
+
+    public IncrementalIndexer(Path projectRoot,
+                              List<Path> sourcePaths,
+                              JavaParserFactory parserFactory,
+                              SqliteStore store,
+                              int javaVersion,
+                              int maxRealignFiles,
+                              boolean springXml,
+                              ProjectConfig projectConfig) {
         this.projectRoot = projectRoot;
         this.sourcePaths = sourcePaths;
         this.parserFactory = parserFactory;
@@ -66,6 +79,7 @@ public class IncrementalIndexer {
         this.javaVersion = javaVersion;
         this.maxRealignFiles = maxRealignFiles;
         this.springXml = springXml;
+        this.projectConfig = projectConfig != null ? projectConfig : new ProjectConfig();
     }
 
     public static final class Summary {
@@ -154,7 +168,7 @@ public class IncrementalIndexer {
             ExtractionResult result = new ExtractionResult();
             if (!toReparse.isEmpty()) {
                 NodeIdGenerator idGen = new NodeIdGenerator();
-                ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN");
+                ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN", projectConfig);
                 TypeExtractor typeExtractor = new TypeExtractor(ctx);
                 FieldExtractor fieldExtractor = new FieldExtractor(ctx);
                 MethodExtractor methodExtractor = new MethodExtractor(ctx);

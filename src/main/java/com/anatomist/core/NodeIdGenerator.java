@@ -143,4 +143,15 @@ public class NodeIdGenerator {
     public static String externalTypeFqn(ResolvedReferenceTypeDeclaration t) {
         return t.getQualifiedName();
     }
+
+    /** Convenience: external FQN for a field declaration (e.g. java.lang.System#out). */
+    public static String externalFieldFqn(ResolvedFieldDeclaration f) {
+        String classFqn;
+        try {
+            classFqn = f.declaringType().getQualifiedName();
+        } catch (RuntimeException e) {
+            classFqn = "<unknown>";
+        }
+        return classFqn + "#" + f.getName();
+    }
 }

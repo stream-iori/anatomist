@@ -1,6 +1,7 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
+import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.github.javaparser.ast.Node;
@@ -153,16 +154,23 @@ public class FieldAccessExtractor implements Extractor {
         ResolvedTypeDeclaration decl;
         try { decl = field.declaringType(); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
-        if (!ctx.isProjectInternal(decl)) return; // external field access not tracked in Phase 1.5
 
-        Edge e = new Edge();
-        e.sourceId = callerId;
-        e.targetId = ctx.idGenerator().forField(field);
-        e.relation = relation;
-        e.confidence = "EXTRACTED";
-        e.isExternal = false;
-        e.sourceLocation = "L" + at.getBegin().map(p -> p.line).orElse(0);
-        e.context = ControlContext.of(at);
-        result.edges.add(e);
+        Edge edge = new Edge();
+        edge.sourceId = callerId;
+        edge.relation = relation;
+        edge.confidence = "EXTRACTED";
+        edge.sourceLocation = "L" + at.getBegin().map(p -> p.line).orElse(0);
+        edge.context = ControlContext.of(at);
+
+        if (ctx.isProjectInternal(decl)) {
+            edge.targetId = ctx.idGenerator().forField(field);
+            edge.isExternal = false;
+        } else {
+            String fqn = NodeIdGenerator.externalFieldFqn(field);
+            if (ctx.isExternalExcluded(fqn)) return;
+            edge.externalTargetFqn = fqn;
+            edge.isExternal = true;
+        }
+        result.edges.add(edge);
     }
 }

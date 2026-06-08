@@ -197,6 +197,30 @@ class MicroFixtureIT {
                 "JRE 21 sequenced collection types leaked into external_target_fqn");
     }
 
+    // ── External REFERENCES edges (post-Phase 1.5 gap closure) ───────
+
+    @Test
+    void externalReferences_javaUtilListTracked() throws Exception {
+        // java.util.List is NOT in the default exclude list, so REFERENCES to it
+        // from GenericRepository / LambdaInStream / OverloadedMethods should appear.
+        int extRefs = scalar("SELECT count(*) FROM edges "
+                + " WHERE is_external = 1 AND relation = 'REFERENCES' "
+                + "   AND external_target_fqn = 'java.util.List'");
+        assertTrue(extRefs >= 1,
+                "expected ≥1 external REFERENCES to java.util.List; got " + extRefs);
+    }
+
+    @Test
+    void externalReferences_javaLangExcludedByDefault() throws Exception {
+        // java.lang.* is in the default exclude patterns — no external REFERENCES
+        // should point to anything under java.lang.
+        int javaLangRefs = scalar("SELECT count(*) FROM edges "
+                + " WHERE is_external = 1 AND relation = 'REFERENCES' "
+                + "   AND external_target_fqn LIKE 'java.lang.%'");
+        assertEquals(0, javaLangRefs,
+                "java.lang.* should be excluded from external REFERENCES; got " + javaLangRefs);
+    }
+
     // helper
     private static int scalar(String sql) throws Exception {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + dbPath);

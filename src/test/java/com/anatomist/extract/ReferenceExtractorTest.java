@@ -1,5 +1,6 @@
 package com.anatomist.extract;
 
+import com.anatomist.config.ProjectConfig;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
@@ -101,5 +102,58 @@ class ReferenceExtractorTest {
                         && "pkg.A.Req".equals(e.targetId));
         assertTrue(lambdaParamRef,
                 "lambda parameter_type REFERENCES (source=LAMBDA id, target=Req) missing; got " + r.edges);
+    }
+
+    @Test
+    void emitsExternalEdgeForJdkType() {
+        // Default config excludes java.lang.* / java.util.* — use a custom config
+        // that allows java.util.List through.
+        ProjectConfig config = new ProjectConfig();
+        config.setExternalExcludePatterns(List.of("java.lang.*"));
+        ExtractionContext ctxWithConfig = new ExtractionContext(
+                Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN", config);
+
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "import java.util.List;\n"
+                + "public class A {\n"
+                + "  List<String> items;\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new ReferenceExtractor(ctxWithConfig).extract(cu, r);
+
+        boolean externalRef = r.edges.stream().anyMatch(e ->
+                "REFERENCES".equals(e.relation)
+                        && e.isExternal
+                        && "java.util.List".equals(e.externalTargetFqn));
+        assertTrue(externalRef,
+                "external REFERENCES for java.util.List expected; got " + r.edges);
+
+        // java.lang.String should be excluded
+        boolean stringRef = r.edges.stream().anyMatch(e ->
+                e.isExternal && "java.lang.String".equals(e.externalTargetFqn));
+        assertFalse(stringRef,
+                "java.lang.String should be excluded by config; got " + r.edges);
+    }
+
+    @Test
+    void externalExcludeFiltersSuppressedPatterns() {
+        ProjectConfig config = new ProjectConfig();
+        config.setExternalExcludePatterns(List.of("java.**"));
+        ExtractionContext ctxExcludeAll = new ExtractionContext(
+                Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN", config);
+
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "import java.util.Map;\n"
+                + "public class A {\n"
+                + "  Map<String, Object> data;\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new ReferenceExtractor(ctxExcludeAll).extract(cu, r);
+
+        boolean anyExternal = r.edges.stream().anyMatch(e -> e.isExternal);
+        assertFalse(anyExternal,
+                "all java.** should be excluded; got " + r.edges);
     }
 }

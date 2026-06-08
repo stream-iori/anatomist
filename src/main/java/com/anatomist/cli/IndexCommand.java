@@ -1,5 +1,7 @@
 package com.anatomist.cli;
 
+import com.anatomist.config.ConfigLoader;
+import com.anatomist.config.ProjectConfig;
 import com.anatomist.core.ClasspathDetector;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserFactory;
@@ -105,6 +107,11 @@ public class IndexCommand implements Callable<Integer> {
                     + "~/.anatomist/logs/debug.log. Off by default.")
     boolean debug;
 
+    @Option(names = "--external-exclude",
+            description = "Comma-separated FQN patterns to exclude from external reference tracking "
+                    + "(e.g. \"com.google.**,org.apache.**\"). Appends to config.toml [external].exclude_patterns.")
+    String externalExclude;
+
     @Override
     public Integer call() {
         long started = System.currentTimeMillis();
@@ -114,6 +121,11 @@ public class IndexCommand implements Callable<Integer> {
                 return 1;
             }
             Path projectRoot = projectPath.toAbsolutePath().normalize();
+
+            ProjectConfig config = ConfigLoader.load(projectRoot);
+            if (externalExclude != null && !externalExclude.isBlank()) {
+                config.addExternalExcludePatterns(Arrays.asList(externalExclude.split(",")));
+            }
 
             Path home = DefaultIndexPath.resolveHome(
                     System.getenv(DefaultIndexPath.ENV_HOME), System.getProperty("user.home"));
@@ -177,7 +189,7 @@ public class IndexCommand implements Callable<Integer> {
                                 : "schema_version mismatch";
                         System.err.println("INFO: incremental degraded to full (" + reason + ")");
                         return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                                jv, factory, dbPath, classpath, started);
+                                jv, factory, dbPath, classpath, started, config);
                     }
                     FileCacheService fcs = new FileCacheService();
                     List<Path> hashTargets = sourceFiles;
@@ -193,7 +205,7 @@ public class IndexCommand implements Callable<Integer> {
 
                     IncrementalIndexer ii = new IncrementalIndexer(
                             projectRoot, sourcePaths, factory, store, jv,
-                            maxRealignFiles, springXml);
+                            maxRealignFiles, springXml, config);
                     IncrementalIndexer.Summary summary = ii.indexIncremental(
                             ch.changed, ch.added, ch.deleted, diskHashes);
 
@@ -201,7 +213,7 @@ public class IndexCommand implements Callable<Integer> {
                         System.err.println("INFO: incremental degraded to full ("
                                 + summary.degradationReason + ")");
                         return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                                jv, factory, dbPath, classpath, started);
+                                jv, factory, dbPath, classpath, started, config);
                     }
 
                     long elapsed = System.currentTimeMillis() - started;
@@ -221,7 +233,7 @@ public class IndexCommand implements Callable<Integer> {
             }
 
             return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                    jv, factory, dbPath, classpath, started);
+                    jv, factory, dbPath, classpath, started, config);
         } catch (Exception e) {
             System.err.println("ERROR: index failed: " + e.getMessage());
             e.printStackTrace(System.err);
@@ -237,9 +249,10 @@ public class IndexCommand implements Callable<Integer> {
                                  JavaParserFactory factory,
                                  Path dbPath,
                                  String classpathOverride,
-                                 long started) throws Exception {
+                                 long started,
+                                 ProjectConfig config) throws Exception {
         NodeIdGenerator idGen = new NodeIdGenerator();
-        ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN");
+        ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN", config);
         TypeExtractor typeExtractor = new TypeExtractor(ctx);
         FieldExtractor fieldExtractor = new FieldExtractor(ctx);
         MethodExtractor methodExtractor = new MethodExtractor(ctx);

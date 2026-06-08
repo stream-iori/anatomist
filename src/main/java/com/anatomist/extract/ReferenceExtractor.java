@@ -1,6 +1,7 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
+import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.github.javaparser.ast.CompilationUnit;
@@ -110,19 +111,22 @@ public class ReferenceExtractor implements Extractor {
         if (!type.isReferenceType()) return;
         ResolvedReferenceType ref = type.asReferenceType();
         ref.getTypeDeclaration().ifPresent(td -> {
+            Edge e = new Edge();
+            e.sourceId = sourceId;
+            e.relation = "REFERENCES";
+            e.confidence = "EXTRACTED";
+            e.context = context;
+
             if (ctx.isProjectInternal(td)) {
-                Edge e = new Edge();
-                e.sourceId = sourceId;
                 e.targetId = ctx.idGenerator().forType(td);
-                e.relation = "REFERENCES";
-                e.confidence = "EXTRACTED";
-                e.context = context;
                 e.isExternal = false;
-                result.edges.add(e);
+            } else {
+                String fqn = NodeIdGenerator.externalTypeFqn(td);
+                if (ctx.isExternalExcluded(fqn)) return;
+                e.externalTargetFqn = fqn;
+                e.isExternal = true;
             }
-            // External references aren't tracked yet — would inflate the edge
-            // table for every java.lang.String / java.util.* in the project.
-            // Phase 1.5 keeps REFERENCES project-internal only.
+            result.edges.add(e);
         });
         // Recurse into generic args regardless of outer internal/external.
         for (ResolvedType arg : ref.typeParametersValues()) {

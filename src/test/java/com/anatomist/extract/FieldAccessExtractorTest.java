@@ -1,5 +1,6 @@
 package com.anatomist.extract;
 
+import com.anatomist.config.ProjectConfig;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
@@ -178,5 +179,50 @@ class FieldAccessExtractorTest {
                 .filter(e -> "READS".equals(e.relation) && "pkg.A#x".equals(e.targetId))
                 .findFirst().orElseThrow();
         assertNull(read.context);
+    }
+
+    @Test
+    void emitsExternalReadForSystemOut() {
+        // Allow java.lang.System through by using a config that only excludes java.io.*
+        ProjectConfig config = new ProjectConfig();
+        config.setExternalExcludePatterns(List.of("java.io.*"));
+        ExtractionContext ctxWithConfig = new ExtractionContext(
+                Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN", config);
+
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  void run() { System.out.println(\"hi\"); }\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new FieldAccessExtractor(ctxWithConfig).extract(cu, r);
+
+        boolean externalRead = r.edges.stream().anyMatch(e ->
+                "READS".equals(e.relation)
+                        && e.isExternal
+                        && "java.lang.System#out".equals(e.externalTargetFqn));
+        assertTrue(externalRead,
+                "external READS for System.out expected; got " + r.edges);
+    }
+
+    @Test
+    void externalFieldAccessExcludedByConfig() {
+        // Exclude everything under java.*
+        ProjectConfig config = new ProjectConfig();
+        config.setExternalExcludePatterns(List.of("java.**"));
+        ExtractionContext ctxExcludeAll = new ExtractionContext(
+                Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN", config);
+
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  void run() { System.out.println(\"hi\"); }\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new FieldAccessExtractor(ctxExcludeAll).extract(cu, r);
+
+        boolean anyExternal = r.edges.stream().anyMatch(e -> e.isExternal);
+        assertFalse(anyExternal,
+                "java.** should be excluded; got " + r.edges);
     }
 }

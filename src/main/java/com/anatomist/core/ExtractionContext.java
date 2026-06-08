@@ -10,6 +10,8 @@ import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclar
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
 
+import com.anatomist.config.ProjectConfig;
+
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
@@ -32,6 +34,7 @@ public class ExtractionContext {
     private final NodeIdGenerator idGenerator;
     private final String module;
     private final String scope;
+    private final ProjectConfig projectConfig;
     private final AtomicLong unresolved = new AtomicLong();
 
     /** Opt-in diagnostic: when {@code -Danatomist.sampleUnresolved=true}, every
@@ -49,11 +52,21 @@ public class ExtractionContext {
                              NodeIdGenerator idGenerator,
                              String module,
                              String scope) {
+        this(projectRoot, sourcePaths, idGenerator, module, scope, new ProjectConfig());
+    }
+
+    public ExtractionContext(Path projectRoot,
+                             List<Path> sourcePaths,
+                             NodeIdGenerator idGenerator,
+                             String module,
+                             String scope,
+                             ProjectConfig projectConfig) {
         this.projectRoot = projectRoot;
         this.sourcePaths = sourcePaths == null ? Collections.emptyList() : List.copyOf(sourcePaths);
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator");
         this.module = module;
         this.scope = scope == null ? "MAIN" : scope;
+        this.projectConfig = projectConfig != null ? projectConfig : new ProjectConfig();
     }
 
     public Path projectRoot() { return projectRoot; }
@@ -61,6 +74,11 @@ public class ExtractionContext {
     public NodeIdGenerator idGenerator() { return idGenerator; }
     public String module() { return module; }
     public String scope() { return scope; }
+    public ProjectConfig projectConfig() { return projectConfig; }
+
+    public boolean isExternalExcluded(String fqn) {
+        return projectConfig.isExternalExcluded(fqn);
+    }
 
     public long unresolvedCount() { return unresolved.get(); }
     public void incrementUnresolved() { incrementUnresolved(null); }
