@@ -2,7 +2,8 @@
   "resources": {
     "includes": [
       { "pattern": "schema.sql" },
-      { "pattern": "export/template.html" }
+      { "pattern": "export/template.html" },
+      { "pattern": "META-INF/anatomist/jdk.*-types\\.bin" }
     ]
   }
 }
