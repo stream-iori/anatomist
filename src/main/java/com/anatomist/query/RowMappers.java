@@ -18,7 +18,7 @@ final class RowMappers {
 
     /** Node projection (alias {@code n}). Mapped by column name, so the alias is cosmetic. */
     static final String NODE_COLS =
-            "n.id, n.label, n.kind, n.qualified_name, n.source_file, n.source_location, n.module";
+            "n.id, n.label, n.kind, n.qualified_name, n.source_file, n.source_location, n.module, n.javadoc";
 
     /** {@code FROM edges e} + the two LEFT JOINs onto src/tgt nodes used by flat edge queries. */
     static final String EDGE_FROM_JOINS =
@@ -57,6 +57,7 @@ final class RowMappers {
         n.sourceFile = rs.getString("source_file");
         n.sourceLocation = rs.getString("source_location");
         n.module = rs.getString("module");
+        n.javadoc = rs.getString("javadoc");
         return n;
     }
 

@@ -10,4 +10,5 @@ public class NodeRow {
     public String sourceFile;
     public String sourceLocation;
     public String module;
+    public String javadoc;
 }
