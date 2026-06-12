@@ -33,6 +33,9 @@ public class OverviewCommand implements Callable<Integer> {
             description = "Output only package dependency edges (replaces package-deps command).")
     boolean depsOnly;
 
+    @Option(names = "--limit", description = "Max package-deps results (default 30, 0=all).") int limit = 30;
+    @Option(names = "--offset", description = "Skip N package-deps results.") int offset = 0;
+
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
@@ -42,7 +45,16 @@ public class OverviewCommand implements Callable<Integer> {
         try (QueryService q = new QueryService(db)) {
             if (depsOnly) {
                 List<Map<String, Object>> rows = q.packageDeps();
-                JsonFormatter.emit(System.out, new QueryEnvelope(buildQueryString(), rows));
+                int total = rows.size();
+                int effectiveLimit = limit > 0 ? limit : total;
+                int safeOffset = Math.max(0, Math.min(offset, total));
+                int end = Math.min(safeOffset + effectiveLimit, total);
+                List<Map<String, Object>> page = rows.subList(safeOffset, end);
+                QueryEnvelope env = new QueryEnvelope(buildQueryString(), page);
+                env.stats.put("total", total);
+                env.stats.put("offset", safeOffset);
+                env.stats.put("truncated", end < total);
+                JsonFormatter.emit(System.out, env);
                 return 0;
             }
             OverviewResult ov = q.overview();

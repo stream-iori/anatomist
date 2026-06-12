@@ -63,6 +63,10 @@ public class QueryService implements AutoCloseable {
         return search.searchByAnnotation(annotationTerm, kind, limit);
     }
 
+    public List<NodeRow> searchByRole(String role, int limit) {
+        return search.searchByRole(role, limit);
+    }
+
     public List<NodeRow> implementorsOf(String typeRef) {
         return search.implementorsOf(typeRef);
     }
@@ -97,8 +101,16 @@ public class QueryService implements AutoCloseable {
         return dependency.depsOf(typeRef);
     }
 
+    public PagedResult<EdgeRow> depsOfPaged(String typeRef, int limit, int offset, String filter) {
+        return dependency.depsOfPaged(typeRef, limit, offset, filter);
+    }
+
     public List<EdgeRow> usedBy(String typeRef) {
         return dependency.usedBy(typeRef);
+    }
+
+    public PagedResult<EdgeRow> usedByPaged(String typeRef, int limit, int offset, String filter) {
+        return dependency.usedByPaged(typeRef, limit, offset, filter);
     }
 
     public List<EdgeRow> fieldReaders(String fieldRef) {
@@ -107,6 +119,10 @@ public class QueryService implements AutoCloseable {
 
     public List<EdgeRow> fieldWriters(String fieldRef) {
         return dependency.fieldWriters(fieldRef);
+    }
+
+    public PagedResult<EdgeRow> fieldAccessPaged(String fieldRef, String mode, int limit, int offset, String filter) {
+        return dependency.fieldAccessPaged(fieldRef, mode, limit, offset, filter);
     }
 
     // ── Overview ────────────────────────────────────────────────────────

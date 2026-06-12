@@ -3,6 +3,7 @@ package com.anatomist.cli;
 import com.anatomist.query.ContextFilter;
 import com.anatomist.query.EdgeRow;
 import com.anatomist.query.JsonFormatter;
+import com.anatomist.query.PagedResult;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
@@ -27,6 +28,10 @@ public class FieldAccessCommand implements Callable<Integer> {
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
+    @Option(names = "--limit", description = "Max results per page (default 50).") int limit = 50;
+    @Option(names = "--offset", description = "Skip N results (for pagination).") int offset = 0;
+    @Option(names = "--filter", description = "Filter results by substring match on source label/FQN.") String filter;
+
     @Option(names = "--in-loop", description = "Keep only edges occurring inside a loop (for/foreach/while/do).")
     boolean inLoop;
 
@@ -37,22 +42,27 @@ public class FieldAccessCommand implements Callable<Integer> {
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
-            List<EdgeRow> rows;
-            switch (mode.toLowerCase()) {
-                case "reads":
-                    rows = q.fieldReaders(field);
-                    break;
-                case "writes":
-                    rows = q.fieldWriters(field);
-                    break;
-                default:
-                    rows = new ArrayList<>(q.fieldReaders(field));
-                    rows.addAll(q.fieldWriters(field));
-                    break;
+            if (inLoop || inBranch) {
+                List<EdgeRow> rows;
+                switch (mode.toLowerCase()) {
+                    case "reads": rows = q.fieldReaders(field); break;
+                    case "writes": rows = q.fieldWriters(field); break;
+                    default:
+                        rows = new ArrayList<>(q.fieldReaders(field));
+                        rows.addAll(q.fieldWriters(field));
+                        break;
+                }
+                rows = ContextFilter.apply(rows, inLoop, inBranch);
+                JsonFormatter.emit(System.out,
+                        new QueryEnvelope("field-access " + field + " --mode " + mode, rows));
+            } else {
+                PagedResult<EdgeRow> paged = q.fieldAccessPaged(field, mode, limit, offset, filter);
+                QueryEnvelope env = new QueryEnvelope("field-access " + field + " --mode " + mode, paged.items());
+                env.stats.put("total", paged.total());
+                env.stats.put("offset", paged.offset());
+                env.stats.put("truncated", paged.truncated());
+                JsonFormatter.emit(System.out, env);
             }
-            rows = ContextFilter.apply(rows, inLoop, inBranch);
-            JsonFormatter.emit(System.out,
-                    new QueryEnvelope("field-access " + field + " --mode " + mode, rows));
             return 0;
         }
     }
