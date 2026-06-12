@@ -1,6 +1,8 @@
 package com.anatomist.cli;
 
+import com.anatomist.model.ArchRole;
 import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.semantic.ArchRoleInferrer;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -51,12 +53,19 @@ public class AnnotateCommand implements Callable<Integer> {
     @Option(names = "--from-json", description = "Read a JSON array of annotation objects instead of CLI args.")
     Path fromJson;
 
+    @Option(names = "--auto", description = "Auto-infer architecture roles (DDD layers) via L1 annotation + L2 call-pattern rules, write to arch_roles table.")
+    boolean auto;
+
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
     @Override
     public Integer call() throws Exception {
         Path db = IndexPath.resolve(index);
+
+        if (auto) {
+            return runAutoInference(db);
+        }
 
         List<SemanticAnnotation> batch;
         if (fromJson != null) {
@@ -95,6 +104,31 @@ public class AnnotateCommand implements Callable<Integer> {
         }
         System.out.println("Annotated " + batch.size() + " node(s).");
         return 0;
+    }
+
+    private int runAutoInference(Path db) {
+        try (SqliteStore store = new SqliteStore(db)) {
+            ArchRoleInferrer inferrer = new ArchRoleInferrer(store);
+            List<ArchRole> roles = inferrer.infer();
+            if (roles.isEmpty()) {
+                System.out.println("No architecture roles inferred.");
+                return 0;
+            }
+            store.upsertArchRoles(roles);
+
+            java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+            for (ArchRole r : roles) {
+                counts.merge(r.role, 1, Integer::sum);
+            }
+            System.out.println("Inferred " + roles.size() + " architecture role(s):");
+            for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+                System.out.println("  " + e.getKey() + ": " + e.getValue());
+            }
+            return 0;
+        } catch (Exception e) {
+            System.err.println("ERROR: " + e.getMessage());
+            return 1;
+        }
     }
 
     private static String validate(SemanticAnnotation sa) {

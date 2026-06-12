@@ -147,6 +147,21 @@ CREATE INDEX idx_semantic_annotations_category ON semantic_annotations(category)
 CREATE INDEX idx_semantic_annotations_source ON semantic_annotations(source);
 CREATE UNIQUE INDEX idx_semantic_annotations_upsert_key ON semantic_annotations(node_id, category, source);
 
+CREATE TABLE arch_roles (
+    node_id TEXT PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK(role IN (
+        'ENTRY','APPLICATION','DOMAIN_SERVICE','DOMAIN_MODEL',
+        'REPOSITORY','ADAPTER','INFRASTRUCTURE'
+    )),
+    confidence TEXT NOT NULL CHECK(confidence IN (
+        'explicit','auto_annotation','auto_call_pattern','agent'
+    )),
+    source TEXT NOT NULL
+);
+
+CREATE INDEX idx_arch_roles_role ON arch_roles(role);
+CREATE INDEX idx_arch_roles_confidence ON arch_roles(confidence);
+
 CREATE TABLE file_cache (
     source_file TEXT PRIMARY KEY,
     hash TEXT NOT NULL,

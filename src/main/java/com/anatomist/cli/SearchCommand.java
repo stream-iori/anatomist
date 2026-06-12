@@ -28,6 +28,9 @@ public class SearchCommand implements Callable<Integer> {
     @Option(names = "--by-annotation", description = "Treat <term> as an annotation FQN/substring.")
     boolean byAnnotation;
 
+    @Option(names = "--by-role", description = "Find nodes by arch_role (ENTRY, APPLICATION, DOMAIN_SERVICE, DOMAIN_MODEL, REPOSITORY, ADAPTER, INFRASTRUCTURE).")
+    boolean byRole;
+
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
@@ -35,9 +38,10 @@ public class SearchCommand implements Callable<Integer> {
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
-            List<NodeRow> results = byAnnotation
-                    ? q.searchByAnnotation(term, kind, limit)
-                    : q.search(term, kind, limit);
+            List<NodeRow> results;
+            if (byRole) results = q.searchByRole(term, limit);
+            else if (byAnnotation) results = q.searchByAnnotation(term, kind, limit);
+            else results = q.search(term, kind, limit);
             QueryEnvelope env = new QueryEnvelope(buildQueryString(), results);
             JsonFormatter.emit(System.out, env);
             return 0;

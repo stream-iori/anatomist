@@ -55,6 +55,17 @@ public class SearchService {
         return runNodeQuery(conn, sql.toString(), args);
     }
 
+    public List<NodeRow> searchByRole(String role, int limit) {
+        String sql = "SELECT " + RowMappers.NODE_COLS
+                + " FROM nodes n JOIN arch_roles ar ON n.id = ar.node_id "
+                + " WHERE ar.role = ? "
+                + " ORDER BY n.qualified_name LIMIT ?";
+        List<Object> args = new ArrayList<>();
+        args.add(role);
+        args.add(limit > 0 ? limit : 50);
+        return runNodeQuery(conn, sql, args);
+    }
+
     public List<NodeRow> implementorsOf(String typeRef) {
         List<String> targetIds = resolver.resolveTypeIds(typeRef);
         if (targetIds.isEmpty()) return Collections.emptyList();

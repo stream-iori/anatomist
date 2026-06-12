@@ -224,6 +224,59 @@ public class SqliteStore implements AutoCloseable {
         });
     }
 
+    public void upsertArchRoles(java.util.List<com.anatomist.model.ArchRole> roles) {
+        if (roles == null || roles.isEmpty()) return;
+        String sql = "INSERT INTO arch_roles(node_id,role,confidence,source) VALUES (?,?,?,?)" +
+                " ON CONFLICT(node_id) DO UPDATE SET role=excluded.role, confidence=excluded.confidence, source=excluded.source";
+        inTransaction(c -> {
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                for (com.anatomist.model.ArchRole r : roles) {
+                    ps.setString(1, r.nodeId);
+                    ps.setString(2, r.role);
+                    ps.setString(3, r.confidence);
+                    ps.setString(4, r.source);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        });
+    }
+
+    public java.util.List<com.anatomist.model.ArchRole> queryArchRoles(String role) {
+        java.util.List<com.anatomist.model.ArchRole> out = new java.util.ArrayList<>();
+        String sql = role == null
+                ? "SELECT node_id, role, confidence, source FROM arch_roles"
+                : "SELECT node_id, role, confidence, source FROM arch_roles WHERE role = ?";
+        try (PreparedStatement ps = connection().prepareStatement(sql)) {
+            if (role != null) ps.setString(1, role);
+            try (java.sql.ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.add(new com.anatomist.model.ArchRole(
+                            rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to query arch_roles", e);
+        }
+        return out;
+    }
+
+    public java.util.Optional<com.anatomist.model.ArchRole> getArchRole(String nodeId) {
+        String sql = "SELECT node_id, role, confidence, source FROM arch_roles WHERE node_id = ?";
+        try (PreparedStatement ps = connection().prepareStatement(sql)) {
+            ps.setString(1, nodeId);
+            try (java.sql.ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return java.util.Optional.of(new com.anatomist.model.ArchRole(
+                            rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to get arch_role", e);
+        }
+        return java.util.Optional.empty();
+    }
+
     public void insertDocuments(java.util.List<Document> docs) {
         if (docs == null || docs.isEmpty()) return;
         String sql = "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";

@@ -24,7 +24,8 @@ import picocli.CommandLine.Command;
                 CallPathCommand.class,
                 OverviewCommand.class,
                 ExportCommand.class,
-                AnnotateCommand.class
+                AnnotateCommand.class,
+                LintCommand.class
         }
 )
 public class AnatomistCli implements Runnable {
