@@ -99,7 +99,7 @@ The resolver accepts increasingly loose forms for the same target:
 
 ---
 
-## Composite workflows (mirror DESIGN.md §端到端流程)
+## Composite workflows
 
 Agent typically composes 2–4 commands. Common patterns:
 
@@ -120,7 +120,7 @@ Agent typically composes 2–4 commands. Common patterns:
 3. (optional) hierarchy <YFqn>                   # subclasses also "depend"
 ```
 
-### "Identify the core domain model"  (E1 — DESIGN.md §场景 4)
+### "Identify the core domain model"
 
 ```
 1. search @Entity --by-annotation                # entity classes

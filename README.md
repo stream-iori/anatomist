@@ -1,10 +1,6 @@
 # anatomist
 
-A JavaParser + SymbolSolver-based Java code intelligence tool. Indexes a Java
-project into SQLite once, then answers structural / semantic questions
-(callers, callees, hierarchy, dependencies, impact) over plain SQL — no
-re-parsing per query. Designed to be called by an Agent LLM (Claude Code,
-Cursor, ...) as a tool.
+JavaParser + SymbolSolver-based Java code intelligence tool. Indexes a Java project into SQLite once, then answers structural/semantic questions via CLI — no re-parsing per query. Designed as an Agent LLM tool (Claude Code, Cursor, ...).
 
 ```
 ┌────────────────────┐    seconds–minutes     ┌────────────────────┐
@@ -17,404 +13,75 @@ Cursor, ...) as a tool.
                                        ┌───────────────────────────────┐
                                        │  CLI / JSON responses for     │
                                        │  search / context / callers / │
-                                       │  callees / hierarchy / …      │
+                                       │  callees / hierarchy / lint   │
                                        └───────────────────────────────┘
 ```
 
-anatomist **never embeds an LLM**. All semantic reasoning is delegated to the
-calling Agent. See [DESIGN.md](DESIGN.md) for the rationale.
-
 ---
 
-## 5-minute hands-on
-
-Requires JDK 21+ and Maven.
+## Quick start
 
 ```bash
-# 1. Build the fat jar
-mvn -q package
-# → target/anatomist.jar
+# Build
+just jar                    # → target/anatomist.jar
+# or: just native           # → target/anatomist (GraalVM native binary)
 
-# 2. Index a project (use the bundled fixture as an example)
-#    --project-source roots are resolved *relative to the project path* above,
-#    so they're module-relative (api/… not fixtures/mini-spring-shop/api/…).
+# Index
 java -jar target/anatomist.jar index fixtures/mini-spring-shop \
     --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
-    --no-classpath \
-    --output /tmp/shop.db
+    --no-classpath --output /tmp/shop.db
 
-# 3. Query: who does OrderService.createOrder call, 3 hops deep?
+# Query
 java -jar target/anatomist.jar callees-of \
     com.example.shop.service.OrderService#createOrder \
     --depth 3 --index /tmp/shop.db
 ```
 
-Output is JSON ready for Agent consumption:
+---
 
-```json
-{
-  "query": "callees-of com.example.shop.service.OrderService#createOrder --depth 3",
-  "results": [
-    {
-      "source": "com.example.shop.service.OrderService#createOrder(...)",
-      "source_label": "createOrder",
-      "target": "com.example.shop.service.OrderValidator#validate(...)",
-      "target_label": "validate",
-      "relation": "CALLS",
-      "call_kind": "INSTANCE",
-      "depth": 1,
-      "source_location": "L33"
-    },
-    ...
-  ],
-  "stats": { "total": 6, "max_depth": 2 }
-}
-```
+## What it does
+
+- 17 CLI commands covering: search, context, call chain, hierarchy, dependencies, field access, overview, export, annotation, lint
+- SymbolSolver-level call resolution (not naive label match) — distinguishes INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE
+- Stable IDs for lambdas, method refs, anonymous classes
+- Incremental re-index (only changed files)
+- Spring XML bean wiring (`--spring-xml`)
+- Architecture role inference (DDD 7 layers) + smell detection (6 rules)
+- Pagination + keyword filter on all list queries
+- GraalVM native binary (~10ms cold start vs ~300ms JVM)
+
+## What it doesn't do
+
+- No embedded LLM — all reasoning delegated to calling Agent
+- No cross-language (Java only)
+- No runtime/reflection dispatch analysis
+- No vector/semantic similarity (relies on FTS5 + Agent reasoning)
 
 ---
 
-## Command catalog
+## Documentation
 
-Two phases, two command families.
-
-**Index-time** (run once, slow):
-
-| Command | What it does |
-|---|---|
-| `index <path>` | Parse + extract + write SQLite |
-| `index --incremental` | Only re-parse files whose hash changed |
-| `index --spring-xml` | Also parse Spring bean XML (`<beans>`) → `BEAN` nodes + `DEFINED_BY` / `WIRES` edges (off by default) |
-| `index-docs <path>` | Index markdown/javadoc into `documents` FTS5 table |
-| `watch <path>` | Watch filesystem + auto-incremental (`--spring-xml` to also watch `<beans>` configs) |
-
-**Query-time** (millisecond, JSON):
-
-| Command | Question it answers |
-|---|---|
-| `search <term>` / `search @Anno --by-annotation` | "Where is …?" |
-| `context <fqn>` / `... --with-callees` | "What's in this class/method?" |
-| `hierarchy <type>` | "Extends + implements" |
-| `implementors-of <iface>` | "Who implements this?" |
-| `callers-of <method> [--depth N]` | Impact analysis |
-| `callees-of <method> [--depth N]` | Call chain |
-| `call-path <from> <to> [--depth N]` | Shortest CALLS chain between two methods |
-| `deps-of <type>` / `used-by <type>` | Class-level dependency graph (incl. Spring `WIRES` when indexed with `--spring-xml`) |
-| `field-readers <field>` / `field-writers <field>` | Field-level impact |
-| `package-deps` | Package → package edge aggregation |
-| `overview [--format markdown\|json] [--depth N]` | Top-down project map: kind/edge/package tallies + package-dep skeleton (no symbol name needed) |
-| `export --format html --output f.html` | Single self-contained HTML: package tree + dependency graph, drill down to class level |
-
-Full subcommand reference + flags: `java -jar target/anatomist.jar --help` or
-[`docs/scenario-2-query.md`](docs/scenario-2-query.md).
-
----
-
-## Common commands (copy-paste cheat-sheet)
-
-Every example below runs against the bundled `fixtures/mini-spring-shop`
-project. Build the jar once (`mvn -q package`), then to save typing, alias the
-launcher and index the fixture:
-
-```bash
-alias anat='java -jar target/anatomist.jar'
-
-# Index the fixture (with Spring XML beans). Writes /tmp/shop.db.
-# --project-source roots are module-relative to the project path.
-anat index fixtures/mini-spring-shop \
-    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
-    --no-classpath --spring-xml --output /tmp/shop.db
-```
-
-Now ask questions (all read `--index /tmp/shop.db`):
-
-```bash
-# Find a symbol by name (FTS5)
-anat search OrderService --index /tmp/shop.db
-
-# Find every class carrying an annotation.
-# NOTE: --no-classpath above only resolves @Override/@Deprecated/@SuppressWarnings,
-# so Spring stereotypes like @Service won't match. Re-index *without* --no-classpath
-# (let ClasspathDetector run) to make @Service/@RestController/@Entity searchable.
-anat search Service --by-annotation --index /tmp/shop.db
-
-# What's inside a class — fields + method signatures
-anat context com.example.shop.service.OrderService --index /tmp/shop.db
-
-# Same, plus one layer of outgoing calls per method
-anat context com.example.shop.service.OrderService --with-callees --index /tmp/shop.db
-
-# Extends + implements chain
-anat hierarchy com.example.shop.service.OrderService --index /tmp/shop.db
-
-# Who implements this interface?
-anat implementors-of com.example.shop.repository.OrderRepository --index /tmp/shop.db
-
-# What does this method call, 3 hops deep? (call chain)
-anat callees-of com.example.shop.service.OrderService#createOrder --depth 3 --index /tmp/shop.db
-
-# Who calls this method? (impact analysis, recursive)
-anat callers-of com.example.shop.service.OrderService#createOrder --depth 5 --index /tmp/shop.db
-
-# Shortest CALLS path between two methods
-anat call-path \
-    com.example.shop.controller.OrderController#create \
-    com.example.shop.repository.OrderRepository#save \
-    --depth 6 --index /tmp/shop.db
-
-# Class-level dependencies — outgoing / incoming
-# (includes Spring WIRES because we indexed with --spring-xml)
-anat deps-of  com.example.shop.service.OrderService   --index /tmp/shop.db
-anat used-by  com.example.shop.service.PriceCalculator --index /tmp/shop.db
-
-# Field-level impact — who reads / writes a field
-anat field-readers com.example.shop.domain.entity.Order#status --index /tmp/shop.db
-anat field-writers com.example.shop.domain.entity.Order#status --index /tmp/shop.db
-
-# Package → package edge aggregation
-anat package-deps --index /tmp/shop.db
-
-# Top-down project map (great as an Agent's first call on an unfamiliar repo)
-anat overview --index /tmp/shop.db                       # markdown
-anat overview --format json --depth 2 --index /tmp/shop.db
-
-# Self-contained HTML for humans: package tree + dependency graph, drill to class
-anat export --format html --output /tmp/shop.html --index /tmp/shop.db
-# → open /tmp/shop.html in any browser (offline, no server, no CDN)
-
-# After editing source, refresh cheaply (only changed files re-parsed)
-anat index fixtures/mini-spring-shop \
-    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
-    --no-classpath --spring-xml --incremental --output /tmp/shop.db
-```
-
-> **FQN syntax**: methods are `pkg.Class#method` (signature optional — anatomist
-> disambiguates overloads for you), fields are `pkg.Class#field`. Bare labels
-> like `OrderService` also work where the name is unambiguous. The native
-> binary (`just native` → `./target/anatomist`) takes the exact same arguments.
-
----
-
-## Where the index database lives
-
-Per-project, under your home directory:
-
-```
-~/.anatomist/<project-basename>/index.db
-```
-
-So `anatomist index /work/order-service` writes to
-`~/.anatomist/order-service/index.db`, and `cd /work/order-service ; anatomist
-search Foo` reads from the same path. The DB is a single SQLite file
-(~400 KB for a small project, ~10 MB for commons-lang3 scale).
-
-Overrides:
-
-| When you want… | Pass |
-|---|---|
-| A specific DB location | `--output /tmp/x.db` (index) / `--index /tmp/x.db` (query) |
-| Sandboxed storage root (e.g. tests) | `export ANATOMIST_HOME=/tmp/anatomist-test` |
-| Keep the DB inside the project (old default) | Create `<project>/.anatomist/index.db` manually before first index — anatomist detects the legacy location and keeps writing there |
-
-Index DB lifecycle is independent of source: deleting the project does
-**not** delete its index unless you also remove the directory under
-`~/.anatomist/`.
-
----
-
-## Use it from an Agent
-
-Drop [`anatomist-skill.md`](anatomist-skill.md) into your Agent's skills /
-context. It's a one-page playbook that tells the Agent **when** to reach for
-anatomist, **which** command answers which kind of question, and how to
-compose 2–4 commands for higher-level workflows ("trace this request",
-"find domain models", "assess impact"). Tested with Claude Code as the
-caller.
-
----
-
-## What it can do, what it can't
-
-**Does**
-
-- Resolve every CALLS edge at SymbolSolver level (not naive label match) —
-  knows `INSTANCE` vs `STATIC` vs `CONSTRUCTOR` vs `SUPER` vs `INTERFACE`.
-- Distinguish overloaded methods by erased FQN signature
-  (`#foo(java.util.List)` ≠ `#foo(java.lang.String)`).
-- Stable IDs for lambdas, method references, and anonymous classes
-  (`$lambda@L<line>C<col>`, `$methodref@L<line>C<col>`, `$anon@L<line>`).
-- Incremental re-index — only the changed file's nodes/edges are recomputed.
-- Optionally index Spring bean XML (`--spring-xml`): each `<bean>` becomes a
-  `BEAN` node with a `DEFINED_BY` edge to its class, and `ref`/`constructor-arg`
-  wiring becomes CLASS→CLASS `WIRES` edges that fold straight into `deps-of` /
-  `used-by`. Incremental + `watch` rebuild the bean graph when any `<beans>`
-  XML — or a Java class it references — changes.
-- Index real-world projects: Apache Commons Lang 3.12.0 (~70k LOC) in ~5s.
-
-**Doesn't (yet)**
-
-- Export to Mermaid / dot / GraphML (DESIGN.md §场景 5 not implemented).
-- Index reflection / SPI / runtime dispatch — only static structure.
-- Vector / semantic similarity search — relies on FTS5 + Agent reasoning.
-- Cross-language (Kotlin, Groovy, Scala) — Java only.
+| Doc | Purpose |
+|-----|---------|
+| [docs/getting-started.md](docs/getting-started.md) | Installation, first index, first query |
+| [docs/commands.md](docs/commands.md) | Full CLI reference (all 17 commands + flags) |
+| [docs/architecture.md](docs/architecture.md) | Package layout, data flow, design constraints |
+| [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
+| [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |
+| [CLAUDE.md](CLAUDE.md) | Agent collaboration guide (tech stack, commands, directory index) |
+| [anatomist-skill.md](anatomist-skill.md) | Agent skill definition (when/how to call anatomist) |
+| [todo.md](todo.md) | Future work |
 
 ---
 
 ## For contributors
 
-Open these in order:
-
-1. [`DESIGN.md`](DESIGN.md) — full architecture rationale, schema design,
-   relation-set derivation from scenarios.
-2. [`CLAUDE.md`](CLAUDE.md) — operating guide: command cheatsheet, package
-   layout, critical invariants, common pitfalls.
-3. [`docs/`](docs) — per-scenario specs (1: index, 2: query, 3: watch,
-   4: skills, 5: export) + [`testing-strategy.md`](docs/testing-strategy.md).
-4. [`.diorama/knowledge/`](.diorama/knowledge) — accumulated practical
-   experience (gotchas with JavaParser, FTS5 tokenizer, etc.).
-
-### Build & test
-
-The repo ships a [`justfile`](justfile) — install [`just`](https://github.com/casey/just)
-once (`brew install just` / `cargo install just`) and run `just` in the
-project root for the full list. The most common ones:
-
-| Task | `just` recipe | Underlying command |
-|---|---|---|
-| Compile | `just compile` | `mvn -q compile` |
-| Unit tests | `just test` | `mvn test` |
-| Full regression (unit + 16 IT classes) | `just test-all` | `mvn clean test` + targeted IT run |
-| Run one test | `just test-one QueryServiceIT` | `mvn test -Dtest=…` |
-| Refresh golden files | `just golden-update` | `mvn test -Dtest=GoldenFileIT -Dgolden.update=true` |
-| Build the JVM fat jar | `just jar` | `mvn -q -DskipTests package` |
-| Build host-arch native binary | `just native` | `mvn -Pnative -DskipTests package` |
-| Cross-build Linux amd64 binary | `just native-linux-amd64` | `./docker/build-linux-amd64.sh` |
-| Install to `~/.local/bin/anatomist` | `just install` | builds + `./docker/install-local.sh` |
-| Smoke test installed binary | `just smoke-installed` | indexes mini-spring-shop, queries it |
-| Startup-latency comparison | `just bench-startup` | 3 runs each, native vs JVM |
-| Uninstall (restores `.bak` if present) | `just uninstall` | |
-
-Build target is `release=21`; runtime JDK 21+ works.
-
-### Native image (GraalVM)
-
-A single self-contained binary covering every CLI subcommand
-(`index` / `query` / `watch` / `enrich` / `annotate` / ...). See
-[`docs/scenario-6-native-image.md`](docs/scenario-6-native-image.md) for the
-architectural rationale.
-
-**Prereq**: GraalVM JDK 21+ with `native-image` on `$PATH`
-(`sdk install java 25.0.3-graal` via SDKMAN, or any equivalent).
-
 ```bash
-# 1. Build (~1 minute on M-series, ~3 min on x86)
-mvn -Pnative -DskipTests package
-# → target/anatomist  (~44 MB, single Mach-O / ELF binary)
-
-# 2. (macOS only) strip provenance + re-stamp the adhoc signature so
-#    Gatekeeper/amfid lets the binary run. Linux & Windows can skip this.
-xattr -cr target/anatomist
-codesign --force --sign - target/anatomist
-
-# 3. Smoke: index the bundled fixture then run a few queries
-./target/anatomist index fixtures/mini-spring-shop \
-    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
-    --no-classpath \
-    --output /tmp/smoke.db
-./target/anatomist search OrderService --index /tmp/smoke.db
-./target/anatomist callees-of com.example.shop.service.OrderService#createOrder \
-    --depth 2 --index /tmp/smoke.db
-./target/anatomist context com.example.shop.service.OrderService --index /tmp/smoke.db
-./target/anatomist hierarchy com.example.shop.service.OrderService --index /tmp/smoke.db
+brew install just           # task runner
+just                        # list all recipes
+just test                   # run all tests (unit + IT)
+just native-smoke           # verify native binary = JVM jar output
+just golden-update          # refresh golden files after output format changes
 ```
 
-Verified end-to-end on GraalVM 25.0.3 / macOS 14 arm64:
-
-| | native | JVM jar (cold) |
-|---|---:|---:|
-| `index mini-spring-shop` | **234 ms** | 879 ms |
-| `search OrderService` (warm) | **~160 ms** | ~410 ms |
-| Binary size | 43.6 MB | 256 KB jar + ~30 MB classpath |
-
-#### macOS Gatekeeper note
-
-On macOS 14+ (Sonoma / Sequoia) the first execution of a freshly built
-native binary may be killed silently (exit 137, empty output) — amfid
-rejects ad-hoc-signed local binaries with
-`Code=-423 "The file is adhoc signed or signed by an unknown certificate chain"`.
-
-Most cases are fixed by the `xattr -cr` + `codesign` round-trip shown
-above. If amfid still rejects after that, open
-**System Settings → Privacy & Security**, scroll to the bottom, click
-**"Allow Anyway"** once after the first kill. Linux and Windows builds
-do not need this dance.
-
-#### Regenerating the reachability metadata
-
-The bundled
-[`reachability-metadata.json`](src/main/resources/META-INF/native-image/com.antcodes/anatomist/reachability-metadata.json)
-covers JavaParser's MetaModel reflective field accesses (`variables` on
-`FieldDeclaration` / `VariableDeclarationExpr` and friends). If a new
-extractor surfaces additional reflection, regenerate with the GraalVM
-tracing agent:
-
-```bash
-mvn -q compile
-CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt && cat /tmp/cp.txt)
-mkdir -p target/native-agent-config
-java -agentlib:native-image-agent=config-output-dir=target/native-agent-config \
-    -cp "target/classes:$CP" com.anatomist.cli.AnatomistCli \
-    index fixtures/mini-spring-shop \
-    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
-    --no-classpath --output /tmp/agent-trace.db
-# Then merge into the shipped config:
-cp target/native-agent-config/reachability-metadata.json \
-   src/main/resources/META-INF/native-image/com.antcodes/anatomist/
-mvn -Pnative -DskipTests package
-```
-
-#### Cross-build for Linux amd64 (from any host)
-
-The macOS / arm64 `target/anatomist` only runs on macOS / arm64. To
-produce a binary that runs on **Linux x86_64 hosts with glibc ≥ 2.17**
-(CentOS 7+, RHEL 7+, Ubuntu 16.04+, Debian 9+), use the bundled
-Dockerfile that bakes a CentOS 7.9 + GraalVM JDK 25 + Maven 3.9 build
-toolchain:
-
-```bash
-./docker/build-linux-amd64.sh
-# 1st run:  builds the docker image (~10 min, mostly yum install + GraalVM download)
-# 2nd run:  re-uses the image; native compile finishes in ~6 min
-# Output:   target/anatomist  (Linux ELF amd64, ~44 MB)
-```
-
-(See [`docker/Dockerfile.amd64-build`](docker/Dockerfile.amd64-build) for
-the exact toolchain. The user-suggested `centos:6.10` base cannot host
-GraalVM 21+ — its glibc 2.12 predates the JDK's 2.17 ABI floor — so we
-pin to `centos:centos7.9.2009` from the same SWR mirror, which has
-glibc 2.17.)
-
-### Dependency budget
-
-**3 direct production dependencies**, on purpose:
-
-- `javaparser-symbol-solver-core` — AST + symbol resolution
-- `sqlite-jdbc` — storage + FTS5 (ships GraalVM `META-INF/native-image/`
-  feature, so no extra config to make it work in a native binary)
-- `picocli` — CLI (with `picocli-codegen` as a compile-time annotation
-  processor only — generates the reflect-config that native-image needs)
-
-Plus `asm` as a build-time + runtime helper for our self-written
-`AsmTypeSolver` (replaces `javassist` for jar bytecode reading in a
-native-image-friendly way; see scenario 6 §决策 1) and
-`JdkTypeCatalogBuilder`. JSON I/O is hand-written
-([`com.anatomist.json`](src/main/java/com/anatomist/json/Json.java)) — no
-jackson at runtime.
-
-No Spring, no Guava (apart from javaparser's transitive dep), no Lombok.
-New dependencies require justification in a new task's `proposal.md`.
-
----
-
-## License
-
-TBD.
+3 production dependencies: `javaparser-symbol-solver-core` + `sqlite-jdbc` + `picocli`. No Jackson, no javassist, no Spring at runtime. JSON I/O is hand-written. Native-image compatible.

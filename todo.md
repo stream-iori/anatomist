@@ -1,40 +1,115 @@
 # TODO
 
-## 固定业务语义标注体系（待讨论）
+## 未来：横切关注点 Tags（运行时质量属性）
 
-为 `semantic_annotations` 定义固定 category 枚举 + 横切关注点 tags，让 Agent 标注结果稳定且可程序化消费，并用于 `--blocks` 切块增强。
+基于 ISO 25010 质量属性分组，5 维度 8 Tags，与 Category（架构位置）正交。
 
-### 架构角色 Category（互斥，11 个）
+| 质量属性 | 维度问题 | Tags |
+|----------|---------|------|
+| **执行模型** | 以什么方式执行？ | `ASYNC`, `SCHEDULED` |
+| **数据一致性** | 如何保障正确性？ | `TX`, `IDEMPOTENT` |
+| **韧性** | 失败时如何应对？ | `COMPENSABLE`, `DEGRADES` |
+| **性能** | 有什么优化手段？ | `CACHED` |
+| **安全** | 谁能调用？ | `SECURED` |
 
-| Category | 含义 |
-|----------|------|
-| `ENTRY_POINT` | 系统入口：HTTP / RPC / MQ consumer / CLI |
-| `ORCHESTRATOR` | 编排/协调：串联多个服务调用，自身无业务逻辑 |
-| `DOMAIN_LOGIC` | 核心业务规则：计算、状态转换、约束校验 |
-| `DATA_ACCESS` | 持久化读写 |
-| `INTEGRATION` | 外部系统调用：支付、短信、第三方 API |
-| `TRANSFORMER` | 数据转换/映射：DTO↔Entity |
-| `VALIDATOR` | 输入/业务规则校验 |
-| `ERROR_HANDLER` | 异常处理/降级/补偿 |
-| `EVENT_PRODUCER` | 发布事件/消息 |
-| `EVENT_CONSUMER` | 消费事件/消息 |
-| `INFRASTRUCTURE` | 基础设施：配置、AOP、过滤器、拦截器 |
+### Tag × 推断级别矩阵
 
-### 横切关注点 Tags（可叠加）
+| Tag | 含义 | L1 注解 | L2 调用模式 | L3 Agent |
+|-----|------|---------|------------|----------|
+| `ASYNC` | 异步执行 | @Async | ExecutorService.submit, CompletableFuture.supplyAsync | |
+| `SCHEDULED` | 时间触发 | @Scheduled | ScheduledExecutorService, XML `<task:scheduled>` | |
+| `TX` | 事务边界内 | @Transactional | TransactionTemplate.execute, PlatformTransactionManager | |
+| `IDEMPOTENT` | 幂等设计 | | | ✓ |
+| `COMPENSABLE` | 有补偿/回滚逻辑 | | | ✓ |
+| `DEGRADES` | 降级/熔断/fallback | @CircuitBreaker, @Retryable | HystrixCommand, Resilience4j | ✓ |
+| `CACHED` | 有缓存 | @Cacheable | Cache.get, RedisTemplate.opsForValue | |
+| `SECURED` | 有权限控制 | @PreAuthorize, @Secured, @RolesAllowed | SecurityContext.getAuthentication | |
 
-| Tag | 含义 | 来源 |
-|-----|------|------|
-| `TX` | 事务边界内 | @Transactional（自动推断） |
-| `ASYNC` | 异步执行 | @Async（自动推断） |
-| `SECURED` | 有权限控制 | @PreAuthorize, @Secured（自动推断） |
-| `CACHED` | 有缓存 | @Cacheable（自动推断） |
-| `IDEMPOTENT` | 幂等设计 | Agent 判断 |
-| `COMPENSABLE` | 有补偿/回滚逻辑 | Agent 判断 |
+### 推断策略
 
-### 实现要点
+| 级别 | 来源 | 确定性 | 实现方式 |
+|------|------|--------|---------|
+| **L1 注解推断** | `annotations` 表直接匹配 | 高 | 固定规则，零误判 |
+| **L2 调用模式推断** | `edges(relation='CALLS')` 匹配特定 API | 中 | 可配置规则表，基于已有调用图 |
+| **L3 Agent 判断** | LLM 分析代码语义 | 低 | Agent prompt 模板，fallback |
 
-1. 固定 category 枚举，`annotate` 命令校验输入
-2. `semantic_annotations` 表新增 tags 字段（或复用 `domain_context` 存 JSON 数组）
-3. TX/ASYNC/SECURED/CACHED 从 `annotations` 表自动推断，不需要 Agent
-4. `CallChainSlicer` 读 `semantic_annotations`，用 category 替代 inferRole，用 tags 做 block metadata
-5. 提供 Agent prompt 模板，列出 11 个 category 定义和判断标准
+**优先级**：中。等核心迁移场景验证后实施。
+
+---
+
+## 未来：`anatomist-annotations` 独立 Maven 模块发布
+
+当前 `@ArchRole` + `Category` 枚举在主项目 `com.anatomist.annotations` 包内。后续需要拆为独立 Maven module 发布到仓库，让目标项目仅依赖轻量注解 JAR（SOURCE retention，零传递依赖）。
+
+**触发条件**：当有外部项目需要引入 `@ArchRole` 注解时。
+
+---
+
+## 未来：Agent prompt 模板
+
+为 Agent 提供结构化 prompt 模板，指导如何：
+- 使用 anatomist 查询结果推理 arch_role
+- 输出格式为源码 diff（添加 `@ArchRole` 注解）
+- 结合 diorama domain-model.json 做交叉验证
+
+---
+
+## 未来：与 diorama-sdd 的集成（Agent 消费模式）
+
+**角色分工**：
+- **diorama-sdd** — 维护领域模型声明（"应该是什么"）
+- **anatomist** — 提供代码结构查询能力（"实际是什么"）
+- **Agent** — 读入两者，推理差异，输出结论
+
+anatomist 不内置 verify/suggestions 命令。Agent 自己组合 anatomist 查询完成验证，再通过 diorama 的流程（consolidate/annotate）回写。
+
+### diorama 提供的代码锚点（Agent 用于定位查询）
+
+| diorama 字段 | Agent 用什么 anatomist 命令验证 |
+|---|---|
+| `entity.fqn` | `anatomist context <fqn>` — 类是否存在、结构是否匹配 |
+| `glossary.term.code_refs[]` | `anatomist context <fqn>` — 类是否存在、角色是否一致 |
+| `bounded_context.packages[]` | `anatomist deps-of <class>` — 检查跨 context 依赖 |
+| `business_rules.implemented_by[]` | `anatomist callers-of <method>` — 方法是否存在、是否被调用 |
+| `scenarios.participants[].fqn` | `anatomist callees-of <entry> --depth N` — 实际调用链是否覆盖参与者 |
+
+### Agent 验证工作流示例
+
+```
+1. Agent 读入 .diorama/knowledge/facts/domain-model.json
+2. 对每个 entity.fqn：
+     anatomist context <fqn> → 存在？结构匹配？
+     不存在 → 标记 stale 或建议更新 fqn
+3. 对每个 bounded_context.packages：
+     anatomist deps-of <pkg内的类> → 检查是否有跨 context 依赖
+     有不当依赖 → 报告 "缺少 ACL"
+4. 对每个 business_rules.implemented_by：
+     anatomist context <method-fqn> → 方法是否存在
+     anatomist field-access <aggregate-field> --mode writes → 所有写入路径是否经过 guard
+5. 验证结果 → Agent 自行写回 diorama（更新 stale 标记 / consolidate 建议）
+```
+
+---
+
+## 远期：外部指标索引（index-metrics）
+
+anatomist 不重新实现代码质量指标和测试覆盖——这些由成熟 Maven 插件完成。anatomist 的价值是**把分散的报告统一关联到同一份代码图谱上**。
+
+```bash
+# 现有工具生成报告
+mvn pmd:pmd           → target/pmd.xml（圈复杂度 / LOC / 代码坏味道）
+mvn jacoco:report     → target/site/jacoco/jacoco.xml（方法级测试覆盖率）
+
+# anatomist 索引报告，关联到已有 nodes
+anatomist index-metrics --pmd target/pmd.xml --jacoco target/site/jacoco/jacoco.xml
+```
+
+| 数据源 | 提供什么 | Agent 能回答 |
+|--------|---------|-------------|
+| PMD | 圈复杂度、LOC、参数数量 | "哪些方法过于复杂？""fat-application 是真胖还是假胖？" |
+| JaCoCo | 方法级覆盖率 | "哪些 DOMAIN_MODEL 方法完全没有测试？" |
+| git log | 变更频率、最后修改时间 | "哪些高复杂度方法还在频繁变更？"（重构优先级） |
+
+存储：独立 `metrics` 表或扩展 `nodes.metadata`，不侵入核心 schema。
+
+**优先级**：低。当前分层迁移场景不依赖这些指标。

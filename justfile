@@ -30,14 +30,23 @@ compile:
 
 # Build the fat JVM jar -> target/anatomist.jar
 jar:
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
     mvn -q -DskipTests package
 
 # Build the native binary for the host OS/arch  -> target/anatomist
 native:
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
+    set -e
     mvn -Pnative -DskipTests package
-    @echo
-    @file {{NATIVE_BIN}}
-    @ls -lh {{NATIVE_BIN}}
+    echo
+    file {{NATIVE_BIN}}
+    ls -lh {{NATIVE_BIN}}
 
 # Build a Linux amd64 native binary inside a CentOS 7.9 container
 # (use this from macOS to produce a binary that runs on RHEL/CentOS/Ubuntu servers)
@@ -123,6 +132,60 @@ smoke-installed:
         --no-classpath \
         --output {{SMOKE_DB}}
     anatomist search OrderService --index {{SMOKE_DB}} | head -10
+
+# Verify native binary produces identical JSON output to JVM jar.
+# Indexes fixture with both, runs 6 query commands, diffs output.
+native-smoke: jar native
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
+    set -eo pipefail
+    JVM="java -jar {{ROOT}}/target/anatomist.jar"
+    NATIVE="{{NATIVE_BIN}}"
+    DB_JVM="/tmp/anatomist-native-smoke-jvm.db"
+    DB_NAT="/tmp/anatomist-native-smoke-native.db"
+    SOURCES="{{SOURCES}}"
+    FIXTURE="{{FIXTURE}}"
+    OUT="/tmp/anatomist-native-smoke"
+
+    echo "=== Indexing with JVM jar ==="
+    rm -f "$DB_JVM"
+    $JVM index "$FIXTURE" --project-source "$SOURCES" --no-classpath --output "$DB_JVM" 2>/dev/null
+
+    echo "=== Indexing with native binary ==="
+    rm -f "$DB_NAT"
+    $NATIVE index "$FIXTURE" --project-source "$SOURCES" --no-classpath --output "$DB_NAT" 2>/dev/null
+
+    CMDS=(
+        "search OrderService"
+        "callees-of com.example.shop.service.OrderService#createOrder --depth 2"
+        "context com.example.shop.service.OrderService"
+        "deps-of com.example.shop.service.OrderService --limit 50"
+        "overview --deps-only"
+        "hierarchy com.example.shop.service.OrderService"
+    )
+
+    FAIL=0
+    for cmd in "${CMDS[@]}"; do
+        echo "--- $cmd ---"
+        $JVM $cmd --index "$DB_JVM" 2>/dev/null | sed 's/"query":"[^"]*"//' > "${OUT}-jvm.json"
+        $NATIVE $cmd --index "$DB_NAT" 2>/dev/null | sed 's/"query":"[^"]*"//' > "${OUT}-native.json"
+        if ! diff -q "${OUT}-jvm.json" "${OUT}-native.json" > /dev/null 2>&1; then
+            echo "FAIL: output differs for: $cmd"
+            diff "${OUT}-jvm.json" "${OUT}-native.json" | head -20
+            FAIL=1
+        else
+            echo "PASS"
+        fi
+    done
+
+    rm -f "$DB_JVM" "$DB_NAT" "${OUT}-jvm.json" "${OUT}-native.json"
+    if [[ $FAIL -ne 0 ]]; then
+        echo "native-smoke FAILED: native binary output differs from JVM jar"
+        exit 1
+    fi
+    echo "native-smoke PASSED: all outputs identical"
 
 # Compare native-binary startup latency vs JVM jar (3 runs each).
 bench-startup: index-fixture jar
