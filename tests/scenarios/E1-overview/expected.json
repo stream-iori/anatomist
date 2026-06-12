@@ -2,17 +2,17 @@
   "query" : "overview --format json",
   "results" : [ {
     "external_edge_counts" : {
-      "CALLS" : 18,
-      "REFERENCES" : 13
+      "CALLS" : 2,
+      "REFERENCES" : 1
     },
     "internal_edge_counts" : {
-      "CALLS" : 27,
+      "CALLS" : 3,
       "CONTAINS" : 76,
       "IMPLEMENTS" : 1,
       "INHERITS" : 1,
       "OVERRIDES" : 4,
       "READS" : 23,
-      "REFERENCES" : 32,
+      "REFERENCES" : 20,
       "WRITES" : 19
     },
     "kind_counts" : {
@@ -33,19 +33,9 @@
       "target_package" : "com.example.shop.domain.dto"
     }, {
       "edge_count" : 1,
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.controller",
-      "target_package" : "com.example.shop.service"
-    }, {
-      "edge_count" : 1,
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.controller",
       "target_package" : "com.example.shop.service"
-    }, {
-      "edge_count" : 3,
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.domain.dto",
-      "target_package" : "com.example.shop.domain.entity"
     }, {
       "edge_count" : 2,
       "relation" : "REFERENCES",
@@ -57,45 +47,20 @@
       "source_package" : "com.example.shop.event",
       "target_package" : "com.example.shop.domain.event"
     }, {
-      "edge_count" : 3,
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.repository",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 7,
+      "edge_count" : 4,
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.repository",
       "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 10,
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.domain.dto"
     }, {
       "edge_count" : 4,
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.domain.dto"
     }, {
-      "edge_count" : 3,
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 3,
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
       "edge_count" : 1,
       "relation" : "CALLS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.domain.event"
-    }, {
-      "edge_count" : 1,
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.event"
     }, {
       "edge_count" : 1,
       "relation" : "REFERENCES",
@@ -148,7 +113,7 @@
   } ],
   "stats" : {
     "methods" : 47,
-    "package_deps" : 17,
+    "package_deps" : 10,
     "packages" : 8,
     "types" : 16
   }

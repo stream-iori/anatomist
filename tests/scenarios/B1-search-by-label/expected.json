@@ -2,6 +2,7 @@
   "query" : "search OrderService --limit 5",
   "results" : [ {
     "id" : "com.example.shop.service.OrderService",
+    "javadoc" : null,
     "kind" : "CLASS",
     "label" : "OrderService",
     "qualified_name" : "com.example.shop.service.OrderService",
@@ -9,6 +10,7 @@
     "source_location" : "L18"
   }, {
     "id" : "com.example.shop.controller.OrderController#orderService",
+    "javadoc" : null,
     "kind" : "FIELD",
     "label" : "orderService",
     "qualified_name" : "com.example.shop.controller.OrderController#orderService",
@@ -16,6 +18,7 @@
     "source_location" : "L20"
   }, {
     "id" : "com.example.shop.service.OrderService#orderRepository",
+    "javadoc" : null,
     "kind" : "FIELD",
     "label" : "orderRepository",
     "qualified_name" : "com.example.shop.service.OrderService#orderRepository",
@@ -23,6 +26,7 @@
     "source_location" : "L22"
   }, {
     "id" : "com.example.shop.service.OrderService#validator",
+    "javadoc" : null,
     "kind" : "FIELD",
     "label" : "validator",
     "qualified_name" : "com.example.shop.service.OrderService#validator",
@@ -30,6 +34,7 @@
     "source_location" : "L24"
   }, {
     "id" : "com.example.shop.service.OrderService#calculator",
+    "javadoc" : null,
     "kind" : "FIELD",
     "label" : "calculator",
     "qualified_name" : "com.example.shop.service.OrderService#calculator",
