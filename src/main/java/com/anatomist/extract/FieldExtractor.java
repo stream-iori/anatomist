@@ -155,7 +155,8 @@ public class FieldExtractor implements Extractor {
         n.sourceLocation = "L" + lineOf(var);
         n.module = ctx.module();
         n.scope = ctx.scope();
-        n.javadoc = decl.getJavadocComment().map(c -> c.getContent()).orElse(null);
+        n.javadoc = com.anatomist.core.JavadocSummary.extract(
+                decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = fieldMetadata(decl, var);
         result.nodes.add(n);
 

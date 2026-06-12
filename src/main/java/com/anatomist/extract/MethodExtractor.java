@@ -107,7 +107,8 @@ public class MethodExtractor implements Extractor {
         n.sourceLocation = "L" + lineOf(decl);
         n.module = ctx.module();
         n.scope = ctx.scope();
-        n.javadoc = decl.getJavadocComment().map(c -> c.getContent()).orElse(null);
+        n.javadoc = com.anatomist.core.JavadocSummary.extract(
+                decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = methodMetadata(decl, r, false);
         result.nodes.add(n);
 
@@ -145,7 +146,8 @@ public class MethodExtractor implements Extractor {
         n.sourceLocation = "L" + lineOf(decl);
         n.module = ctx.module();
         n.scope = ctx.scope();
-        n.javadoc = decl.getJavadocComment().map(c -> c.getContent()).orElse(null);
+        n.javadoc = com.anatomist.core.JavadocSummary.extract(
+                decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = methodMetadata(decl, r, true);
         result.nodes.add(n);
 

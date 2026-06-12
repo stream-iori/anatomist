@@ -94,7 +94,8 @@ public class TypeExtractor implements Extractor {
         n.sourceLocation = "L" + lineOf(decl);
         n.module = ctx.module();
         n.scope = ctx.scope();
-        n.javadoc = decl.getJavadocComment().map(c -> c.getContent()).orElse(null);
+        n.javadoc = com.anatomist.core.JavadocSummary.extract(
+                decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = metadataJson(decl, rt);
         result.nodes.add(n);
     }
