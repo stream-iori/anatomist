@@ -82,6 +82,7 @@ public final class DtoCodecs {
             put(m, "source_file", n.sourceFile);
             put(m, "source_location", n.sourceLocation);
             put(m, "module", n.module);
+            putNullable(m, "javadoc", n.javadoc);
             return m;
         }
         @Override public NodeRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -184,6 +185,13 @@ public final class DtoCodecs {
             put(m, "package_deps", r.packageDeps);
             put(m, "related_docs", r.relatedDocs);
             put(m, "suggested_queries", r.suggestedQueries);
+            if (r.archRole != null) {
+                Map<String, Object> ar = obj();
+                put(ar, "role", r.archRole.role);
+                put(ar, "confidence", r.archRole.confidence);
+                put(ar, "source", r.archRole.source);
+                put(m, "arch_role", ar);
+            }
             return m;
         }
         @Override public EnrichResult fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -240,6 +248,7 @@ public final class DtoCodecs {
             put(m, "external_edge_counts", r.externalEdgeCounts);
             put(m, "packages", r.packages);
             put(m, "package_deps", r.packageDeps);
+            if (!r.archRoleCounts.isEmpty()) put(m, "arch_role_counts", r.archRoleCounts);
             return m;
         }
         @Override public OverviewResult fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -278,6 +287,7 @@ public final class DtoCodecs {
             put(m, "annotations", b.annotations);
             put(m, "depth_range", java.util.List.of(b.depthRange[0], b.depthRange[1]));
             put(m, "control_flow_context", b.controlFlowContext);
+            putNullable(m, "javadoc_summary", b.javadocSummary);
             return m;
         }
         @Override public BlockResult fromTree(Object tree) { throw new UnsupportedOperationException(); }

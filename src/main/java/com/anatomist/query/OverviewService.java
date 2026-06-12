@@ -24,6 +24,7 @@ public class OverviewService {
         countByKind(ov);
         countEdgesByExternal(ov);
         tallyPackages(ov);
+        countArchRoles(ov);
         ov.packageDeps = packageDeps();
         return ov;
     }
@@ -120,6 +121,17 @@ public class OverviewService {
             else ov.internalEdgeCounts.merge(rel, count, Long::sum);
             return null;
         });
+    }
+
+    private void countArchRoles(OverviewResult ov) {
+        try {
+            queryList(conn, "SELECT role, COUNT(*) FROM arch_roles GROUP BY role ORDER BY role", rs -> {
+                ov.archRoleCounts.put(rs.getString(1), rs.getLong(2));
+                return null;
+            });
+        } catch (RuntimeException e) {
+            // arch_roles table may not exist in older indexes — skip silently
+        }
     }
 
     private void tallyPackages(OverviewResult ov) {

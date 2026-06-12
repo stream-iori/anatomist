@@ -19,6 +19,7 @@ public class BlockResult {
     public List<String> annotations = new ArrayList<>();
     public int[] depthRange = {Integer.MAX_VALUE, Integer.MIN_VALUE};
     public List<String> controlFlowContext = new ArrayList<>();
+    public String javadocSummary;
 
     public Map<String, Object> toStats() {
         return Map.of(

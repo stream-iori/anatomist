@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.ArchRole;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -42,6 +44,7 @@ public class EnrichmentService {
         }
 
         r.semanticAnnotations = readSemanticAnnotations(node.id);
+        r.archRole = readArchRole(node.id);
         if (withDocs) {
             r.relatedDocs = searchRelatedDocs(node.label, node.qualifiedName);
         }
@@ -79,6 +82,22 @@ public class EnrichmentService {
         }
         r.suggestedQueries = suggestQueries(r);
         return r;
+    }
+
+    public ArchRole readArchRole(String nodeId) {
+        if (nodeId == null) return null;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT node_id, role, confidence, source FROM arch_roles WHERE node_id = ?")) {
+            ps.setString(1, nodeId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new ArchRole(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4));
+                }
+            }
+        } catch (SQLException e) {
+            // arch_roles may not exist in older indexes
+        }
+        return null;
     }
 
     public List<SemanticAnnotationRow> readSemanticAnnotations(String nodeId) {

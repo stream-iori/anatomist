@@ -31,6 +31,8 @@ class CallChainSlicerTest {
                     + "source_location TEXT, metadata TEXT)");
             s.execute("CREATE TABLE annotations (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     + "node_id TEXT NOT NULL, annotation_fqn TEXT NOT NULL, attributes TEXT)");
+            s.execute("CREATE TABLE arch_roles (node_id TEXT PRIMARY KEY, "
+                    + "role TEXT NOT NULL, confidence TEXT NOT NULL, source TEXT NOT NULL)");
 
             // Types
             s.execute("INSERT INTO nodes VALUES "
@@ -215,6 +217,33 @@ class CallChainSlicerTest {
                 .filter(b -> "SERVICE".equals(b.role))
                 .findFirst().orElseThrow();
         assertArrayEquals(new int[]{2, 2}, svc.depthRange);
+    }
+
+    @Test
+    void archRoles_takePriorityOverAnnotationInference() throws Exception {
+        // Insert arch_roles: override SERVICE → APPLICATION, REPOSITORY stays
+        try (Statement s = conn.createStatement()) {
+            s.execute("INSERT INTO arch_roles VALUES ('com.example.ctrl.OrderController','ENTRY','auto_annotation','@RestController')");
+            s.execute("INSERT INTO arch_roles VALUES ('com.example.svc.OrderService','APPLICATION','auto_call_pattern','call pattern')");
+            s.execute("INSERT INTO arch_roles VALUES ('com.example.repo.OrderRepo','REPOSITORY','auto_annotation','@Repository')");
+        }
+
+        List<EdgeRow> chain = List.of(
+                edge("com.example.ctrl.OrderController#create", "com.example.svc.OrderService#process", "CALLS", 1),
+                edge("com.example.svc.OrderService#process", "com.example.repo.OrderRepo#save", "CALLS", 2));
+
+        CallChainSlicer slicer = new CallChainSlicer(conn);
+        SliceResult r = slicer.slice(chain, CallChainSlicer.Level.CLASS);
+
+        // Should use arch_roles values, not annotation-based inference
+        assertEquals("ENTRY", r.blocks.get(0).role);
+        assertEquals("APPLICATION", r.blocks.get(1).role);
+        assertEquals("REPOSITORY", r.blocks.get(2).role);
+
+        // Cleanup for other tests
+        try (Statement s = conn.createStatement()) {
+            s.execute("DELETE FROM arch_roles");
+        }
     }
 
     @Test

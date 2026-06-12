@@ -39,14 +39,23 @@ public class CallChainSlicer {
         Set<String> allNodeIds = new LinkedHashSet<>(typeIds);
         allNodeIds.addAll(methodIds);
         Map<String, List<String>> annots = batchAnnotations(allNodeIds);
+        Map<String, String> archRoles = batchArchRoles(typeIds);
         Map<String, String> typeRole = new LinkedHashMap<>();
         for (String typeId : typeIds) {
-            typeRole.put(typeId, inferRole(annots.getOrDefault(typeId, List.of())));
+            String fromDb = archRoles.get(typeId);
+            typeRole.put(typeId, fromDb != null ? fromDb : inferRole(annots.getOrDefault(typeId, List.of())));
         }
 
         Map<String, List<EdgeRow>> fieldAccesses = batchFieldAccesses(methodIds);
+        Map<String, String> javadocs = batchJavadocs(methodIds);
 
         List<BlockResult> blocks = buildBlocks(chain, level, owningType, typePkg, typeRole, annots, fieldAccesses);
+
+        for (BlockResult b : blocks) {
+            if (!b.methods.isEmpty()) {
+                b.javadocSummary = javadocs.get(b.methods.get(0));
+            }
+        }
 
         return new SliceResult(level.name().toLowerCase(), blocks);
     }
@@ -273,6 +282,50 @@ public class CallChainSlicer {
                 }
             } catch (SQLException e) {
                 throw new RuntimeException("batchFieldAccesses failed", e);
+            }
+        }
+        return result;
+    }
+
+    Map<String, String> batchArchRoles(Set<String> typeIds) {
+        Map<String, String> result = new HashMap<>();
+        if (typeIds.isEmpty()) return result;
+        List<String> ids = new ArrayList<>(typeIds);
+        for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
+            List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
+            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
+            String sql = "SELECT node_id, role FROM arch_roles WHERE node_id IN (" + placeholders + ")";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        result.put(rs.getString(1), rs.getString(2));
+                    }
+                }
+            } catch (SQLException e) {
+                // arch_roles table may not exist in older DBs — fall back silently
+                return result;
+            }
+        }
+        return result;
+    }
+
+    Map<String, String> batchJavadocs(Set<String> methodIds) {
+        Map<String, String> result = new HashMap<>();
+        List<String> ids = new ArrayList<>(methodIds);
+        for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
+            List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
+            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
+            String sql = "SELECT id, javadoc FROM nodes WHERE id IN (" + placeholders + ") AND javadoc IS NOT NULL";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        result.put(rs.getString(1), rs.getString(2));
+                    }
+                }
+            } catch (SQLException e) {
+                throw new RuntimeException("batchJavadocs failed", e);
             }
         }
         return result;

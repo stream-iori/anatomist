@@ -1,5 +1,6 @@
 package com.anatomist.query;
 
+import com.anatomist.model.ArchRole;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
@@ -58,6 +59,23 @@ class QueryServiceOverviewTest {
             // packageDeps: com.a -> com.b should be present (internal, cross-package)
             assertTrue(ov.packageDeps.stream().anyMatch(d ->
                     "com.a".equals(d.get("source_package")) && "com.b".equals(d.get("target_package"))));
+        }
+    }
+
+    @Test
+    void overview_includesArchRoleDistribution() {
+        try (SqliteStore store = new SqliteStore(dbPath)) {
+            store.upsertArchRoles(List.of(
+                    new ArchRole("com.a.Foo", "APPLICATION", "auto_annotation", "@Service"),
+                    new ArchRole("com.b.Baz", "REPOSITORY", "auto_annotation", "@Repository")
+            ));
+        }
+        try (QueryService q = new QueryService(dbPath)) {
+            OverviewResult ov = q.overview();
+            assertNotNull(ov.archRoleCounts);
+            assertEquals(1L, ov.archRoleCounts.get("APPLICATION"));
+            assertEquals(1L, ov.archRoleCounts.get("REPOSITORY"));
+            assertNull(ov.archRoleCounts.get("ENTRY"));
         }
     }
 
