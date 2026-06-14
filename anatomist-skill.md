@@ -12,27 +12,24 @@ runtime behavior, build/CI issues, or non-Java code.
 
 ## Setup check (do once per session)
 
-1. Is there a `.anatomist/index.db` in the project root?
+1. Is there an index at `~/.anatomist/<repo-name>/index.db`?
    - **Yes** → skip to "Query playbook".
-   - **No** → build the index: `anatomist index <project-root>`. Multi-module
-     Maven projects work out of the box — every module's `src/main/java` is
-     auto-discovered, so you normally **don't** pass `--project-source` (only
-     reach for it to index a non-standard layout). On a Spring-style project
-     where annotations matter, **do not** add `--no-classpath` — let
-     `ClasspathDetector` pull `mvn dependency:build-classpath`. If
-     classpath detection warns and exits non-zero, the project's internal
-     modules likely aren't installed yet; run `mvn install -DskipTests` once so
-     sibling-module deps resolve. If the project
-     wires beans via Spring **XML** (`<beans>` configs), add `--spring-xml` so
-     that XML-only injection (`ref`/`constructor-arg`) shows up as `WIRES`
-     edges in `deps-of` / `used-by`.
+   - **No** → build the index: `anatomist index <project-root>`.
 
-2. Confirm the index is up to date: `anatomist index <project> --incremental`
-   is cheap; the user can also run `anatomist watch <project>` in the
-   background.
+2. Index tips:
+   - Multi-module Maven projects work out of the box — every module's
+     `src/main/java` is auto-discovered (no need for `--project-source`).
+   - On a Spring-style project where annotations matter, **do not** add
+     `--no-classpath` — let `ClasspathDetector` pull
+     `mvn dependency:build-classpath`. If classpath detection exits non-zero,
+     run `mvn install -DskipTests` first so sibling-module deps resolve.
+   - If the project wires beans via Spring **XML** (`<beans>` configs), add
+     `--spring-xml` so that XML-only injection shows up as `WIRES` edges.
+   - For subsequent updates: `anatomist index <project> --incremental` is
+     cheap (only re-parses changed files + their dependents).
 
-Index db default location: `<project>/.anatomist/index.db`. All query commands
-accept `--index <path>` to override.
+3. Index db default: `~/.anatomist/<repo-name>/index.db`. All query commands
+   accept `--index <path>` to override.
 
 ---
 
@@ -45,57 +42,96 @@ Every command emits JSON to stdout in the shape:
 
 ### Find things
 
-| You want… | Command | Notes |
-|---|---|---|
-| Locate a type/method by name | `anatomist search OrderService` | FTS5 prefix match. Add `--kind METHOD` to restrict. |
-| Find by annotation | `anatomist search @RestController --by-annotation` | Matches annotation FQN substring (case-sensitive). |
-| Jump to a type by FQN | `anatomist context com.example.shop.service.OrderService` | Returns node + contained members + class-level annotations. |
-| See implementations of an interface | `anatomist implementors-of OrderRepository` | Both FQN and short label work. |
+| You want… | Command |
+|---|---|
+| Locate a type/method by name | `search OrderService` |
+| Restrict by kind | `search OrderService --kind METHOD` |
+| Find by annotation | `search @RestController --by-annotation` |
+| Find by architecture role | `search ADAPTER --by-role` |
+| Jump to a type by FQN | `context com.example.shop.service.OrderService` |
+| See implementations of an interface | `implementors-of OrderRepository` |
 
 ### Understand structure
 
 | You want… | Command |
 |---|---|
-| All fields + method signatures of a class | `anatomist context <fqn>` |
-| Same + 1 layer of outgoing calls per method | `anatomist context <fqn> --with-callees` |
-| Extends chain + direct implements | `anatomist hierarchy <fqn>` |
-| Class-level outgoing CALLS+REFERENCES | `anatomist deps-of <fqn>` |
-| Class-level incoming CALLS+REFERENCES (who uses me) | `anatomist used-by <fqn>` |
-| Spring XML bean wiring (`WIRES`) folded into the two above | index with `anatomist index <project> --spring-xml` first |
-| Aggregated package → package edges | `anatomist package-deps` |
+| Fields + method signatures of a class | `context <fqn>` |
+| Same + 1-hop outgoing calls per method | `context <fqn> --with-callees` |
+| Same + N-hop calls | `context <fqn> --with-callees=3` |
+| Enriched view (semantic annotations + docs + suggested queries) | `context <fqn> --enrich` |
+| Enriched package-level view | `context --package <pkg> --enrich` |
+| Extends chain + direct implements | `hierarchy <fqn>` |
+| Outgoing CALLS+REFERENCES from a class | `deps-of <fqn>` |
+| Incoming CALLS+REFERENCES to a class (who uses me) | `used-by <fqn>` |
+| Package → package dependency skeleton | `overview --deps-only` |
+| Full project summary (node counts, edge counts, per-package stats) | `overview` |
+| Architecture role inference | `annotate --auto` |
+| Architecture smell detection | `lint` |
 
 ### Trace call chains
 
 | You want… | Command |
 |---|---|
-| What does this method call? | `anatomist callees-of <method-fqn>` |
-| Recursive (multi-hop) callees | `anatomist callees-of <method-fqn> --depth 5` |
-| Who calls this method? (impact analysis) | `anatomist callers-of <method-fqn>` |
-| Shortest call path between two methods | `anatomist call-path <from> <to> --depth 5` |
+| What does this method call? | `callees-of <method-fqn>` |
+| Recursive (multi-hop) callees | `callees-of <method-fqn> --depth 5` |
+| Calls only in loops | `callees-of <method-fqn> --in-loop` |
+| Calls only in branches | `callees-of <method-fqn> --in-branch` |
+| Group by package/class blocks | `callees-of <method-fqn> --depth 3 --blocks package` |
+| Who calls this method? (impact analysis) | `callers-of <method-fqn>` |
+| Shortest call path between two methods | `call-path <from> <to> --depth 5` |
 
 ### Field-level impact
 
 | You want… | Command |
 |---|---|
-| Who reads `order.status` | `anatomist field-readers Order.status` |
-| Who writes `order.status` | `anatomist field-writers Order.status` |
+| Who reads a field | `field-access Order#status --mode reads` |
+| Who writes a field | `field-access Order#status --mode writes` |
+| All access (reads + writes) | `field-access Order#status` |
+
+### Pagination
+
+`deps-of`, `used-by`, `field-access`, `overview --deps-only` support:
+
+```
+--limit 20        Max results per page (default 50)
+--offset 0        Skip N results
+--filter <term>   Substring match on target label/FQN
+```
 
 ---
 
 ## FQN syntax cheat-sheet
 
-The resolver accepts increasingly loose forms for the same target:
+The resolver accepts increasingly loose forms:
 
-| Form | Example | When it matches |
+| Form | Example | Matches |
 |---|---|---|
 | Full FQN | `com.example.shop.service.OrderService` | Exact `nodes.qualified_name` |
-| Class + method | `com.example.shop.service.OrderService#createOrder` | All overloads of that method |
-| Class + method + signature | `com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)` | Single exact overload (id match) |
-| Shorthand | `OrderService.createOrder` | Last `.` splits class/method; class matched by short label |
-| Bare name | `OrderService` (type) / `createOrder` (method) | By `nodes.label` |
+| Class#method | `OrderService#createOrder` | All overloads |
+| Class#method(params) | `OrderService#createOrder(CreateOrderRequest)` | Single exact overload |
+| Dot-separated | `OrderService.createOrder` | Last `.` splits class/method |
+| Bare name | `OrderService` or `createOrder` | By `nodes.label` |
 
-**Method param FQNs use *erased* signatures** — `java.util.List`, not
-`java.util.List<String>`. Built from `ResolvedType.erasure().describe()`.
+**Method signatures use erased types** — `java.util.List`, not `java.util.List<String>`.
+
+---
+
+## Architecture roles
+
+`annotate --auto` infers DDD-style roles from naming conventions + call patterns:
+
+| Role | Meaning |
+|---|---|
+| ENTRY | HTTP controllers, message listeners — external entry points |
+| APPLICATION | Application services — orchestrate domain operations |
+| DOMAIN_SERVICE | Domain-level services — business logic |
+| DOMAIN_MODEL | Entities, value objects, aggregates |
+| REPOSITORY | Data access interfaces/implementations |
+| ADAPTER | External system adapters (clients, gateways) |
+| INFRASTRUCTURE | Config, utilities, cross-cutting concerns |
+
+Query roles: `search ADAPTER --by-role`
+Detect smells: `lint --arch-smell` (e.g., DOMAIN_MODEL calling INFRASTRUCTURE)
 
 ---
 
@@ -103,138 +139,117 @@ The resolver accepts increasingly loose forms for the same target:
 
 Agent typically composes 2–4 commands. Common patterns:
 
-### "What does the X flow look like?"  (E3 业务流程)
+### "What does the X flow look like?" (trace a business flow)
 
 ```
-1. search @RestController --by-annotation        # find controllers
-2. context <ControllerFqn>                       # find the matching action
-3. callees-of <Controller#action> --depth 5      # the full call chain
-4. (optional) context <leaf-method> for any node # read its annotations / signature
+1. search @RestController --by-annotation         # find controllers
+2. context <ControllerFqn> --with-callees         # find the matching action + 1-hop
+3. callees-of <Controller#action> --depth 5       # the full call chain
+4. context <leaf-node> --enrich                   # read annotations + docs for any node
 ```
 
-### "Who depends on Y?"  (F1/F3 impact)
+### "Who depends on Y?" (impact analysis)
 
 ```
-1. used-by <YFqn>                                # callers + reference sites
-2. callers-of <YFqn>#<method> --depth 3          # if Y is a method
-3. (optional) hierarchy <YFqn>                   # subclasses also "depend"
+1. used-by <YFqn>                                 # callers + reference sites
+2. callers-of <YFqn>#<method> --depth 3           # if Y is a method
+3. hierarchy <YFqn>                               # subclasses also "depend"
 ```
 
 ### "Identify the core domain model"
 
 ```
-1. search @Entity --by-annotation                # entity classes
-2. context <EachEntity> for each                 # fields + annotations
-3. (optional) hierarchy <EachEntity>             # inheritance shape
+1. search @Entity --by-annotation                 # entity classes
+2. context <EachEntity> --enrich                  # fields + annotations + semantics
+3. hierarchy <EachEntity>                         # inheritance shape
 ```
 
-### "Bounded contexts"  (E2)
+### "Architecture overview + smells"
 
 ```
-1. search @Service --by-annotation
-2. deps-of <EachService>                         # cross-service edges
-3. package-deps                                  # aggregated module shape
+1. annotate --auto                                # infer roles
+2. overview                                       # project summary
+3. lint                                           # detect arch smells
+4. search DOMAIN_MODEL --by-role                  # check classified nodes
 ```
+
+### "Bounded contexts / package dependencies"
+
+```
+1. overview --deps-only                           # package → package edges
+2. deps-of <ServiceFqn>                           # cross-service edges
+3. overview --depth 2                             # collapse to top-2 package levels
+```
+
+---
+
+## Semantic annotation loop
+
+When the user wants to **capture business intent back into the index**:
+
+```
+enrich → reason (Agent) → annotate → enrich (verify)
+```
+
+1. **Aggregate** — `context <fqn> --enrich` (or `--package <pkg> --enrich`)
+   pulls members, annotations, semantic annotations, one-hop callees, related
+   docs, and suggested follow-up queries. Default format: markdown.
+   Use `--format json` for structured input.
+
+2. **Investigate** — follow suggested queries when the enrich view leaves gaps.
+
+3. **Annotate** — write the conclusion back:
+   ```
+   anatomist annotate <node-id> \
+     --label "订单服务" \
+     --category BUSINESS_SERVICE \
+     --description "Coordinates checkout: validates, prices, persists, kicks off fulfilment." \
+     --source LLM --confidence MEDIUM
+   ```
+
+4. **Batch** — prepare `annotations.json` and use `--from-json annotations.json`.
+
+5. **Verify** — re-run `context <fqn> --enrich` to confirm.
+
+### Source field rules
+
+- `LLM` — Agent reasoning. Default.
+- `DOC` — verbatim from project docs.
+- `CONVENTION` / `JAVADOC` — **CLI-forbidden**; reserved for auto-processors.
 
 ---
 
 ## Important contracts
 
-- **JSON shape is locked** by `tests/scenarios/*/expected.json` (golden file
-  IT). Field names, key ordering, snake_case — stable across runs.
-- **Recursive `--depth` is capped at 20** (`QueryService.MAX_DEPTH`); pass any
-  larger value and it silently clamps.
-- **External edges** (calls/references into non-project code like JDK or
-  Spring) carry `"is_external": true` and `"external_target_fqn": "..."` but
-  no `target` id. Don't try to follow them with recursive queries.
-- **`--no-classpath` mode** suppresses Spring annotation resolution — only
-  `@Override` / `@Deprecated` / `@SuppressWarnings` survive. If the user
-  cares about `@RestController` / `@Service` etc., make sure the index was
-  built *with* classpath (default).
-- **Anonymous class methods** are emitted under
-  `<enclosingMethod>$anon@L<line>` — their callers/callees show up in
-  query results under that id form, not under any opaque JavaParser
-  generated name.
+- **JSON shape is locked** by `tests/scenarios/*/expected.json` (golden files).
+  Field names, key ordering, snake_case — stable across runs.
+- **Recursive `--depth` capped at 20** (`QueryService.MAX_DEPTH`); larger
+  values silently clamp.
+- **External edges** carry `"is_external": true` and `"external_target_fqn"`
+  but no `target` id. Don't follow them with recursive queries.
+- **`--no-classpath` mode** suppresses annotation resolution for external
+  annotations (Spring, JUnit, etc.). Only JDK annotations survive.
+- **Concurrent access**: query commands acquire a shared read lock; index
+  commands acquire an exclusive write lock. Queries block until an in-progress
+  index completes — safe for parallel Agent invocations.
+- **Incremental index** uses SHA-256 file hashing + transitive dependency
+  closure. Files above `--max-realign-files` (default 200) degrade to full.
 
 ---
 
-## When anatomist *cannot* answer
+## When anatomist cannot answer
 
 Fall back to reading source when:
 
 - The question is about **string literals / error messages / config keys** —
-  these aren't indexed.
+  not indexed.
 - The question is about **runtime dispatch through reflection / SPI** — only
   static call edges live in the index.
 - The question is about a **specific commit's diff** — anatomist sees the
-  current snapshot only. Use `git log` / `git diff` instead.
+  current snapshot only. Use `git log` / `git diff`.
 - The user wants **prose-level documentation** of behavior — anatomist
   surfaces structure, not intent. Combine `context` output with reading the
-  source file the result points at (`source_file` + `source_location` fields
-  on every result).
+  source file pointed to by `source_file` + `source_location` fields.
 
-In all these cases, prefer to take *one* anatomist query first to locate the
-relevant file(s), then read source — much cheaper than grepping cold.
-
----
-
-## Writing architecture docs from code
-
-When the user wants to **understand a service or package and capture the
-business intent back into the index**, use the closed loop:
-
-```
-enrich → reason (you, the Agent) → annotate → enrich (verify)
-```
-
-### Workflow
-
-1. **Aggregate** — `anatomist enrich --node <fqn>` (or `--package <pkg>`)
-   pulls members, annotations, semantic annotations already on record,
-   one-hop callees, optional related docs (`--with-docs`), and suggested
-   follow-up queries — all in one markdown blob (≤ 200 lines).
-   Use `--format json` when you want structured input.
-2. **Investigate further** — follow the suggested queries (`callers-of`,
-   `hierarchy`, `used-by`, ...) when the enrich view leaves a question
-   open. Don't guess at intent from names alone.
-3. **Reason** — synthesize a business label / category / description from
-   the aggregated structure + javadoc + related docs. Categories that
-   appear in the index today: `BUSINESS_SERVICE`, `BUSINESS_REPOSITORY`,
-   `BUSINESS_CONTROLLER`, `BUSINESS_ENTITY`, `BUSINESS_VALUE_OBJECT`.
-   Pick the closest match or invent a new one consistently across runs.
-4. **Annotate** — write the conclusion back so the next session benefits:
-
-   ```
-   anatomist annotate <node-id> \
-     --label "订单服务" \
-     --category BUSINESS_SERVICE \
-     --description "Coordinates checkout: validates request, prices items, persists order, kicks off async fulfilment." \
-     --source LLM --confidence MEDIUM
-   ```
-
-   Repeated runs on the same `(node-id, category, source)` upsert in place —
-   safe to re-run after refining the wording.
-5. **Batch sync** — when working over a package, prepare a JSON file
-   `annotations.json` (snake_case fields matching `SemanticAnnotation`) and
-   pass `--from-json annotations.json` to write all at once.
-6. **Verify** — re-run `anatomist enrich --node <fqn>` and confirm the new
-   semantic annotation appears in the *Semantic Annotations* table.
-
-### Source field rules
-
-- `LLM` — the conclusion came from your reasoning. Default.
-- `DOC` — the conclusion was lifted verbatim from project docs.
-- `CONVENTION` / `JAVADOC` — **CLI-forbidden**; these are reserved for
-  `SemanticPostProcessor` (Spring stereotype scan) and the future javadoc
-  extractor. The CLI exits 1 if you try.
-
-### When to pair with other commands
-
-- Before annotating a controller, run `anatomist callers-of <controller>`
-  to confirm it's an HTTP entry (no internal callers) vs. an internal
-  facade.
-- Before annotating a repository, run `anatomist implementors-of <iface>`
-  to see if it has multiple impls — that may warrant separate annotations
-  per impl.
-- After annotating a package, run `anatomist enrich --package <pkg>` to
-  read back the aggregated semantic table as a sanity check.
+In all these cases, take *one* anatomist query first to locate the relevant
+file(s), then read source — much cheaper than grepping cold.
