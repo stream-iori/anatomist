@@ -2,13 +2,33 @@ package com.anatomist.cli;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.HelpCommand;
 
 @Command(
         name = "anatomist",
         mixinStandardHelpOptions = true,
         version = "anatomist 0.1.0",
-        description = "JavaParser + SymbolSolver based Java code intelligence for Agent LLMs",
+        description = "Java code intelligence tool — indexes source into SQLite for structural/semantic queries.",
+        header = {
+                "",
+                "@|bold anatomist|@ — Java code intelligence for Agent LLMs",
+                ""
+        },
+        footer = {
+                "",
+                "@|bold Quick Start:|@",
+                "  anatomist index /path/to/project          Index a Java project",
+                "  anatomist search OrderService             Find nodes by name",
+                "  anatomist callees-of Class#method         Show outgoing calls",
+                "  anatomist context com.example.MyClass     Type overview + members",
+                "",
+                "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",
+                "@|bold Output:|@   All query commands emit JSON to stdout.",
+                ""
+        },
+        commandListHeading = "%n@|bold Commands:|@%n",
         subcommands = {
+                HelpCommand.class,
                 IndexCommand.class,
                 IndexDocsCommand.class,
                 WatchCommand.class,
@@ -36,7 +56,9 @@ public class AnatomistCli implements Runnable {
     }
 
     public static void main(String[] args) {
-        int exitCode = new CommandLine(new AnatomistCli()).execute(args);
+        int exitCode = new CommandLine(new AnatomistCli())
+                .setColorScheme(CommandLine.Help.defaultColorScheme(CommandLine.Help.Ansi.AUTO))
+                .execute(args);
         System.exit(exitCode);
     }
 }
