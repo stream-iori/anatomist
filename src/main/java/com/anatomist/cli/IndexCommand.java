@@ -173,7 +173,8 @@ public class IndexCommand implements Callable<Integer> {
             boolean useIncremental = incremental && !full && Files.exists(dbPath);
 
             if (useIncremental) {
-                try (SqliteStore store = new SqliteStore(dbPath)) {
+                try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
+                     SqliteStore store = new SqliteStore(dbPath)) {
                     java.util.Map<String, FileCacheEntry> cache;
                     try {
                         cache = store.readFileCache();
@@ -251,183 +252,29 @@ public class IndexCommand implements Callable<Integer> {
                                  String classpathOverride,
                                  long started,
                                  ProjectConfig config) throws Exception {
-        NodeIdGenerator idGen = new NodeIdGenerator();
-        ExtractionContext ctx = new ExtractionContext(projectRoot, sourcePaths, idGen, null, "MAIN", config);
-        TypeExtractor typeExtractor = new TypeExtractor(ctx);
-        FieldExtractor fieldExtractor = new FieldExtractor(ctx);
-        MethodExtractor methodExtractor = new MethodExtractor(ctx);
-        AnnotationExtractor annotationExtractor = new AnnotationExtractor(ctx);
-        HierarchyExtractor hierarchyExtractor = new HierarchyExtractor(ctx);
-        ReferenceExtractor referenceExtractor = new ReferenceExtractor(ctx);
-        CallGraphExtractor callGraphExtractor = new CallGraphExtractor(ctx);
-        FieldAccessExtractor fieldAccessExtractor = new FieldAccessExtractor(ctx);
+        com.anatomist.core.IndexConfig cfg = new com.anatomist.core.IndexConfig(
+                projectRoot, sourcePaths, classpathEntries, sourceFiles,
+                jv, springXml, config, dbPath, classpathOverride, debug);
+        com.anatomist.core.IndexOrchestrator orchestrator =
+                new com.anatomist.core.IndexOrchestrator(cfg, factory);
 
-        ExtractionResult result = new ExtractionResult();
-
-        Progress progress = new Progress(sourceFiles.size());
-        factory.parseAll((filePath, cu) -> {
-            String relative = filePath == null ? null : relativize(projectRoot, filePath);
-            if (relative != null) cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
-            typeExtractor.extract(cu, result);
-            fieldExtractor.extract(cu, result);
-            methodExtractor.extract(cu, result);
-            annotationExtractor.extract(cu, result);
-            hierarchyExtractor.extract(cu, result);
-            referenceExtractor.extract(cu, result);
-            callGraphExtractor.extract(cu, result);
-            fieldAccessExtractor.extract(cu, result);
-            progress.tick();
-        });
-        progress.done();
-
-        // Spring bean XML pass (opt-in). Runs after Java extraction so bean
-        // class/ref FQNs can be joined against the just-extracted CLASS nodes.
-        List<Path> xmlFiles = Collections.emptyList();
-        if (springXml) {
-            xmlFiles = new ProjectScanner().scanSpringXml(projectRoot);
-            if (!xmlFiles.isEmpty()) {
-                java.util.Set<String> knownIds = new HashSet<>();
-                for (com.anatomist.model.Node n : result.nodes) knownIds.add(n.id);
-                XmlBeanExtractor xmlExtractor = new XmlBeanExtractor("MAIN");
-                SpringBeanParser beanParser = new SpringBeanParser();
-                for (Path xml : xmlFiles) {
-                    String rel = relativize(projectRoot, xml.toAbsolutePath().normalize());
-                    xmlExtractor.extract(beanParser.parse(xml), knownIds, rel, result);
-                }
-            }
-        }
-
-        try (SqliteStore store = new SqliteStore(dbPath)) {
-            boolean schemaExists;
-            try (java.sql.Statement st = store.connection().createStatement();
-                 java.sql.ResultSet rs = st.executeQuery(
-                         "SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'")) {
-                schemaExists = rs.next();
-            }
-            if (!schemaExists) {
-                store.initSchema();
-            } else {
-                // Wipe data, keep schema, so the file_cache & friends survive across runs.
-                try (java.sql.Statement st = store.connection().createStatement()) {
-                    st.execute("DELETE FROM semantic_annotations");
-                    st.execute("DELETE FROM annotations");
-                    st.execute("DELETE FROM edges");
-                    st.execute("DELETE FROM nodes");
-                    st.execute("DELETE FROM file_cache");
-                    st.execute("DELETE FROM file_dependencies");
-                    st.execute("DELETE FROM project_meta");
-                }
-            }
-            int dropped = pruneDanglingInternalEdges(result);
-            if (dropped > 0) {
-                // Recorded, not printed to the console: dangling-internal-target
-                // edges come from extractor coverage gaps (LOCAL_CLASS / nested
-                // anon / LAMBDA nodes not yet emitted). Written to the per-repo
-                // warn.log and persisted to project_meta so it's queryable.
-                AnatomistLog.warn("dropped " + dropped + " edges with dangling internal target "
-                        + "(extractor gaps) for " + projectRoot);
-            }
-            new SemanticPostProcessor().process(result);
-            store.write(result);
-
-            // Phase 4: populate file_cache / project_meta / file_dependencies.
-            // XML files participate in the cache so incremental detects their edits.
-            List<Path> cachedFiles = sourceFiles;
-            if (!xmlFiles.isEmpty()) {
-                cachedFiles = new ArrayList<>(sourceFiles);
-                cachedFiles.addAll(xmlFiles);
-            }
-            populateFileCache(store, projectRoot, cachedFiles, result);
-            store.upsertProjectMeta("dropped_dangling_edges", String.valueOf(dropped));
-            store.upsertProjectMeta("java_version", String.valueOf(jv));
-            store.upsertProjectMeta("classpath_hash",
-                    FileCacheService.sha256OfString(classpathFingerprint(classpathEntries, classpathOverride)));
-            store.upsertProjectMeta("index_version", String.valueOf(FileCacheService.CURRENT_SCHEMA_VERSION));
-            store.clearFileDependencies();
-            store.deriveFileDependencies();
-
-            long elapsed = System.currentTimeMillis() - started;
-            long types = result.nodes.stream().filter(n -> isType(n.kind)).count();
-            long methods = result.nodes.stream().filter(n -> "METHOD".equals(n.kind)).count();
-            long fields = result.nodes.stream().filter(n -> "FIELD".equals(n.kind)).count();
-            long contains = countEdges(result, "CONTAINS");
-            long inherits = countEdges(result, "INHERITS");
-            long implementsRel = countEdges(result, "IMPLEMENTS");
-            long overrides = countEdges(result, "OVERRIDES");
-            long references = countEdges(result, "REFERENCES");
-            long calls = countEdges(result, "CALLS");
-            long reads = countEdges(result, "READS");
-            long writes = countEdges(result, "WRITES");
-            long beans = result.nodes.stream().filter(n -> "BEAN".equals(n.kind)).count();
-
-            System.out.println("Indexed " + projectRoot);
-            System.out.println("  Source paths: " + sourcePaths);
-            System.out.println("  Classpath:    " + classpathEntries.size() + " jars");
-            System.out.println("  Source files: " + sourceFiles.size());
-            System.out.println("  Types:        " + types);
-            System.out.println("  Methods:      " + methods);
-            System.out.println("  Fields:       " + fields);
-            System.out.println("  Annotations:  " + result.annotations.size());
-            System.out.println("  CONTAINS:     " + contains);
-            System.out.println("  INHERITS:     " + inherits);
-            System.out.println("  IMPLEMENTS:   " + implementsRel);
-            System.out.println("  OVERRIDES:    " + overrides);
-            System.out.println("  REFERENCES:   " + references);
-            System.out.println("  CALLS:        " + calls);
-            System.out.println("  READS:        " + reads);
-            System.out.println("  WRITES:       " + writes);
-            if (springXml) {
-                System.out.println("  Beans:        " + beans
-                        + " (WIRES " + countEdges(result, "WIRES") + ")");
-            }
-            System.out.println("  Semantic annotations: " + result.semanticAnnotations.size());
-            System.out.println("  Unresolved:   " + ctx.unresolvedCount());
-            System.out.println("  File cache:   " + store.readFileCache().size() + " entries");
-            System.out.println("  Output:       " + dbPath);
-            if (ctx.samplingEnabled()) {
+        try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
+             SqliteStore store = new SqliteStore(dbPath)) {
+            com.anatomist.core.IndexResult result = orchestrator.run(store);
+            com.anatomist.core.IndexStatsPrinter.print(result, cfg, System.out);
+            if (result.samplingEnabled() && result.unresolvedSamples() != null) {
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> samples = result.unresolvedSamples();
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Long> sampleData = (java.util.Map<String, Long>) samples.get("samples");
+                @SuppressWarnings("unchecked")
+                java.util.Set<String> projectPackages = (java.util.Set<String>) samples.get("projectPackages");
+                long unresolvedCount = ((Number) samples.get("unresolvedCount")).longValue();
                 com.anatomist.core.UnresolvedReporter.print(
-                        System.out, ctx.unresolvedSamples(),
-                        projectPackagesOf(result), ctx.unresolvedCount());
+                        System.out, sampleData, projectPackages, unresolvedCount);
             }
-            System.out.println("Done in " + elapsed + "ms");
         }
         return 0;
-    }
-
-    private static void populateFileCache(SqliteStore store, Path projectRoot,
-                                          List<Path> sourceFiles, ExtractionResult result) {
-        java.util.Map<String, int[]> perFile = new java.util.HashMap<>();
-        for (com.anatomist.model.Node n : result.nodes) {
-            if (n.sourceFile == null) continue;
-            perFile.computeIfAbsent(n.sourceFile, k -> new int[2])[0]++;
-        }
-        for (com.anatomist.model.Edge e : result.edges) {
-            if (e.sourceFile == null) continue;
-            perFile.computeIfAbsent(e.sourceFile, k -> new int[2])[1]++;
-        }
-        String now = java.time.Instant.now().toString();
-        java.util.List<FileCacheEntry> entries = new java.util.ArrayList<>();
-        for (Path f : sourceFiles) {
-            String rel;
-            try {
-                rel = projectRoot.relativize(f.toAbsolutePath().normalize()).toString();
-            } catch (IllegalArgumentException ex) {
-                rel = f.toAbsolutePath().toString();
-            }
-            String hash = FileCacheService.sha256(f.toAbsolutePath().normalize());
-            int[] cnt = perFile.getOrDefault(rel, new int[]{0, 0});
-            entries.add(new FileCacheEntry(rel, hash, FileCacheService.CURRENT_SCHEMA_VERSION,
-                    now, cnt[0], cnt[1]));
-        }
-        if (!entries.isEmpty()) store.updateFileCache(entries);
-    }
-
-    private static String classpathFingerprint(List<Path> classpathEntries, String override) {
-        if (override != null && !override.isEmpty()) return override;
-        if (classpathEntries == null || classpathEntries.isEmpty()) return "";
-        java.util.List<String> sorted = classpathEntries.stream()
-                .map(Path::toString).sorted().collect(java.util.stream.Collectors.toList());
-        return String.join(File.pathSeparator, sorted);
     }
 
     List<Path> resolveSourcePaths(ClasspathDetector cd, Path projectRoot) {
@@ -456,108 +303,4 @@ public class IndexCommand implements Callable<Integer> {
         return cd.detect(projectRoot).stream().map(Path::of).collect(Collectors.toList());
     }
 
-    private static String relativize(Path root, Path file) {
-        try {
-            return root.relativize(file).toString();
-        } catch (IllegalArgumentException e) {
-            return file.toString();
-        }
-    }
-
-    private static boolean isType(String kind) {
-        return "CLASS".equals(kind) || "INTERFACE".equals(kind) || "ENUM".equals(kind)
-                || "ANONYMOUS_CLASS".equals(kind) || "RECORD".equals(kind);
-    }
-
-    private static long countEdges(ExtractionResult r, String relation) {
-        return r.edges.stream().filter(e -> relation.equals(e.relation)).count();
-    }
-
-    /** Package names of every project-internal type node, for unresolved bucketing. */
-    private static java.util.Set<String> projectPackagesOf(ExtractionResult result) {
-        java.util.Set<String> projectPackages = new java.util.HashSet<>();
-        for (com.anatomist.model.Node n : result.nodes) {
-            if (!isType(n.kind) || n.qualifiedName == null) continue;
-            int dot = n.qualifiedName.lastIndexOf('.');
-            if (dot > 0) projectPackages.add(n.qualifiedName.substring(0, dot));
-        }
-        return projectPackages;
-    }
-
-    /**
-     * Drop any edge / annotation whose source / internal target does not
-     * resolve to a known node — would otherwise blow the FK on insert. The
-     * underlying coverage gap (LOCAL_CLASS / LAMBDA / METHOD_REF nodes not
-     * yet emitted) is the actual fix; this is the last line of defence.
-     */
-    private static int pruneDanglingInternalEdges(ExtractionResult r) {
-        java.util.Set<String> known = new java.util.HashSet<>();
-        for (com.anatomist.model.Node n : r.nodes) known.add(n.id);
-        int before = r.edges.size() + r.annotations.size();
-        boolean dbg = com.anatomist.core.logging.AnatomistLog.isDebugEnabled();
-        r.edges.removeIf(e -> {
-            boolean drop = !e.isExternal && (e.targetId == null || !known.contains(e.targetId));
-            if (drop && dbg) com.anatomist.core.logging.AnatomistLog.debug(
-                    "pruned edge (dangling target): " + e.relation + " "
-                            + e.sourceId + " -> " + e.targetId);
-            return drop;
-        });
-        r.edges.removeIf(e -> {
-            boolean drop = e.sourceId == null || !known.contains(e.sourceId);
-            if (drop && dbg) com.anatomist.core.logging.AnatomistLog.debug(
-                    "pruned edge (dangling source): " + e.relation + " "
-                            + e.sourceId + " -> " + e.targetId);
-            return drop;
-        });
-        r.annotations.removeIf(a -> {
-            boolean drop = a.nodeId == null || !known.contains(a.nodeId);
-            if (drop && dbg) com.anatomist.core.logging.AnatomistLog.debug(
-                    "pruned annotation (dangling node): " + a.annotationFqn
-                            + " on " + a.nodeId);
-            return drop;
-        });
-        return before - r.edges.size() - r.annotations.size();
-    }
-
-    /**
-     * Per-file progress for the parse+extract loop, where lazy symbol
-     * resolution dominates wall time. Live {@code \r} updates when stderr is a
-     * terminal; periodic newline-terminated lines when piped/redirected so the
-     * output stays readable in logs. {@code System.console()} is native-image
-     * safe and returns null when stderr isn't a TTY.
-     */
-    private static final class Progress {
-        private final int total;
-        private final boolean tty;
-        private int done;
-        private long lastEmit;
-
-        Progress(int total) {
-            this.total = total;
-            this.tty = System.console() != null;
-        }
-
-        void tick() {
-            done++;
-            if (tty) {
-                long now = System.currentTimeMillis();
-                if (now - lastEmit >= 100) {
-                    System.err.print("\rParsing & extracting: " + done + "/" + total + " files");
-                    System.err.flush();
-                    lastEmit = now;
-                }
-            } else if (done % 200 == 0) {
-                System.err.println("Parsing & extracting: " + done + "/" + total + " files");
-            }
-        }
-
-        void done() {
-            if (tty) {
-                System.err.print("\rParsing & extracting: " + done + "/" + total + " files\n");
-                System.err.flush();
-            } else {
-                System.err.println("Parsing & extracting: " + done + "/" + total + " files (done)");
-            }
-        }
-    }
 }
