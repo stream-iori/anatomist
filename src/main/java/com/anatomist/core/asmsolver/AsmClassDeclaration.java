@@ -4,6 +4,7 @@ import com.github.javaparser.ast.AccessSpecifier;
 import com.github.javaparser.resolution.MethodUsage;
 import com.github.javaparser.resolution.TypeSolver;
 import com.github.javaparser.resolution.declarations.ResolvedAnnotationDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedAnnotationMemberDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -34,6 +35,7 @@ import java.util.Set;
  *  subsequent C-phase tasks. The minimum surface (identity, kind) is
  *  enough to satisfy {@link AsmTypeSolver#tryToSolveType}. */
 public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
+        ResolvedAnnotationDeclaration,
         MethodResolutionCapability {
 
     private final String fqn;
@@ -446,4 +448,17 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
     int access() { ensureParsed(); return classAccess; }
     TypeSolver solver() { return solver; }
     byte[] classBytes() { return classBytes; }
+
+    // ── ResolvedAnnotationDeclaration ───────────────────────────────────
+
+    @Override
+    public List<ResolvedAnnotationMemberDeclaration> getAnnotationMembers() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean isInheritable() {
+        ensureParsed();
+        return directAnnotationFqns.contains("java.lang.annotation.Inherited");
+    }
 }
