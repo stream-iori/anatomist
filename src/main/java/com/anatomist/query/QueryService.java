@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.store.IndexLock;
+
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -21,6 +23,7 @@ public class QueryService implements AutoCloseable {
 
     public static final int MAX_DEPTH = CallGraphService.MAX_DEPTH;
 
+    private final IndexLock lock;
     private final Connection conn;
     private final NodeResolver resolver;
 
@@ -34,9 +37,11 @@ public class QueryService implements AutoCloseable {
     public Connection connection() { return conn; }
 
     public QueryService(Path dbPath) {
+        this.lock = IndexLock.forRead(dbPath);
         try {
             this.conn = DriverManager.getConnection("jdbc:sqlite:" + dbPath.toAbsolutePath());
         } catch (SQLException e) {
+            lock.close();
             throw new RuntimeException("Failed to open index db: " + dbPath, e);
         }
         this.resolver = new NodeResolver(conn);
@@ -51,6 +56,7 @@ public class QueryService implements AutoCloseable {
     @Override
     public void close() {
         try { conn.close(); } catch (SQLException ignored) {}
+        lock.close();
     }
 
     // ── Search ───────────────────────────────────────────────────────────

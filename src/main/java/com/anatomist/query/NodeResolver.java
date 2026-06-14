@@ -5,8 +5,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -23,6 +26,7 @@ final class NodeResolver {
             "CLASS", "INTERFACE", "ENUM", "ANNOTATION", "RECORD", "ANONYMOUS_CLASS");
 
     private final Connection conn;
+    private final Map<String, NodeRow> nodeCache = new HashMap<>();
 
     NodeResolver(Connection conn) {
         this.conn = conn;
@@ -162,14 +166,44 @@ final class NodeResolver {
     }
 
     NodeRow readNodeById(String id) {
+        if (id == null) return null;
+        if (nodeCache.containsKey(id)) return nodeCache.get(id);
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT " + RowMappers.NODE_COLS + " FROM nodes n WHERE id = ?")) {
             ps.setString(1, id);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? RowMappers.mapNode(rs) : null;
+                NodeRow row = rs.next() ? RowMappers.mapNode(rs) : null;
+                nodeCache.put(id, row);
+                return row;
             }
         } catch (SQLException e) {
             throw new RuntimeException("query failed: " + e.getMessage(), e);
+        }
+    }
+
+    void preloadNodes(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) return;
+        List<String> toLoad = new ArrayList<>();
+        for (String id : ids) {
+            if (!nodeCache.containsKey(id)) toLoad.add(id);
+        }
+        if (toLoad.isEmpty()) return;
+        for (int off = 0; off < toLoad.size(); off += 500) {
+            List<String> batch = toLoad.subList(off, Math.min(off + 500, toLoad.size()));
+            String ph = String.join(",", Collections.nCopies(batch.size(), "?"));
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT " + RowMappers.NODE_COLS + " FROM nodes n WHERE id IN (" + ph + ")")) {
+                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        NodeRow row = RowMappers.mapNode(rs);
+                        nodeCache.put(row.id, row);
+                    }
+                }
+            } catch (SQLException e) {
+                throw new RuntimeException("query failed: " + e.getMessage(), e);
+            }
+            for (String id : batch) nodeCache.putIfAbsent(id, null);
         }
     }
 

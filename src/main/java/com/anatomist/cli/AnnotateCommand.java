@@ -98,7 +98,8 @@ public class AnnotateCommand implements Callable<Integer> {
             }
         }
 
-        try (SqliteStore store = new SqliteStore(db)) {
+        try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(db);
+             SqliteStore store = new SqliteStore(db)) {
             warnOnMissingNodes(store, batch);
             store.upsertSemanticAnnotations(batch);
         }
@@ -107,7 +108,8 @@ public class AnnotateCommand implements Callable<Integer> {
     }
 
     private int runAutoInference(Path db) {
-        try (SqliteStore store = new SqliteStore(db)) {
+        try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(db);
+             SqliteStore store = new SqliteStore(db)) {
             ArchRoleInferrer inferrer = new ArchRoleInferrer(store);
             List<ArchRole> roles = inferrer.infer();
             if (roles.isEmpty()) {

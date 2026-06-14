@@ -51,6 +51,7 @@ CREATE INDEX idx_edges_source_relation ON edges(source_id, relation);
 CREATE INDEX idx_edges_target_relation ON edges(target_id, relation);
 CREATE INDEX idx_edges_relation_external_target ON edges(relation, is_external, target_id);
 CREATE INDEX idx_edges_relation_external_fqn ON edges(relation, is_external, external_target_fqn);
+CREATE INDEX idx_edges_source_relation_external ON edges(source_id, relation, is_external);
 
 CREATE TABLE annotations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -88,8 +88,9 @@ public class OverviewService {
               + "  AND e.relation IN ('CALLS','REFERENCES','WIRES','IMPLEMENTS','INHERITS') "
               + "  AND so.type_id <> ot.type_id "
               + "GROUP BY st.id, tt.id "
-              + "ORDER BY edge_count DESC, source, target";
-        List<ClassEdge> all = queryList(conn, sql, rs -> new ClassEdge(
+              + "ORDER BY edge_count DESC, source, target"
+              + (maxEdges > 0 ? " LIMIT " + maxEdges : "");
+        return queryList(conn, sql, rs -> new ClassEdge(
                 rs.getString("source"),
                 rs.getString("source_label"),
                 rs.getString("source_package"),
@@ -102,7 +103,6 @@ public class OverviewService {
                 readBool(rs, "target_abstract"),
                 readBool(rs, "is_inherit"),
                 rs.getInt("edge_count")));
-        return (maxEdges > 0 && all.size() > maxEdges) ? all.subList(0, maxEdges) : all;
     }
 
     private void countByKind(OverviewResult ov) {

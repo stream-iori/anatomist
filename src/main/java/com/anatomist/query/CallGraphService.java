@@ -51,9 +51,16 @@ public class CallGraphService {
                 }
             }
 
-            for (String methodId : dispatchCandidates) {
-                for (String impl : overrideImpls(methodId)) {
-                    result.add(makeOverrideEdge(methodId, impl, d));
+            Map<String, List<String>> overrides = batchOverrideImpls(dispatchCandidates);
+            Set<String> nodeIdsToPreload = new HashSet<>();
+            for (Map.Entry<String, List<String>> entry : overrides.entrySet()) {
+                nodeIdsToPreload.add(entry.getKey());
+                nodeIdsToPreload.addAll(entry.getValue());
+            }
+            resolver.preloadNodes(nodeIdsToPreload);
+            for (Map.Entry<String, List<String>> entry : overrides.entrySet()) {
+                for (String impl : entry.getValue()) {
+                    result.add(makeOverrideEdge(entry.getKey(), impl, d));
                     if (visited.add(impl)) frontier.addLast(impl);
                 }
             }
@@ -76,9 +83,16 @@ public class CallGraphService {
             List<EdgeRow> callEdges = queryCallsIn(current, d);
             result.addAll(callEdges);
 
+            Map<String, List<String>> ifaceMap = batchOverriddenIface(current);
+            Set<String> ifaceNodeIds = new HashSet<>();
+            for (Map.Entry<String, List<String>> entry : ifaceMap.entrySet()) {
+                ifaceNodeIds.add(entry.getKey());
+                ifaceNodeIds.addAll(entry.getValue());
+            }
+            resolver.preloadNodes(ifaceNodeIds);
             List<String> bridged = new ArrayList<>();
             for (String node : current) {
-                for (String ifaceMethod : overriddenIface(node)) {
+                for (String ifaceMethod : ifaceMap.getOrDefault(node, Collections.emptyList())) {
                     if (visited.add(ifaceMethod)) {
                         result.add(makeOverrideEdge(ifaceMethod, node, d));
                         bridged.add(ifaceMethod);
@@ -225,6 +239,52 @@ public class CallGraphService {
             all.addAll(runEdgeQuery(conn, sql, args));
         }
         return all;
+    }
+
+    private Map<String, List<String>> batchOverrideImpls(Collection<String> methodIds) {
+        Map<String, List<String>> result = new HashMap<>();
+        if (methodIds == null || methodIds.isEmpty()) return result;
+        List<String> ids = new ArrayList<>(methodIds);
+        for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
+            List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
+            String ph = qmarks(batch.size());
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT target_id, source_id FROM edges"
+                  + " WHERE target_id IN (" + ph + ") AND relation = 'OVERRIDES' AND is_external = 0")) {
+                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        result.computeIfAbsent(rs.getString(1), k -> new ArrayList<>()).add(rs.getString(2));
+                    }
+                }
+            } catch (SQLException e) {
+                throw rethrow(e);
+            }
+        }
+        return result;
+    }
+
+    private Map<String, List<String>> batchOverriddenIface(Collection<String> methodIds) {
+        Map<String, List<String>> result = new HashMap<>();
+        if (methodIds == null || methodIds.isEmpty()) return result;
+        List<String> ids = new ArrayList<>(methodIds);
+        for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
+            List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
+            String ph = qmarks(batch.size());
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT source_id, target_id FROM edges"
+                  + " WHERE source_id IN (" + ph + ") AND relation = 'OVERRIDES' AND is_external = 0")) {
+                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        result.computeIfAbsent(rs.getString(1), k -> new ArrayList<>()).add(rs.getString(2));
+                    }
+                }
+            } catch (SQLException e) {
+                throw rethrow(e);
+            }
+        }
+        return result;
     }
 
     private List<String> overrideImpls(String methodId) {

@@ -42,7 +42,8 @@ public class IndexDocsCommand implements Callable<Integer> {
             DocScanner scanner = new DocScanner();
             List<Document> docs = scanner.scan(projectRoot);
 
-            try (SqliteStore store = new SqliteStore(dbPath)) {
+            try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
+                 SqliteStore store = new SqliteStore(dbPath)) {
                 store.initSchema();
                 store.insertDocuments(docs);
             }
