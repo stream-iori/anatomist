@@ -43,7 +43,7 @@
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L30"
     }, {
-      "id" : "com.example.shop.service.OrderService#createOrder(java.lang.String,<unresolved>)",
+      "id" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
       "javadoc" : null,
       "kind" : "METHOD",
       "label" : "createOrder",
@@ -59,7 +59,7 @@
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L50"
     }, {
-      "id" : "com.example.shop.service.OrderService#countExpensiveItems(<unresolved>)",
+      "id" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
       "javadoc" : null,
       "kind" : "METHOD",
       "label" : "countExpensiveItems",

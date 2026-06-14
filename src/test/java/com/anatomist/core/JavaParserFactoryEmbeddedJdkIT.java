@@ -18,25 +18,20 @@ import static org.junit.jupiter.api.Assertions.*;
 class JavaParserFactoryEmbeddedJdkIT {
 
     @Test
-    void noEmbeddedCatalogShipped_fallsBackToReflectionTypeSolver() throws Exception {
-        // anatomist currently doesn't ship a META-INF/anatomist/jdkN-types.bin
-        // resource (catalog build is a deliberate release-time step). Until it
-        // does, JavaParserFactory must fall back to ReflectionTypeSolver.
+    void outsideNativeImage_alwaysUsesReflectionTypeSolver() throws Exception {
+        // Outside native-image, ReflectionTypeSolver is always used because
+        // EmbeddedJdkTypeSolver has incomplete type declarations that break
+        // method resolution in CombinedTypeSolver.
         JavaParserFactory f = new JavaParserFactory(
                 21, List.of(), List.<Path>of(), /*includeRunningVmClasspath=*/true);
         CombinedTypeSolver ts = f.newTypeSolver();
         List<TypeSolver> children = innerSolvers(ts);
         boolean hasEmbedded = children.stream().anyMatch(s -> s instanceof EmbeddedJdkTypeSolver);
         boolean hasReflection = children.stream().anyMatch(s -> s instanceof ReflectionTypeSolver);
-        if (catalogResourceExists()) {
-            assertTrue(hasEmbedded,
-                    "catalog resource present -> EmbeddedJdkTypeSolver expected; got " + children);
-        } else {
-            assertFalse(hasEmbedded,
-                    "no catalog -> EmbeddedJdkTypeSolver must NOT be in chain");
-            assertTrue(hasReflection,
-                    "no catalog -> ReflectionTypeSolver fallback required");
-        }
+        assertFalse(hasEmbedded,
+                "outside native-image -> EmbeddedJdkTypeSolver must NOT be in chain");
+        assertTrue(hasReflection,
+                "outside native-image -> ReflectionTypeSolver required; got " + children);
     }
 
     @Test

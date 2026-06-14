@@ -60,17 +60,26 @@ public class JavaParserFactory {
     /** Build the combined TypeSolver matching the configured environment. */
     public CombinedTypeSolver newTypeSolver() {
         CombinedTypeSolver ts = new CombinedTypeSolver();
-        if (includeRunningVmClasspath) {
-            TypeSolver jdkSolver = tryLoadEmbeddedJdkSolver();
-            if (jdkSolver != null) {
-                ts.add(jdkSolver);
-            } else {
-                ts.add(new ReflectionTypeSolver(/*jreOnly*/ true));
-            }
-        }
+        // Source paths first — project types should resolve before JDK/classpath
         for (Path src : sourcePaths) {
             if (src != null && Files.isDirectory(src)) {
                 ts.add(new JavaParserTypeSolver(src));
+            }
+        }
+        if (includeRunningVmClasspath) {
+            // ReflectionTypeSolver provides full JDK type information and works
+            // correctly with JavaParser's symbol resolution. The EmbeddedJdkTypeSolver
+            // (from jdkN-types.bin) is a native-image fallback only — its incomplete
+            // type declarations break method resolution in CombinedTypeSolver.
+            if (isNativeImage()) {
+                TypeSolver jdkSolver = tryLoadEmbeddedJdkSolver();
+                if (jdkSolver != null) {
+                    ts.add(jdkSolver);
+                } else {
+                    ts.add(new ReflectionTypeSolver(/*jreOnly*/ true));
+                }
+            } else {
+                ts.add(new ReflectionTypeSolver(/*jreOnly*/ true));
             }
         }
         for (Path jar : classpathEntries) {
@@ -166,6 +175,10 @@ public class JavaParserFactory {
             }
         }
         return out;
+    }
+
+    private static boolean isNativeImage() {
+        return "runtime".equals(System.getProperty("org.graalvm.nativeimage.imagecode"));
     }
 
     static LanguageLevel toLanguageLevel(int v) {

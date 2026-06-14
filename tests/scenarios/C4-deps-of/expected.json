@@ -3,6 +3,130 @@
   "results" : [ {
     "call_kind" : "INTERFACE",
     "depth" : 1,
+    "external_target_fqn" : "java.util.stream.Stream#count()",
+    "is_external" : true,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
+    "source_label" : "countExpensiveItems",
+    "source_location" : "L56"
+  }, {
+    "call_kind" : "INTERFACE",
+    "depth" : 1,
+    "external_target_fqn" : "java.util.stream.Stream#filter(java.util.function.Predicate)",
+    "is_external" : true,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
+    "source_label" : "countExpensiveItems",
+    "source_location" : "L56"
+  }, {
+    "call_kind" : "INTERFACE",
+    "depth" : 1,
+    "external_target_fqn" : "java.util.Collection#stream()",
+    "is_external" : true,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
+    "source_label" : "countExpensiveItems",
+    "source_location" : "L56"
+  }, {
+    "call_kind" : "STATIC",
+    "depth" : 1,
+    "external_target_fqn" : "java.util.Objects#requireNonNull(java.lang.Object,java.lang.String)",
+    "is_external" : true,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L32"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L33",
+    "target" : "com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "validate",
+    "target_qualified_name" : "com.example.shop.service.OrderValidator#validate"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L34",
+    "target" : "com.example.shop.service.PriceCalculator#calculate(java.util.List)",
+    "target_label" : "calculate",
+    "target_qualified_name" : "com.example.shop.service.PriceCalculator#calculate"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L34",
+    "target" : "com.example.shop.domain.dto.CreateOrderRequest#getItems()",
+    "target_label" : "getItems",
+    "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getItems"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L35",
+    "target" : "com.example.shop.service.OrderService#applyDiscount(double)",
+    "target_label" : "applyDiscount",
+    "target_qualified_name" : "com.example.shop.service.OrderService#applyDiscount"
+  }, {
+    "call_kind" : "CONSTRUCTOR",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L36",
+    "target" : "com.example.shop.domain.entity.Order#Order(java.lang.String,java.util.List)",
+    "target_label" : "Order",
+    "target_qualified_name" : "com.example.shop.domain.entity.Order#Order"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L36",
+    "target" : "com.example.shop.domain.dto.CreateOrderRequest#getCustomerId()",
+    "target_label" : "getCustomerId",
+    "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getCustomerId"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L36",
+    "target" : "com.example.shop.domain.dto.CreateOrderRequest#getItems()",
+    "target_label" : "getItems",
+    "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getItems"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L37",
+    "target" : "com.example.shop.domain.entity.Order#setStatus(com.example.shop.domain.entity.OrderStatus)",
+    "target_label" : "setStatus",
+    "target_qualified_name" : "com.example.shop.domain.entity.Order#setStatus"
+  }, {
+    "call_kind" : "INTERFACE",
+    "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
     "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
@@ -11,6 +135,17 @@
     "target" : "com.example.shop.repository.OrderRepository#save(com.example.shop.domain.entity.Order)",
     "target_label" : "save",
     "target_qualified_name" : "com.example.shop.repository.OrderRepository#save"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L39",
+    "target" : "com.example.shop.event.OrderEventPublisher#publish(com.example.shop.domain.event.OrderCreatedEvent)",
+    "target_label" : "publish",
+    "target_qualified_name" : "com.example.shop.event.OrderEventPublisher#publish"
   }, {
     "call_kind" : "CONSTRUCTOR",
     "depth" : 1,
@@ -23,14 +158,60 @@
     "target_label" : "OrderCreatedEvent",
     "target_qualified_name" : "com.example.shop.domain.event.OrderCreatedEvent#OrderCreatedEvent"
   }, {
-    "call_kind" : "STATIC",
+    "call_kind" : "CONSTRUCTOR",
     "depth" : 1,
-    "external_target_fqn" : "java.util.Objects#requireNonNull(java.lang.Object,java.lang.String)",
-    "is_external" : true,
+    "is_external" : false,
     "relation" : "CALLS",
     "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
     "source_label" : "createOrder",
-    "source_location" : "L32"
+    "source_location" : "L40",
+    "target" : "com.example.shop.domain.dto.OrderResult#OrderResult(java.lang.String,double)",
+    "target_label" : "OrderResult",
+    "target_qualified_name" : "com.example.shop.domain.dto.OrderResult#OrderResult"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L40",
+    "target" : "com.example.shop.domain.entity.Order#getId()",
+    "target_label" : "getId",
+    "target_qualified_name" : "com.example.shop.domain.entity.Order#getId"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
+    "source_label" : "createOrder",
+    "source_location" : "L45",
+    "target" : "com.example.shop.domain.dto.CreateOrderRequest#setCustomerId(java.lang.String)",
+    "target_label" : "setCustomerId",
+    "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#setCustomerId"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
+    "source_label" : "createOrder",
+    "source_location" : "L46",
+    "target" : "com.example.shop.domain.dto.CreateOrderRequest#setItems(java.util.List)",
+    "target_label" : "setItems",
+    "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#setItems"
+  }, {
+    "call_kind" : "INSTANCE",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
+    "source_label" : "createOrder",
+    "source_location" : "L47",
+    "target" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target_label" : "createOrder",
+    "target_qualified_name" : "com.example.shop.service.OrderService#createOrder"
   }, {
     "context" : "field_type",
     "depth" : 1,
@@ -41,6 +222,24 @@
     "target" : "com.example.shop.service.PriceCalculator",
     "target_label" : "PriceCalculator",
     "target_qualified_name" : "com.example.shop.service.PriceCalculator"
+  }, {
+    "context" : "parameter_type",
+    "depth" : 1,
+    "external_target_fqn" : "java.util.List",
+    "is_external" : true,
+    "relation" : "REFERENCES",
+    "source" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
+    "source_label" : "countExpensiveItems"
+  }, {
+    "context" : "generic_arg",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "REFERENCES",
+    "source" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
+    "source_label" : "countExpensiveItems",
+    "target" : "com.example.shop.domain.entity.OrderItem",
+    "target_label" : "OrderItem",
+    "target_qualified_name" : "com.example.shop.domain.entity.OrderItem"
   }, {
     "context" : "return_type",
     "depth" : 1,
@@ -66,11 +265,29 @@
     "depth" : 1,
     "is_external" : false,
     "relation" : "REFERENCES",
-    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,<unresolved>)",
+    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
     "source_label" : "createOrder",
     "target" : "com.example.shop.domain.dto.OrderResult",
     "target_label" : "OrderResult",
     "target_qualified_name" : "com.example.shop.domain.dto.OrderResult"
+  }, {
+    "context" : "parameter_type",
+    "depth" : 1,
+    "external_target_fqn" : "java.util.List",
+    "is_external" : true,
+    "relation" : "REFERENCES",
+    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
+    "source_label" : "createOrder"
+  }, {
+    "context" : "generic_arg",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "REFERENCES",
+    "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
+    "source_label" : "createOrder",
+    "target" : "com.example.shop.domain.entity.OrderItem",
+    "target_label" : "OrderItem",
+    "target_qualified_name" : "com.example.shop.domain.entity.OrderItem"
   }, {
     "context" : "field_type",
     "depth" : 1,
@@ -103,6 +320,8 @@
     "target_qualified_name" : "com.example.shop.service.OrderValidator"
   } ],
   "stats" : {
-    "total" : 10
+    "offset" : 0,
+    "total" : 31,
+    "truncated" : false
   }
 }
