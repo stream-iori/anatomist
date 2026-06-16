@@ -1,25 +1,29 @@
 package com.anatomist.core.asmsolver;
 
+import com.github.javaparser.ast.AccessSpecifier;
+import com.github.javaparser.resolution.MethodUsage;
 import com.github.javaparser.resolution.TypeSolver;
+import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedTypeParameterDeclaration;
 import com.github.javaparser.resolution.model.SymbolReference;
 import com.github.javaparser.resolution.model.typesystem.ReferenceTypeImpl;
 import com.github.javaparser.resolution.types.ResolvedArrayType;
 import com.github.javaparser.resolution.types.ResolvedPrimitiveType;
+import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.resolution.types.ResolvedType;
 import com.github.javaparser.resolution.types.ResolvedVoidType;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
-/** Converts JVM bytecode descriptor strings (primitives + reference + array
- *  + method) into {@link ResolvedType} instances backed by a {@link TypeSolver}.
- *
- *  <p>Generic signatures (the {@code Signature} attribute) are <strong>NOT</strong>
- *  handled here — anatomist's NodeIdGenerator only needs erased types for
- *  method IDs, and CallGraphExtractor / FieldAccessExtractor consume erased
- *  types too. Signature parsing can be added later as a v2 pass without
- *  breaking this API. */
+/** Converts JVM bytecode descriptor strings into {@link ResolvedType} instances.
+ *  Handles erased types only; generic signatures are parsed by {@link AsmSignatureParser}. */
 public final class AsmDescriptorParser {
 
     private AsmDescriptorParser() {}
@@ -77,13 +81,10 @@ public final class AsmDescriptorParser {
                 String internal = d.substring(cursor[0] + 1, end);
                 cursor[0] = end + 1;
                 String fqn = internal.replace('/', '.');
-                // Walk up to root so siblings of our AsmTypeSolver (e.g. ReflectionTypeSolver
-                // in the Combined chain) can resolve java.lang.* etc.
                 TypeSolver root = solver.getRoot();
                 SymbolReference<ResolvedReferenceTypeDeclaration> ref = root.tryToSolveType(fqn);
                 if (!ref.isSolved()) {
-                    throw new IllegalArgumentException(
-                            "cannot resolve referenced type " + fqn);
+                    return new ReferenceTypeImpl(new UnsolvedTypeDeclaration(fqn));
                 }
                 return new ReferenceTypeImpl(ref.getCorrespondingDeclaration());
             }
@@ -91,5 +92,45 @@ public final class AsmDescriptorParser {
                 throw new IllegalArgumentException(
                         "unsupported descriptor char '" + c + "' in " + d);
         }
+    }
+
+    /** Minimal stub for types that cannot be resolved. Allows method resolution
+     *  to proceed with parameter-count matching instead of crashing. */
+    static final class UnsolvedTypeDeclaration implements ResolvedReferenceTypeDeclaration {
+        private final String fqn;
+        UnsolvedTypeDeclaration(String fqn) { this.fqn = fqn; }
+
+        @Override public String getQualifiedName() { return fqn; }
+        @Override public String getName() { return FqnUtil.simpleName(fqn); }
+        @Override public String getPackageName() { return FqnUtil.packageName(fqn); }
+        @Override public String getClassName() { return FqnUtil.className(fqn); }
+        @Override public List<ResolvedFieldDeclaration> getAllFields() { return Collections.emptyList(); }
+        @Override public List<ResolvedReferenceType> getAncestors(boolean b) { return Collections.emptyList(); }
+        @Override public Set<ResolvedMethodDeclaration> getDeclaredMethods() { return Collections.emptySet(); }
+        @Override public Set<MethodUsage> getAllMethods() { return Collections.emptySet(); }
+        @Override public boolean isAssignableBy(ResolvedType t) { return false; }
+        @Override public boolean isAssignableBy(ResolvedReferenceTypeDeclaration other) { return false; }
+        @Override public boolean hasDirectlyAnnotation(String qn) { return false; }
+        @Override public List<ResolvedTypeParameterDeclaration> getTypeParameters() { return Collections.emptyList(); }
+        @Override public List<ResolvedConstructorDeclaration> getConstructors() { return Collections.emptyList(); }
+        @Override public Set<ResolvedReferenceTypeDeclaration> internalTypes() { return Collections.emptySet(); }
+        @Override public Optional<ResolvedReferenceTypeDeclaration> containerType() { return Optional.empty(); }
+        @Override public boolean isClass() { return true; }
+        @Override public boolean isInterface() { return false; }
+        @Override public boolean isEnum() { return false; }
+        @Override public boolean isRecord() { return false; }
+        @Override public boolean isAnnotation() { return false; }
+        @Override public boolean isTypeParameter() { return false; }
+        @Override public boolean isType() { return true; }
+        @Override public boolean isField() { return false; }
+        @Override public boolean isParameter() { return false; }
+        @Override public boolean isFunctionalInterface() { return false; }
+        @Override public List<ResolvedFieldDeclaration> getDeclaredFields() { return Collections.emptyList(); }
+
+        @Override public boolean equals(Object o) {
+            return this == o || (o instanceof UnsolvedTypeDeclaration u && fqn.equals(u.fqn));
+        }
+        @Override public int hashCode() { return fqn.hashCode(); }
+        @Override public String toString() { return "UnsolvedTypeDeclaration(" + fqn + ")"; }
     }
 }

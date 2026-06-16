@@ -18,56 +18,31 @@ class EmbeddedJdkClassDeclarationTest {
     private static JdkTypeCatalog buildSmallCatalog() {
         JdkTypeCatalog cat = new JdkTypeCatalog(21);
 
-        // java.lang.Object — root, no super, no interfaces
-        JdkType obj = new JdkType();
-        obj.fqn = "java.lang.Object";
-        obj.superFqn = null;
-        obj.interfaceFqns = List.of();
-        obj.flags = JdkType.FLAG_CLASS | JdkType.FLAG_PUBLIC;
-        obj.fields = List.of();
-        obj.methods = List.of(
-                new JdkType.MethodEntry("toString", "()Ljava/lang/String;", JdkType.FLAG_PUBLIC),
-                new JdkType.MethodEntry("hashCode", "()I",                JdkType.FLAG_PUBLIC),
-                new JdkType.MethodEntry("equals",   "(Ljava/lang/Object;)Z", JdkType.FLAG_PUBLIC));
-        cat.add(obj);
+        cat.add(new JdkType("java.lang.Object", null, List.of(),
+                JdkType.FLAG_CLASS | JdkType.FLAG_PUBLIC, null, List.of(),
+                List.of(
+                        new JdkType.MethodEntry("toString", "()Ljava/lang/String;", JdkType.FLAG_PUBLIC),
+                        new JdkType.MethodEntry("hashCode", "()I",                JdkType.FLAG_PUBLIC),
+                        new JdkType.MethodEntry("equals",   "(Ljava/lang/Object;)Z", JdkType.FLAG_PUBLIC))));
 
-        // java.lang.CharSequence — interface
-        JdkType cs = new JdkType();
-        cs.fqn = "java.lang.CharSequence";
-        cs.superFqn = null;
-        cs.interfaceFqns = List.of();
-        cs.flags = JdkType.FLAG_INTERFACE | JdkType.FLAG_PUBLIC;
-        cs.fields = List.of();
-        cs.methods = List.of(
-                new JdkType.MethodEntry("length", "()I", JdkType.FLAG_PUBLIC | JdkType.FLAG_ABSTRACT));
-        cat.add(cs);
+        cat.add(new JdkType("java.lang.CharSequence", null, List.of(),
+                JdkType.FLAG_INTERFACE | JdkType.FLAG_PUBLIC, null, List.of(),
+                List.of(new JdkType.MethodEntry("length", "()I", JdkType.FLAG_PUBLIC | JdkType.FLAG_ABSTRACT))));
 
-        // java.io.Serializable — marker interface
-        JdkType ser = new JdkType();
-        ser.fqn = "java.io.Serializable";
-        ser.superFqn = null;
-        ser.interfaceFqns = List.of();
-        ser.flags = JdkType.FLAG_INTERFACE | JdkType.FLAG_PUBLIC;
-        ser.fields = List.of();
-        ser.methods = List.of();
-        cat.add(ser);
+        cat.add(new JdkType("java.io.Serializable", null, List.of(),
+                JdkType.FLAG_INTERFACE | JdkType.FLAG_PUBLIC, null, List.of(), List.of()));
 
-        // java.lang.String — extends Object, implements CharSequence + Serializable
-        JdkType str = new JdkType();
-        str.fqn = "java.lang.String";
-        str.superFqn = "java.lang.Object";
-        str.interfaceFqns = List.of("java.lang.CharSequence", "java.io.Serializable");
-        str.flags = JdkType.FLAG_CLASS | JdkType.FLAG_PUBLIC | JdkType.FLAG_FINAL;
-        str.fields = List.of(
-                new JdkType.FieldEntry("CASE_INSENSITIVE_ORDER",
+        cat.add(new JdkType("java.lang.String", "java.lang.Object",
+                List.of("java.lang.CharSequence", "java.io.Serializable"),
+                JdkType.FLAG_CLASS | JdkType.FLAG_PUBLIC | JdkType.FLAG_FINAL, null,
+                List.of(new JdkType.FieldEntry("CASE_INSENSITIVE_ORDER",
                         "Ljava/util/Comparator;",
-                        JdkType.FLAG_STATIC | JdkType.FLAG_FINAL | JdkType.FLAG_PUBLIC));
-        str.methods = List.of(
-                new JdkType.MethodEntry("length",    "()I",                       JdkType.FLAG_PUBLIC),
-                new JdkType.MethodEntry("substring", "(I)Ljava/lang/String;",     JdkType.FLAG_PUBLIC),
-                new JdkType.MethodEntry("substring", "(II)Ljava/lang/String;",    JdkType.FLAG_PUBLIC),
-                new JdkType.MethodEntry("charAt",    "(I)C",                      JdkType.FLAG_PUBLIC));
-        cat.add(str);
+                        JdkType.FLAG_STATIC | JdkType.FLAG_FINAL | JdkType.FLAG_PUBLIC)),
+                List.of(
+                        new JdkType.MethodEntry("length",    "()I",                       JdkType.FLAG_PUBLIC),
+                        new JdkType.MethodEntry("substring", "(I)Ljava/lang/String;",     JdkType.FLAG_PUBLIC),
+                        new JdkType.MethodEntry("substring", "(II)Ljava/lang/String;",    JdkType.FLAG_PUBLIC),
+                        new JdkType.MethodEntry("charAt",    "(I)C",                      JdkType.FLAG_PUBLIC))));
         return cat;
     }
 

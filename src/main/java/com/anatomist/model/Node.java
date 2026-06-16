@@ -15,16 +15,6 @@ public class Node {
 
     public Node() {}
 
-    public static Node of(String id, String kind, String label, String qualifiedName, String pkg) {
-        Node n = new Node();
-        n.id = id;
-        n.kind = kind;
-        n.label = label;
-        n.qualifiedName = qualifiedName;
-        n.pkg = pkg;
-        return n;
-    }
-
     public Node sourceFile(String sourceFile) { this.sourceFile = sourceFile; return this; }
     public Node sourceLocation(String loc) { this.sourceLocation = loc; return this; }
     public Node module(String module) { this.module = module; return this; }

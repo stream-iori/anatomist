@@ -2,10 +2,7 @@ package com.anatomist.core.nativeimage;
 
 import java.util.List;
 
-/** Structural record of a JDK class, captured at anatomist build time and
- *  shipped as a binary resource. Holds only erased descriptor info — generics
- *  signature parsing lives in the future {@code AsmTypeSolver} adapter. */
-public class JdkType {
+public final class JdkType {
 
     public static final int FLAG_PUBLIC      = 1 << 0;
     public static final int FLAG_STATIC      = 1 << 1;
@@ -17,28 +14,59 @@ public class JdkType {
     public static final int FLAG_CLASS       = 1 << 7;
     public static final int FLAG_RECORD      = 1 << 8;
 
-    public String fqn;
-    public String superFqn;          // null for java.lang.Object and interfaces
-    public List<String> interfaceFqns;
-    public int flags;
-    public List<FieldEntry> fields;
-    public List<MethodEntry> methods;
+    public final String fqn;
+    public final String superFqn;
+    public final List<String> interfaceFqns;
+    public final int flags;
+    public final String signature;
+    public final List<FieldEntry> fields;
+    public final List<MethodEntry> methods;
+
+    public JdkType(String fqn, String superFqn, List<String> interfaceFqns,
+                   int flags, String signature,
+                   List<FieldEntry> fields, List<MethodEntry> methods) {
+        this.fqn = fqn;
+        this.superFqn = superFqn;
+        this.interfaceFqns = interfaceFqns;
+        this.flags = flags;
+        this.signature = signature;
+        this.fields = fields;
+        this.methods = methods;
+    }
 
     public static final class FieldEntry {
         public final String name;
-        public final String descriptor;  // JVM descriptor (e.g. "Ljava/util/List;")
+        public final String descriptor;
         public final int flags;
+        public final String signature;
+
         public FieldEntry(String name, String descriptor, int flags) {
-            this.name = name; this.descriptor = descriptor; this.flags = flags;
+            this(name, descriptor, flags, null);
+        }
+
+        public FieldEntry(String name, String descriptor, int flags, String signature) {
+            this.name = name;
+            this.descriptor = descriptor;
+            this.flags = flags;
+            this.signature = signature;
         }
     }
 
     public static final class MethodEntry {
         public final String name;
-        public final String descriptor;  // JVM method descriptor (e.g. "(II)Ljava/lang/String;")
+        public final String descriptor;
         public final int flags;
+        public final String signature;
+
         public MethodEntry(String name, String descriptor, int flags) {
-            this.name = name; this.descriptor = descriptor; this.flags = flags;
+            this(name, descriptor, flags, null);
+        }
+
+        public MethodEntry(String name, String descriptor, int flags, String signature) {
+            this.name = name;
+            this.descriptor = descriptor;
+            this.flags = flags;
+            this.signature = signature;
         }
     }
 }

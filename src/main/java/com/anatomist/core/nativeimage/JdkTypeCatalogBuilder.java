@@ -18,14 +18,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-/** Build-time tool that scans the running JDK's {@code jrt:/} module image,
- *  reads each {@code .class} via ASM, and produces a {@link JdkTypeCatalog}
- *  ready to be serialised under {@code META-INF/anatomist/jdkN-types.bin}.
- *
- *  <p>Generic signatures are intentionally NOT captured today — anatomist's
- *  extractors only need erased descriptors for method ID generation and
- *  call-graph resolution. Generic data lives in the {@code Signature}
- *  attribute and can be added later via a v2 binary format. */
+/** Build-time tool that scans the running JDK's {@code jrt:/} module image
+ *  and produces a {@link JdkTypeCatalog} for {@code META-INF/anatomist/jdkN-types.bin}. */
 public class JdkTypeCatalogBuilder {
 
     public JdkTypeCatalog buildFromCurrentJdk() {
@@ -99,6 +93,7 @@ public class JdkTypeCatalogBuilder {
     private static final class TypeVisitor extends ClassVisitor {
         String fqn;
         String superFqn;
+        String classSignature;
         List<String> interfaces = new ArrayList<>();
         int classFlags;
         List<JdkType.FieldEntry> fields = new ArrayList<>();
@@ -113,6 +108,7 @@ public class JdkTypeCatalogBuilder {
             // Skip synthetic / inner-class noise that anatomist doesn't need.
             if ((access & Opcodes.ACC_SYNTHETIC) != 0) { skipped = true; return; }
             this.fqn = name.replace('/', '.');
+            this.classSignature = signature;
             // Interface "extends Object" in bytecode but anatomist treats interfaces as super=null.
             boolean isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
             this.superFqn = isInterface || superName == null
@@ -129,7 +125,7 @@ public class JdkTypeCatalogBuilder {
                                        String signature, Object value) {
             if (skipped) return null;
             if ((access & Opcodes.ACC_SYNTHETIC) != 0) return null;
-            fields.add(new JdkType.FieldEntry(name, descriptor, translateFlags(access, true)));
+            fields.add(new JdkType.FieldEntry(name, descriptor, translateFlags(access, true), signature));
             return null;
         }
 
@@ -139,20 +135,13 @@ public class JdkTypeCatalogBuilder {
             if (skipped) return null;
             if ((access & Opcodes.ACC_SYNTHETIC) != 0) return null;
             if ((access & Opcodes.ACC_BRIDGE) != 0) return null;
-            methods.add(new JdkType.MethodEntry(name, descriptor, translateFlags(access, true)));
+            methods.add(new JdkType.MethodEntry(name, descriptor, translateFlags(access, true), signature));
             return null;
         }
 
         JdkType toType() {
             if (skipped || fqn == null) return null;
-            JdkType t = new JdkType();
-            t.fqn = fqn;
-            t.superFqn = superFqn;
-            t.interfaceFqns = interfaces;
-            t.flags = classFlags;
-            t.fields = fields;
-            t.methods = methods;
-            return t;
+            return new JdkType(fqn, superFqn, interfaces, classFlags, classSignature, fields, methods);
         }
 
         private static int translateFlags(int asmAccess, boolean isMember) {

@@ -1,39 +1,29 @@
 package com.anatomist.core.asmsolver;
 
 import com.github.javaparser.ast.AccessSpecifier;
-import com.github.javaparser.resolution.TypeSolver;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedParameterDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeParameterDeclaration;
 import com.github.javaparser.resolution.types.ResolvedType;
-import org.objectweb.asm.Opcodes;
 
 import java.util.Collections;
 import java.util.List;
 
-/** ASM-backed {@link ResolvedMethodDeclaration}. Erased-only — generic
- *  type parameters and the {@code Signature} attribute are deferred. */
 public class AsmMethodDeclaration implements ResolvedMethodDeclaration {
 
     private final String name;
-    private final String descriptor;
     private final int access;
     private final AsmClassDeclaration declaring;
-    private final TypeSolver solver;
+    private final LazyDescriptorResolver resolver;
 
-    // Parsed lazily — descriptor parsing involves solver lookups which we
-    // don't want to do until the caller actually probes the signature.
-    private volatile List<ResolvedType> paramTypes;
-    private volatile ResolvedType returnType;
-
-    AsmMethodDeclaration(String name, String descriptor, int access,
-                         AsmClassDeclaration declaring, TypeSolver solver) {
+    AsmMethodDeclaration(String name, int access,
+                         AsmClassDeclaration declaring,
+                         LazyDescriptorResolver resolver) {
         this.name = name;
-        this.descriptor = descriptor;
         this.access = access;
         this.declaring = declaring;
-        this.solver = solver;
+        this.resolver = resolver;
     }
 
     @Override
@@ -43,34 +33,21 @@ public class AsmMethodDeclaration implements ResolvedMethodDeclaration {
     public ResolvedReferenceTypeDeclaration declaringType() { return declaring; }
 
     @Override
-    public int getNumberOfParams() { return params().size(); }
+    public int getNumberOfParams() { return resolver.paramTypes().size(); }
 
     @Override
     public ResolvedParameterDeclaration getParam(int i) {
-        return new AsmParameterDeclaration(params().get(i), i, this);
+        return new AsmParameterDeclaration(resolver.paramTypes().get(i), i, this);
     }
 
     @Override
-    public ResolvedType getReturnType() {
-        if (returnType == null) {
-            synchronized (this) {
-                if (returnType == null) {
-                    returnType = AsmDescriptorParser.parseMethodReturnType(descriptor, solver);
-                }
-            }
-        }
-        return returnType;
-    }
+    public ResolvedType getReturnType() { return resolver.returnType(); }
 
     @Override
-    public boolean isAbstract() {
-        return (access & Opcodes.ACC_ABSTRACT) != 0;
-    }
+    public boolean isAbstract() { return AccessFlags.isAbstract(access); }
 
     @Override
-    public boolean isStatic() {
-        return (access & Opcodes.ACC_STATIC) != 0;
-    }
+    public boolean isStatic() { return AccessFlags.isStatic(access); }
 
     @Override
     public boolean isDefaultMethod() {
@@ -87,32 +64,20 @@ public class AsmMethodDeclaration implements ResolvedMethodDeclaration {
 
     @Override
     public List<ResolvedTypeParameterDeclaration> getTypeParameters() {
-        return Collections.emptyList();
+        if (resolver.signature() == null) return Collections.emptyList();
+        return AsmSignatureParser.parseMethodTypeParameters(
+                resolver.signature(), declaring.getQualifiedName(), resolver.solver());
     }
 
     @Override
-    public String toDescriptor() { return descriptor; }
+    public String toDescriptor() { return resolver.descriptor(); }
 
     public AccessSpecifier accessSpecifier() {
-        if ((access & Opcodes.ACC_PUBLIC) != 0)    return AccessSpecifier.PUBLIC;
-        if ((access & Opcodes.ACC_PROTECTED) != 0) return AccessSpecifier.PROTECTED;
-        if ((access & Opcodes.ACC_PRIVATE) != 0)   return AccessSpecifier.PRIVATE;
-        return AccessSpecifier.NONE;
-    }
-
-    private List<ResolvedType> params() {
-        if (paramTypes == null) {
-            synchronized (this) {
-                if (paramTypes == null) {
-                    paramTypes = AsmDescriptorParser.parseMethodParameters(descriptor, solver);
-                }
-            }
-        }
-        return paramTypes;
+        return AccessFlags.toSpecifier(access);
     }
 
     @Override
     public String toString() {
-        return "AsmMethodDeclaration(" + declaring.getQualifiedName() + "#" + name + descriptor + ")";
+        return "AsmMethodDeclaration(" + declaring.getQualifiedName() + "#" + name + resolver.descriptor() + ")";
     }
 }

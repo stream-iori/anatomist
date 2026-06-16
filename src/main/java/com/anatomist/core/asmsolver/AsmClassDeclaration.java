@@ -29,11 +29,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-/** ASM-backed implementation of {@link ResolvedReferenceTypeDeclaration}.
- *
- *  <p>Most methods are stubs at this stage — they will be filled in by
- *  subsequent C-phase tasks. The minimum surface (identity, kind) is
- *  enough to satisfy {@link AsmTypeSolver#tryToSolveType}. */
+/** ASM-backed implementation of {@link ResolvedReferenceTypeDeclaration}. */
 public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
         ResolvedAnnotationDeclaration,
         MethodResolutionCapability {
@@ -47,6 +43,7 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
     private String superFqn;        // null for Object/interfaces
     private List<String> interfaceFqns = Collections.emptyList();
     private int classAccess;
+    private String classSignature;
     private List<AsmFieldDeclaration> declaredFields = Collections.emptyList();
     private Set<AsmMethodDeclaration> declaredMethods = Collections.emptySet();
     private List<AsmConstructorDeclaration> constructors = Collections.emptyList();
@@ -67,59 +64,47 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
     }
 
     @Override
-    public String getName() {
-        int dot = fqn.lastIndexOf('.');
-        int dollar = fqn.lastIndexOf('$');
-        int idx = Math.max(dot, dollar);
-        return idx < 0 ? fqn : fqn.substring(idx + 1);
-    }
+    public String getName() { return FqnUtil.simpleName(fqn); }
 
     @Override
-    public String getPackageName() {
-        int dot = fqn.lastIndexOf('.');
-        return dot < 0 ? "" : fqn.substring(0, dot);
-    }
+    public String getPackageName() { return FqnUtil.packageName(fqn); }
 
     @Override
-    public String getClassName() {
-        String pkg = getPackageName();
-        if (pkg.isEmpty()) return fqn;
-        return fqn.substring(pkg.length() + 1);
-    }
+    public String getClassName() { return FqnUtil.className(fqn); }
 
     // ── kind ──
 
     @Override
     public boolean isClass() {
         ensureParsed();
-        return (classAccess & Opcodes.ACC_INTERFACE) == 0
-                && (classAccess & Opcodes.ACC_ENUM) == 0
-                && (classAccess & Opcodes.ACC_ANNOTATION) == 0;
+        return !AccessFlags.isInterface(classAccess)
+                && !AccessFlags.isEnum(classAccess)
+                && !AccessFlags.isAnnotation(classAccess);
     }
 
     @Override
     public boolean isInterface() {
         ensureParsed();
-        return (classAccess & Opcodes.ACC_INTERFACE) != 0
-                && (classAccess & Opcodes.ACC_ANNOTATION) == 0;
+        return AccessFlags.isInterface(classAccess)
+                && !AccessFlags.isAnnotation(classAccess);
     }
 
     @Override
     public boolean isEnum() {
         ensureParsed();
-        return (classAccess & Opcodes.ACC_ENUM) != 0;
+        return AccessFlags.isEnum(classAccess);
     }
 
     @Override
     public boolean isAnnotation() {
         ensureParsed();
-        return (classAccess & Opcodes.ACC_ANNOTATION) != 0;
+        return AccessFlags.isAnnotation(classAccess);
     }
 
     @Override
     public boolean isRecord() {
         ensureParsed();
-        return (classAccess & Opcodes.ACC_RECORD) != 0;
+        return AccessFlags.isRecord(classAccess);
     }
 
     @Override
@@ -133,8 +118,6 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
 
     @Override
     public boolean isType() { return true; }
-
-    // ── members (stubs, filled in C7–C10) ──
 
     // ── members ──
 
@@ -228,7 +211,9 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
 
     @Override
     public List<ResolvedTypeParameterDeclaration> getTypeParameters() {
-        return Collections.emptyList();
+        ensureParsed();
+        if (classSignature == null) return Collections.emptyList();
+        return AsmSignatureParser.parseClassTypeParameters(classSignature, fqn, solver);
     }
 
     @Override
@@ -293,15 +278,9 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
                 .orElse(false);
     }
 
-    /** Not part of {@link ResolvedReferenceTypeDeclaration} directly but
-     *  commonly used by downstream printers / equivalents to javassist's
-     *  {@code accessSpecifier()}. Kept available for parity. */
     public AccessSpecifier accessSpecifier() {
         ensureParsed();
-        if ((classAccess & Opcodes.ACC_PUBLIC) != 0)    return AccessSpecifier.PUBLIC;
-        if ((classAccess & Opcodes.ACC_PROTECTED) != 0) return AccessSpecifier.PROTECTED;
-        if ((classAccess & Opcodes.ACC_PRIVATE) != 0)   return AccessSpecifier.PRIVATE;
-        return AccessSpecifier.NONE;
+        return AccessFlags.toSpecifier(classAccess);
     }
 
     @Override
@@ -379,6 +358,7 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
             public void visit(int version, int access, String name, String signature,
                               String superName, String[] interfaces) {
                 AsmClassDeclaration.this.classAccess = access;
+                AsmClassDeclaration.this.classSignature = signature;
                 AsmClassDeclaration.this.superFqn = (superName == null)
                         ? null
                         : superName.replace('/', '.');
@@ -411,25 +391,24 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
             @Override
             public FieldVisitor visitField(int access, String name, String descriptor,
                                             String signature, Object value) {
-                if ((access & Opcodes.ACC_SYNTHETIC) != 0) return null;
+                if (AccessFlags.isSynthetic(access)) return null;
                 fields.add(new AsmFieldDeclaration(name, descriptor, access,
-                        AsmClassDeclaration.this, solver));
+                        AsmClassDeclaration.this));
                 return null;
             }
 
             @Override
             public MethodVisitor visitMethod(int access, String name, String descriptor,
                                               String signature, String[] exceptions) {
-                if ((access & Opcodes.ACC_SYNTHETIC) != 0) return null;
-                if ((access & Opcodes.ACC_BRIDGE) != 0) return null;
+                if (AccessFlags.isSynthetic(access)) return null;
+                if (AccessFlags.isBridge(access)) return null;
                 if ("<init>".equals(name)) {
                     ctors.add(new AsmConstructorDeclaration(descriptor, access,
-                            AsmClassDeclaration.this, solver));
-                } else if ("<clinit>".equals(name)) {
-                    // class initializer — not exposed
-                } else {
-                    methods.add(new AsmMethodDeclaration(name, descriptor, access,
-                            AsmClassDeclaration.this, solver));
+                            AsmClassDeclaration.this));
+                } else if (!"<clinit>".equals(name)) {
+                    methods.add(new AsmMethodDeclaration(name, access,
+                            AsmClassDeclaration.this,
+                            new LazyDescriptorResolver(signature, descriptor, solver)));
                 }
                 return null;
             }

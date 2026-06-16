@@ -22,12 +22,8 @@ class EmbeddedJdkTypeSolverTest {
     @Test
     void knownFqn_returnsSolved() {
         JdkTypeCatalog cat = new JdkTypeCatalog(21);
-        JdkType t = new JdkType();
-        t.fqn = "java.lang.Object";
-        t.interfaceFqns = List.of();
-        t.flags = JdkType.FLAG_CLASS;
-        t.fields = List.of();
-        t.methods = List.of();
+        JdkType t = new JdkType("java.lang.Object", null, List.of(),
+                JdkType.FLAG_CLASS, null, List.of(), List.of());
         cat.add(t);
         EmbeddedJdkTypeSolver solver = new EmbeddedJdkTypeSolver(cat);
         SymbolReference<ResolvedReferenceTypeDeclaration> ref =
@@ -39,9 +35,8 @@ class EmbeddedJdkTypeSolverTest {
     @Test
     void cachesResolvedDeclarations() {
         JdkTypeCatalog cat = new JdkTypeCatalog(21);
-        JdkType t = new JdkType();
-        t.fqn = "java.lang.Object"; t.interfaceFqns = List.of();
-        t.flags = JdkType.FLAG_CLASS; t.fields = List.of(); t.methods = List.of();
+        JdkType t = new JdkType("java.lang.Object", null, List.of(),
+                JdkType.FLAG_CLASS, null, List.of(), List.of());
         cat.add(t);
         EmbeddedJdkTypeSolver solver = new EmbeddedJdkTypeSolver(cat);
         var a = solver.tryToSolveType("java.lang.Object").getCorrespondingDeclaration();

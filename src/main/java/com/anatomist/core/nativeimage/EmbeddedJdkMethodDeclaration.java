@@ -1,6 +1,8 @@
 package com.anatomist.core.nativeimage;
 
-import com.anatomist.core.asmsolver.AsmDescriptorParser;
+import com.anatomist.core.asmsolver.AsmSignatureParser;
+import com.anatomist.core.asmsolver.LazyDescriptorResolver;
+import com.github.javaparser.ast.AccessSpecifier;
 import com.github.javaparser.resolution.TypeSolver;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedParameterDeclaration;
@@ -11,24 +13,18 @@ import com.github.javaparser.resolution.types.ResolvedType;
 import java.util.Collections;
 import java.util.List;
 
-/** Catalog-backed {@link ResolvedMethodDeclaration}. Mirrors
- *  {@link com.anatomist.core.asmsolver.AsmMethodDeclaration} — both translate
- *  JVM method descriptors via {@link AsmDescriptorParser}. */
 public class EmbeddedJdkMethodDeclaration implements ResolvedMethodDeclaration {
 
     private final JdkType.MethodEntry entry;
     private final EmbeddedJdkClassDeclaration declaring;
-    private final TypeSolver solver;
-
-    private volatile List<ResolvedType> paramTypes;
-    private volatile ResolvedType returnType;
+    private final LazyDescriptorResolver resolver;
 
     EmbeddedJdkMethodDeclaration(JdkType.MethodEntry entry,
                                  EmbeddedJdkClassDeclaration declaring,
                                  TypeSolver solver) {
         this.entry = entry;
         this.declaring = declaring;
-        this.solver = solver;
+        this.resolver = new LazyDescriptorResolver(entry.signature, entry.descriptor, solver);
     }
 
     @Override
@@ -38,24 +34,15 @@ public class EmbeddedJdkMethodDeclaration implements ResolvedMethodDeclaration {
     public ResolvedReferenceTypeDeclaration declaringType() { return declaring; }
 
     @Override
-    public int getNumberOfParams() { return params().size(); }
+    public int getNumberOfParams() { return resolver.paramTypes().size(); }
 
     @Override
     public ResolvedParameterDeclaration getParam(int i) {
-        return new EmbeddedJdkParameterDeclaration(params().get(i), i);
+        return new EmbeddedJdkParameterDeclaration(resolver.paramTypes().get(i), i);
     }
 
     @Override
-    public ResolvedType getReturnType() {
-        if (returnType == null) {
-            synchronized (this) {
-                if (returnType == null) {
-                    returnType = AsmDescriptorParser.parseMethodReturnType(entry.descriptor, solver);
-                }
-            }
-        }
-        return returnType;
-    }
+    public ResolvedType getReturnType() { return resolver.returnType(); }
 
     @Override
     public boolean isAbstract() { return (entry.flags & JdkType.FLAG_ABSTRACT) != 0; }
@@ -78,26 +65,17 @@ public class EmbeddedJdkMethodDeclaration implements ResolvedMethodDeclaration {
 
     @Override
     public List<ResolvedTypeParameterDeclaration> getTypeParameters() {
-        return Collections.emptyList();
+        if (entry.signature == null) return Collections.emptyList();
+        return AsmSignatureParser.parseMethodTypeParameters(
+                entry.signature, declaring.getQualifiedName(), resolver.solver());
     }
 
     @Override
     public String toDescriptor() { return entry.descriptor; }
 
     @Override
-    public com.github.javaparser.ast.AccessSpecifier accessSpecifier() {
-        if ((entry.flags & JdkType.FLAG_PUBLIC) != 0) return com.github.javaparser.ast.AccessSpecifier.PUBLIC;
-        return com.github.javaparser.ast.AccessSpecifier.NONE;
-    }
-
-    private List<ResolvedType> params() {
-        if (paramTypes == null) {
-            synchronized (this) {
-                if (paramTypes == null) {
-                    paramTypes = AsmDescriptorParser.parseMethodParameters(entry.descriptor, solver);
-                }
-            }
-        }
-        return paramTypes;
+    public AccessSpecifier accessSpecifier() {
+        if ((entry.flags & JdkType.FLAG_PUBLIC) != 0) return AccessSpecifier.PUBLIC;
+        return AccessSpecifier.NONE;
     }
 }

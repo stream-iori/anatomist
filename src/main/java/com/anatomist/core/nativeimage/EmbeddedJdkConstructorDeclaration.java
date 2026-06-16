@@ -1,6 +1,8 @@
-package com.anatomist.core.asmsolver;
+package com.anatomist.core.nativeimage;
 
+import com.anatomist.core.asmsolver.LazyDescriptorResolver;
 import com.github.javaparser.ast.AccessSpecifier;
+import com.github.javaparser.resolution.TypeSolver;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedParameterDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
@@ -10,17 +12,18 @@ import com.github.javaparser.resolution.types.ResolvedType;
 import java.util.Collections;
 import java.util.List;
 
-public class AsmConstructorDeclaration implements ResolvedConstructorDeclaration {
+final class EmbeddedJdkConstructorDeclaration implements ResolvedConstructorDeclaration {
 
-    private final int access;
-    private final AsmClassDeclaration declaring;
+    private final JdkType.MethodEntry entry;
+    private final EmbeddedJdkClassDeclaration declaring;
     private final LazyDescriptorResolver resolver;
 
-    AsmConstructorDeclaration(String descriptor, int access,
-                              AsmClassDeclaration declaring) {
-        this.access = access;
+    EmbeddedJdkConstructorDeclaration(JdkType.MethodEntry entry,
+                                       EmbeddedJdkClassDeclaration declaring,
+                                       TypeSolver solver) {
+        this.entry = entry;
         this.declaring = declaring;
-        this.resolver = new LazyDescriptorResolver(descriptor, declaring.solver());
+        this.resolver = new LazyDescriptorResolver(entry.descriptor, solver);
     }
 
     @Override
@@ -34,7 +37,7 @@ public class AsmConstructorDeclaration implements ResolvedConstructorDeclaration
 
     @Override
     public ResolvedParameterDeclaration getParam(int i) {
-        return new AsmParameterDeclaration(resolver.paramTypes().get(i), i, this);
+        return new EmbeddedJdkParameterDeclaration(resolver.paramTypes().get(i), i);
     }
 
     @Override
@@ -50,7 +53,9 @@ public class AsmConstructorDeclaration implements ResolvedConstructorDeclaration
         return Collections.emptyList();
     }
 
+    @Override
     public AccessSpecifier accessSpecifier() {
-        return AccessFlags.toSpecifier(access);
+        if ((entry.flags & JdkType.FLAG_PUBLIC) != 0) return AccessSpecifier.PUBLIC;
+        return AccessSpecifier.NONE;
     }
 }

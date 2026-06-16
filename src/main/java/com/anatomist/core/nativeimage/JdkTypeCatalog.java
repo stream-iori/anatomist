@@ -44,7 +44,7 @@ import java.util.Map;
 public class JdkTypeCatalog {
 
     private static final int MAGIC = 0x41544354;   // "ATCT"
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
     private static final int NULL_IDX = 0xFFFFFFFF;
 
     private final int jdkRelease;
@@ -71,13 +71,16 @@ public class JdkTypeCatalog {
                 pool.intern(t.fqn);
                 if (t.superFqn != null) pool.intern(t.superFqn);
                 for (String i : t.interfaceFqns) pool.intern(i);
+                if (t.signature != null) pool.intern(t.signature);
                 for (JdkType.FieldEntry f : t.fields) {
                     pool.intern(f.name);
                     pool.intern(f.descriptor);
+                    if (f.signature != null) pool.intern(f.signature);
                 }
                 for (JdkType.MethodEntry m : t.methods) {
                     pool.intern(m.name);
                     pool.intern(m.descriptor);
+                    if (m.signature != null) pool.intern(m.signature);
                 }
             }
 
@@ -108,6 +111,7 @@ public class JdkTypeCatalog {
                 dout.writeByte(t.interfaceFqns.size());
                 for (String i : t.interfaceFqns) dout.writeInt(pool.indexOf(i));
                 dout.writeShort(t.flags);
+                dout.writeInt(t.signature == null ? NULL_IDX : pool.indexOf(t.signature));
                 if (t.fields.size() > 0xFFFF || t.methods.size() > 0xFFFF) {
                     throw new IllegalStateException("too many members: " + t.fqn);
                 }
@@ -116,12 +120,14 @@ public class JdkTypeCatalog {
                     dout.writeInt(pool.indexOf(f.name));
                     dout.writeInt(pool.indexOf(f.descriptor));
                     dout.writeShort(f.flags);
+                    dout.writeInt(f.signature == null ? NULL_IDX : pool.indexOf(f.signature));
                 }
                 dout.writeShort(t.methods.size());
                 for (JdkType.MethodEntry m : t.methods) {
                     dout.writeInt(pool.indexOf(m.name));
                     dout.writeInt(pool.indexOf(m.descriptor));
                     dout.writeShort(m.flags);
+                    dout.writeInt(m.signature == null ? NULL_IDX : pool.indexOf(m.signature));
                 }
             }
             dout.flush();
@@ -159,34 +165,36 @@ public class JdkTypeCatalog {
             JdkTypeCatalog cat = new JdkTypeCatalog(jdkRelease);
             int typeCount = din.readInt();
             for (int i = 0; i < typeCount; i++) {
-                JdkType t = new JdkType();
-                t.fqn = pool[din.readInt()];
+                String fqn = pool[din.readInt()];
                 int superIdx = din.readInt();
-                t.superFqn = superIdx == NULL_IDX ? null : pool[superIdx];
+                String superFqn = superIdx == NULL_IDX ? null : pool[superIdx];
                 int ic = din.readUnsignedByte();
                 List<String> ifaces = new ArrayList<>(ic);
                 for (int j = 0; j < ic; j++) ifaces.add(pool[din.readInt()]);
-                t.interfaceFqns = ifaces;
-                t.flags = din.readUnsignedShort();
+                int flags = din.readUnsignedShort();
+                int classSigIdx = din.readInt();
+                String signature = classSigIdx == NULL_IDX ? null : pool[classSigIdx];
                 int fc = din.readUnsignedShort();
                 List<JdkType.FieldEntry> fields = new ArrayList<>(fc);
                 for (int j = 0; j < fc; j++) {
                     String nm = pool[din.readInt()];
                     String desc = pool[din.readInt()];
                     int fl = din.readUnsignedShort();
-                    fields.add(new JdkType.FieldEntry(nm, desc, fl));
+                    int fSigIdx = din.readInt();
+                    String fSig = fSigIdx == NULL_IDX ? null : pool[fSigIdx];
+                    fields.add(new JdkType.FieldEntry(nm, desc, fl, fSig));
                 }
-                t.fields = fields;
                 int mc = din.readUnsignedShort();
                 List<JdkType.MethodEntry> methods = new ArrayList<>(mc);
                 for (int j = 0; j < mc; j++) {
                     String nm = pool[din.readInt()];
                     String desc = pool[din.readInt()];
                     int fl = din.readUnsignedShort();
-                    methods.add(new JdkType.MethodEntry(nm, desc, fl));
+                    int mSigIdx = din.readInt();
+                    String mSig = mSigIdx == NULL_IDX ? null : pool[mSigIdx];
+                    methods.add(new JdkType.MethodEntry(nm, desc, fl, mSig));
                 }
-                t.methods = methods;
-                cat.add(t);
+                cat.add(new JdkType(fqn, superFqn, ifaces, flags, signature, fields, methods));
             }
             return cat;
         } catch (IOException e) {

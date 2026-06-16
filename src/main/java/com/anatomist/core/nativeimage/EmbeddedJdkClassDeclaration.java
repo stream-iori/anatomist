@@ -1,18 +1,27 @@
 package com.anatomist.core.nativeimage;
 
 import com.anatomist.core.asmsolver.AsmDescriptorParser;
+import com.anatomist.core.asmsolver.AsmSignatureParser;
+import com.anatomist.core.asmsolver.FqnUtil;
 import com.github.javaparser.ast.AccessSpecifier;
 import com.github.javaparser.resolution.MethodUsage;
 import com.github.javaparser.resolution.TypeSolver;
 import com.github.javaparser.resolution.declarations.ResolvedAnnotationDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedAnnotationMemberDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedClassDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedEnumDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedInterfaceDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeParameterDeclaration;
+import com.github.javaparser.resolution.Context;
 import com.github.javaparser.resolution.logic.MethodResolutionCapability;
 import com.github.javaparser.resolution.logic.MethodResolutionLogic;
+import com.github.javaparser.symbolsolver.core.resolution.MethodUsageResolutionCapability;
+import com.github.javaparser.symbolsolver.javaparsermodel.contexts.ContextHelper;
 import com.github.javaparser.resolution.model.SymbolReference;
 import com.github.javaparser.resolution.model.typesystem.ReferenceTypeImpl;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
@@ -30,10 +39,15 @@ import java.util.Set;
  *  {@link com.anatomist.core.asmsolver.AsmClassDeclaration} — same javaparser
  *  interface, different bytecode source. */
 public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclaration,
-        MethodResolutionCapability {
+        ResolvedClassDeclaration,
+        ResolvedInterfaceDeclaration,
+        ResolvedAnnotationDeclaration,
+        MethodResolutionCapability,
+        MethodUsageResolutionCapability {
 
     private final JdkType type;
     private final TypeSolver solver;
+    private volatile List<ResolvedTypeParameterDeclaration> cachedTypeParams;
 
     public EmbeddedJdkClassDeclaration(JdkType type, TypeSolver solver) {
         this.type = type;
@@ -46,25 +60,13 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
     public String getQualifiedName() { return type.fqn; }
 
     @Override
-    public String getName() {
-        int dot = type.fqn.lastIndexOf('.');
-        int dollar = type.fqn.lastIndexOf('$');
-        int idx = Math.max(dot, dollar);
-        return idx < 0 ? type.fqn : type.fqn.substring(idx + 1);
-    }
+    public String getName() { return FqnUtil.simpleName(type.fqn); }
 
     @Override
-    public String getPackageName() {
-        int dot = type.fqn.lastIndexOf('.');
-        return dot < 0 ? "" : type.fqn.substring(0, dot);
-    }
+    public String getPackageName() { return FqnUtil.packageName(type.fqn); }
 
     @Override
-    public String getClassName() {
-        String pkg = getPackageName();
-        if (pkg.isEmpty()) return type.fqn;
-        return type.fqn.substring(pkg.length() + 1);
-    }
+    public String getClassName() { return FqnUtil.className(type.fqn); }
 
     // ── kind ──
 
@@ -102,6 +104,24 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
     @Override public boolean isParameter() { return false; }
     @Override public boolean isType() { return true; }
 
+    @Override
+    @SuppressWarnings("unchecked")
+    public ResolvedClassDeclaration asClass() { return this; }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public ResolvedInterfaceDeclaration asInterface() { return this; }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public ResolvedAnnotationDeclaration asAnnotation() { return this; }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public ResolvedEnumDeclaration asEnum() {
+        throw new UnsupportedOperationException(this + " is not an enum");
+    }
+
     // ── hierarchy ──
 
     public Optional<ResolvedReferenceType> getSuperClass() {
@@ -118,6 +138,41 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
             if (ref.isSolved()) out.add(new ReferenceTypeImpl(ref.getCorrespondingDeclaration()));
         }
         return out;
+    }
+
+    // ── ResolvedClassDeclaration extras ──
+
+    @Override
+    public List<ResolvedReferenceType> getAllSuperClasses() {
+        List<ResolvedReferenceType> out = new ArrayList<>();
+        getSuperClass().ifPresent(sc -> {
+            out.add(sc);
+            sc.getTypeDeclaration()
+                    .filter(td -> td instanceof ResolvedClassDeclaration)
+                    .map(td -> ((ResolvedClassDeclaration) td).getAllSuperClasses())
+                    .ifPresent(out::addAll);
+        });
+        return out;
+    }
+
+    @Override
+    public List<ResolvedReferenceType> getAllInterfaces() {
+        List<ResolvedReferenceType> out = new ArrayList<>(getInterfaces());
+        for (ResolvedReferenceType i : getInterfaces()) {
+            i.getTypeDeclaration().ifPresent(td -> out.addAll(td.getAllAncestors()));
+        }
+        getSuperClass().flatMap(rt -> rt.getTypeDeclaration())
+                .filter(td -> td instanceof ResolvedClassDeclaration)
+                .map(td -> ((ResolvedClassDeclaration) td).getAllInterfaces())
+                .ifPresent(out::addAll);
+        return out;
+    }
+
+    // ── ResolvedInterfaceDeclaration extras ──
+
+    @Override
+    public List<ResolvedReferenceType> getInterfacesExtended() {
+        return getInterfaces();
     }
 
     @Override
@@ -169,6 +224,7 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
     public Set<ResolvedMethodDeclaration> getDeclaredMethods() {
         Set<ResolvedMethodDeclaration> out = new LinkedHashSet<>();
         for (JdkType.MethodEntry m : type.methods) {
+            if ("<init>".equals(m.name) || "<clinit>".equals(m.name)) continue;
             out.add(new EmbeddedJdkMethodDeclaration(m, this, solver));
         }
         return out;
@@ -188,11 +244,13 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
 
     @Override
     public List<ResolvedConstructorDeclaration> getConstructors() {
-        // The catalog doesn't (yet) record ctors separately. JdkTypeCatalogBuilder
-        // would route <init> into MethodEntry today — they'd appear in
-        // getDeclaredMethods. Acceptable for anatomist's usage: ctor-as-call edges
-        // are emitted from JavaParserTypeSolver (source side), not the JDK side.
-        return Collections.emptyList();
+        List<ResolvedConstructorDeclaration> out = new ArrayList<>();
+        for (JdkType.MethodEntry m : type.methods) {
+            if ("<init>".equals(m.name)) {
+                out.add(new EmbeddedJdkConstructorDeclaration(m, this, solver));
+            }
+        }
+        return out;
     }
 
     @Override
@@ -207,7 +265,13 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
 
     @Override
     public List<ResolvedTypeParameterDeclaration> getTypeParameters() {
-        return Collections.emptyList();
+        if (type.signature == null) return Collections.emptyList();
+        if (cachedTypeParams != null) return cachedTypeParams;
+        // Set empty first to break recursion: ReferenceTypeImpl constructor calls
+        // deriveParams() → getTypeParameters() on bound types, which would recurse.
+        cachedTypeParams = Collections.emptyList();
+        cachedTypeParams = AsmSignatureParser.parseClassTypeParameters(type.signature, type.fqn, solver);
+        return cachedTypeParams;
     }
 
     @Override
@@ -219,6 +283,18 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
     @Override
     public Set<ResolvedAnnotationDeclaration> getDeclaredAnnotations() {
         return Collections.emptySet();
+    }
+
+    // ── ResolvedAnnotationDeclaration ──
+
+    @Override
+    public List<ResolvedAnnotationMemberDeclaration> getAnnotationMembers() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean isInheritable() {
+        return false;
     }
 
     @Override
@@ -234,22 +310,40 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
     public SymbolReference<ResolvedMethodDeclaration> solveMethod(
             String name, List<ResolvedType> argumentTypes, boolean staticOnly) {
         List<ResolvedMethodDeclaration> candidates = new ArrayList<>();
-        for (ResolvedMethodDeclaration m : getDeclaredMethods()) {
+        for (MethodUsage mu : getAllMethods()) {
+            ResolvedMethodDeclaration m = mu.getDeclaration();
             if (m.getName().equals(name) && (!staticOnly || m.isStatic())) candidates.add(m);
         }
-        getSuperClass().flatMap(rt -> rt.getTypeDeclaration()).ifPresent(td -> {
-            for (ResolvedMethodDeclaration m : td.getDeclaredMethods()) {
-                if (m.getName().equals(name) && (!staticOnly || m.isStatic())) candidates.add(m);
-            }
-        });
-        for (ResolvedReferenceType i : getInterfaces()) {
-            i.getTypeDeclaration().ifPresent(td -> {
-                for (ResolvedMethodDeclaration m : td.getDeclaredMethods()) {
-                    if (m.getName().equals(name) && (!staticOnly || m.isStatic())) candidates.add(m);
-                }
-            });
-        }
         return MethodResolutionLogic.findMostApplicable(candidates, name, argumentTypes, solver);
+    }
+
+    // ── MethodUsageResolutionCapability ──
+
+    @Override
+    public Optional<MethodUsage> solveMethodAsUsage(
+            String name, List<ResolvedType> argumentTypes,
+            Context invocationContext, List<ResolvedType> typeParameterValues) {
+        List<MethodUsage> methodUsages = new ArrayList<>();
+        for (ResolvedMethodDeclaration m : getDeclaredMethods()) {
+            if (!m.getName().equals(name)) continue;
+            MethodUsage mu = new MethodUsage(m);
+            for (int i = 0; i < getTypeParameters().size() && i < typeParameterValues.size(); i++) {
+                mu = mu.replaceTypeParameter(getTypeParameters().get(i), typeParameterValues.get(i));
+            }
+            methodUsages.add(mu);
+            if (argumentTypes.isEmpty() && mu.getNoParams() == 0) {
+                return Optional.of(mu);
+            }
+        }
+        getSuperClass().flatMap(rt -> rt.getTypeDeclaration()).ifPresent(td ->
+                ContextHelper.solveMethodAsUsage(td, name, argumentTypes, invocationContext, typeParameterValues)
+                        .ifPresent(methodUsages::add));
+        for (ResolvedReferenceType iface : getInterfaces()) {
+            iface.getTypeDeclaration().ifPresent(td ->
+                    ContextHelper.solveMethodAsUsage(td, name, argumentTypes, invocationContext, typeParameterValues)
+                            .ifPresent(methodUsages::add));
+        }
+        return MethodResolutionLogic.findMostApplicableUsage(methodUsages, name, argumentTypes, solver);
     }
 
     public AccessSpecifier accessSpecifier() {
