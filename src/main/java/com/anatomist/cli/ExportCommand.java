@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.export.ArchExportPayloadBuilder;
 import com.anatomist.export.ExportHtmlWriter;
 import com.anatomist.query.ClassEdge;
 import com.anatomist.query.OverviewResult;
@@ -12,15 +13,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 @Command(name = "export",
-        description = "Export the index for visualization. Currently supports "
-                    + "--format html: a single self-contained file with a package "
-                    + "tree, a package dependency graph, and class-level drill-down.")
+        description = "Export the index for visualization.%n"
+                    + "  --format html : package tree + class dependency graph%n"
+                    + "  --format arch : architecture swimlane view with code drill-down")
 public class ExportCommand implements Callable<Integer> {
 
-    @Option(names = "--format", description = "Output format: html (default).")
+    @Option(names = "--format", description = "Output format: html | arch (default: html).")
     String format = "html";
 
     @Option(names = "--output", required = true,
@@ -31,15 +33,30 @@ public class ExportCommand implements Callable<Integer> {
             description = "Cap class-level edges embedded for drill-down (default: 20000; 0 = no cap).")
     int maxEdges = 20_000;
 
+    @Option(names = "--source-root",
+            description = "Source root directory for code snippet extraction (arch format only).")
+    Path sourceRoot;
+
+    @Option(names = "--max-snippets",
+            description = "Max code snippets to embed in arch export (default: 2000; 0 = none).")
+    int maxSnippets = 2_000;
+
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
     @Override
     public Integer call() {
-        if (!"html".equalsIgnoreCase(format)) {
-            System.err.println("ERROR: unsupported --format '" + format + "' (only 'html' is supported).");
+        if ("arch".equalsIgnoreCase(format)) {
+            return exportArch();
+        } else if ("html".equalsIgnoreCase(format)) {
+            return exportHtml();
+        } else {
+            System.err.println("ERROR: unsupported --format '" + format + "' (supported: html, arch).");
             return 2;
         }
+    }
+
+    private Integer exportHtml() {
         Path db = IndexPath.resolve(index);
         String html;
         try (QueryService q = new QueryService(db)) {
@@ -47,6 +64,21 @@ public class ExportCommand implements Callable<Integer> {
             List<ClassEdge> classDeps = q.classDepsInternal(maxEdges);
             html = ExportHtmlWriter.render(ExportHtmlWriter.buildPayload(ov, classDeps));
         }
+        return writeOutput(html);
+    }
+
+    private Integer exportArch() {
+        Path db = IndexPath.resolve(index);
+        String html;
+        try (QueryService q = new QueryService(db)) {
+            ArchExportPayloadBuilder builder = new ArchExportPayloadBuilder(q.connection());
+            Map<String, Object> payload = builder.build(sourceRoot, maxEdges, maxSnippets);
+            html = ExportHtmlWriter.renderArch(payload);
+        }
+        return writeOutput(html);
+    }
+
+    private Integer writeOutput(String html) {
         try {
             Path parent = output.toAbsolutePath().getParent();
             if (parent != null) Files.createDirectories(parent);

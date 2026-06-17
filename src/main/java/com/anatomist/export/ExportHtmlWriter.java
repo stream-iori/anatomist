@@ -17,14 +17,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Renders a single self-contained HTML file from an {@link OverviewResult} plus
- *  the class-level internal dependency edges (for drill-down). The HTML template
+/** Renders a single self-contained HTML file from index data. The HTML template
  *  ships as a classpath resource and carries a {@code /*__ANATOMIST_DATA__*}{@code /}
  *  placeholder that we replace with a compact JSON data blob. No reflection,
  *  no network, no template engine — native-image safe. */
 public final class ExportHtmlWriter {
 
     static final String TEMPLATE_RESOURCE = "/export/template.html";
+    static final String ARCH_TEMPLATE_RESOURCE = "/export/arch-template.html";
     static final String PLACEHOLDER = "/*__ANATOMIST_DATA__*/";
 
     private ExportHtmlWriter() {}
@@ -68,10 +68,27 @@ public final class ExportHtmlWriter {
         return template.replace(PLACEHOLDER, dataBlob);
     }
 
+    /** Render the architecture visualization HTML from a pre-built payload. */
+    public static String renderArch(Map<String, Object> payload) {
+        DtoCodecs.ensureRegistered();
+        String template = readTemplate(ARCH_TEMPLATE_RESOURCE);
+        String dataBlob = Json.writeCompact(payload);
+        int idx = template.indexOf(PLACEHOLDER);
+        if (idx < 0) {
+            throw new IllegalStateException(
+                    "Arch HTML template is missing the " + PLACEHOLDER + " placeholder");
+        }
+        return template.replace(PLACEHOLDER, dataBlob);
+    }
+
     private static String readTemplate() {
-        InputStream in = ExportHtmlWriter.class.getResourceAsStream(TEMPLATE_RESOURCE);
+        return readTemplate(TEMPLATE_RESOURCE);
+    }
+
+    private static String readTemplate(String resource) {
+        InputStream in = ExportHtmlWriter.class.getResourceAsStream(resource);
         if (in == null) {
-            throw new IllegalStateException("Missing classpath resource: " + TEMPLATE_RESOURCE);
+            throw new IllegalStateException("Missing classpath resource: " + resource);
         }
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             StringBuilder sb = new StringBuilder();

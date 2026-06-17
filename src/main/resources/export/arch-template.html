@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>anatomist — architecture</title>
+<style>
+:root {
+  --bg: #0f1115; --panel: #171a21; --line: #2a2f3a; --fg: #d7dae0; --muted: #8b93a3; --accent: #5aa9e6;
+  --cls: #5aa9e6; --iface: #7ed492; --enum: #e6b15a; --anno: #c792ea;
+  --role-entry: #e06c75; --role-application: #e6b15a; --role-domain-service: #56b6c2;
+  --role-domain-model: #5aa9e6; --role-repository: #7ed492; --role-adapter: #c792ea;
+  --role-infrastructure: #8b93a3;
+  --band-entry: rgba(224,108,117,0.06); --band-application: rgba(230,177,90,0.06);
+  --band-domain-service: rgba(86,182,194,0.06); --band-domain-model: rgba(90,169,230,0.06);
+  --band-repository: rgba(126,212,146,0.06); --band-adapter: rgba(199,146,234,0.06);
+  --band-infrastructure: rgba(139,147,163,0.06);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--fg);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+code, .mono { font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace; font-size: 12px; }
+
+/* ---- Layout ---- */
+#app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* Header */
+#header { display: flex; align-items: center; gap: 16px; padding: 8px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
+#logo { font-weight: 700; font-size: 15px; color: var(--accent); letter-spacing: -0.5px; }
+#project-name { font-size: 14px; color: var(--fg); opacity: 0.9; }
+.header-stats { display: flex; gap: 14px; margin-left: auto; font-size: 11px; color: var(--muted); }
+.header-stats span { display: flex; align-items: center; gap: 4px; }
+.header-stats b { color: var(--fg); font-variant-numeric: tabular-nums; }
+
+/* Toolbar */
+#toolbar { display: flex; align-items: center; gap: 10px; padding: 6px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
+#search-wrap { position: relative; flex: 0 0 220px; }
+#search { width: 100%; padding: 5px 28px 5px 10px; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 4px; font-size: 12px; outline: none; }
+#search:focus { border-color: var(--accent); }
+#search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px;
+  display: none; line-height: 1; }
+#search-clear:hover { color: var(--fg); }
+.tb-select { padding: 5px 8px; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 4px; font-size: 12px; outline: none; cursor: pointer; }
+.tb-select:focus { border-color: var(--accent); }
+.tb-label { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.tb-sep { width: 1px; height: 20px; background: var(--line); }
+.tb-check { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+.tb-check input { accent-color: var(--accent); }
+.zoom-group { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.zoom-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px; color: var(--fg);
+  cursor: pointer; font-size: 14px; line-height: 1; }
+.zoom-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Stats ribbon */
+#ribbon { display: flex; height: 24px; flex-shrink: 0; border-bottom: 1px solid var(--line); overflow: hidden; }
+.ribbon-seg { display: flex; align-items: center; justify-content: center; gap: 4px;
+  font-size: 10px; font-weight: 600; cursor: pointer; transition: opacity 0.15s, filter 0.15s;
+  border-right: 1px solid var(--bg); white-space: nowrap; overflow: hidden; }
+.ribbon-seg:last-child { border-right: none; }
+.ribbon-seg:hover { filter: brightness(1.2); }
+.ribbon-seg.active { outline: 2px solid var(--fg); outline-offset: -2px; }
+.ribbon-seg .rcount { font-weight: 400; opacity: 0.8; }
+
+/* Main area */
+#main-area { flex: 1; position: relative; overflow: hidden; }
+#svg-wrap { width: 100%; height: 100%; overflow: hidden; }
+#graph { width: 100%; height: 100%; cursor: grab; }
+#graph.grabbing { cursor: grabbing; }
+
+/* Blocks inside SVG */
+.block { cursor: pointer; }
+.block rect.bg { fill: var(--panel); stroke: var(--line); stroke-width: 1; rx: 4; ry: 4; transition: stroke 0.12s, filter 0.12s; }
+.block:hover rect.bg { stroke: var(--accent); filter: drop-shadow(0 0 4px rgba(90,169,230,0.25)); }
+.block.selected rect.bg { stroke: var(--accent); stroke-width: 2; fill: #1c2030; }
+.block.dimmed { opacity: 0.1; }
+.block.abstract rect.bg { stroke-dasharray: 4 3; }
+
+.kind-badge { font-size: 9px; font-weight: 700; }
+.block-label { font-size: 11px; fill: var(--fg); }
+.block-meta { font-size: 9px; fill: var(--muted); }
+.block-role { font-size: 9px; font-weight: 600; }
+
+.band-label { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; }
+
+/* Edges */
+.edge-path { fill: none; pointer-events: stroke; }
+.edge-path.dimmed { opacity: 0.08; }
+.edge-path.highlighted { opacity: 1; }
+
+/* Detail panel */
+#detail { position: absolute; top: 0; right: 0; width: 380px; height: 100%; background: var(--panel);
+  border-left: 1px solid var(--line); transform: translateX(100%); transition: transform 0.2s ease;
+  display: flex; flex-direction: column; z-index: 10; overflow: hidden; }
+#detail.open { transform: translateX(0); }
+#detail-close { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; display: flex;
+  align-items: center; justify-content: center; background: none; border: 1px solid var(--line);
+  border-radius: 4px; color: var(--muted); cursor: pointer; font-size: 14px; z-index: 1; }
+#detail-close:hover { color: var(--fg); border-color: var(--accent); }
+#detail-content { overflow-y: auto; flex: 1; padding: 16px; }
+
+/* Detail header */
+.d-head { margin-bottom: 16px; }
+.d-title { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.d-title .kind-pill { display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 4px; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.d-title .name { font-size: 16px; font-weight: 600; color: var(--fg); }
+.d-qual { font-size: 11px; color: var(--muted); margin-bottom: 3px; word-break: break-all; }
+.d-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.d-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+.d-badge.role { border: 1px solid currentColor; }
+.d-badge.ann { background: rgba(199,146,234,0.12); color: var(--anno); }
+
+/* Collapsible sections */
+.d-section { border-top: 1px solid var(--line); }
+.d-section-head { display: flex; align-items: center; gap: 6px; padding: 10px 0; cursor: pointer; user-select: none; }
+.d-section-head:hover { color: var(--accent); }
+.d-section-caret { font-size: 10px; color: var(--muted); transition: transform 0.15s; width: 12px; text-align: center; }
+.d-section.collapsed .d-section-caret { transform: rotate(-90deg); }
+.d-section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.d-section-body { padding-bottom: 10px; }
+.d-section.collapsed .d-section-body { display: none; }
+
+/* Members list */
+.member-item { display: flex; align-items: baseline; gap: 6px; padding: 4px 8px; border-radius: 3px; cursor: pointer;
+  font-size: 12px; transition: background 0.1s; }
+.member-item:hover { background: rgba(90,169,230,0.08); }
+.member-item.active { background: rgba(90,169,230,0.14); }
+.member-kind { font-size: 10px; font-weight: 700; color: var(--muted); width: 14px; text-align: center; flex-shrink: 0; }
+.member-name { color: var(--fg); }
+.member-sig { color: var(--muted); font-size: 11px; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+
+/* Code block */
+.code-wrap { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; overflow-x: auto; max-height: 300px; }
+.code-table { border-collapse: collapse; width: 100%; }
+.code-table td { padding: 0 8px; vertical-align: top; white-space: pre; font-family: "JetBrains Mono","Fira Code","Cascadia Code",Consolas,monospace; font-size: 12px; line-height: 1.6; }
+.code-ln { color: var(--muted); opacity: 0.5; text-align: right; user-select: none; width: 1%; padding-right: 12px; border-right: 1px solid var(--line); }
+.code .kw  { color: #c792ea; }
+.code .str { color: #c3e88d; }
+.code .cmt { color: #546e7a; }
+.code .ann { color: #e6b15a; }
+.code .num { color: #f78c6c; }
+.code .ty  { color: #5aa9e6; }
+.code .lit { color: #e06c75; }
+.code-none { padding: 20px; text-align: center; color: var(--muted); font-size: 12px; }
+
+/* Dependencies */
+.dep-group-title { font-size: 11px; font-weight: 600; color: var(--muted); margin: 8px 0 4px; }
+.dep-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 3px;
+  cursor: pointer; font-size: 12px; transition: background 0.1s; }
+.dep-item:hover { background: rgba(90,169,230,0.08); }
+.dep-arrow { font-size: 10px; color: var(--muted); }
+.dep-rel { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.05); color: var(--muted); }
+.dep-count { margin-left: auto; font-size: 10px; color: var(--muted); }
+
+/* Legend */
+#legend { position: absolute; bottom: 16px; right: 16px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 10px 14px; font-size: 11px; z-index: 5; max-width: 200px; }
+#legend.hidden-by-detail { right: 400px; }
+.legend-title { font-weight: 600; margin-bottom: 6px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.legend-line { width: 20px; height: 0; flex-shrink: 0; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Transitions */
+.fade-transition { transition: opacity 0.15s; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Header -->
+  <div id="header">
+    <span id="logo">anatomist</span>
+    <span id="project-name"></span>
+    <div class="header-stats" id="header-stats"></div>
+  </div>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div id="search-wrap">
+      <input id="search" type="text" placeholder="Search types... (/ or Ctrl+K)">
+      <button id="search-clear" title="Clear">&times;</button>
+    </div>
+    <select id="pkg-filter" class="tb-select" title="Filter by package"></select>
+    <select id="role-filter" class="tb-select" title="Filter by role"></select>
+    <div class="tb-sep"></div>
+    <label class="tb-check"><input type="checkbox" id="edge-toggle"> Edges</label>
+    <div class="zoom-group">
+      <button class="zoom-btn" id="zoom-out" title="Zoom out">&minus;</button>
+      <button class="zoom-btn" id="zoom-reset" title="Reset zoom">&#8634;</button>
+      <button class="zoom-btn" id="zoom-in" title="Zoom in">+</button>
+    </div>
+  </div>
+
+  <!-- Stats ribbon -->
+  <div id="ribbon"></div>
+
+  <!-- Main -->
+  <div id="main-area">
+    <div id="svg-wrap">
+      <svg id="graph" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMinYMin meet"></svg>
+    </div>
+
+    <!-- Detail panel -->
+    <div id="detail">
+      <button id="detail-close" title="Close (Esc)">&times;</button>
+      <div id="detail-content"></div>
+    </div>
+
+    <!-- Legend -->
+    <div id="legend"></div>
+  </div>
+</div>
+
+<script>
+// ---- DATA injection point ----
+const DATA = /*__ANATOMIST_DATA__*/;
+
+// ---- Constants ----
+const BLOCK_W = 140, BLOCK_H = 48, GAP_X = 16, GAP_Y = 12;
+const BAND_PADDING = 48, BAND_PAD_Y = 12;
+const ROLE_ORDER = ['ENTRY','APPLICATION','DOMAIN_SERVICE','DOMAIN_MODEL','REPOSITORY','ADAPTER','INFRASTRUCTURE','UNASSIGNED'];
+const ROLE_COLORS = {
+  ENTRY: 'var(--role-entry)', APPLICATION: 'var(--role-application)',
+  DOMAIN_SERVICE: 'var(--role-domain-service)', DOMAIN_MODEL: 'var(--role-domain-model)',
+  REPOSITORY: 'var(--role-repository)', ADAPTER: 'var(--role-adapter)',
+  INFRASTRUCTURE: 'var(--role-infrastructure)', UNASSIGNED: 'var(--muted)'
+};
+const ROLE_RAW_COLORS = {
+  ENTRY: '#e06c75', APPLICATION: '#e6b15a', DOMAIN_SERVICE: '#56b6c2',
+  DOMAIN_MODEL: '#5aa9e6', REPOSITORY: '#7ed492', ADAPTER: '#c792ea',
+  INFRASTRUCTURE: '#8b93a3', UNASSIGNED: '#8b93a3'
+};
+const BAND_COLORS = {
+  ENTRY: 'var(--band-entry)', APPLICATION: 'var(--band-application)',
+  DOMAIN_SERVICE: 'var(--band-domain-service)', DOMAIN_MODEL: 'var(--band-domain-model)',
+  REPOSITORY: 'var(--band-repository)', ADAPTER: 'var(--band-adapter)',
+  INFRASTRUCTURE: 'var(--band-infrastructure)', UNASSIGNED: 'rgba(139,147,163,0.04)'
+};
+const KIND_COLORS = { CLASS: '#5aa9e6', INTERFACE: '#7ed492', ENUM: '#e6b15a', ANNOTATION: '#c792ea', RECORD: '#56b6c2' };
+const KIND_LETTERS = { CLASS: 'C', INTERFACE: 'I', ENUM: 'E', ANNOTATION: '@', RECORD: 'R' };
+
+// ---- State ----
+let state = {
+  types: [], typeMap: {}, members: {}, typeEdges: [], snippets: {},
+  blockPositions: {}, bandInfo: [],
+  selectedId: null, selectedMemberId: null,
+  filterSearch: '', filterPkg: '', filterRole: '',
+  edgesVisible: false,
+  vb: { x: 0, y: 0, w: 1200, h: 800 },
+  initialVb: null,
+  dragging: false, dragStart: null
+};
+
+// ---- Init ----
+function init() {
+  if (!DATA) { document.getElementById('app').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:var(--muted)">No data loaded. The placeholder will be replaced server-side.</div>'; return; }
+
+  state.types = DATA.types || [];
+  state.typeMap = {};
+  state.types.forEach(t => state.typeMap[t.id] = t);
+  state.members = DATA.members || {};
+  state.typeEdges = DATA.type_edges || [];
+  state.snippets = DATA.code_snippets || {};
+
+  // Pre-build lowercase labels for search
+  state.types.forEach(t => { t._lbl = (t.label || '').toLowerCase(); t._qual = (t.qualified_name || '').toLowerCase(); });
+
+  renderHeader();
+  renderToolbar();
+  renderRibbon();
+  renderLegend();
+  renderGraph();
+  bindEvents();
+}
+
+// ---- Header ----
+function renderHeader() {
+  document.getElementById('project-name').textContent = DATA.project_name || '';
+  const s = DATA.stats || {};
+  const kc = s.kind_counts || {};
+  const ie = s.internal_edge_counts || {};
+  const ee = s.external_edge_counts || {};
+  const totalTypes = (kc.CLASS||0) + (kc.INTERFACE||0) + (kc.ENUM||0) + (kc.ANNOTATION||0) + (kc.RECORD||0);
+  const totalEdges = Object.values(ie).reduce((a,b)=>a+b,0) + Object.values(ee).reduce((a,b)=>a+b,0);
+  const html = [
+    `<span><b>${totalTypes}</b> types</span>`,
+    `<span><b>${kc.METHOD||0}</b> methods</span>`,
+    `<span><b>${s.package_count||0}</b> packages</span>`,
+    `<span><b>${totalEdges}</b> edges</span>`
+  ].join('');
+  document.getElementById('header-stats').innerHTML = html;
+}
+
+// ---- Toolbar ----
+function renderToolbar() {
+  // Package dropdown
+  const pkgs = [...new Set(state.types.map(t => t.package).filter(Boolean))].sort();
+  const pkgSel = document.getElementById('pkg-filter');
+  pkgSel.innerHTML = '<option value="">All packages</option>' + pkgs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+
+  // Role dropdown
+  const roles = ROLE_ORDER.filter(r => r !== 'UNASSIGNED');
+  const roleSel = document.getElementById('role-filter');
+  roleSel.innerHTML = '<option value="">All roles</option>' + roles.map(r => `<option value="${r}">${r.replace(/_/g,' ')}</option>`).join('');
+}
+
+// ---- Stats Ribbon ----
+function renderRibbon() {
+  const rc = (DATA.stats && DATA.stats.arch_role_counts) || {};
+  const total = Object.values(rc).reduce((a,b) => a+b, 0);
+  if (total === 0) { document.getElementById('ribbon').style.display = 'none'; return; }
+
+  const ribbon = document.getElementById('ribbon');
+  let html = '';
+  ROLE_ORDER.forEach(role => {
+    if (role === 'UNASSIGNED') return;
+    const count = rc[role] || 0;
+    if (count === 0) return;
+    const pct = (count / total * 100);
+    const bg = ROLE_RAW_COLORS[role] || '#8b93a3';
+    html += `<div class="ribbon-seg" data-role="${role}" style="width:${pct}%;background:${bg};color:#0f1115">`
+      + `${role.replace(/_/g,' ')} <span class="rcount">${count}</span></div>`;
+  });
+  ribbon.innerHTML = html;
+}
+
+// ---- Legend ----
+function renderLegend() {
+  const leg = document.getElementById('legend');
+  let h = '<div class="legend-title">Kind</div>';
+  [['CLASS','#5aa9e6'],['INTERFACE','#7ed492'],['ENUM','#e6b15a'],['ANNOTATION','#c792ea']].forEach(([k,c]) => {
+    h += `<div class="legend-row"><div class="legend-swatch" style="background:${c}"></div>${k.toLowerCase()}</div>`;
+  });
+  h += '<div class="legend-title" style="margin-top:8px">Edges</div>';
+  h += `<div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#3a4252" stroke-width="1.5"/></svg>calls</div>`;
+  h += `<div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#5aa9e6" stroke-width="1.5" opacity="0.6"/></svg>inherits</div>`;
+  h += `<div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#7ed492" stroke-width="1.5" opacity="0.6"/></svg>implements</div>`;
+  h += '<div class="legend-title" style="margin-top:8px">Style</div>';
+  h += `<div class="legend-row"><div class="legend-swatch" style="border:1.5px dashed var(--muted);background:transparent"></div>abstract</div>`;
+  leg.innerHTML = h;
+}
+
+// ---- Graph Rendering ----
+function renderGraph() {
+  const svg = document.getElementById('graph');
+  const svgRect = svg.getBoundingClientRect();
+  const svgWidth = svgRect.width || 1200;
+
+  // Group types by role
+  const roleBuckets = {};
+  ROLE_ORDER.forEach(r => roleBuckets[r] = []);
+  state.types.forEach(t => {
+    const role = t.role || 'UNASSIGNED';
+    const bucket = ROLE_ORDER.includes(role) ? role : 'UNASSIGNED';
+    roleBuckets[bucket].push(t);
+  });
+
+  // Sort each bucket alphabetically
+  Object.values(roleBuckets).forEach(arr => arr.sort((a,b) => (a.label||'').localeCompare(b.label||'')));
+
+  // Remove empty bands (except keep UNASSIGNED if it has items)
+  const activeBands = ROLE_ORDER.filter(r => roleBuckets[r].length > 0);
+
+  // Compute columns
+  const cols = Math.max(1, Math.floor((svgWidth - BAND_PADDING - 16) / (BLOCK_W + GAP_X)));
+
+  // Compute band heights and positions
+  let currentY = 0;
+  state.bandInfo = [];
+  state.blockPositions = {};
+
+  activeBands.forEach(role => {
+    const items = roleBuckets[role];
+    const rows = Math.ceil(items.length / cols);
+    const bandHeight = BAND_PAD_Y * 2 + rows * BLOCK_H + (rows - 1) * GAP_Y;
+
+    state.bandInfo.push({ role, y: currentY, height: bandHeight, count: items.length });
+
+    items.forEach((t, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = BAND_PADDING + col * (BLOCK_W + GAP_X);
+      const y = currentY + BAND_PAD_Y + row * (BLOCK_H + GAP_Y);
+      state.blockPositions[t.id] = { x, y, cx: x + BLOCK_W / 2, cy: y + BLOCK_H / 2 };
+    });
+
+    currentY += bandHeight;
+  });
+
+  const totalHeight = currentY || 100;
+  const totalWidth = Math.max(svgWidth, BAND_PADDING + cols * (BLOCK_W + GAP_X) + 16);
+
+  state.vb = { x: 0, y: 0, w: totalWidth, h: totalHeight };
+  state.initialVb = { ...state.vb };
+  applyViewBox();
+
+  // Build SVG content
+  let svgHTML = '<defs>';
+  svgHTML += '<marker id="arrow-calls" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="5" orient="auto"><path d="M0,0 L10,3 L0,6" fill="#3a4252"/></marker>';
+  svgHTML += '<marker id="arrow-inherits" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="5" orient="auto"><path d="M0,0 L10,3 L0,6" fill="#5aa9e6" opacity="0.6"/></marker>';
+  svgHTML += '<marker id="arrow-implements" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="5" orient="auto"><path d="M0,0 L10,3 L0,6" fill="#7ed492" opacity="0.6"/></marker>';
+  svgHTML += '</defs>';
+
+  // Bands
+  svgHTML += '<g class="bands-group">';
+  state.bandInfo.forEach(band => {
+    const bg = BAND_COLORS[band.role] || BAND_COLORS.UNASSIGNED;
+    const rawBg = ROLE_RAW_COLORS[band.role] || '#8b93a3';
+    svgHTML += `<rect x="0" y="${band.y}" width="${totalWidth}" height="${band.height}" fill="${bg}"/>`;
+    svgHTML += `<line x1="0" y1="${band.y + band.height}" x2="${totalWidth}" y2="${band.y + band.height}" stroke="var(--line)" stroke-width="1"/>`;
+    // Rotated label
+    const labelY = band.y + band.height / 2;
+    svgHTML += `<text x="12" y="${labelY}" class="band-label" fill="${rawBg}" text-anchor="middle" dominant-baseline="central" transform="rotate(-90, 12, ${labelY})">${band.role.replace(/_/g, ' ')}</text>`;
+  });
+  svgHTML += '</g>';
+
+  // Edge group (rendered but hidden by default)
+  svgHTML += '<g class="edge-group" id="edge-group" style="display:none">';
+  state.typeEdges.forEach((e, i) => {
+    const sp = state.blockPositions[e.source];
+    const tp = state.blockPositions[e.target];
+    if (!sp || !tp) return;
+    const rel = (e.relation || 'CALLS').toUpperCase();
+    let stroke, sw, marker, opacity;
+    if (rel === 'INHERITS') {
+      stroke = '#5aa9e6'; sw = 1.5; marker = 'url(#arrow-inherits)'; opacity = 0.6;
+    } else if (rel === 'IMPLEMENTS') {
+      stroke = '#7ed492'; sw = 1.5; marker = 'url(#arrow-implements)'; opacity = 0.6;
+    } else {
+      stroke = '#3a4252'; sw = Math.max(1, 1 + Math.log2(e.edge_count || 1)); marker = 'url(#arrow-calls)'; opacity = 0.7;
+    }
+    const mx = (sp.cx + tp.cx) / 2;
+    const my = (sp.cy + tp.cy) / 2 - 20;
+    const d = `M${sp.cx},${sp.cy} Q${mx},${my} ${tp.cx},${tp.cy}`;
+    svgHTML += `<path class="edge-path" data-src="${esc(e.source)}" data-tgt="${esc(e.target)}" d="${d}" stroke="${stroke}" stroke-width="${sw}" opacity="${opacity}" marker-end="${marker}"/>`;
+  });
+  svgHTML += '</g>';
+
+  // Blocks
+  svgHTML += '<g class="blocks-group" id="blocks-group">';
+  state.types.forEach(t => {
+    const pos = state.blockPositions[t.id];
+    if (!pos) return;
+    const role = t.role || 'UNASSIGNED';
+    const roleColor = ROLE_RAW_COLORS[role] || '#8b93a3';
+    const kindColor = KIND_COLORS[t.kind] || '#8b93a3';
+    const kindLetter = KIND_LETTERS[t.kind] || '?';
+    const isAbstract = t.is_abstract ? ' abstract' : '';
+    const label = truncate(t.label || '', 14);
+    const mc = t.method_count || 0;
+    const fc = t.field_count || 0;
+
+    svgHTML += `<g class="block${isAbstract}" data-id="${esc(t.id)}" transform="translate(${pos.x},${pos.y})">`;
+    svgHTML += `<rect class="bg" x="0" y="0" width="${BLOCK_W}" height="${BLOCK_H}"/>`;
+    // Left accent border
+    svgHTML += `<rect x="0" y="0" width="3" height="${BLOCK_H}" fill="${roleColor}" rx="2" ry="0"/>`;
+    // Kind badge
+    svgHTML += `<rect x="8" y="8" width="14" height="14" rx="3" fill="${kindColor}"/>`;
+    svgHTML += `<text x="15" y="19" class="kind-badge" text-anchor="middle" fill="#0f1115">${kindLetter}</text>`;
+    // Label
+    svgHTML += `<text x="26" y="19" class="block-label">${esc(label)}</text>`;
+    // Method/field count
+    svgHTML += `<text x="${BLOCK_W - 6}" y="19" class="block-meta" text-anchor="end">${mc}m ${fc}f</text>`;
+    // Role
+    svgHTML += `<text x="8" y="${BLOCK_H - 8}" class="block-role" fill="${roleColor}">${role.replace(/_/g,' ')}</text>`;
+    svgHTML += '</g>';
+  });
+  svgHTML += '</g>';
+
+  svg.innerHTML = svgHTML;
+}
+
+function applyViewBox() {
+  const svg = document.getElementById('graph');
+  svg.setAttribute('viewBox', `${state.vb.x} ${state.vb.y} ${state.vb.w} ${state.vb.h}`);
+}
+
+function svgPoint(e) {
+  const svg = document.getElementById('graph');
+  const rect = svg.getBoundingClientRect();
+  return {
+    x: state.vb.x + (e.clientX - rect.left) / rect.width * state.vb.w,
+    y: state.vb.y + (e.clientY - rect.top) / rect.height * state.vb.h
+  };
+}
+
+// ---- Event Binding ----
+function bindEvents() {
+  const svg = document.getElementById('graph');
+  const search = document.getElementById('search');
+  const searchClear = document.getElementById('search-clear');
+  const pkgFilter = document.getElementById('pkg-filter');
+  const roleFilter = document.getElementById('role-filter');
+  const edgeToggle = document.getElementById('edge-toggle');
+  const detail = document.getElementById('detail');
+
+  // Search (debounced)
+  let searchTimer;
+  search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.filterSearch = search.value.toLowerCase().trim();
+      searchClear.style.display = state.filterSearch ? 'block' : 'none';
+      applyFilters();
+    }, 150);
+  });
+  searchClear.addEventListener('click', () => { search.value = ''; state.filterSearch = ''; searchClear.style.display = 'none'; applyFilters(); });
+
+  // Package filter
+  pkgFilter.addEventListener('change', () => { state.filterPkg = pkgFilter.value; applyFilters(); });
+
+  // Role filter
+  roleFilter.addEventListener('change', () => {
+    state.filterRole = roleFilter.value;
+    // Sync ribbon
+    document.querySelectorAll('.ribbon-seg').forEach(s => s.classList.toggle('active', s.dataset.role === state.filterRole));
+    applyFilters();
+  });
+
+  // Ribbon click
+  document.getElementById('ribbon').addEventListener('click', e => {
+    const seg = e.target.closest('.ribbon-seg');
+    if (!seg) return;
+    const role = seg.dataset.role;
+    if (state.filterRole === role) {
+      state.filterRole = '';
+      roleFilter.value = '';
+    } else {
+      state.filterRole = role;
+      roleFilter.value = role;
+    }
+    document.querySelectorAll('.ribbon-seg').forEach(s => s.classList.toggle('active', s.dataset.role === state.filterRole));
+    applyFilters();
+  });
+
+  // Edge toggle
+  edgeToggle.addEventListener('change', () => {
+    state.edgesVisible = edgeToggle.checked;
+    const eg = document.getElementById('edge-group');
+    if (eg) eg.style.display = state.edgesVisible ? '' : 'none';
+  });
+
+  // Zoom
+  document.getElementById('zoom-in').addEventListener('click', () => zoom(0.8));
+  document.getElementById('zoom-out').addEventListener('click', () => zoom(1.25));
+  document.getElementById('zoom-reset').addEventListener('click', () => {
+    if (state.initialVb) { state.vb = { ...state.initialVb }; applyViewBox(); }
+  });
+
+  // Wheel zoom
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    const scale = e.deltaY > 0 ? 1.1 : 0.9;
+    const pt = svgPoint(e);
+    state.vb.x = pt.x - (pt.x - state.vb.x) * scale;
+    state.vb.y = pt.y - (pt.y - state.vb.y) * scale;
+    state.vb.w *= scale;
+    state.vb.h *= scale;
+    applyViewBox();
+  }, { passive: false });
+
+  // Drag pan
+  svg.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    const target = e.target;
+    if (target === svg || target.closest('.edge-group') || target.closest('.bands-group')) {
+      state.dragging = true;
+      state.dragStart = { x: e.clientX, y: e.clientY };
+      svg.classList.add('grabbing');
+    }
+  });
+  window.addEventListener('mousemove', e => {
+    if (!state.dragging) return;
+    const dx = (e.clientX - state.dragStart.x) * state.vb.w / svg.clientWidth;
+    const dy = (e.clientY - state.dragStart.y) * state.vb.h / svg.clientHeight;
+    state.vb.x -= dx;
+    state.vb.y -= dy;
+    state.dragStart = { x: e.clientX, y: e.clientY };
+    applyViewBox();
+  });
+  window.addEventListener('mouseup', () => {
+    state.dragging = false;
+    svg.classList.remove('grabbing');
+  });
+
+  // Block click (event delegation)
+  svg.addEventListener('click', e => {
+    const block = e.target.closest('.block');
+    if (block) {
+      const id = block.dataset.id;
+      selectBlock(id);
+    }
+  });
+
+  // Block hover — highlight edges
+  svg.addEventListener('mouseover', e => {
+    const block = e.target.closest('.block');
+    if (!block || !state.edgesVisible) return;
+    const id = block.dataset.id;
+    document.querySelectorAll('.edge-path').forEach(p => {
+      if (p.dataset.src === id || p.dataset.tgt === id) {
+        p.classList.add('highlighted');
+        p.classList.remove('dimmed');
+      } else {
+        p.classList.add('dimmed');
+        p.classList.remove('highlighted');
+      }
+    });
+  });
+  svg.addEventListener('mouseout', e => {
+    const block = e.target.closest('.block');
+    if (!block) return;
+    document.querySelectorAll('.edge-path').forEach(p => {
+      p.classList.remove('highlighted', 'dimmed');
+    });
+  });
+
+  // Detail close
+  document.getElementById('detail-close').addEventListener('click', closeDetail);
+
+  // Keyboard
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      if (detail.classList.contains('open')) { closeDetail(); }
+      else if (state.filterSearch) { search.value = ''; state.filterSearch = ''; searchClear.style.display = 'none'; applyFilters(); }
+    }
+    if ((e.key === '/' || (e.ctrlKey && e.key === 'k')) && document.activeElement !== search) {
+      e.preventDefault();
+      search.focus();
+    }
+    if (e.key === 'e' && document.activeElement !== search) {
+      edgeToggle.checked = !edgeToggle.checked;
+      edgeToggle.dispatchEvent(new Event('change'));
+    }
+  });
+}
+
+function zoom(factor) {
+  const cx = state.vb.x + state.vb.w / 2;
+  const cy = state.vb.y + state.vb.h / 2;
+  state.vb.w *= factor;
+  state.vb.h *= factor;
+  state.vb.x = cx - state.vb.w / 2;
+  state.vb.y = cy - state.vb.h / 2;
+  applyViewBox();
+}
+
+// ---- Filtering ----
+function applyFilters() {
+  const blocks = document.querySelectorAll('.block');
+  blocks.forEach(b => {
+    const id = b.dataset.id;
+    const t = state.typeMap[id];
+    if (!t) return;
+    let visible = true;
+    if (state.filterSearch && t._lbl.indexOf(state.filterSearch) === -1 && t._qual.indexOf(state.filterSearch) === -1) visible = false;
+    if (state.filterPkg && t.package !== state.filterPkg) visible = false;
+    if (state.filterRole && (t.role || 'UNASSIGNED') !== state.filterRole) visible = false;
+    b.classList.toggle('dimmed', !visible);
+  });
+}
+
+// ---- Block Selection / Detail ----
+function selectBlock(id) {
+  // Update block selection style
+  document.querySelectorAll('.block.selected').forEach(b => b.classList.remove('selected'));
+  const block = document.querySelector(`.block[data-id="${CSS.escape(id)}"]`);
+  if (block) block.classList.add('selected');
+
+  state.selectedId = id;
+  state.selectedMemberId = null;
+
+  const t = state.typeMap[id];
+  if (!t) return;
+
+  renderDetail(t);
+  openDetail();
+}
+
+function openDetail() {
+  document.getElementById('detail').classList.add('open');
+  document.getElementById('legend').classList.add('hidden-by-detail');
+}
+
+function closeDetail() {
+  document.getElementById('detail').classList.remove('open');
+  document.getElementById('legend').classList.remove('hidden-by-detail');
+  document.querySelectorAll('.block.selected').forEach(b => b.classList.remove('selected'));
+  state.selectedId = null;
+}
+
+function renderDetail(t) {
+  const role = t.role || 'UNASSIGNED';
+  const roleColor = ROLE_RAW_COLORS[role] || '#8b93a3';
+  const kindColor = KIND_COLORS[t.kind] || '#8b93a3';
+  const kindLetter = KIND_LETTERS[t.kind] || '?';
+
+  let html = '<div class="d-head">';
+  html += `<div class="d-title"><span class="kind-pill" style="background:${kindColor};color:#0f1115">${kindLetter}</span><span class="name">${esc(t.label)}</span></div>`;
+  html += `<div class="d-qual">${esc(t.qualified_name || t.id)}</div>`;
+  html += `<div class="d-qual">${esc(t.package || '')}</div>`;
+  html += '<div class="d-badges">';
+  html += `<span class="d-badge role" style="color:${roleColor}">${role.replace(/_/g,' ')}</span>`;
+  if (t.annotations && t.annotations.length) {
+    t.annotations.forEach(a => { html += `<span class="d-badge ann">@${esc(a)}</span>`; });
+  }
+  html += '</div>';
+  if (t.javadoc) { html += `<div class="d-qual" style="margin-top:8px;font-style:italic">${esc(t.javadoc)}</div>`; }
+  html += '</div>';
+
+  // Members section
+  const members = state.members[t.id] || [];
+  html += '<div class="d-section" id="sec-members">';
+  html += '<div class="d-section-head" data-sec="sec-members"><span class="d-section-caret">&#9660;</span><span class="d-section-title">Members (' + members.length + ')</span></div>';
+  html += '<div class="d-section-body">';
+  if (members.length === 0) {
+    html += '<div style="color:var(--muted);font-size:12px;padding:4px 8px">No members</div>';
+  } else {
+    members.forEach((m, i) => {
+      const mk = m.kind === 'METHOD' ? 'M' : m.kind === 'FIELD' ? 'F' : m.kind === 'CONSTRUCTOR' ? 'C' : 'M';
+      const sig = m.signature || m.label || '';
+      html += `<div class="member-item" data-mid="${esc(m.id)}" data-idx="${i}">`;
+      html += `<span class="member-kind">${mk}</span>`;
+      html += `<span class="member-name">${esc(m.label)}</span>`;
+      html += `<span class="member-sig" title="${esc(sig)}">${esc(sig)}</span>`;
+      html += '</div>';
+    });
+  }
+  html += '</div></div>';
+
+  // Code section
+  html += '<div class="d-section" id="sec-code">';
+  html += '<div class="d-section-head" data-sec="sec-code"><span class="d-section-caret">&#9660;</span><span class="d-section-title">Code</span></div>';
+  html += '<div class="d-section-body"><div id="code-area"><div class="code-none">Select a member to view source</div></div></div>';
+  html += '</div>';
+
+  // Dependencies section
+  const outgoing = state.typeEdges.filter(e => e.source === t.id);
+  const incoming = state.typeEdges.filter(e => e.target === t.id);
+  html += '<div class="d-section" id="sec-deps">';
+  html += '<div class="d-section-head" data-sec="sec-deps"><span class="d-section-caret">&#9660;</span><span class="d-section-title">Dependencies (' + (outgoing.length + incoming.length) + ')</span></div>';
+  html += '<div class="d-section-body">';
+  if (outgoing.length) {
+    html += '<div class="dep-group-title">Outgoing</div>';
+    outgoing.forEach(e => {
+      const tgt = state.typeMap[e.target];
+      const label = tgt ? tgt.label : shortName(e.target);
+      html += `<div class="dep-item" data-nav="${esc(e.target)}"><span class="dep-arrow">&rarr;</span><span>${esc(label)}</span><span class="dep-rel">${esc(e.relation)}</span><span class="dep-count">&times;${e.edge_count||1}</span></div>`;
+    });
+  }
+  if (incoming.length) {
+    html += '<div class="dep-group-title">Incoming</div>';
+    incoming.forEach(e => {
+      const src = state.typeMap[e.source];
+      const label = src ? src.label : shortName(e.source);
+      html += `<div class="dep-item" data-nav="${esc(e.source)}"><span class="dep-arrow">&larr;</span><span>${esc(label)}</span><span class="dep-rel">${esc(e.relation)}</span><span class="dep-count">&times;${e.edge_count||1}</span></div>`;
+    });
+  }
+  if (!outgoing.length && !incoming.length) {
+    html += '<div style="color:var(--muted);font-size:12px;padding:4px 8px">No dependencies</div>';
+  }
+  html += '</div></div>';
+
+  const dc = document.getElementById('detail-content');
+  dc.innerHTML = html;
+  dc.scrollTop = 0;
+
+  // Bind section collapses
+  dc.querySelectorAll('.d-section-head').forEach(h => {
+    h.addEventListener('click', () => {
+      const sec = h.closest('.d-section');
+      sec.classList.toggle('collapsed');
+    });
+  });
+
+  // Bind member clicks
+  dc.querySelectorAll('.member-item').forEach(mi => {
+    mi.addEventListener('click', () => {
+      dc.querySelectorAll('.member-item.active').forEach(a => a.classList.remove('active'));
+      mi.classList.add('active');
+      const mid = mi.dataset.mid;
+      state.selectedMemberId = mid;
+      renderCode(mid);
+    });
+  });
+
+  // Bind dep navigation
+  dc.querySelectorAll('.dep-item[data-nav]').forEach(di => {
+    di.addEventListener('click', () => {
+      const navId = di.dataset.nav;
+      if (state.typeMap[navId]) {
+        selectBlock(navId);
+        scrollToBlock(navId);
+      }
+    });
+  });
+
+  // Auto-select first method if available
+  const firstMethod = members.find(m => m.kind === 'METHOD' || m.kind === 'CONSTRUCTOR');
+  if (firstMethod) {
+    const firstMI = dc.querySelector(`.member-item[data-mid="${CSS.escape(firstMethod.id)}"]`);
+    if (firstMI) { firstMI.classList.add('active'); state.selectedMemberId = firstMethod.id; renderCode(firstMethod.id); }
+  }
+}
+
+function renderCode(memberId) {
+  const area = document.getElementById('code-area');
+  const snippet = state.snippets[memberId];
+  if (!snippet) {
+    area.innerHTML = '<div class="code-none">Source not available</div>';
+    return;
+  }
+  const highlighted = highlightJava(snippet);
+  const lines = highlighted.split('\n');
+  let tableHTML = '<div class="code-wrap"><table class="code-table">';
+  lines.forEach((line, i) => {
+    tableHTML += `<tr><td class="code-ln">${i + 1}</td><td class="code">${line || ' '}</td></tr>`;
+  });
+  tableHTML += '</table></div>';
+  area.innerHTML = tableHTML;
+}
+
+function scrollToBlock(id) {
+  const pos = state.blockPositions[id];
+  if (!pos) return;
+  // Center the block in view
+  state.vb.x = pos.cx - state.vb.w / 2;
+  state.vb.y = pos.cy - state.vb.h / 2;
+  applyViewBox();
+}
+
+// ---- Java Syntax Highlighting ----
+function highlightJava(code) {
+  // Tokenize: split code into segments, tag each
+  const tokens = [];
+  let remaining = code;
+  let pos = 0;
+
+  // Build a combined regex
+  const patterns = [
+    { re: /\/\/[^\n]*/, cls: 'cmt' },
+    { re: /\/\*[\s\S]*?\*\//, cls: 'cmt' },
+    { re: /"(?:[^"\\]|\\.)*"/, cls: 'str' },
+    { re: /'(?:[^'\\]|\\.)*'/, cls: 'str' },
+    { re: /@\w+/, cls: 'ann' },
+    { re: /\b(?:abstract|assert|boolean|break|byte|case|catch|char|class|const|continue|default|do|double|else|enum|extends|final|finally|float|for|goto|if|implements|import|instanceof|int|interface|long|native|new|package|private|protected|public|record|return|short|static|strictfp|super|switch|synchronized|this|throw|throws|transient|try|var|void|volatile|while|yield)\b/, cls: 'kw' },
+    { re: /\b(?:true|false|null)\b/, cls: 'lit' },
+    { re: /\b\d[\d._]*[lLfFdD]?\b/, cls: 'num' },
+    { re: /\b[A-Z]\w*\b/, cls: 'ty' }
+  ];
+
+  while (remaining.length > 0) {
+    let earliest = null;
+    let earliestIdx = remaining.length;
+    let earliestCls = '';
+
+    for (const p of patterns) {
+      p.re.lastIndex = 0;
+      const m = p.re.exec(remaining);
+      if (m && m.index < earliestIdx) {
+        earliest = m;
+        earliestIdx = m.index;
+        earliestCls = p.cls;
+      }
+    }
+
+    if (!earliest) {
+      tokens.push(esc(remaining));
+      break;
+    }
+
+    if (earliestIdx > 0) {
+      tokens.push(esc(remaining.substring(0, earliestIdx)));
+    }
+    tokens.push(`<span class="${earliestCls}">${esc(earliest[0])}</span>`);
+    remaining = remaining.substring(earliestIdx + earliest[0].length);
+  }
+
+  return tokens.join('');
+}
+
+// ---- Utilities ----
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function truncate(s, max) {
+  return s.length > max ? s.substring(0, max - 1) + '…' : s;
+}
+
+function shortName(qualifiedName) {
+  if (!qualifiedName) return '';
+  const parts = qualifiedName.split('.');
+  return parts[parts.length - 1];
+}
+
+// ---- Boot ----
+document.addEventListener('DOMContentLoaded', init);
+if (document.readyState !== 'loading') init();
+</script>
+</body>
+</html>
