@@ -46,10 +46,14 @@ Every command emits JSON to stdout in the shape:
 |---|---|
 | Locate a type/method by name | `search OrderService` |
 | Restrict by kind | `search OrderService --kind METHOD` |
+| Count/enumerate a naming pattern precisely (e.g. all `*Facade`) | `search --name '*Facade' --kind INTERFACE` |
+| How many match? (true count, ignores `--limit`) | `search --name '*EventPlugin' --kind CLASS --count` |
 | Find by annotation | `search @RestController --by-annotation` |
 | Find by architecture role | `search ADAPTER --by-role` |
 | Jump to a type by FQN | `context com.example.shop.service.OrderService` |
 | See implementations of an interface | `implementors-of OrderRepository` |
+| Include impls reached through abstract bases | `implementors-of OrderRepository --recursive` |
+| Just count implementors | `implementors-of OrderRepository --count` |
 
 ### Understand structure
 
@@ -74,10 +78,12 @@ Every command emits JSON to stdout in the shape:
 |---|---|
 | What does this method call? | `callees-of <method-fqn>` |
 | Recursive (multi-hop) callees | `callees-of <method-fqn> --depth 5` |
+| Chain stops at a template/executor (e.g. only `→ execute`)? Follow into the callback | `callees-of <method-fqn> --depth 5 --through-callbacks` |
 | Calls only in loops | `callees-of <method-fqn> --in-loop` |
 | Calls only in branches | `callees-of <method-fqn> --in-branch` |
 | Group by package/class blocks | `callees-of <method-fqn> --depth 3 --blocks package` |
 | Who calls this method? (impact analysis) | `callers-of <method-fqn>` |
+| Callers show as `…$anon@…#process()` noise? Attribute to the real method | `callers-of <method-fqn> --through-callbacks` |
 | Shortest call path between two methods | `call-path <from> <to> --depth 5` |
 
 ### Field-level impact
@@ -234,6 +240,16 @@ enrich → reason (Agent) → annotate → enrich (verify)
   index completes — safe for parallel Agent invocations.
 - **Incremental index** uses SHA-256 file hashing + transitive dependency
   closure. Files above `--max-realign-files` (default 200) degrade to full.
+- **`search <term>` is FTS — it matches the package path too.** `search Facade`
+  matches every node under a `.facade.` package, not just classes named `*Facade`,
+  so its total is misleading. Check `stats.label_matches` (how many hits actually
+  match the simple name), or use `search --name '<glob>'` for an exact name count.
+- **Call chains break at template/callback boundaries.** Logic passed as an
+  anonymous class or lambda (e.g. `template.execute(callback)`, `TransactionTemplate`,
+  stream lambdas) lives in a `…$anon@…#process()` / `…$lambda@…` body whose CALLS
+  are attributed to that body, not the enclosing method. A `callees-of` that returns
+  only `→ execute` is the tell — re-run with `--through-callbacks` to follow in.
+  `via=<body-id>` on the result marks edges that came from inside a callback.
 
 ---
 
