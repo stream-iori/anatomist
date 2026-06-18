@@ -207,6 +207,61 @@ bench-startup: index-fixture jar
         echo "  run $i: $(grep real /tmp/_t)"
     done
 
+# ─────────────────────────────────────────── release ──────────────────────────────────────────
+
+# Cut a release: build native, copy to release-dist/, commit, tag, bump to next SNAPSHOT.
+# Usage: just release        (uses version from pom.xml, e.g. 0.1.0-SNAPSHOT -> v0.1.0)
+#        just release 0.2.0  (override version explicitly)
+release VERSION="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
+
+    # Determine release version
+    if [[ -n "{{VERSION}}" ]]; then
+        REL_VERSION="{{VERSION}}"
+    else
+        REL_VERSION=$(grep '<version>' pom.xml | head -1 | sed 's/.*<version>//;s/<\/version>.*//' | sed 's/-SNAPSHOT//')
+    fi
+
+    # Validate semver format
+    if ! echo "$REL_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        echo "ERROR: Invalid version '$REL_VERSION'. Must be semver (e.g. 0.1.0)"
+        exit 1
+    fi
+
+    echo "=== Releasing v${REL_VERSION} ==="
+
+    # Update pom.xml to release version
+    sed -i '' "0,/<version>.*<\/version>/s|<version>.*</version>|<version>${REL_VERSION}</version>|" pom.xml
+    echo "  pom.xml -> ${REL_VERSION}"
+
+    # Build native
+    echo "  Building native binary..."
+    mvn -Pnative -DskipTests package -q
+
+    # Copy to release-dist
+    mkdir -p release-dist
+    cp {{NATIVE_BIN}} release-dist/anatomist-darwin-aarch64
+    echo "  Copied to release-dist/anatomist-darwin-aarch64"
+
+    # Commit and tag
+    git add pom.xml release-dist/anatomist-darwin-aarch64
+    git commit -m "release: v${REL_VERSION}"
+    git tag "v${REL_VERSION}"
+    echo "  Tagged v${REL_VERSION}"
+
+    # Bump to next SNAPSHOT
+    IFS='.' read -r MAJOR MINOR PATCH <<< "$REL_VERSION"
+    NEXT_VERSION="${MAJOR}.$((MINOR + 1)).0-SNAPSHOT"
+    sed -i '' "0,/<version>.*<\/version>/s|<version>.*</version>|<version>${NEXT_VERSION}</version>|" pom.xml
+    git add pom.xml
+    git commit -m "chore: bump to ${NEXT_VERSION}"
+    echo "  pom.xml -> ${NEXT_VERSION}"
+    echo "=== Done. Run 'git push && git push --tags' to publish ==="
+
 # ─────────────────────────────────────────── clean ────────────────────────────────────────────
 
 # Remove build outputs (keeps the Linux build's .m2-cache; that's a slow rebuild).
