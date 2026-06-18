@@ -22,6 +22,11 @@ public class CallersOfCommand extends QueryCommand {
     @Option(names = "--depth", description = "Recursive depth (1..20). Default 1.")
     int depth = 1;
 
+    @Option(names = "--through-callbacks",
+            description = "Attribute incoming calls made from inside anonymous-class/lambda bodies "
+                    + "to their enclosing method (tagged via=<body>, call_kind=CALLBACK).")
+    boolean throughCallbacks;
+
     @Option(names = "--in-loop", description = "Keep only edges occurring inside a loop (for/foreach/while/do).")
     boolean inLoop;
 
@@ -34,8 +39,10 @@ public class CallersOfCommand extends QueryCommand {
 
     @Override
     protected QueryEnvelope execute(QueryService q) {
-        List<EdgeRow> rows = ContextFilter.apply(q.callersOf(method, depth), inLoop, inBranch);
-        QueryEnvelope env = new QueryEnvelope("callers-of " + method + " --depth " + depth, rows);
+        List<EdgeRow> rows = ContextFilter.apply(q.callersOf(method, depth, throughCallbacks), inLoop, inBranch);
+        String query = "callers-of " + method + " --depth " + depth
+                + (throughCallbacks ? " --through-callbacks" : "");
+        QueryEnvelope env = new QueryEnvelope(query, rows);
         int maxDepth = rows.stream().mapToInt(r -> r.depth == null ? 0 : r.depth).max().orElse(0);
         env.stats.put("max_depth", maxDepth);
         if (blocks != null) {

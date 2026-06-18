@@ -41,11 +41,17 @@ anatomist watch <project-path> [--auto-index] [--debounce-ms 500]
 ## Query Phase
 
 ### `search`
-Find nodes by name (FTS5), annotation, or architecture role.
+Find nodes by name (FTS5), precise simple-name, annotation, or architecture role.
 
 ```bash
 anatomist search <term> [--kind CLASS|METHOD|...] [--limit 20] [--by-annotation] [--by-role] --index <db>
+anatomist search --name '<glob>' [--kind CLASS|INTERFACE|...] [--count] --index <db>
+anatomist search <term> --count --index <db>
 ```
+
+- Default `<term>`: FTS5 match over qualified name / label / javadoc — **also matches package path tokens** (e.g. `search Facade` matches everything under a `.facade.` package). FTS results carry a `stats.label_matches` count: how many returned rows actually match the simple name, so an inflated `total` is easy to spot.
+- `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*EventPlugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
+- `--count`: return only the true total (results omitted), **independent of `--limit`**. Works with `--name` or FTS.
 
 ### `context`
 Show node structure + optional enrichment.
@@ -62,18 +68,22 @@ anatomist context <fqn> [--with-callees=N] [--enrich] [--with-docs] [--package <
 Outgoing call chain from a method.
 
 ```bash
-anatomist callees-of <method-fqn> [--depth N] [--blocks=class|package] --index <db>
+anatomist callees-of <method-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
 ```
 
 - Max depth: 20. BFS with dedup (no infinite loops).
 - `--blocks`: slices chain into architectural blocks with DDD role labels.
+- `--through-callbacks`: follow CALLS made inside anonymous-class / lambda bodies defined in the method (and nested), attributing them to the method. Essential for template-callback code (`SettleServiceTemplate#execute(callback)`, `TransactionTemplate.execute(...)`, stream lambdas) where the real downstream logic lives in the callback body. Synthesized edges are tagged `call_kind=CALLBACK` (when no original kind) and carry `via=<body-id>` pointing at the callback the call physically came from.
 
 ### `callers-of`
 Incoming call chain (impact analysis).
 
 ```bash
-anatomist callers-of <method-fqn> [--depth N] [--blocks=class|package] --index <db>
+anatomist callers-of <method-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
 ```
+
+- Pierces interface/abstract dispatch via OVERRIDES (interface method → implementors).
+- `--through-callbacks`: when an incoming call originates inside an anonymous-class / lambda body, attribute it to the enclosing real method (tagged `via=<body-id>`, `call_kind=CALLBACK`) instead of reporting the synthetic `$anon@…#process()` node — so impact analysis reaches the actual caller.
 
 ### `call-path`
 Shortest path between two methods.
@@ -93,8 +103,12 @@ anatomist hierarchy <type-fqn> --index <db>
 Classes implementing an interface/extending a type.
 
 ```bash
-anatomist implementors-of <type-fqn> --index <db>
+anatomist implementors-of <type-fqn> [--recursive] [--count] --index <db>
 ```
+
+- Default: direct implementors/subtypes (one IMPLEMENTS/INHERITS hop).
+- `--recursive`: transitive closure — surfaces leaf concrete classes reached through intermediate abstract bases.
+- `--count`: return only the count of implementors (results omitted).
 
 ### `deps-of`
 Outgoing dependencies (CALLS + REFERENCES + WIRES).

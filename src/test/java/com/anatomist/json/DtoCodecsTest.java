@@ -56,6 +56,21 @@ class DtoCodecsTest {
     }
 
     @Test
+    void edgeRow_emitsVia_whenSet_skipsWhenNull() {
+        EdgeRow e = new EdgeRow();
+        e.source = "A#m()";
+        e.target = "Dep#run()";
+        e.relation = "CALLS";
+        e.isExternal = false;
+        String withoutVia = Json.writePretty(e);
+        assertFalse(withoutVia.contains("\"via\""), "via skipped when null: " + withoutVia);
+
+        e.via = "A#m()$anon@L1#process()";
+        String withVia = Json.writePretty(e);
+        assertTrue(withVia.contains("\"via\" : \"A#m()$anon@L1#process()\""), withVia);
+    }
+
+    @Test
     void hierarchyEntry_emitsNullFields() {
         // HierarchyResult.Entry has NO @JsonInclude(NON_NULL) — nulls MUST appear.
         HierarchyResult.Entry e = new HierarchyResult.Entry();

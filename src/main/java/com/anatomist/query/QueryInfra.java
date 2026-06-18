@@ -39,6 +39,18 @@ final class QueryInfra {
         }
     }
 
+    /** Runs a single-column {@code COUNT(*)}-style query and returns the scalar int. */
+    static int runScalarInt(Connection conn, String sql, List<Object> args) {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            bind(ps, args);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            throw rethrow(e);
+        }
+    }
+
     static void bind(PreparedStatement ps, List<Object> args) throws SQLException {
         for (int i = 0; i < args.size(); i++) {
             Object v = args.get(i);

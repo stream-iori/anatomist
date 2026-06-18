@@ -10,11 +10,11 @@ import picocli.CommandLine.Parameters;
 import java.util.List;
 
 @Command(name = "search",
-        description = "Find nodes by name (FTS5), by annotation (--by-annotation), or by arch role (--by-role).",
-        footer = "%nExamples:%n  search OrderService%n  search @RestController --by-annotation --kind CLASS%n  search ADAPTER --by-role")
+        description = "Find nodes by name (FTS5), by precise simple-name (--name), by annotation (--by-annotation), or by arch role (--by-role).",
+        footer = "%nExamples:%n  search OrderService%n  search --name '*EventPlugin' --kind CLASS%n  search Facade --count%n  search @RestController --by-annotation --kind CLASS%n  search ADAPTER --by-role")
 public class SearchCommand extends QueryCommand {
 
-    @Parameters(index = "0", description = "Search term (e.g. OrderService, @RestController).")
+    @Parameters(index = "0", arity = "0..1", description = "Search term (e.g. OrderService, @RestController). Omit when using --name.")
     String term;
 
     @Option(names = "--kind", description = "Filter by node kind (CLASS, METHOD, ...).")
@@ -22,6 +22,12 @@ public class SearchCommand extends QueryCommand {
 
     @Option(names = "--limit", description = "Max results. Default 20.")
     int limit = 20;
+
+    @Option(names = "--name", description = "Precise simple-name match against label (glob: * ?, e.g. '*EventPlugin'). Bypasses FTS.")
+    String name;
+
+    @Option(names = "--count", description = "Return only the total count (results omitted), independent of --limit.")
+    boolean count;
 
     @Option(names = "--by-annotation", description = "Treat <term> as an annotation FQN/substring.")
     boolean byAnnotation;
@@ -31,17 +37,41 @@ public class SearchCommand extends QueryCommand {
 
     @Override
     protected QueryEnvelope execute(QueryService q) {
+        if (count) {
+            int n;
+            if (name != null) n = q.countByName(name, kind);
+            else n = q.countSearch(term, kind);
+            QueryEnvelope env = new QueryEnvelope(buildQueryString(), List.of());
+            env.stats.put("total", n);
+            env.stats.put("count", n);
+            return env;
+        }
         List<NodeRow> results;
-        if (byRole) results = q.searchByRole(term, limit);
+        if (name != null) results = q.searchByName(name, kind, limit);
+        else if (byRole) results = q.searchByRole(term, limit);
         else if (byAnnotation) results = q.searchByAnnotation(term, kind, limit);
         else results = q.search(term, kind, limit);
-        return new QueryEnvelope(buildQueryString(), results);
+        QueryEnvelope env = new QueryEnvelope(buildQueryString(), results);
+        // FTS hits can match the package path rather than the class name; surface how many
+        // results actually match the simple name so the Agent isn't misled by an inflated total.
+        if (name == null && !byRole && !byAnnotation && term != null) {
+            String needle = term.replace("*", "").toLowerCase();
+            long labelHits = results.stream()
+                    .filter(r -> r.label != null && r.label.toLowerCase().contains(needle))
+                    .count();
+            env.stats.put("label_matches", labelHits);
+        }
+        return env;
     }
 
     private String buildQueryString() {
-        StringBuilder sb = new StringBuilder("search ").append(term);
+        StringBuilder sb = new StringBuilder("search");
+        if (term != null) sb.append(" ").append(term);
+        if (name != null) sb.append(" --name ").append(name);
         if (byAnnotation) sb.append(" --by-annotation");
+        if (byRole) sb.append(" --by-role");
         if (kind != null) sb.append(" --kind ").append(kind);
+        if (count) sb.append(" --count");
         if (limit != 20) sb.append(" --limit ").append(limit);
         return sb.toString();
     }

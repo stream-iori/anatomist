@@ -21,14 +21,26 @@ public class CallGraphService {
     }
 
     public List<EdgeRow> calleesOf(String methodRef, int depth) {
-        return callsFrom(resolver.resolveMethodIds(methodRef), Math.max(1, depth));
+        return calleesOf(methodRef, depth, false);
+    }
+
+    public List<EdgeRow> calleesOf(String methodRef, int depth, boolean throughCallbacks) {
+        return callsFrom(resolver.resolveMethodIds(methodRef), Math.max(1, depth), throughCallbacks);
     }
 
     public List<EdgeRow> callersOf(String methodRef, int depth) {
-        return callsTo(resolver.resolveMethodIds(methodRef), Math.max(1, depth));
+        return callersOf(methodRef, depth, false);
+    }
+
+    public List<EdgeRow> callersOf(String methodRef, int depth, boolean throughCallbacks) {
+        return callsTo(resolver.resolveMethodIds(methodRef), Math.max(1, depth), throughCallbacks);
     }
 
     List<EdgeRow> callsFrom(List<String> seedIds, int depth) {
+        return callsFrom(seedIds, depth, false);
+    }
+
+    List<EdgeRow> callsFrom(List<String> seedIds, int depth, boolean throughCallbacks) {
         if (seedIds.isEmpty()) return Collections.emptyList();
         int depthCap = Math.min(depth, MAX_DEPTH);
 
@@ -41,6 +53,29 @@ public class CallGraphService {
             frontier.clear();
 
             List<EdgeRow> callEdges = queryCallsOut(current, d);
+
+            if (throughCallbacks) {
+                // Follow CALLS inside anonymous-class / lambda bodies defined within each
+                // frontier method, attributing them to the outer method (see collectCallbackBodies).
+                Map<String, List<String>> bodiesByMethod = collectCallbackBodies(current, visited);
+                for (Map.Entry<String, List<String>> entry : bodiesByMethod.entrySet()) {
+                    String outer = entry.getKey();
+                    List<String> bodyIds = entry.getValue();
+                    if (bodyIds.isEmpty()) continue;
+                    NodeRow outerNode = resolver.readNodeById(outer);
+                    for (EdgeRow be : queryCallsOut(bodyIds, d)) {
+                        be.via = be.source;
+                        be.source = outer;
+                        if (outerNode != null) {
+                            be.sourceLabel = outerNode.label;
+                            be.sourceFile = outerNode.sourceFile;
+                        }
+                        if (be.callKind == null) be.callKind = "CALLBACK";
+                        callEdges.add(be);
+                    }
+                }
+            }
+
             result.addAll(callEdges);
 
             Set<String> dispatchCandidates = new HashSet<>(current);
@@ -68,7 +103,71 @@ public class CallGraphService {
         return dedup(result);
     }
 
+    /**
+     * For each method id in {@code methods}, returns the transitive set of contained
+     * anonymous-class / lambda / method-ref body node ids whose outgoing CALLS should be
+     * attributed to that method. Walks CONTAINS edges; collects METHOD nodes whose id carries
+     * a synthetic {@code $anon@} / {@code $lambda@} marker plus LAMBDA / METHOD_REF nodes, and
+     * recurses through ANONYMOUS_CLASS containers (and nested anon/lambda) without collecting
+     * the container itself. Ordinary nested types and regular member methods are ignored so a
+     * class's other real methods never leak into the chain. Discovered body ids are added to
+     * {@code visited} so each body is expanded at most once across depth levels.
+     */
+    private Map<String, List<String>> collectCallbackBodies(List<String> methods, Set<String> visited) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        for (String m : methods) {
+            List<String> bodies = new ArrayList<>();
+            Set<String> localSeen = new HashSet<>();
+            Deque<String> stack = new ArrayDeque<>();
+            stack.push(m);
+            while (!stack.isEmpty()) {
+                String cur = stack.pop();
+                for (NodeRef child : containsChildren(cur)) {
+                    if (!localSeen.add(child.id)) continue;
+                    switch (child.kind) {
+                        case "LAMBDA", "METHOD_REF" -> {
+                            if (visited.add(child.id)) bodies.add(child.id);
+                            stack.push(child.id);
+                        }
+                        case "ANONYMOUS_CLASS" -> stack.push(child.id);
+                        case "METHOD" -> {
+                            if (child.id.contains("$anon@") || child.id.contains("$lambda@")) {
+                                if (visited.add(child.id)) bodies.add(child.id);
+                                stack.push(child.id);
+                            }
+                        }
+                        default -> { /* ordinary nested type / member: ignore */ }
+                    }
+                }
+            }
+            out.put(m, bodies);
+        }
+        return out;
+    }
+
+    private record NodeRef(String id, String kind) {}
+
+    /** Direct CONTAINS children (id + kind) of the given node ids, batched. */
+    private List<NodeRef> containsChildren(String parentId) {
+        List<NodeRef> out = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT n.id, n.kind FROM edges e JOIN nodes n ON n.id = e.target_id "
+              + " WHERE e.source_id = ? AND e.relation = 'CONTAINS'")) {
+            ps.setString(1, parentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) out.add(new NodeRef(rs.getString(1), rs.getString(2)));
+            }
+        } catch (SQLException e) {
+            throw rethrow(e);
+        }
+        return out;
+    }
+
     List<EdgeRow> callsTo(List<String> seedIds, int depth) {
+        return callsTo(seedIds, depth, false);
+    }
+
+    List<EdgeRow> callsTo(List<String> seedIds, int depth, boolean throughCallbacks) {
         if (seedIds.isEmpty()) return Collections.emptyList();
         int depthCap = Math.min(depth, MAX_DEPTH);
 
@@ -81,6 +180,7 @@ public class CallGraphService {
             frontier.clear();
 
             List<EdgeRow> callEdges = queryCallsIn(current, d);
+            if (throughCallbacks) rewriteCallbackSources(callEdges);
             result.addAll(callEdges);
 
             Map<String, List<String>> ifaceMap = batchOverriddenIface(current);
@@ -101,6 +201,7 @@ public class CallGraphService {
             }
             if (!bridged.isEmpty()) {
                 List<EdgeRow> bridgedCallers = queryCallsIn(bridged, d);
+                if (throughCallbacks) rewriteCallbackSources(bridgedCallers);
                 result.addAll(bridgedCallers);
                 for (EdgeRow e : bridgedCallers) {
                     if (e.source != null && visited.add(e.source)) {
@@ -116,6 +217,37 @@ public class CallGraphService {
             }
         }
         return dedup(result);
+    }
+
+    /**
+     * Reverse of the callees-of callback penetration: when an incoming call originates from
+     * inside an anonymous-class / lambda body (source id carries a {@code $anon@}/{@code $lambda@}
+     * marker), rewrite the edge source to the enclosing real method so impact analysis reaches
+     * the actual caller rather than a synthetic callback node. The original body id is recorded
+     * in {@code via}; the frontier then continues upward from the enclosing method.
+     */
+    private void rewriteCallbackSources(List<EdgeRow> edges) {
+        for (EdgeRow e : edges) {
+            String outer = enclosingMethod(e.source);
+            if (outer != null && !outer.equals(e.source)) {
+                e.via = e.source;
+                e.source = outer;
+                NodeRow n = resolver.readNodeById(outer);
+                if (n != null) { e.sourceLabel = n.label; e.sourceFile = n.sourceFile; }
+                if (e.callKind == null) e.callKind = "CALLBACK";
+            }
+        }
+    }
+
+    /** The enclosing real method id for a callback-body node id, or null if {@code id} is not
+     *  inside a {@code $anon@}/{@code $lambda@} body. Truncates at the first synthetic marker,
+     *  e.g. {@code M#m()$anon@L1#process()} → {@code M#m()}. */
+    static String enclosingMethod(String id) {
+        if (id == null) return null;
+        int anon = id.indexOf("$anon@");
+        int lam = id.indexOf("$lambda@");
+        int cut = anon < 0 ? lam : (lam < 0 ? anon : Math.min(anon, lam));
+        return cut < 0 ? null : id.substring(0, cut);
     }
 
     public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef, int maxDepth) {

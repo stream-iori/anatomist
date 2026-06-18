@@ -42,6 +42,7 @@
     "source_location" : "L26"
   } ],
   "stats" : {
+    "label_matches" : 2,
     "total" : 5
   }
 }

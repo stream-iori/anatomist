@@ -65,6 +65,18 @@ public class QueryService implements AutoCloseable {
         return search.search(term, kind, limit);
     }
 
+    public List<NodeRow> searchByName(String glob, String kind, int limit) {
+        return search.searchByName(glob, kind, limit);
+    }
+
+    public int countByName(String glob, String kind) {
+        return search.countByName(glob, kind);
+    }
+
+    public int countSearch(String term, String kind) {
+        return search.countSearch(term, kind);
+    }
+
     public List<NodeRow> searchByAnnotation(String annotationTerm, String kind, int limit) {
         return search.searchByAnnotation(annotationTerm, kind, limit);
     }
@@ -75,6 +87,14 @@ public class QueryService implements AutoCloseable {
 
     public List<NodeRow> implementorsOf(String typeRef) {
         return search.implementorsOf(typeRef);
+    }
+
+    public List<NodeRow> implementorsOf(String typeRef, boolean recursive) {
+        return search.implementorsOf(typeRef, recursive);
+    }
+
+    public int countImplementorsOf(String typeRef, boolean recursive) {
+        return search.countImplementorsOf(typeRef, recursive);
     }
 
     // ── Context ──────────────────────────────────────────────────────────
@@ -93,8 +113,16 @@ public class QueryService implements AutoCloseable {
         return callGraph.calleesOf(methodRef, depth);
     }
 
+    public List<EdgeRow> calleesOf(String methodRef, int depth, boolean throughCallbacks) {
+        return callGraph.calleesOf(methodRef, depth, throughCallbacks);
+    }
+
     public List<EdgeRow> callersOf(String methodRef, int depth) {
         return callGraph.callersOf(methodRef, depth);
+    }
+
+    public List<EdgeRow> callersOf(String methodRef, int depth, boolean throughCallbacks) {
+        return callGraph.callersOf(methodRef, depth, throughCallbacks);
     }
 
     public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef, int maxDepth) {
