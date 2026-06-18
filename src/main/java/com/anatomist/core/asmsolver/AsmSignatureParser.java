@@ -50,15 +50,33 @@ public final class AsmSignatureParser {
 
     // ── Type parameter extraction (class/method formal type params) ──
 
+    /**
+     * Re-entrancy guard keyed by container FQN. Recursive generic bounds such as
+     * {@code Enum<E extends Enum<E>>} or {@code T extends Comparable<T>} would otherwise
+     * loop forever: resolving a bound builds a {@link ReferenceTypeImpl}, whose constructor
+     * eagerly derives that declaration's type parameters, re-parsing the same signature and
+     * hitting the same self-referential bound. While a given FQN is being parsed on this
+     * thread, nested requests for the same FQN return no type parameters, breaking the cycle.
+     */
+    private static final ThreadLocal<java.util.Set<String>> PARSING =
+            ThreadLocal.withInitial(java.util.HashSet::new);
+
     public static List<ResolvedTypeParameterDeclaration> parseClassTypeParameters(
             String signature, String containerQName, TypeSolver solver) {
         if (signature == null || signature.isEmpty()) return Collections.emptyList();
+        java.util.Set<String> inProgress = PARSING.get();
+        if (containerQName != null && !inProgress.add(containerQName)) {
+            // Already parsing this container's type parameters higher in the stack.
+            return Collections.emptyList();
+        }
         try {
             TypeParamCollector collector = new TypeParamCollector(containerQName, solver);
             new SignatureReader(signature).accept(collector);
             return collector.result();
         } catch (RuntimeException e) {
             return Collections.emptyList();
+        } finally {
+            if (containerQName != null) inProgress.remove(containerQName);
         }
     }
 
