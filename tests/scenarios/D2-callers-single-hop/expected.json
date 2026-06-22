@@ -2,6 +2,7 @@
   "query" : "callers-of com.example.shop.service.OrderService#createOrder --depth 1",
   "results" : [ {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -13,6 +14,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderService#createOrder"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",

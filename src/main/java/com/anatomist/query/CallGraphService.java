@@ -454,6 +454,7 @@ public class CallGraphService {
         row.source = ifaceMethodId;
         row.target = implMethodId;
         row.relation = "OVERRIDES";
+        row.confidence = "INFERRED";
         row.isExternal = false;
         row.depth = d;
         NodeRow src = resolver.readNodeById(ifaceMethodId);

@@ -38,7 +38,7 @@ public class OverviewService {
                 + " WHERE e.is_external = 0 "
                 + "   AND src.package IS NOT NULL AND tgt.package IS NOT NULL "
                 + "   AND src.package <> tgt.package "
-                + "   AND e.relation IN ('CALLS','REFERENCES','IMPLEMENTS','INHERITS') "
+                + "   AND e.relation IN ('CALLS','REFERENCES','INJECTS','IMPLEMENTS','INHERITS') "
                 + " GROUP BY src.package, tgt.package, e.relation "
                 + " ORDER BY src.package, tgt.package, e.relation";
         List<Map<String, Object>> out = new ArrayList<>();
@@ -85,7 +85,7 @@ public class OverviewService {
               + "JOIN nodes st ON so.type_id = st.id "
               + "JOIN nodes tt ON ot.type_id = tt.id "
               + "WHERE e.is_external = 0 "
-              + "  AND e.relation IN ('CALLS','REFERENCES','WIRES','IMPLEMENTS','INHERITS') "
+              + "  AND e.relation IN ('CALLS','REFERENCES','WIRES','INJECTS','IMPLEMENTS','INHERITS') "
               + "  AND so.type_id <> ot.type_id "
               + "GROUP BY st.id, tt.id "
               + "ORDER BY edge_count DESC, source, target"

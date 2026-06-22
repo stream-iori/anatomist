@@ -2,6 +2,7 @@
   "query" : "call-path com.example.shop.controller.OrderController#create com.example.shop.service.OrderValidator#validate --depth 5",
   "results" : [ {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -13,6 +14,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderService#createOrder"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",

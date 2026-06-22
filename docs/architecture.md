@@ -6,6 +6,8 @@
 - `core/` — Index-phase plumbing: `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, `NodeIdGenerator`, `ExtractionContext`, `SpringBeanParser`, `JavadocSummary`
 - `annotations/` — `@ArchRole` annotation (SOURCE retention) + `Category` enum (7 DDD layers)
 - `extract/` — `Extractor` interface + 8 implementations (`TypeExtractor`, `MethodExtractor`, `FieldExtractor`, `AnnotationExtractor`, `CallGraphExtractor`, `HierarchyExtractor`, `ReferenceExtractor`, `FieldAccessExtractor`). All store javadoc as summary only. Plus `XmlBeanExtractor` (post-Java pass for Spring XML beans).
+- `framework/` — Internal analyzer SPI for framework/middleware concepts. `JavaAstAnalyzer` handles AST-backed concepts, `ProjectAnalyzer` handles project resources. `AnalyzerRegistry` wires built-ins.
+- `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
 - `store/` — `SqliteStore` (schema + atomic batched write + arch_roles read/write)
 - `semantic/` — Post-index intelligence: `SemanticPostProcessor` (convention rules), `ArchRoleInferrer` (L1+L2 DDD role inference), `SmellDetector` (6 architecture smell rules)
 - `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `CallGraphService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs: `QueryEnvelope`, `NodeRow`, `EdgeRow`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `CallChainSlicer` groups call chains into blocks with arch_roles priority. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
@@ -28,9 +30,24 @@ IndexCommand
           HierarchyExtractor  → INHERITS/IMPLEMENTS/OVERRIDES edges
           ReferenceExtractor  → REFERENCES edges with context
           FieldAccessExtractor → READS/WRITES edges
+          SpringComponentAnalyzer → BEAN / DEFINED_BY / INJECTS
+          SpringMvcAnalyzer       → ROUTE / HANDLES
+  → ProjectAnalyzer pass:
+          SpringXmlAnalyzer       → BEAN / DEFINED_BY / WIRES (--spring-xml only)
   → SemanticPostProcessor.process(result) → semantic_annotations
   → SqliteStore.initSchema + write(result) (single transaction)
 ```
+
+## Framework Analyzer Model
+
+Framework support must add graph facts, not hard-code logic into `IndexOrchestrator`.
+
+| Analyzer type | Use |
+|---|---|
+| `JavaAstAnalyzer` | Source annotations and declarations, e.g. Spring MVC and `@Autowired`. |
+| `ProjectAnalyzer` | Non-Java resources, e.g. Spring XML, future MyBatis XML, YAML, generated metadata. |
+
+Built-ins are registered in `AnalyzerRegistry`. Keep shared relations generic (`DEFINED_BY`, `INJECTS`, `HANDLES`, `WIRES`) so future middleware analyzers can reuse the query layer.
 
 ## Critical invariants
 
@@ -42,7 +59,8 @@ IndexCommand
 - **`arch_roles` is post-index.** Populated by `annotate --auto`, read at query time. `CallChainSlicer` falls back to annotation heuristic when empty.
 - **JavaDoc stored as summary only.** Extracted via `JavadocSummary.extract()` (strips @tags, first sentence rule).
 - **Query output is Agent-bounded.** callees-of/callers-of: MAX_DEPTH=20 + BFS dedup; enrich: 200 lines; deps-of/used-by/field-access: default --limit 50 + pagination; overview --deps-only: default 30.
-- **`WIRES` edges originate from CLASS nodes, not BEAN nodes.** Must drop explicitly on incremental rebuild.
+- **Spring Boot basics are static facts.** `BEAN`, `ROUTE`, `INJECTS`, and `HANDLES` are configured/static evidence, not proof of the exact runtime object under profiles, conditions, or AOP.
+- **`WIRES` edges originate from CLASS nodes, not BEAN nodes.** XML WIRES must drop explicitly on XML incremental rebuild; annotation BEAN nodes must not be deleted by XML cleanup.
 
 ## Schema
 
@@ -52,7 +70,7 @@ Tables: `nodes`, `edges`, `annotations`, `node_names` (FTS5), `documents`, `doc_
 
 ## Fixtures
 
-- `fixtures/mini-spring-shop/` — 3-module Maven project (api/domain/service). Baseline: 16 types, 47 methods, 75 CONTAINS edges.
+- `fixtures/mini-spring-shop/` — 3-module Maven project (api/domain/service). Baseline: 16 types, 47 methods, 76 CONTAINS edges, plus Spring BEAN/ROUTE framework facts.
 - `fixtures/micro/` — 8 single-file fixtures pinning one language feature each. Driven by `MicroFixtureIT`.
 - `fixtures/external/commons-lang/` — git submodule, scale baseline. Auto-skips when missing.
 

@@ -63,6 +63,21 @@ public class TypeContextService {
             throw rethrow(e);
         }
 
+        List<String> contextIds = new ArrayList<>();
+        contextIds.add(node.id);
+        for (NodeRow m : r.members) contextIds.add(m.id);
+        if (!contextIds.isEmpty()) {
+            String ph = qmarks(contextIds.size());
+            List<Object> args = new ArrayList<>(contextIds);
+            args.addAll(contextIds);
+            String sql = "SELECT " + RowMappers.edgeColsFlat("1")
+                    + RowMappers.EDGE_FROM_JOINS
+                    + " WHERE e.relation IN ('DEFINED_BY','INJECTS','HANDLES','WIRES') "
+                    + "   AND (e.source_id IN (" + ph + ") OR e.target_id IN (" + ph + ")) "
+                    + " ORDER BY e.relation, e.source_id";
+            r.framework.addAll(runEdgeQuery(conn, sql, args));
+        }
+
         if (withCalleesDepth > 0) {
             List<String> sources = new ArrayList<>();
             sources.add(node.id);

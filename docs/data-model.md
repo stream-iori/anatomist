@@ -23,6 +23,15 @@ From scenario requirements, only store what Agent actually queries.
 | **READS** | NameExpr/FieldAccessExpr not on assignment LHS | method → field | "Who reads order.status?" |
 | **WRITES** | AssignExpr/UnaryExpr LHS field | method → field | "Who modifies order.status?" |
 
+### Framework Relations
+
+| Relation | Source | What's Stored | Use Case |
+|----------|--------|---------------|----------|
+| **DEFINED_BY** | Spring stereotypes / `@Bean` / XML `<bean>` | BEAN → class or factory method | "Which Bean represents this class?" |
+| **INJECTS** | `@Autowired` / `@Resource` / `@Inject` | owner class → injected type | Dependency analysis with DI facts |
+| **HANDLES** | Spring MVC mapping annotations | ROUTE → controller method | "Which HTTP endpoint enters this method?" |
+| **WIRES** | Spring XML bean refs | owner class → referenced class | XML wiring impact analysis |
+
 ### Not Stored
 
 | Relation | Why | Alternative |
@@ -42,6 +51,8 @@ FIELD:                  classFQN + # + fieldName (no parens = field)  → com.ex
 ENUM_CONSTANT:          enumFQN + # + constantName                   → com.example.OrderStatus#PENDING
 ANONYMOUS_CLASS:        parentMethodID + $anon@L<line>               → com.example.OrderService#checkout(...)$anon@L42
 LAMBDA:                 parentMethodID + $lambda@L<line>C<col>       → com.example.OrderService#checkout(...)$lambda@L42C18
+BEAN:                   bean:<springBeanName>                         → bean:orderService
+ROUTE:                  route:<HTTP_METHOD> <path>                    → route:POST /api/orders
 ```
 
 ### Key Decisions
@@ -120,6 +131,21 @@ LAMBDA:                 parentMethodID + $lambda@L<line>C<col>       → com.exa
 {
   "constants": ["PENDING", "CONFIRMED", "SHIPPED", "DELIVERED"]
 }
+
+// kind = BEAN
+{
+  "className": "com.example.shop.service.OrderService",
+  "source": "annotation",
+  "stereotype": "Service"
+}
+
+// kind = ROUTE
+{
+  "mappingAnnotation": "PostMapping",
+  "parameters": [
+    {"name": "request", "type": "CreateOrderRequest", "binding": "RequestBody"}
+  ]
+}
 ```
 
 ## Edges Table Design
@@ -129,8 +155,9 @@ LAMBDA:                 parentMethodID + $lambda@L<line>C<col>       → com.exa
 | `source_id` | TEXT FK→nodes.id | Caller/child/container |
 | `target_id` | TEXT FK→nodes.id | Callee/parent/contained; **internal only**, NULL for external |
 | `external_target_fqn` | TEXT | External dep FQN (e.g. `java.util.List#add`); NULL for internal |
-| `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES |
+| `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES |
 | `call_kind` | TEXT | CALLS only: INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE |
+| `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for query-time dispatch bridges |
 | `context` | TEXT | REFERENCES: field_type/parameter_type/return_type/generic_arg |
 | `is_external` | INTEGER | 0=internal, 1=external |
 

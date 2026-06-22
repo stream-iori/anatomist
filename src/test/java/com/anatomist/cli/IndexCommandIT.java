@@ -89,6 +89,15 @@ class IndexCommandIT {
             assertTrue(lambdas >= 1, "expected ≥1 LAMBDA node; got " + lambdas);
             assertTrue(methodRefs >= 1, "expected ≥1 METHOD_REF node; got " + methodRefs);
 
+            int beans = scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'");
+            int routes = scalar(st, "SELECT count(*) FROM nodes WHERE kind='ROUTE'");
+            int injects = scalar(st, "SELECT count(*) FROM edges WHERE relation='INJECTS'");
+            int handles = scalar(st, "SELECT count(*) FROM edges WHERE relation='HANDLES'");
+            assertTrue(beans >= 6, "expected Spring stereotype BEAN nodes; got " + beans);
+            assertEquals(2, routes, "expected 2 MVC ROUTE nodes");
+            assertTrue(injects >= 5, "expected @Autowired INJECTS edges; got " + injects);
+            assertEquals(2, handles, "expected 2 MVC HANDLES edges");
+
             // Phase 2 — semantic annotations & stdout line.
             // Note: this IT runs with --no-classpath, so SymbolSolver cannot
             // resolve Spring annotation FQNs (only java.lang.Override survives).
@@ -157,12 +166,12 @@ class IndexCommandIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + withDb);
              Statement st = c.createStatement()) {
             int beans = scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'");
-            assertEquals(4, beans, "expected 4 BEAN nodes from applicationContext.xml; got " + beans);
+            assertTrue(beans >= 10, "expected annotation + XML BEAN nodes; got " + beans);
 
             int definedByInternal = scalar(st,
                     "SELECT count(*) FROM edges WHERE relation='DEFINED_BY' AND is_external=0");
-            assertEquals(4, definedByInternal,
-                    "all 4 beans map to indexed classes; got " + definedByInternal);
+            assertTrue(definedByInternal >= 10,
+                    "annotation + XML beans should map to indexed classes; got " + definedByInternal);
 
             // OrderService bean wires orderRepository/eventPublisher/priceCalculator,
             // all CLASS->CLASS internal edges.
@@ -194,13 +203,16 @@ class IndexCommandIT {
                     "used-by PriceCalculator should include WIRES ← OrderService");
         }
 
-        // Without the flag: zero BEAN nodes (default off — golden/query unaffected).
+        // Without the flag: annotation-driven Spring Boot concepts remain, XML-only
+        // WIRES stay off.
         Path withoutDb = tmp.resolve("without.db");
         assertEquals(0, indexWithArgs(fixture, withoutDb, projectSource, false));
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + withoutDb);
              Statement st = c.createStatement()) {
-            assertEquals(0, scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'"),
-                    "no --spring-xml ⇒ no BEAN nodes");
+            assertTrue(scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'") >= 6,
+                    "annotation BEAN nodes should not require --spring-xml");
+            assertEquals(0, scalar(st, "SELECT count(*) FROM edges WHERE relation='WIRES'"),
+                    "no --spring-xml ⇒ no XML WIRES edges");
         }
     }
 }

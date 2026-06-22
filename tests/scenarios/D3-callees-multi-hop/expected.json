@@ -2,6 +2,7 @@
   "query" : "callees-of com.example.shop.controller.OrderController#create --depth 5",
   "results" : [ {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -13,6 +14,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderService#createOrder"
   }, {
     "call_kind" : "STATIC",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "external_target_fqn" : "java.util.Objects#requireNonNull(java.lang.Object,java.lang.String)",
     "is_external" : true,
@@ -22,6 +24,7 @@
     "source_location" : "L32"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -33,6 +36,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getCustomerId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -44,6 +48,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getItems"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -55,6 +60,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.OrderResult#OrderResult"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -66,6 +72,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#Order"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -77,6 +84,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#getId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -88,6 +96,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#setStatus"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -99,6 +108,7 @@
     "target_qualified_name" : "com.example.shop.domain.event.OrderCreatedEvent#OrderCreatedEvent"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -110,6 +120,7 @@
     "target_qualified_name" : "com.example.shop.event.OrderEventPublisher#publish"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -121,6 +132,7 @@
     "target_qualified_name" : "com.example.shop.repository.OrderRepository#save"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -132,6 +144,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderService#applyDiscount"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -143,6 +156,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderValidator#validate"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "CALLS",
@@ -153,6 +167,7 @@
     "target_label" : "calculate",
     "target_qualified_name" : "com.example.shop.service.PriceCalculator#calculate"
   }, {
+    "confidence" : "INFERRED",
     "depth" : 2,
     "is_external" : false,
     "relation" : "OVERRIDES",
@@ -164,6 +179,7 @@
     "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "context" : "if-then@L19",
     "depth" : 3,
     "external_target_fqn" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()",
@@ -174,6 +190,7 @@
     "source_location" : "L20"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "external_target_fqn" : "java.util.Map#put(java.lang.Object,java.lang.Object)",
     "is_external" : true,
@@ -183,6 +200,7 @@
     "source_location" : "L22"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "is_external" : false,
     "relation" : "CALLS",
@@ -194,6 +212,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#getId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "context" : "if-then@L19",
     "depth" : 3,
     "is_external" : false,
@@ -206,6 +225,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#setId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "external_target_fqn" : "java.lang.String#isEmpty()",
     "is_external" : true,
@@ -215,6 +235,7 @@
     "source_location" : "L9"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "context" : "if-then@L9",
     "depth" : 3,
     "external_target_fqn" : "java.lang.IllegalArgumentException#IllegalArgumentException(java.lang.String)",
@@ -225,6 +246,7 @@
     "source_location" : "L10"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "external_target_fqn" : "java.util.List#isEmpty()",
     "is_external" : true,
@@ -234,6 +256,7 @@
     "source_location" : "L12"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "is_external" : false,
     "relation" : "CALLS",
@@ -245,6 +268,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getCustomerId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "is_external" : false,
     "relation" : "CALLS",
@@ -256,6 +280,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getItems"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "external_target_fqn" : "java.util.stream.DoubleStream#sum()",
     "is_external" : true,
@@ -265,6 +290,7 @@
     "source_location" : "L11"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "external_target_fqn" : "java.util.stream.Stream#mapToDouble(java.util.function.ToDoubleFunction)",
     "is_external" : true,
@@ -274,6 +300,7 @@
     "source_location" : "L11"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 3,
     "external_target_fqn" : "java.util.Collection#stream()",
     "is_external" : true,
@@ -282,6 +309,7 @@
     "source_label" : "calculate",
     "source_location" : "L11"
   }, {
+    "confidence" : "INFERRED",
     "depth" : 3,
     "is_external" : false,
     "relation" : "OVERRIDES",

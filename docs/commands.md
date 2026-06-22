@@ -22,7 +22,7 @@ anatomist index <project-path> [options]
 | `--exclude <dirs>` | Comma-separated directories to skip | none |
 | `--include-tests` | Also index test sources | false |
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
-| `--spring-xml <paths>` | Parse Spring XML bean configs | none |
+| `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts. Spring annotation Bean/MVC facts are indexed by default. | false |
 
 ### `index-docs`
 Index project markdown documents for FTS5 search.
@@ -60,7 +60,7 @@ Show node structure + optional enrichment.
 anatomist context <fqn> [--with-callees=N] [--enrich] [--with-docs] [--package <pkg>] [--format markdown|json] --index <db>
 ```
 
-- Default: node + fields + methods + annotations
+- Default: node + fields + methods + annotations + framework facts (`DEFINED_BY`, `INJECTS`, `HANDLES`, `WIRES`)
 - `--enrich`: adds semantic annotations, arch_role, related docs, suggested queries
 - `--format markdown`: 200-line budgeted output
 
@@ -111,14 +111,14 @@ anatomist implementors-of <type-fqn> [--recursive] [--count] --index <db>
 - `--count`: return only the count of implementors (results omitted).
 
 ### `deps-of`
-Outgoing dependencies (CALLS + REFERENCES + WIRES).
+Outgoing dependencies (CALLS + REFERENCES + WIRES + INJECTS + HANDLES + DEFINED_BY).
 
 ```bash
 anatomist deps-of <type> [--limit 50] [--offset 0] [--filter <keyword>] --index <db>
 ```
 
 ### `used-by`
-Incoming dependencies (impact analysis).
+Incoming dependencies (impact analysis), including Spring MVC route handlers and DI/configuration facts.
 
 ```bash
 anatomist used-by <type> [--limit 50] [--offset 0] [--filter <keyword>] --index <db>

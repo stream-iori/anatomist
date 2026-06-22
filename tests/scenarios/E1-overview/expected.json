@@ -8,8 +8,11 @@
     "internal_edge_counts" : {
       "CALLS" : 27,
       "CONTAINS" : 76,
+      "DEFINED_BY" : 6,
+      "HANDLES" : 2,
       "IMPLEMENTS" : 1,
       "INHERITS" : 1,
+      "INJECTS" : 5,
       "OVERRIDES" : 4,
       "READS" : 23,
       "REFERENCES" : 32,
@@ -17,6 +20,7 @@
     },
     "kind_counts" : {
       "ANONYMOUS_CLASS" : 1,
+      "BEAN" : 6,
       "CLASS" : 13,
       "ENUM" : 1,
       "ENUM_CONSTANT" : 6,
@@ -24,7 +28,8 @@
       "INTERFACE" : 1,
       "LAMBDA" : 1,
       "METHOD" : 47,
-      "METHOD_REF" : 1
+      "METHOD_REF" : 1,
+      "ROUTE" : 2
     },
     "package_deps" : [ {
       "edge_count" : 1,
@@ -34,6 +39,11 @@
     }, {
       "edge_count" : 1,
       "relation" : "CALLS",
+      "source_package" : "com.example.shop.controller",
+      "target_package" : "com.example.shop.service"
+    }, {
+      "edge_count" : 1,
+      "relation" : "INJECTS",
       "source_package" : "com.example.shop.controller",
       "target_package" : "com.example.shop.service"
     }, {
@@ -98,12 +108,22 @@
       "target_package" : "com.example.shop.event"
     }, {
       "edge_count" : 1,
+      "relation" : "INJECTS",
+      "source_package" : "com.example.shop.service",
+      "target_package" : "com.example.shop.event"
+    }, {
+      "edge_count" : 1,
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.event"
     }, {
       "edge_count" : 2,
       "relation" : "CALLS",
+      "source_package" : "com.example.shop.service",
+      "target_package" : "com.example.shop.repository"
+    }, {
+      "edge_count" : 1,
+      "relation" : "INJECTS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.repository"
     }, {
@@ -148,7 +168,7 @@
   } ],
   "stats" : {
     "methods" : 47,
-    "package_deps" : 17,
+    "package_deps" : 20,
     "packages" : 8,
     "types" : 16
   }

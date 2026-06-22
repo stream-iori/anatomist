@@ -2,6 +2,7 @@
   "query" : "deps-of com.example.shop.service.OrderService",
   "results" : [ {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "external_target_fqn" : "java.util.stream.Stream#count()",
     "is_external" : true,
@@ -11,6 +12,7 @@
     "source_location" : "L56"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "external_target_fqn" : "java.util.stream.Stream#filter(java.util.function.Predicate)",
     "is_external" : true,
@@ -20,6 +22,7 @@
     "source_location" : "L56"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "external_target_fqn" : "java.util.Collection#stream()",
     "is_external" : true,
@@ -29,6 +32,7 @@
     "source_location" : "L56"
   }, {
     "call_kind" : "STATIC",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "external_target_fqn" : "java.util.Objects#requireNonNull(java.lang.Object,java.lang.String)",
     "is_external" : true,
@@ -38,6 +42,7 @@
     "source_location" : "L32"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -49,6 +54,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderValidator#validate"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -60,6 +66,7 @@
     "target_qualified_name" : "com.example.shop.service.PriceCalculator#calculate"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -71,6 +78,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getItems"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -82,6 +90,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderService#applyDiscount"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -93,6 +102,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#Order"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -104,6 +114,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getCustomerId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -115,6 +126,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getItems"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -126,6 +138,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#setStatus"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -137,6 +150,7 @@
     "target_qualified_name" : "com.example.shop.repository.OrderRepository#save"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -148,6 +162,7 @@
     "target_qualified_name" : "com.example.shop.event.OrderEventPublisher#publish"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -159,6 +174,7 @@
     "target_qualified_name" : "com.example.shop.domain.event.OrderCreatedEvent#OrderCreatedEvent"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -170,6 +186,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.OrderResult#OrderResult"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -181,6 +198,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#getId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -192,6 +210,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#setCustomerId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -203,6 +222,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#setItems"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -213,6 +233,59 @@
     "target_label" : "createOrder",
     "target_qualified_name" : "com.example.shop.service.OrderService#createOrder"
   }, {
+    "confidence" : "CONFIGURED",
+    "depth" : 1,
+    "is_external" : false,
+    "metadata" : "{\"injectedType\":\"com.example.shop.repository.OrderRepository\",\"annotation\":\"Autowired\"}",
+    "relation" : "INJECTS",
+    "source" : "com.example.shop.service.OrderService",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_label" : "OrderService",
+    "source_location" : "L22",
+    "target" : "com.example.shop.repository.OrderRepository",
+    "target_label" : "OrderRepository",
+    "target_qualified_name" : "com.example.shop.repository.OrderRepository"
+  }, {
+    "confidence" : "CONFIGURED",
+    "depth" : 1,
+    "is_external" : false,
+    "metadata" : "{\"injectedType\":\"com.example.shop.service.OrderValidator\",\"annotation\":\"Autowired\"}",
+    "relation" : "INJECTS",
+    "source" : "com.example.shop.service.OrderService",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_label" : "OrderService",
+    "source_location" : "L24",
+    "target" : "com.example.shop.service.OrderValidator",
+    "target_label" : "OrderValidator",
+    "target_qualified_name" : "com.example.shop.service.OrderValidator"
+  }, {
+    "confidence" : "CONFIGURED",
+    "depth" : 1,
+    "is_external" : false,
+    "metadata" : "{\"injectedType\":\"com.example.shop.service.PriceCalculator\",\"annotation\":\"Autowired\"}",
+    "relation" : "INJECTS",
+    "source" : "com.example.shop.service.OrderService",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_label" : "OrderService",
+    "source_location" : "L26",
+    "target" : "com.example.shop.service.PriceCalculator",
+    "target_label" : "PriceCalculator",
+    "target_qualified_name" : "com.example.shop.service.PriceCalculator"
+  }, {
+    "confidence" : "CONFIGURED",
+    "depth" : 1,
+    "is_external" : false,
+    "metadata" : "{\"injectedType\":\"com.example.shop.event.OrderEventPublisher\",\"annotation\":\"Autowired\"}",
+    "relation" : "INJECTS",
+    "source" : "com.example.shop.service.OrderService",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_label" : "OrderService",
+    "source_location" : "L28",
+    "target" : "com.example.shop.event.OrderEventPublisher",
+    "target_label" : "OrderEventPublisher",
+    "target_qualified_name" : "com.example.shop.event.OrderEventPublisher"
+  }, {
+    "confidence" : "EXTRACTED",
     "context" : "field_type",
     "depth" : 1,
     "is_external" : false,
@@ -223,6 +296,7 @@
     "target_label" : "PriceCalculator",
     "target_qualified_name" : "com.example.shop.service.PriceCalculator"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "parameter_type",
     "depth" : 1,
     "external_target_fqn" : "java.util.List",
@@ -231,6 +305,7 @@
     "source" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
     "source_label" : "countExpensiveItems"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "generic_arg",
     "depth" : 1,
     "is_external" : false,
@@ -241,6 +316,7 @@
     "target_label" : "OrderItem",
     "target_qualified_name" : "com.example.shop.domain.entity.OrderItem"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "return_type",
     "depth" : 1,
     "is_external" : false,
@@ -251,6 +327,7 @@
     "target_label" : "OrderResult",
     "target_qualified_name" : "com.example.shop.domain.dto.OrderResult"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "parameter_type",
     "depth" : 1,
     "is_external" : false,
@@ -261,6 +338,7 @@
     "target_label" : "CreateOrderRequest",
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "return_type",
     "depth" : 1,
     "is_external" : false,
@@ -271,6 +349,7 @@
     "target_label" : "OrderResult",
     "target_qualified_name" : "com.example.shop.domain.dto.OrderResult"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "parameter_type",
     "depth" : 1,
     "external_target_fqn" : "java.util.List",
@@ -279,6 +358,7 @@
     "source" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
     "source_label" : "createOrder"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "generic_arg",
     "depth" : 1,
     "is_external" : false,
@@ -289,6 +369,7 @@
     "target_label" : "OrderItem",
     "target_qualified_name" : "com.example.shop.domain.entity.OrderItem"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "field_type",
     "depth" : 1,
     "is_external" : false,
@@ -299,6 +380,7 @@
     "target_label" : "OrderRepository",
     "target_qualified_name" : "com.example.shop.repository.OrderRepository"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "field_type",
     "depth" : 1,
     "is_external" : false,
@@ -309,6 +391,7 @@
     "target_label" : "OrderEventPublisher",
     "target_qualified_name" : "com.example.shop.event.OrderEventPublisher"
   }, {
+    "confidence" : "EXTRACTED",
     "context" : "field_type",
     "depth" : 1,
     "is_external" : false,
@@ -321,7 +404,7 @@
   } ],
   "stats" : {
     "offset" : 0,
-    "total" : 31,
+    "total" : 35,
     "truncated" : false
   }
 }

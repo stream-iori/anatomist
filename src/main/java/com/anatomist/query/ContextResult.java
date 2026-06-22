@@ -12,6 +12,7 @@ public class ContextResult {
     public NodeRow node;
     public List<NodeRow> members = new ArrayList<>();
     public List<Map<String, Object>> annotations = new ArrayList<>();
+    public List<EdgeRow> framework = new ArrayList<>();
     /** Only populated when {@code --with-callees[=N]} was requested. */
     public List<EdgeRow> callees;
 
@@ -19,6 +20,7 @@ public class ContextResult {
         Map<String, Object> s = new LinkedHashMap<>();
         s.put("members", members.size());
         s.put("annotations", annotations.size());
+        s.put("framework", framework.size());
         if (callees != null) s.put("callees", callees.size());
         return s;
     }

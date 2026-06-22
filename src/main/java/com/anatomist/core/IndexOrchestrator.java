@@ -4,7 +4,8 @@ import com.anatomist.config.ProjectConfig;
 import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
-import com.anatomist.extract.XmlBeanExtractor;
+import com.anatomist.framework.AnalysisContext;
+import com.anatomist.framework.AnalyzerRegistry;
 import com.anatomist.incremental.FileCacheService;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
@@ -44,7 +45,10 @@ public class IndexOrchestrator {
         NodeIdGenerator idGen = new NodeIdGenerator();
         ExtractionContext ctx = new ExtractionContext(
                 cfg.projectRoot(), cfg.sourcePaths(), idGen, null, "MAIN", cfg.config());
-        ExtractorPipeline pipeline = new ExtractorPipeline(ctx);
+        AnalysisContext analysisContext = new AnalysisContext(
+                cfg.projectRoot(), cfg.sourcePaths(), ctx, cfg.config(), cfg.springXml());
+        ExtractorPipeline pipeline = new ExtractorPipeline(
+                ctx, AnalyzerRegistry.javaAstAnalyzers(analysisContext));
 
         ExtractionResult result = new ExtractionResult();
         result.setNodeFlusher(store::writeNodes);
@@ -61,18 +65,9 @@ public class IndexOrchestrator {
 
         result.flushRemainingNodes();
 
-        List<Path> xmlFiles = Collections.emptyList();
-        if (cfg.springXml()) {
-            xmlFiles = new ProjectScanner().scanSpringXml(cfg.projectRoot());
-            if (!xmlFiles.isEmpty()) {
-                Set<String> knownIds = new HashSet<>();
-                for (Node n : result.nodes) knownIds.add(n.id);
-                XmlBeanExtractor xmlExtractor = new XmlBeanExtractor("MAIN");
-                SpringBeanParser beanParser = new SpringBeanParser();
-                for (Path xml : xmlFiles) {
-                    String rel = relativize(cfg.projectRoot(), xml.toAbsolutePath().normalize());
-                    xmlExtractor.extract(beanParser.parse(xml), knownIds, rel, result);
-                }
+        for (var analyzer : AnalyzerRegistry.projectAnalyzers()) {
+            if (analyzer.enabled(analysisContext)) {
+                analyzer.analyze(analysisContext, result);
                 result.flushRemainingNodes();
             }
         }
@@ -89,6 +84,10 @@ public class IndexOrchestrator {
                 ExtractionResult.FLUSH_THRESHOLD);
 
         List<Path> cachedFiles = cfg.sourceFiles();
+        List<Path> xmlFiles = Collections.emptyList();
+        if (cfg.springXml()) {
+            xmlFiles = new ProjectScanner().scanSpringXml(cfg.projectRoot());
+        }
         if (!xmlFiles.isEmpty()) {
             cachedFiles = new ArrayList<>(cfg.sourceFiles());
             cachedFiles.addAll(xmlFiles);

@@ -99,11 +99,13 @@ public final class DtoCodecs {
             put(m, "external_target_fqn", e.externalTargetFqn);
             put(m, "relation", e.relation);
             put(m, "call_kind", e.callKind);
+            put(m, "confidence", e.confidence);
             put(m, "is_external", e.isExternal);
             put(m, "depth", e.depth);
             put(m, "source_file", e.sourceFile);
             put(m, "source_location", e.sourceLocation);
             put(m, "context", e.context);
+            put(m, "metadata", e.metadata);
             put(m, "via", e.via);
             return m;
         }
@@ -142,6 +144,7 @@ public final class DtoCodecs {
             put(m, "node", r.node);
             put(m, "members", r.members);
             put(m, "annotations", r.annotations);
+            put(m, "framework", r.framework);
             put(m, "callees", r.callees);
             return m;
         }

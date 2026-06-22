@@ -27,7 +27,7 @@ public class DependencyService {
         String sql = "SELECT " + RowMappers.edgeColsFlat("1")
                 + RowMappers.EDGE_FROM_JOINS
                 + " WHERE e.source_id IN (" + ph + ") "
-                + "   AND e.relation IN ('CALLS','REFERENCES','WIRES') "
+                + "   AND e.relation IN ('CALLS','REFERENCES','WIRES','INJECTS','HANDLES','DEFINED_BY') "
                 + " ORDER BY e.relation, e.source_id";
         return runEdgeQuery(conn, sql, new ArrayList<>(sources));
     }
@@ -45,7 +45,7 @@ public class DependencyService {
                 + RowMappers.EDGE_FROM_JOINS
                 + " WHERE e.target_id IN (" + ph + ") "
                 + "   AND e.is_external = 0 "
-                + "   AND e.relation IN ('CALLS','REFERENCES','WIRES') "
+                + "   AND e.relation IN ('CALLS','REFERENCES','WIRES','INJECTS','HANDLES','DEFINED_BY') "
                 + " ORDER BY e.relation, e.source_id";
         return runEdgeQuery(conn, sql, new ArrayList<>(targets));
     }

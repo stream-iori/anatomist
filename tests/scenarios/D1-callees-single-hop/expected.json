@@ -2,6 +2,7 @@
   "query" : "callees-of com.example.shop.service.OrderService#createOrder --depth 1",
   "results" : [ {
     "call_kind" : "STATIC",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "external_target_fqn" : "java.util.Objects#requireNonNull(java.lang.Object,java.lang.String)",
     "is_external" : true,
@@ -11,6 +12,7 @@
     "source_location" : "L32"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -22,6 +24,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getCustomerId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -33,6 +36,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getItems"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -44,6 +48,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.OrderResult#OrderResult"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -55,6 +60,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#Order"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -66,6 +72,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#getId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -77,6 +84,7 @@
     "target_qualified_name" : "com.example.shop.domain.entity.Order#setStatus"
   }, {
     "call_kind" : "CONSTRUCTOR",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -88,6 +96,7 @@
     "target_qualified_name" : "com.example.shop.domain.event.OrderCreatedEvent#OrderCreatedEvent"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -99,6 +108,7 @@
     "target_qualified_name" : "com.example.shop.event.OrderEventPublisher#publish"
   }, {
     "call_kind" : "INTERFACE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -110,6 +120,7 @@
     "target_qualified_name" : "com.example.shop.repository.OrderRepository#save"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -121,6 +132,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderService#applyDiscount"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -132,6 +144,7 @@
     "target_qualified_name" : "com.example.shop.service.OrderValidator#validate"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -143,6 +156,7 @@
     "target_qualified_name" : "com.example.shop.service.PriceCalculator#calculate"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -154,6 +168,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#setCustomerId"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -165,6 +180,7 @@
     "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#setItems"
   }, {
     "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "CALLS",
@@ -175,6 +191,7 @@
     "target_label" : "createOrder",
     "target_qualified_name" : "com.example.shop.service.OrderService#createOrder"
   }, {
+    "confidence" : "INFERRED",
     "depth" : 1,
     "is_external" : false,
     "relation" : "OVERRIDES",

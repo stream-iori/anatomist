@@ -1,6 +1,14 @@
 {
   "query" : "search OrderService --limit 5",
   "results" : [ {
+    "id" : "bean:orderService",
+    "javadoc" : null,
+    "kind" : "BEAN",
+    "label" : "orderService",
+    "qualified_name" : "orderService",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_location" : "L18"
+  }, {
     "id" : "com.example.shop.service.OrderService",
     "javadoc" : null,
     "kind" : "CLASS",
@@ -32,17 +40,9 @@
     "qualified_name" : "com.example.shop.service.OrderService#validator",
     "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
     "source_location" : "L24"
-  }, {
-    "id" : "com.example.shop.service.OrderService#calculator",
-    "javadoc" : null,
-    "kind" : "FIELD",
-    "label" : "calculator",
-    "qualified_name" : "com.example.shop.service.OrderService#calculator",
-    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-    "source_location" : "L26"
   } ],
   "stats" : {
-    "label_matches" : 2,
+    "label_matches" : 3,
     "total" : 5
   }
 }

@@ -243,7 +243,7 @@ public class DataWriter {
         }
         try (Statement st = c.createStatement()) {
             st.execute("DELETE FROM edges WHERE relation='WIRES'");
-            st.execute("DELETE FROM nodes WHERE kind='BEAN'");
+            st.execute("DELETE FROM nodes WHERE kind='BEAN' AND source_file LIKE '%.xml'");
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete spring bean graph", e);
         }
