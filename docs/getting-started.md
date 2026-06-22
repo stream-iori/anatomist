@@ -1,12 +1,30 @@
 # Getting Started
 
-## Prerequisites
+## Install (pre-built binary)
+
+One-line install for macOS Apple Silicon:
+
+```bash
+curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh
+```
+
+This downloads the native binary to `~/.local/bin/anatomist`. Custom install path:
+
+```bash
+ANATOMIST_INSTALL_DIR=/usr/local/bin curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh
+```
+
+After install, ensure `~/.local/bin` is in your PATH (the script will remind you if not).
+
+## Build from source
+
+### Prerequisites
 
 - JDK 21+ (or GraalVM 25+ for native binary)
 - Maven 3.9+
 - `just` task runner (`brew install just`)
 
-## Build
+### Build
 
 ```bash
 just jar          # → target/anatomist.jar (fat JVM jar)

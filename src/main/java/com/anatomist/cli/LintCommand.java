@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 
 @Command(name = "lint",
+        mixinStandardHelpOptions = true,
         description = "Detect architecture smells based on arch_roles + call graph.")
 public class LintCommand implements Callable<Integer> {
 

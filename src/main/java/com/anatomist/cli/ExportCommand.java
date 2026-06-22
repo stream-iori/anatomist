@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 
 @Command(name = "export",
+        mixinStandardHelpOptions = true,
         description = "Export the index for visualization.%n"
                     + "  --format html : package tree + class dependency graph%n"
                     + "  --format arch : architecture swimlane view with code drill-down")

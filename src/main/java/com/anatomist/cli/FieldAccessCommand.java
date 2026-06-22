@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 @Command(name = "field-access",
+        mixinStandardHelpOptions = true,
         description = "Methods/lambdas that access a field — reads, writes, or both.")
 public class FieldAccessCommand implements Callable<Integer> {
 

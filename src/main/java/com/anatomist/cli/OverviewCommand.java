@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 
 @Command(name = "overview",
+        mixinStandardHelpOptions = true,
         description = "Top-down project summary: node-kind counts, edge counts, "
                     + "per-package type/method tallies, and the package dependency skeleton.")
 public class OverviewCommand implements Callable<Integer> {

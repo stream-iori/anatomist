@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 @Command(name = "context",
+        mixinStandardHelpOptions = true,
         description = "Show node + contained members + annotations. "
                     + "Add --with-callees[=N] for outgoing CALLS. "
                     + "Add --enrich for semantic annotations, docs and suggested queries.")

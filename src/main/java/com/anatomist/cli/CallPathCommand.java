@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 @Command(name = "call-path",
+        mixinStandardHelpOptions = true,
         description = "Shortest CALLS chain from <from> to <to> (BFS; empty when unreachable).")
 public class CallPathCommand implements Callable<Integer> {
 

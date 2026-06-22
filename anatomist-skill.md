@@ -12,11 +12,21 @@ runtime behavior, build/CI issues, or non-Java code.
 
 ## Setup check (do once per session)
 
-1. Is there an index at `~/.anatomist/<repo-name>/index.db`?
-   - **Yes** → skip to "Query playbook".
-   - **No** → build the index: `anatomist index <project-root>`.
+1. Discover the local contract:
+   ```bash
+   anatomist doctor --format json
+   ```
+   Use `commands`, `schema_version`, `capabilities`, and `index_exists`
+   instead of guessing from text output.
 
-2. Index tips:
+2. Is there an index at `~/.anatomist/<repo-name>/index.db`?
+   - **Yes** → skip to "Query playbook".
+   - **No** → build the index:
+     ```bash
+     anatomist index <project-root> --format json
+     ```
+
+3. Index tips:
    - Multi-module Maven projects work out of the box — every module's
      `src/main/java` is auto-discovered (no need for `--project-source`).
    - On a Spring-style project where annotations matter, **do not** add
@@ -28,7 +38,7 @@ runtime behavior, build/CI issues, or non-Java code.
    - For subsequent updates: `anatomist index <project> --incremental` is
      cheap (only re-parses changed files + their dependents).
 
-3. Index db default: `~/.anatomist/<repo-name>/index.db`. All query commands
+4. Index db default: `~/.anatomist/<repo-name>/index.db`. All query commands
    accept `--index <path>` to override.
 
 ---
@@ -39,6 +49,17 @@ Every command emits JSON to stdout in the shape:
 ```json
 { "query": "<echo of cmd line>", "results": [...], "stats": {...} }
 ```
+
+Mutation commands that Agents should call in JSON mode:
+
+| Need | Command |
+|---|---|
+| Check CLI/index/schema/capabilities | `doctor --format json [--index <db>]` |
+| Build an index and verify counts/errors | `index <project-root> --format json [--output <db>]` |
+| Infer roles and judge quality | `annotate --auto --format json --index <db>` |
+
+When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
+`stats.suggestions` before concluding the project has no matching role.
 
 ### Find things
 
@@ -69,7 +90,7 @@ Every command emits JSON to stdout in the shape:
 | Incoming CALLS+REFERENCES to a class (who uses me) | `used-by <fqn>` |
 | Package → package dependency skeleton | `overview --deps-only` |
 | Full project summary (node counts, edge counts, per-package stats) | `overview` |
-| Architecture role inference | `annotate --auto` |
+| Architecture role inference | `annotate --auto --format json` |
 | Architecture smell detection | `lint` |
 
 ### Trace call chains
@@ -173,7 +194,7 @@ Agent typically composes 2–4 commands. Common patterns:
 ### "Architecture overview + smells"
 
 ```
-1. annotate --auto                                # infer roles
+1. annotate --auto --format json                  # infer roles + quality summary
 2. overview                                       # project summary
 3. lint                                           # detect arch smells
 4. search DOMAIN_MODEL --by-role                  # check classified nodes

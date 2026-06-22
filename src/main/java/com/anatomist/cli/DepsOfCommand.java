@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 @Command(name = "deps-of",
+        mixinStandardHelpOptions = true,
         description = "Outgoing CALLS + REFERENCES from a type (and its methods).")
 public class DepsOfCommand implements Callable<Integer> {
 

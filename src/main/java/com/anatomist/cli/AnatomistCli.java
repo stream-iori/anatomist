@@ -18,12 +18,15 @@ import picocli.CommandLine.HelpCommand;
                 "",
                 "@|bold Quick Start:|@",
                 "  anatomist index /path/to/project          Index a Java project",
+                "  anatomist doctor --format json            Check CLI/schema/index",
+                "  anatomist index . --format json           Build index JSON summary",
+                "  anatomist annotate --auto --format json   Infer roles JSON summary",
                 "  anatomist search OrderService             Find nodes by name",
                 "  anatomist callees-of Class#method         Show outgoing calls",
                 "  anatomist context com.example.MyClass     Type overview + members",
                 "",
                 "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",
-                "@|bold Output:|@   All query commands emit JSON to stdout.",
+                "@|bold Output:|@   Query commands emit JSON; mutation commands support --format json where documented.",
                 ""
         },
         commandListHeading = "%n@|bold Commands:|@%n",
@@ -45,6 +48,7 @@ import picocli.CommandLine.HelpCommand;
                 OverviewCommand.class,
                 ExportCommand.class,
                 AnnotateCommand.class,
+                DoctorCommand.class,
                 LintCommand.class
         }
 )

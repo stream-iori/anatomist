@@ -19,6 +19,7 @@ import com.anatomist.extract.ReferenceExtractor;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.extract.XmlBeanExtractor;
 import com.anatomist.incremental.FileCacheService;
+import com.anatomist.json.Json;
 import com.anatomist.incremental.IncrementalIndexer;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
@@ -42,7 +43,8 @@ import java.util.stream.Collectors;
 
 @Command(
         name = "index",
-        description = "Index a Java project into a SQLite database."
+        mixinStandardHelpOptions = true,
+        description = "Index a Java project into a SQLite database. Use --format json for a stable Agent summary."
 )
 public class IndexCommand implements Callable<Integer> {
 
@@ -111,6 +113,9 @@ public class IndexCommand implements Callable<Integer> {
             description = "Comma-separated FQN patterns to exclude from external reference tracking "
                     + "(e.g. \"com.google.**,org.apache.**\"). Appends to config.toml [external].exclude_patterns.")
     String externalExclude;
+
+    @Option(names = "--format", description = "Output format: text | json.", defaultValue = "text")
+    String format;
 
     @Override
     public Integer call() {
@@ -218,17 +223,21 @@ public class IndexCommand implements Callable<Integer> {
                     }
 
                     long elapsed = System.currentTimeMillis() - started;
-                    System.out.println("Indexed " + projectRoot + " (incremental)");
-                    System.out.println("  Changed files: " + summary.changedFiles);
-                    System.out.println("  New files:     " + summary.newFiles);
-                    System.out.println("  Deleted files: " + summary.deletedFiles);
-                    System.out.println("  Realigned deps:" + summary.realignedDependents);
-                    System.out.println("  New nodes:     " + summary.newNodes);
-                    System.out.println("  New edges:     " + summary.newEdges);
-                    System.out.println("  Output:        " + dbPath);
                     java.util.Map<String, FileCacheEntry> after = store.readFileCache();
-                    System.out.println("  File cache:    " + after.size() + " entries");
-                    System.out.println("Done in " + elapsed + "ms");
+                    if ("json".equalsIgnoreCase(format)) {
+                        emitIncrementalJson(projectRoot, dbPath, sourceFiles.size(), summary, after.size(), elapsed);
+                    } else {
+                        System.out.println("Indexed " + projectRoot + " (incremental)");
+                        System.out.println("  Changed files: " + summary.changedFiles);
+                        System.out.println("  New files:     " + summary.newFiles);
+                        System.out.println("  Deleted files: " + summary.deletedFiles);
+                        System.out.println("  Realigned deps:" + summary.realignedDependents);
+                        System.out.println("  New nodes:     " + summary.newNodes);
+                        System.out.println("  New edges:     " + summary.newEdges);
+                        System.out.println("  Output:        " + dbPath);
+                        System.out.println("  File cache:    " + after.size() + " entries");
+                        System.out.println("Done in " + elapsed + "ms");
+                    }
                     return 0;
                 }
             }
@@ -261,8 +270,12 @@ public class IndexCommand implements Callable<Integer> {
         try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
              SqliteStore store = new SqliteStore(dbPath)) {
             com.anatomist.core.IndexResult result = orchestrator.run(store);
-            com.anatomist.core.IndexStatsPrinter.print(result, cfg, System.out);
-            if (result.samplingEnabled() && result.unresolvedSamples() != null) {
+            if ("json".equalsIgnoreCase(format)) {
+                emitIndexJson(result, cfg);
+            } else {
+                com.anatomist.core.IndexStatsPrinter.print(result, cfg, System.out);
+            }
+            if (!"json".equalsIgnoreCase(format) && result.samplingEnabled() && result.unresolvedSamples() != null) {
                 @SuppressWarnings("unchecked")
                 java.util.Map<String, Object> samples = result.unresolvedSamples();
                 @SuppressWarnings("unchecked")
@@ -275,6 +288,69 @@ public class IndexCommand implements Callable<Integer> {
             }
         }
         return 0;
+    }
+
+    private void emitIndexJson(com.anatomist.core.IndexResult result,
+                               com.anatomist.core.IndexConfig cfg) {
+        java.util.Map<String, Object> stats = new java.util.LinkedHashMap<>();
+        java.util.Map<String, Long> kinds = result.kindCounts();
+        java.util.Map<String, Long> relations = result.relationCounts();
+        long types = kinds.entrySet().stream()
+                .filter(e -> Set.of("CLASS", "INTERFACE", "ENUM", "ANONYMOUS_CLASS", "RECORD").contains(e.getKey()))
+                .mapToLong(java.util.Map.Entry::getValue)
+                .sum();
+        stats.put("source_files", cfg.sourceFiles().size());
+        stats.put("types", types);
+        stats.put("classes", kinds.getOrDefault("CLASS", 0L));
+        stats.put("methods", kinds.getOrDefault("METHOD", 0L));
+        stats.put("fields", kinds.getOrDefault("FIELD", 0L));
+        stats.put("beans", kinds.getOrDefault("BEAN", 0L));
+        stats.put("unresolved", result.unresolvedCount());
+        stats.put("dropped_dangling_edges", result.droppedDanglingEdges());
+        stats.put("file_cache_entries", result.fileCacheSize());
+        stats.put("elapsed_ms", result.elapsedMs());
+
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("command", "index");
+        out.put("status", "ok");
+        out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
+        out.put("index_path", cfg.dbPath().toString());
+        out.put("stats", stats);
+        out.put("node_kinds", kinds);
+        out.put("relations", relations);
+        out.put("warnings", java.util.List.of());
+        out.put("errors", java.util.List.of());
+        System.out.println(Json.writePretty(out));
+    }
+
+    private void emitIncrementalJson(Path projectRoot,
+                                     Path dbPath,
+                                     int sourceFileCount,
+                                     IncrementalIndexer.Summary summary,
+                                     int fileCacheSize,
+                                     long elapsedMs) {
+        java.util.Map<String, Object> stats = new java.util.LinkedHashMap<>();
+        stats.put("source_files", sourceFileCount);
+        stats.put("changed_files", summary.changedFiles);
+        stats.put("new_files", summary.newFiles);
+        stats.put("deleted_files", summary.deletedFiles);
+        stats.put("realigned_dependents", summary.realignedDependents);
+        stats.put("new_nodes", summary.newNodes);
+        stats.put("new_edges", summary.newEdges);
+        stats.put("file_cache_entries", fileCacheSize);
+        stats.put("elapsed_ms", elapsedMs);
+
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("command", "index");
+        out.put("status", "ok");
+        out.put("mode", "incremental");
+        out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
+        out.put("project_root", projectRoot.toString());
+        out.put("index_path", dbPath.toString());
+        out.put("stats", stats);
+        out.put("warnings", java.util.List.of());
+        out.put("errors", java.util.List.of());
+        System.out.println(Json.writePretty(out));
     }
 
     List<Path> resolveSourcePaths(ClasspathDetector cd, Path projectRoot) {

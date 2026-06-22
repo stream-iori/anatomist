@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 @Command(name = "used-by",
+        mixinStandardHelpOptions = true,
         description = "Incoming CALLS + REFERENCES to a type (and its methods) — impact analysis.")
 public class UsedByCommand implements Callable<Integer> {
 

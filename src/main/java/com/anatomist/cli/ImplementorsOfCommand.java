@@ -10,6 +10,7 @@ import picocli.CommandLine.Parameters;
 import java.util.List;
 
 @Command(name = "implementors-of",
+        mixinStandardHelpOptions = true,
         description = "Find classes that implement (or extend) the given interface/type.",
         footer = "%nExamples:%n  implementors-of OrderService%n  implementors-of SubscriberEventPlugin --recursive%n  implementors-of SubscriberEventPlugin --count")
 public class ImplementorsOfCommand extends QueryCommand {

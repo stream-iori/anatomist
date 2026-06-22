@@ -9,6 +9,7 @@ import picocli.CommandLine.Parameters;
 import java.util.List;
 
 @Command(name = "hierarchy",
+        mixinStandardHelpOptions = true,
         description = "Show extends chain + direct implements for a type.")
 public class HierarchyCommand extends QueryCommand {
 

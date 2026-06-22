@@ -1,6 +1,6 @@
 # CLI Command Reference
 
-All commands output JSON to stdout (except `overview --format markdown` and `export --format html`).
+Query commands output JSON to stdout. Mutation commands default to text and support JSON where noted.
 
 ## Index Phase
 
@@ -23,6 +23,31 @@ anatomist index <project-path> [options]
 | `--include-tests` | Also index test sources | false |
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
 | `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts. Spring annotation Bean/MVC facts are indexed by default. | false |
+| `--format json` | Emit a stable Agent summary: `command`, `status`, `schema_version`, `index_path`, `stats`, `warnings`, `errors` | text |
+
+Example:
+
+```bash
+anatomist index . --format json --output /tmp/index.db
+```
+
+### `doctor`
+Report CLI capabilities, schema version, and index health.
+
+```bash
+anatomist doctor --format json [--index <db>]
+```
+
+JSON includes:
+
+| Field | Meaning |
+|-------|---------|
+| `version` | CLI version |
+| `schema_version` | Current writer schema |
+| `default_index_path` / `index_path` | Resolved index locations |
+| `index_exists` | Whether the target DB exists |
+| `commands` | Supported subcommands for Agent self-discovery |
+| `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
 
 ### `index-docs`
 Index project markdown documents for FTS5 search.
@@ -52,6 +77,7 @@ anatomist search <term> --count --index <db>
 - Default `<term>`: FTS5 match over qualified name / label / javadoc — **also matches package path tokens** (e.g. `search Facade` matches everything under a `.facade.` package). FTS results carry a `stats.label_matches` count: how many returned rows actually match the simple name, so an inflated `total` is easy to spot.
 - `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*EventPlugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
 - `--count`: return only the true total (results omitted), **independent of `--limit`**. Works with `--name` or FTS.
+- `--by-role`: when empty, `stats.reason` and `stats.suggestions` explain likely causes instead of returning a bare empty list.
 
 ### `context`
 Show node structure + optional enrichment.
@@ -160,10 +186,26 @@ anatomist annotate <node-id> --category BUSINESS_SERVICE --label "订单服务" 
 
 # Auto-infer DDD layers (L1 annotation + L2 call-pattern rules)
 anatomist annotate --auto --index <db>
+anatomist annotate --auto --format json --index <db>
 
 # Batch from JSON file
 anatomist annotate --from-json annotations.json --index <db>
 ```
+
+`annotate --auto --format json` reports `roles_by_type`, `inferred_count`, `unclassified_count`, and low-confidence `reasons` so Agents can distinguish index success from role inference success.
+
+## Agent Integration Contract
+
+Use these commands for deterministic tool integration:
+
+| Need | Command |
+|------|---------|
+| Discover CLI/schema/capabilities | `anatomist doctor --format json` |
+| Build index and verify success | `anatomist index <repo> --format json` |
+| Infer architecture roles and check quality | `anatomist annotate --auto --format json --index <db>` |
+| Query domain/entry candidates | `anatomist search ENTRY --by-role --index <db>` |
+
+All subcommands support `--help` for self-discovery.
 
 ### `lint`
 Detect architecture smells.

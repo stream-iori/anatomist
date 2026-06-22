@@ -12,6 +12,7 @@ import picocli.CommandLine.Parameters;
 import java.util.List;
 
 @Command(name = "callees-of",
+        mixinStandardHelpOptions = true,
         description = "Outgoing CALLS from a method, optionally recursive (--depth N).",
         footer = "%nExamples:%n  callees-of com.example.OrderService#create --depth 3%n  callees-of OrderService#create --blocks package")
 public class CalleesOfCommand extends QueryCommand {

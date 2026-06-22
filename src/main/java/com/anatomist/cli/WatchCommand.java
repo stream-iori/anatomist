@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
 
 @Command(
         name = "watch",
+        mixinStandardHelpOptions = true,
         description = "Watch a Java project source tree and report (or incrementally index) changes."
 )
 public class WatchCommand implements Callable<Integer> {

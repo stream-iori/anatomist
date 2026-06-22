@@ -14,6 +14,7 @@ import java.util.concurrent.Callable;
 
 @Command(
         name = "index-docs",
+        mixinStandardHelpOptions = true,
         description = "Scan project markdown documents into SQLite documents + doc_content FTS5."
 )
 public class IndexDocsCommand implements Callable<Integer> {

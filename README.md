@@ -37,11 +37,20 @@ java -jar target/anatomist.jar callees-of \
     --depth 3 --index /tmp/shop.db
 ```
 
+For Agent integration, prefer machine-readable health and build checks:
+
+```bash
+anatomist doctor --format json --index /tmp/shop.db
+anatomist index . --format json --output /tmp/shop.db
+anatomist annotate --auto --format json --index /tmp/shop.db
+```
+
 ---
 
 ## What it does
 
 - 17 CLI commands covering: search, context, call chain, hierarchy, dependencies, field access, overview, export, annotation, lint
+- Stable Agent contract: every subcommand supports `--help`; `doctor`, `index`, and `annotate --auto` support JSON status summaries
 - SymbolSolver-level call resolution (not naive label match) — distinguishes INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE
 - Stable IDs for lambdas, method refs, anonymous classes
 - Incremental re-index (only changed files)
@@ -68,7 +77,7 @@ java -jar target/anatomist.jar callees-of \
 | [docs/architecture.md](docs/architecture.md) | Package layout, data flow, design constraints |
 | [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
 | [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |
-| [CLAUDE.md](CLAUDE.md) | Agent collaboration guide (tech stack, commands, directory index) |
+| [AGENTS.md](AGENTS.md) | Contributor and Agent collaboration guide |
 | [anatomist-skill.md](anatomist-skill.md) | Agent skill definition (when/how to call anatomist) |
 | [todo.md](todo.md) | Future work |
 

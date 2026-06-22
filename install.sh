@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO_BASE="https://code.alipay.com/ipay-data-infrastructure/anatomist/-/raw/main/release-dist"
+REPO_BASE="${ANATOMIST_MIRROR:-http://6.12.3.250:8100/dist-bin}"
 INSTALL_DIR="${ANATOMIST_INSTALL_DIR:-$HOME/.local/bin}"
 
 # Detect platform

@@ -12,6 +12,7 @@ import picocli.CommandLine.Parameters;
 import java.util.List;
 
 @Command(name = "callers-of",
+        mixinStandardHelpOptions = true,
         description = "Incoming CALLS to a method (impact analysis), optionally recursive (--depth N).",
         footer = "%nExamples:%n  callers-of com.example.OrderService#create --depth 2%n  callers-of OrderService#create --in-loop")
 public class CallersOfCommand extends QueryCommand {
