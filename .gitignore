@@ -5,5 +5,7 @@ target/
 .DS_Store
 .qoder/
 .claude/
+.diorama/
 .m2-cache/
 dist/anatomist-*
+release-dist/
