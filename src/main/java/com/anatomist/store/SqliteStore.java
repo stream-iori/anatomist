@@ -94,6 +94,7 @@ public class SqliteStore implements IndexWriter {
     public void upsertSemanticAnnotation(SemanticAnnotation sa) { writer.upsertSemanticAnnotation(sa); }
     public void upsertSemanticAnnotations(List<SemanticAnnotation> sas) { writer.upsertSemanticAnnotations(sas); }
     public void insertDocuments(List<Document> docs) { writer.insertDocuments(docs); }
+    public void replaceDocuments(List<Document> docs) { writer.replaceDocuments(docs); }
     public void updateFileCache(List<FileCacheEntry> entries) { writer.updateFileCache(entries); }
     public void upsertProjectMeta(String key, String value) { writer.upsertProjectMeta(key, value); }
     public void deleteBySourceFiles(List<String> sourceFiles) { writer.deleteBySourceFiles(sourceFiles); }

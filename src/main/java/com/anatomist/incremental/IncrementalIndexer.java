@@ -2,6 +2,7 @@ package com.anatomist.incremental;
 
 import com.anatomist.config.ProjectConfig;
 import com.anatomist.core.ExtractionContext;
+import com.anatomist.core.EdgeTargetBinder;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.ProjectScanner;
@@ -204,7 +205,9 @@ public class IncrementalIndexer {
                     fieldAccessExtractor.extract(cu, result);
                 });
 
-                pruneDanglingInternalEdges(result, store.allNodeIds());
+                Set<String> knownIds = store.allNodeIds();
+                EdgeTargetBinder.bindExternalTargets(result, knownIds);
+                pruneDanglingInternalEdges(result, knownIds);
                 new SemanticPostProcessor().process(result);
                 store.write(result);
             }
@@ -234,7 +237,8 @@ public class IncrementalIndexer {
                         }
                         xmlExtractor.extract(beanParser.parse(xml), knownIds, rel, beanResult);
                     }
-                    pruneDanglingInternalEdges(beanResult, store.allNodeIds());
+                    EdgeTargetBinder.bindExternalTargets(beanResult, knownIds);
+                    pruneDanglingInternalEdges(beanResult, knownIds);
                     store.write(beanResult);
                 }
             }

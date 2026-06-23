@@ -3,6 +3,7 @@
     "includes": [
       { "pattern": "schema.sql" },
       { "pattern": "export/template.html" },
+      { "pattern": "export/arch-template.html" },
       { "pattern": "META-INF/anatomist/jdk.*-types\\.bin" }
     ]
   }

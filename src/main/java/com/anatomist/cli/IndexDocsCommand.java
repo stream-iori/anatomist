@@ -22,7 +22,8 @@ public class IndexDocsCommand implements Callable<Integer> {
     @Parameters(index = "0", description = "Path to the project root.")
     Path projectPath;
 
-    @Option(names = "--output", description = "Output SQLite database path (default: ~/.anatomist/<repo>/index.db).")
+    @Option(names = {"--output", "--index"},
+            description = "SQLite database path (default: ~/.anatomist/<repo>/index.db).")
     Path output;
 
     @Override
@@ -45,8 +46,8 @@ public class IndexDocsCommand implements Callable<Integer> {
 
             try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
                  SqliteStore store = new SqliteStore(dbPath)) {
-                store.initSchema();
-                store.insertDocuments(docs);
+                if (!store.schemaExists()) store.initSchema();
+                store.replaceDocuments(docs);
             }
 
             long elapsed = System.currentTimeMillis() - started;

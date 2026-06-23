@@ -72,6 +72,12 @@ public class IndexOrchestrator {
             }
         }
 
+        int rebound = EdgeTargetBinder.bindExternalTargets(result);
+        if (rebound > 0) {
+            AnatomistLog.warn("rebound " + rebound + " external edges to internal nodes "
+                    + "for " + cfg.projectRoot());
+        }
+
         int dropped = pruneDanglingInternalEdges(result);
         if (dropped > 0) {
             AnatomistLog.warn("dropped " + dropped + " edges with dangling internal target "
@@ -94,6 +100,7 @@ public class IndexOrchestrator {
         }
         populateFileCache(store, cfg.projectRoot(), cachedFiles);
         store.upsertProjectMeta("dropped_dangling_edges", String.valueOf(dropped));
+        store.upsertProjectMeta("rebound_external_edges", String.valueOf(rebound));
         store.upsertProjectMeta("java_version", String.valueOf(cfg.javaVersion()));
         store.upsertProjectMeta("classpath_hash",
                 FileCacheService.sha256OfString(classpathFingerprint(cfg.classpathEntries(), cfg.classpathOverride())));

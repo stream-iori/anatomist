@@ -143,6 +143,27 @@ public class DataWriter {
         });
     }
 
+    public void replaceDocuments(List<Document> docs) {
+        String sql = "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
+        inTransaction(c -> {
+            try (Statement st = c.createStatement()) {
+                st.execute("DELETE FROM documents");
+            }
+            if (docs == null || docs.isEmpty()) return;
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                for (Document d : docs) {
+                    ps.setString(1, d.path);
+                    if (d.title == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, d.title);
+                    if (d.content == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, d.content);
+                    ps.setString(4, d.docType);
+                    if (d.module == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, d.module);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        });
+    }
+
     public void updateFileCache(List<FileCacheEntry> entries) {
         if (entries == null || entries.isEmpty()) return;
         Connection c;

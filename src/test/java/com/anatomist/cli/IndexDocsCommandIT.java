@@ -102,6 +102,37 @@ class IndexDocsCommandIT {
         }
     }
 
+    @Test
+    void indexAliasWorksOnExistingSchemaAndReplacesDocs(@TempDir Path tmp) throws Exception {
+        Path project = tmp.resolve("proj");
+        Files.createDirectories(project);
+        Files.writeString(project.resolve("README.md"),
+                "# First\n\none\n", StandardCharsets.UTF_8);
+        Files.writeString(project.resolve("A.java"),
+                "package p; class A {}\n", StandardCharsets.UTF_8);
+
+        Path db = tmp.resolve("index.db");
+        assertEquals(0, new CommandLine(new IndexCommand()).execute(
+                project.toString(), "--format", "json", "--no-classpath", "--output", db.toString()));
+
+        assertEquals(0, new CommandLine(new IndexDocsCommand()).execute(
+                project.toString(), "--index", db.toString()));
+
+        Files.writeString(project.resolve("README.md"),
+                "# Second\n\ntwo\n", StandardCharsets.UTF_8);
+        assertEquals(0, new CommandLine(new IndexDocsCommand()).execute(
+                project.toString(), "--index", db.toString()));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st, "SELECT count(*) FROM documents WHERE path='README.md'"));
+            try (ResultSet rs = st.executeQuery("SELECT title FROM documents WHERE path='README.md'")) {
+                assertTrue(rs.next());
+                assertEquals("Second", rs.getString(1));
+            }
+        }
+    }
+
     private static Path run(Path project, Path db) {
         IndexDocsCommand cmd = new IndexDocsCommand();
         new CommandLine(cmd).parseArgs(project.toString(), "--output", db.toString());
