@@ -70,16 +70,6 @@ public final class ArchExportPayloadBuilder {
         stats.put("internal_edge_counts", internalEdge);
         stats.put("external_edge_counts", externalEdge);
 
-        Map<String, Long> archRoles = new LinkedHashMap<>();
-        try {
-            query("SELECT role, COUNT(*) FROM arch_roles GROUP BY role ORDER BY role", rs -> {
-                archRoles.put(rs.getString(1), rs.getLong(2));
-            });
-        } catch (RuntimeException ignored) {
-            // arch_roles table may not exist in older indexes
-        }
-        stats.put("arch_role_counts", archRoles);
-
         long[] pkgCount = {0};
         query("SELECT COUNT(DISTINCT package) FROM nodes WHERE package IS NOT NULL", rs -> {
             pkgCount[0] = rs.getLong(1);
@@ -94,46 +84,6 @@ public final class ArchExportPayloadBuilder {
     private List<Map<String, Object>> buildTypes() {
         Map<String, List<String>> annotationsByNode = loadTypeAnnotations();
 
-        String sql = "SELECT n.id, n.label, n.kind, n.qualified_name, n.package, n.javadoc, n.metadata,"
-                + "       ar.role, ar.confidence"
-                + " FROM nodes n"
-                + " LEFT JOIN arch_roles ar ON n.id = ar.node_id"
-                + " WHERE n.kind IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD')"
-                + " ORDER BY COALESCE(ar.role, 'ZZZZZ'), n.qualified_name";
-
-        List<Map<String, Object>> types = new ArrayList<>();
-        try {
-            query(sql, rs -> {
-                Map<String, Object> t = new LinkedHashMap<>();
-                String id = rs.getString("id");
-                t.put("id", id);
-                t.put("label", rs.getString("label"));
-                t.put("kind", rs.getString("kind"));
-                t.put("qualified_name", rs.getString("qualified_name"));
-                t.put("package", rs.getString("package"));
-                t.put("role", rs.getString("role"));
-                t.put("is_abstract", extractIsAbstract(rs.getString("metadata")));
-                t.put("annotations", annotationsByNode.getOrDefault(id, List.of()));
-
-                int[] memberCounts = countMembers(id);
-                t.put("method_count", memberCounts[0]);
-                t.put("field_count", memberCounts[1]);
-
-                String javadoc = rs.getString("javadoc");
-                t.put("javadoc", javadoc);
-                types.add(t);
-            });
-        } catch (RuntimeException e) {
-            // If arch_roles join fails (table missing), fall back without role
-            if (e.getMessage() != null && e.getMessage().contains("arch_roles")) {
-                return buildTypesWithoutRoles(annotationsByNode);
-            }
-            throw e;
-        }
-        return types;
-    }
-
-    private List<Map<String, Object>> buildTypesWithoutRoles(Map<String, List<String>> annotationsByNode) {
         String sql = "SELECT n.id, n.label, n.kind, n.qualified_name, n.package, n.javadoc, n.metadata"
                 + " FROM nodes n"
                 + " WHERE n.kind IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD')"
@@ -148,7 +98,6 @@ public final class ArchExportPayloadBuilder {
             t.put("kind", rs.getString("kind"));
             t.put("qualified_name", rs.getString("qualified_name"));
             t.put("package", rs.getString("package"));
-            t.put("role", null);
             t.put("is_abstract", extractIsAbstract(rs.getString("metadata")));
             t.put("annotations", annotationsByNode.getOrDefault(id, List.of()));
 
@@ -306,7 +255,7 @@ public final class ArchExportPayloadBuilder {
         Map<String, List<String>> fileCache = new LinkedHashMap<>();
 
         // Collect all methods/constructors with source locations, prioritized by
-        // entry-point types first (have a role), then by edge count descending.
+        // type edge count descending.
         List<SnippetCandidate> candidates = new ArrayList<>();
 
         Map<String, List<Map<String, Object>>> members =
@@ -328,7 +277,6 @@ public final class ArchExportPayloadBuilder {
         if (types != null && members != null) {
             for (Map<String, Object> type : types) {
                 String typeId = (String) type.get("id");
-                boolean hasRole = type.get("role") != null;
                 int typeEdgeCount = edgeCountByType.getOrDefault(typeId, 0);
                 List<Map<String, Object>> typeMembers = members.get(typeId);
                 if (typeMembers == null) continue;
@@ -341,16 +289,13 @@ public final class ArchExportPayloadBuilder {
                     if (loc == null || !loc.startsWith("L")) continue;
 
                     String memberId = (String) member.get("id");
-                    candidates.add(new SnippetCandidate(memberId, typeId, hasRole, typeEdgeCount, loc));
+                    candidates.add(new SnippetCandidate(memberId, typeId, typeEdgeCount, loc));
                 }
             }
         }
 
-        // Sort: entry-point types first, then by edge count descending
-        candidates.sort((a, b) -> {
-            if (a.hasRole != b.hasRole) return a.hasRole ? -1 : 1;
-            return Integer.compare(b.typeEdgeCount, a.typeEdgeCount);
-        });
+        // Sort by edge count descending.
+        candidates.sort((a, b) -> Integer.compare(b.typeEdgeCount, a.typeEdgeCount));
 
         // Resolve source files for member IDs
         Map<String, String> sourceFileByMember = new LinkedHashMap<>();
@@ -476,6 +421,6 @@ public final class ArchExportPayloadBuilder {
         return new RuntimeException("query failed: " + e.getMessage(), e);
     }
 
-    private record SnippetCandidate(String memberId, String typeId, boolean hasRole,
+    private record SnippetCandidate(String memberId, String typeId,
                                     int typeEdgeCount, String sourceLocation) {}
 }

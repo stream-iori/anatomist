@@ -93,20 +93,8 @@ public class QueryService implements AutoCloseable {
         return search.searchByAnnotation(annotationTerm, kind, limit, offset);
     }
 
-    public List<NodeRow> searchByRole(String role, int limit) {
-        return search.searchByRole(role, limit);
-    }
-
-    public List<NodeRow> searchByRole(String role, int limit, int offset) {
-        return search.searchByRole(role, limit, offset);
-    }
-
     public int countByAnnotation(String annotationTerm, String kind) {
         return search.countByAnnotation(annotationTerm, kind);
-    }
-
-    public int countByRole(String role) {
-        return search.countByRole(role);
     }
 
     public List<NodeRow> implementorsOf(String typeRef) {

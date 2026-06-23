@@ -8,13 +8,7 @@
 :root {
   --bg: #0f1115; --panel: #171a21; --line: #2a2f3a; --fg: #d7dae0; --muted: #8b93a3; --accent: #5aa9e6;
   --cls: #5aa9e6; --iface: #7ed492; --enum: #e6b15a; --anno: #c792ea;
-  --role-entry: #e06c75; --role-application: #e6b15a; --role-domain-service: #56b6c2;
-  --role-domain-model: #5aa9e6; --role-repository: #7ed492; --role-adapter: #c792ea;
-  --role-infrastructure: #8b93a3;
-  --band-entry: rgba(224,108,117,0.06); --band-application: rgba(230,177,90,0.06);
-  --band-domain-service: rgba(86,182,194,0.06); --band-domain-model: rgba(90,169,230,0.06);
-  --band-repository: rgba(126,212,146,0.06); --band-adapter: rgba(199,146,234,0.06);
-  --band-infrastructure: rgba(139,147,163,0.06);
+  --band: rgba(139,147,163,0.04);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: var(--bg); color: var(--fg);
@@ -84,8 +78,6 @@ code, .mono { font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Conso
 .kind-badge { font-size: 9px; font-weight: 700; }
 .block-label { font-size: 11px; fill: var(--fg); }
 .block-meta { font-size: 9px; fill: var(--muted); }
-.block-role { font-size: 9px; font-weight: 600; }
-
 .band-label { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; }
 
 /* Edges */
@@ -113,7 +105,6 @@ code, .mono { font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Conso
 .d-qual { font-size: 11px; color: var(--muted); margin-bottom: 3px; word-break: break-all; }
 .d-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .d-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
-.d-badge.role { border: 1px solid currentColor; }
 .d-badge.ann { background: rgba(199,146,234,0.12); color: var(--anno); }
 
 /* Collapsible sections */
@@ -193,7 +184,6 @@ code, .mono { font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Conso
       <button id="search-clear" title="Clear">&times;</button>
     </div>
     <select id="pkg-filter" class="tb-select" title="Filter by package"></select>
-    <select id="role-filter" class="tb-select" title="Filter by role"></select>
     <div class="tb-sep"></div>
     <label class="tb-check"><input type="checkbox" id="edge-toggle"> Edges</label>
     <div class="zoom-group">
@@ -230,24 +220,6 @@ const DATA = /*__ANATOMIST_DATA__*/;
 // ---- Constants ----
 const BLOCK_W = 140, BLOCK_H = 48, GAP_X = 16, GAP_Y = 12;
 const BAND_PADDING = 48, BAND_PAD_Y = 12;
-const ROLE_ORDER = ['ENTRY','APPLICATION','DOMAIN_SERVICE','DOMAIN_MODEL','REPOSITORY','ADAPTER','INFRASTRUCTURE','UNASSIGNED'];
-const ROLE_COLORS = {
-  ENTRY: 'var(--role-entry)', APPLICATION: 'var(--role-application)',
-  DOMAIN_SERVICE: 'var(--role-domain-service)', DOMAIN_MODEL: 'var(--role-domain-model)',
-  REPOSITORY: 'var(--role-repository)', ADAPTER: 'var(--role-adapter)',
-  INFRASTRUCTURE: 'var(--role-infrastructure)', UNASSIGNED: 'var(--muted)'
-};
-const ROLE_RAW_COLORS = {
-  ENTRY: '#e06c75', APPLICATION: '#e6b15a', DOMAIN_SERVICE: '#56b6c2',
-  DOMAIN_MODEL: '#5aa9e6', REPOSITORY: '#7ed492', ADAPTER: '#c792ea',
-  INFRASTRUCTURE: '#8b93a3', UNASSIGNED: '#8b93a3'
-};
-const BAND_COLORS = {
-  ENTRY: 'var(--band-entry)', APPLICATION: 'var(--band-application)',
-  DOMAIN_SERVICE: 'var(--band-domain-service)', DOMAIN_MODEL: 'var(--band-domain-model)',
-  REPOSITORY: 'var(--band-repository)', ADAPTER: 'var(--band-adapter)',
-  INFRASTRUCTURE: 'var(--band-infrastructure)', UNASSIGNED: 'rgba(139,147,163,0.04)'
-};
 const KIND_COLORS = { CLASS: '#5aa9e6', INTERFACE: '#7ed492', ENUM: '#e6b15a', ANNOTATION: '#c792ea', RECORD: '#56b6c2' };
 const KIND_LETTERS = { CLASS: 'C', INTERFACE: 'I', ENUM: 'E', ANNOTATION: '@', RECORD: 'R' };
 
@@ -256,7 +228,7 @@ let state = {
   types: [], typeMap: {}, members: {}, typeEdges: [], snippets: {},
   blockPositions: {}, bandInfo: [],
   selectedId: null, selectedMemberId: null,
-  filterSearch: '', filterPkg: '', filterRole: '',
+  filterSearch: '', filterPkg: '',
   edgesVisible: false,
   vb: { x: 0, y: 0, w: 1200, h: 800 },
   initialVb: null,
@@ -310,30 +282,11 @@ function renderToolbar() {
   const pkgSel = document.getElementById('pkg-filter');
   pkgSel.innerHTML = '<option value="">All packages</option>' + pkgs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
 
-  // Role dropdown
-  const roles = ROLE_ORDER.filter(r => r !== 'UNASSIGNED');
-  const roleSel = document.getElementById('role-filter');
-  roleSel.innerHTML = '<option value="">All roles</option>' + roles.map(r => `<option value="${r}">${r.replace(/_/g,' ')}</option>`).join('');
 }
 
 // ---- Stats Ribbon ----
 function renderRibbon() {
-  const rc = (DATA.stats && DATA.stats.arch_role_counts) || {};
-  const total = Object.values(rc).reduce((a,b) => a+b, 0);
-  if (total === 0) { document.getElementById('ribbon').style.display = 'none'; return; }
-
-  const ribbon = document.getElementById('ribbon');
-  let html = '';
-  ROLE_ORDER.forEach(role => {
-    if (role === 'UNASSIGNED') return;
-    const count = rc[role] || 0;
-    if (count === 0) return;
-    const pct = (count / total * 100);
-    const bg = ROLE_RAW_COLORS[role] || '#8b93a3';
-    html += `<div class="ribbon-seg" data-role="${role}" style="width:${pct}%;background:${bg};color:#0f1115">`
-      + `${role.replace(/_/g,' ')} <span class="rcount">${count}</span></div>`;
-  });
-  ribbon.innerHTML = html;
+  document.getElementById('ribbon').style.display = 'none';
 }
 
 // ---- Legend ----
@@ -358,20 +311,18 @@ function renderGraph() {
   const svgRect = svg.getBoundingClientRect();
   const svgWidth = svgRect.width || 1200;
 
-  // Group types by role
-  const roleBuckets = {};
-  ROLE_ORDER.forEach(r => roleBuckets[r] = []);
+  // Group types by package.
+  const packageBuckets = {};
   state.types.forEach(t => {
-    const role = t.role || 'UNASSIGNED';
-    const bucket = ROLE_ORDER.includes(role) ? role : 'UNASSIGNED';
-    roleBuckets[bucket].push(t);
+    const pkg = t.package || '(default)';
+    if (!packageBuckets[pkg]) packageBuckets[pkg] = [];
+    packageBuckets[pkg].push(t);
   });
 
   // Sort each bucket alphabetically
-  Object.values(roleBuckets).forEach(arr => arr.sort((a,b) => (a.label||'').localeCompare(b.label||'')));
+  Object.values(packageBuckets).forEach(arr => arr.sort((a,b) => (a.label||'').localeCompare(b.label||'')));
 
-  // Remove empty bands (except keep UNASSIGNED if it has items)
-  const activeBands = ROLE_ORDER.filter(r => roleBuckets[r].length > 0);
+  const activeBands = Object.keys(packageBuckets).sort();
 
   // Compute columns
   const cols = Math.max(1, Math.floor((svgWidth - BAND_PADDING - 16) / (BLOCK_W + GAP_X)));
@@ -381,12 +332,12 @@ function renderGraph() {
   state.bandInfo = [];
   state.blockPositions = {};
 
-  activeBands.forEach(role => {
-    const items = roleBuckets[role];
+  activeBands.forEach(pkg => {
+    const items = packageBuckets[pkg];
     const rows = Math.ceil(items.length / cols);
     const bandHeight = BAND_PAD_Y * 2 + rows * BLOCK_H + (rows - 1) * GAP_Y;
 
-    state.bandInfo.push({ role, y: currentY, height: bandHeight, count: items.length });
+    state.bandInfo.push({ label: pkg, y: currentY, height: bandHeight, count: items.length });
 
     items.forEach((t, i) => {
       const col = i % cols;
@@ -416,13 +367,11 @@ function renderGraph() {
   // Bands
   svgHTML += '<g class="bands-group">';
   state.bandInfo.forEach(band => {
-    const bg = BAND_COLORS[band.role] || BAND_COLORS.UNASSIGNED;
-    const rawBg = ROLE_RAW_COLORS[band.role] || '#8b93a3';
-    svgHTML += `<rect x="0" y="${band.y}" width="${totalWidth}" height="${band.height}" fill="${bg}"/>`;
+    svgHTML += `<rect x="0" y="${band.y}" width="${totalWidth}" height="${band.height}" fill="var(--band)"/>`;
     svgHTML += `<line x1="0" y1="${band.y + band.height}" x2="${totalWidth}" y2="${band.y + band.height}" stroke="var(--line)" stroke-width="1"/>`;
     // Rotated label
     const labelY = band.y + band.height / 2;
-    svgHTML += `<text x="12" y="${labelY}" class="band-label" fill="${rawBg}" text-anchor="middle" dominant-baseline="central" transform="rotate(-90, 12, ${labelY})">${band.role.replace(/_/g, ' ')}</text>`;
+    svgHTML += `<text x="12" y="${labelY}" class="band-label" fill="var(--muted)" text-anchor="middle" dominant-baseline="central" transform="rotate(-90, 12, ${labelY})">${esc(band.label)}</text>`;
   });
   svgHTML += '</g>';
 
@@ -453,8 +402,6 @@ function renderGraph() {
   state.types.forEach(t => {
     const pos = state.blockPositions[t.id];
     if (!pos) return;
-    const role = t.role || 'UNASSIGNED';
-    const roleColor = ROLE_RAW_COLORS[role] || '#8b93a3';
     const kindColor = KIND_COLORS[t.kind] || '#8b93a3';
     const kindLetter = KIND_LETTERS[t.kind] || '?';
     const isAbstract = t.is_abstract ? ' abstract' : '';
@@ -465,7 +412,7 @@ function renderGraph() {
     svgHTML += `<g class="block${isAbstract}" data-id="${esc(t.id)}" transform="translate(${pos.x},${pos.y})">`;
     svgHTML += `<rect class="bg" x="0" y="0" width="${BLOCK_W}" height="${BLOCK_H}"/>`;
     // Left accent border
-    svgHTML += `<rect x="0" y="0" width="3" height="${BLOCK_H}" fill="${roleColor}" rx="2" ry="0"/>`;
+    svgHTML += `<rect x="0" y="0" width="3" height="${BLOCK_H}" fill="${kindColor}" rx="2" ry="0"/>`;
     // Kind badge
     svgHTML += `<rect x="8" y="8" width="14" height="14" rx="3" fill="${kindColor}"/>`;
     svgHTML += `<text x="15" y="19" class="kind-badge" text-anchor="middle" fill="#0f1115">${kindLetter}</text>`;
@@ -473,8 +420,7 @@ function renderGraph() {
     svgHTML += `<text x="26" y="19" class="block-label">${esc(label)}</text>`;
     // Method/field count
     svgHTML += `<text x="${BLOCK_W - 6}" y="19" class="block-meta" text-anchor="end">${mc}m ${fc}f</text>`;
-    // Role
-    svgHTML += `<text x="8" y="${BLOCK_H - 8}" class="block-role" fill="${roleColor}">${role.replace(/_/g,' ')}</text>`;
+    svgHTML += `<text x="8" y="${BLOCK_H - 8}" class="block-meta">${esc(t.package || '')}</text>`;
     svgHTML += '</g>';
   });
   svgHTML += '</g>';
@@ -502,7 +448,6 @@ function bindEvents() {
   const search = document.getElementById('search');
   const searchClear = document.getElementById('search-clear');
   const pkgFilter = document.getElementById('pkg-filter');
-  const roleFilter = document.getElementById('role-filter');
   const edgeToggle = document.getElementById('edge-toggle');
   const detail = document.getElementById('detail');
 
@@ -520,30 +465,6 @@ function bindEvents() {
 
   // Package filter
   pkgFilter.addEventListener('change', () => { state.filterPkg = pkgFilter.value; applyFilters(); });
-
-  // Role filter
-  roleFilter.addEventListener('change', () => {
-    state.filterRole = roleFilter.value;
-    // Sync ribbon
-    document.querySelectorAll('.ribbon-seg').forEach(s => s.classList.toggle('active', s.dataset.role === state.filterRole));
-    applyFilters();
-  });
-
-  // Ribbon click
-  document.getElementById('ribbon').addEventListener('click', e => {
-    const seg = e.target.closest('.ribbon-seg');
-    if (!seg) return;
-    const role = seg.dataset.role;
-    if (state.filterRole === role) {
-      state.filterRole = '';
-      roleFilter.value = '';
-    } else {
-      state.filterRole = role;
-      roleFilter.value = role;
-    }
-    document.querySelectorAll('.ribbon-seg').forEach(s => s.classList.toggle('active', s.dataset.role === state.filterRole));
-    applyFilters();
-  });
 
   // Edge toggle
   edgeToggle.addEventListener('change', () => {
@@ -667,7 +588,6 @@ function applyFilters() {
     let visible = true;
     if (state.filterSearch && t._lbl.indexOf(state.filterSearch) === -1 && t._qual.indexOf(state.filterSearch) === -1) visible = false;
     if (state.filterPkg && t.package !== state.filterPkg) visible = false;
-    if (state.filterRole && (t.role || 'UNASSIGNED') !== state.filterRole) visible = false;
     b.classList.toggle('dimmed', !visible);
   });
 }
@@ -702,8 +622,6 @@ function closeDetail() {
 }
 
 function renderDetail(t) {
-  const role = t.role || 'UNASSIGNED';
-  const roleColor = ROLE_RAW_COLORS[role] || '#8b93a3';
   const kindColor = KIND_COLORS[t.kind] || '#8b93a3';
   const kindLetter = KIND_LETTERS[t.kind] || '?';
 
@@ -712,7 +630,6 @@ function renderDetail(t) {
   html += `<div class="d-qual">${esc(t.qualified_name || t.id)}</div>`;
   html += `<div class="d-qual">${esc(t.package || '')}</div>`;
   html += '<div class="d-badges">';
-  html += `<span class="d-badge role" style="color:${roleColor}">${role.replace(/_/g,' ')}</span>`;
   if (t.annotations && t.annotations.length) {
     t.annotations.forEach(a => { html += `<span class="d-badge ann">@${esc(a)}</span>`; });
   }

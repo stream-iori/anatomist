@@ -21,7 +21,6 @@ import picocli.CommandLine.HelpCommand;
                 "  anatomist doctor --format json            Check CLI/schema/index",
                 "  anatomist index . --format json           Build index JSON summary",
                 "  anatomist survey-baseline . --format json Map a large repo first",
-                "  anatomist annotate --auto --format json   Infer roles JSON summary",
                 "  anatomist search OrderService             Find nodes by name",
                 "  anatomist callees-of Class#method         Show outgoing calls",
                 "  anatomist context com.example.MyClass     Type overview + members",
@@ -50,8 +49,7 @@ import picocli.CommandLine.HelpCommand;
                 SurveyBaselineCommand.class,
                 ExportCommand.class,
                 AnnotateCommand.class,
-                DoctorCommand.class,
-                LintCommand.class
+                DoctorCommand.class
         }
 )
 public class AnatomistCli implements Runnable {

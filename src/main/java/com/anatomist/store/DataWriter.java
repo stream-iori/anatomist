@@ -1,7 +1,6 @@
 package com.anatomist.store;
 
 import com.anatomist.model.Annotation;
-import com.anatomist.model.ArchRole;
 import com.anatomist.model.Document;
 import com.anatomist.model.Edge;
 import com.anatomist.model.FileCacheEntry;
@@ -122,24 +121,6 @@ public class DataWriter {
                     psIns.setString(8, sa.confidence);
                     psIns.executeUpdate();
                 }
-            }
-        });
-    }
-
-    public void upsertArchRoles(List<ArchRole> roles) {
-        if (roles == null || roles.isEmpty()) return;
-        String sql = "INSERT INTO arch_roles(node_id,role,confidence,source) VALUES (?,?,?,?)" +
-                " ON CONFLICT(node_id) DO UPDATE SET role=excluded.role, confidence=excluded.confidence, source=excluded.source";
-        inTransaction(c -> {
-            try (PreparedStatement ps = c.prepareStatement(sql)) {
-                for (ArchRole r : roles) {
-                    ps.setString(1, r.nodeId);
-                    ps.setString(2, r.role);
-                    ps.setString(3, r.confidence);
-                    ps.setString(4, r.source);
-                    ps.addBatch();
-                }
-                ps.executeBatch();
             }
         });
     }

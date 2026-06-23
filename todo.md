@@ -2,7 +2,7 @@
 
 ## 未来：横切关注点 Tags（运行时质量属性）
 
-基于 ISO 25010 质量属性分组，5 维度 8 Tags，与 Category（架构位置）正交。
+基于 ISO 25010 质量属性分组，5 维度 8 Tags。这里只记录可从代码直接观察到的事实，不做 DDD/架构层推断。
 
 | 质量属性 | 维度问题 | Tags |
 |----------|---------|------|
@@ -37,19 +37,11 @@
 
 ---
 
-## 未来：`anatomist-annotations` 独立 Maven 模块发布
-
-当前 `@ArchRole` + `Category` 枚举在主项目 `com.anatomist.annotations` 包内。后续需要拆为独立 Maven module 发布到仓库，让目标项目仅依赖轻量注解 JAR（SOURCE retention，零传递依赖）。
-
-**触发条件**：当有外部项目需要引入 `@ArchRole` 注解时。
-
----
-
 ## 未来：Agent prompt 模板
 
 为 Agent 提供结构化 prompt 模板，指导如何：
-- 使用 anatomist 查询结果推理 arch_role
-- 输出格式为源码 diff（添加 `@ArchRole` 注解）
+- 使用 anatomist 查询结果推理架构结论
+- 输出格式为分析报告或源码 diff
 - 结合 diorama domain-model.json 做交叉验证
 
 ---
@@ -68,7 +60,7 @@ anatomist 不内置 verify/suggestions 命令。Agent 自己组合 anatomist 查
 | diorama 字段 | Agent 用什么 anatomist 命令验证 |
 |---|---|
 | `entity.fqn` | `anatomist context <fqn>` — 类是否存在、结构是否匹配 |
-| `glossary.term.code_refs[]` | `anatomist context <fqn>` — 类是否存在、角色是否一致 |
+| `glossary.term.code_refs[]` | `anatomist context <fqn>` — 类是否存在、结构是否一致 |
 | `bounded_context.packages[]` | `anatomist deps-of <class>` — 检查跨 context 依赖 |
 | `business_rules.implemented_by[]` | `anatomist callers-of <method>` — 方法是否存在、是否被调用 |
 | `scenarios.participants[].fqn` | `anatomist callees-of <entry> --depth N` — 实际调用链是否覆盖参与者 |
@@ -106,8 +98,8 @@ anatomist index-metrics --pmd target/pmd.xml --jacoco target/site/jacoco/jacoco.
 
 | 数据源 | 提供什么 | Agent 能回答 |
 |--------|---------|-------------|
-| PMD | 圈复杂度、LOC、参数数量 | "哪些方法过于复杂？""fat-application 是真胖还是假胖？" |
-| JaCoCo | 方法级覆盖率 | "哪些 DOMAIN_MODEL 方法完全没有测试？" |
+| PMD | 圈复杂度、LOC、参数数量 | "哪些方法过于复杂？" |
+| JaCoCo | 方法级覆盖率 | "哪些关键方法完全没有测试？" |
 | git log | 变更频率、最后修改时间 | "哪些高复杂度方法还在频繁变更？"（重构优先级） |
 
 存储：独立 `metrics` 表或扩展 `nodes.metadata`，不侵入核心 schema。

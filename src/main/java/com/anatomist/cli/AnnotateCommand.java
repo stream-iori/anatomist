@@ -1,10 +1,6 @@
 package com.anatomist.cli;
 
-import com.anatomist.model.ArchRole;
 import com.anatomist.model.SemanticAnnotation;
-import com.anatomist.incremental.FileCacheService;
-import com.anatomist.json.Json;
-import com.anatomist.semantic.ArchRoleInferrer;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -22,8 +18,7 @@ import java.util.concurrent.Callable;
 
 @Command(name = "annotate",
         mixinStandardHelpOptions = true,
-        description = "Write business-semantic annotations to the index. "
-                    + "Use --auto --format json for Agent-readable architecture-role quality.")
+        description = "Write business-semantic annotations to the index.")
 public class AnnotateCommand implements Callable<Integer> {
 
     /** Sources allowed to be written by the CLI. CONVENTION and JAVADOC are auto-generated
@@ -56,9 +51,6 @@ public class AnnotateCommand implements Callable<Integer> {
     @Option(names = "--from-json", description = "Read a JSON array of annotation objects instead of CLI args.")
     Path fromJson;
 
-    @Option(names = "--auto", description = "Auto-infer architecture roles (DDD layers) via L1 annotation + L2 call-pattern rules, write to arch_roles table.")
-    boolean auto;
-
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
@@ -68,10 +60,6 @@ public class AnnotateCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         Path db = IndexPath.resolve(index);
-
-        if (auto) {
-            return runAutoInference(db);
-        }
 
         List<SemanticAnnotation> batch;
         if (fromJson != null) {
@@ -111,70 +99,6 @@ public class AnnotateCommand implements Callable<Integer> {
         }
         System.out.println("Annotated " + batch.size() + " node(s).");
         return 0;
-    }
-
-    private int runAutoInference(Path db) {
-        try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(db);
-             SqliteStore store = new SqliteStore(db)) {
-            ArchRoleInferrer inferrer = new ArchRoleInferrer(store);
-            List<ArchRole> roles = inferrer.infer();
-            if (roles.isEmpty()) {
-                if ("json".equalsIgnoreCase(format)) {
-                    emitAutoJson(store, roles, "no_supported_annotations_or_call_patterns");
-                } else {
-                    System.out.println("No architecture roles inferred.");
-                }
-                return 0;
-            }
-            store.upsertArchRoles(roles);
-
-            java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
-            for (ArchRole r : roles) {
-                counts.merge(r.role, 1, Integer::sum);
-            }
-            if ("json".equalsIgnoreCase(format)) {
-                emitAutoJson(store, roles, null);
-            } else {
-                System.out.println("Inferred " + roles.size() + " architecture role(s):");
-                for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
-                    System.out.println("  " + e.getKey() + ": " + e.getValue());
-                }
-            }
-            return 0;
-        } catch (Exception e) {
-            System.err.println("ERROR: " + e.getMessage());
-            return 1;
-        }
-    }
-
-    private static void emitAutoJson(SqliteStore store, List<ArchRole> roles, String reason) throws Exception {
-        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
-        for (ArchRole r : roles) {
-            counts.merge(r.role, 1, Integer::sum);
-        }
-        long typeCount = countTypes(store);
-        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
-        out.put("command", "annotate --auto");
-        out.put("status", "ok");
-        out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
-        out.put("inferred_count", roles.size());
-        out.put("roles_by_type", counts);
-        out.put("unclassified_count", Math.max(0L, typeCount - roles.size()));
-        java.util.List<String> reasons = new java.util.ArrayList<>();
-        if (reason != null) reasons.add(reason);
-        out.put("reasons", reasons);
-        out.put("suggestions", java.util.List.of(
-                "check supported framework annotations",
-                "use anatomist annotate <node> --category ... for manual facts"));
-        System.out.println(Json.writePretty(out));
-    }
-
-    private static long countTypes(SqliteStore store) throws Exception {
-        String sql = "SELECT COUNT(*) FROM nodes WHERE kind IN ('CLASS','INTERFACE','ENUM','RECORD','ANONYMOUS_CLASS')";
-        try (PreparedStatement ps = store.connection().prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            return rs.next() ? rs.getLong(1) : 0L;
-        }
     }
 
     private static String validate(SemanticAnnotation sa) {

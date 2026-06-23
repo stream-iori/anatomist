@@ -57,13 +57,9 @@ Mutation commands that Agents should call in JSON mode:
 | Check CLI/index/schema/capabilities | `doctor --format json [--index <db>]` |
 | Build an index and verify counts/errors | `index <project-root> --format json [--output <db>]` |
 | First bounded map for a large repo | `survey-baseline <project-root> --format json --index <db>` |
-| Infer roles and judge quality | `annotate --auto --format json --index <db>` |
 
 `survey-baseline` also reports `candidate_sources` and `warnings`; inspect them
-before treating missing role-based candidates as a business fact.
-
-When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
-`stats.suggestions` before concluding the project has no matching role.
+before treating missing candidates as a business fact.
 
 ### Find things
 
@@ -75,7 +71,6 @@ When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
 | Count/enumerate a naming pattern precisely (e.g. all `*Facade`) | `search --name '*Facade' --kind INTERFACE` |
 | How many match? (true count, ignores `--limit`) | `search --name '*EventPlugin' --kind CLASS --count` |
 | Find by annotation | `search @RestController --by-annotation` |
-| Find by architecture role | `search ADAPTER --by-role` |
 | Jump to a type by FQN | `context com.example.shop.service.OrderService` |
 | See implementations of an interface | `implementors-of OrderRepository` |
 | Include impls reached through abstract bases | `implementors-of OrderRepository --recursive` |
@@ -96,8 +91,6 @@ When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
 | Incoming CALLS+REFERENCES to a class (who uses me) | `used-by <fqn>` |
 | Package → package dependency skeleton | `overview --deps-only` |
 | Full project summary (node counts, edge counts, per-package stats) | `overview` |
-| Architecture role inference | `annotate --auto --format json` |
-| Architecture smell detection | `lint --format json` |
 
 ### Trace call chains
 
@@ -155,22 +148,20 @@ The resolver accepts increasingly loose forms:
 
 ---
 
-## Architecture roles
+## Architecture judgment
 
-`annotate --auto` infers DDD-style roles from naming conventions + call patterns:
+anatomist does not infer architecture roles. It indexes code facts and direct
+semantic evidence; architecture judgment belongs to the Agent.
 
-| Role | Meaning |
+Use these facts as inputs:
+
+| Evidence | Command |
 |---|---|
-| ENTRY | HTTP controllers, message listeners — external entry points |
-| APPLICATION | Application services — orchestrate domain operations |
-| DOMAIN_SERVICE | Domain-level services — business logic |
-| DOMAIN_MODEL | Entities, value objects, aggregates |
-| REPOSITORY | Data access interfaces/implementations |
-| ADAPTER | External system adapters (clients, gateways) |
-| INFRASTRUCTURE | Config, utilities, cross-cutting concerns |
-
-Query roles: `search ADAPTER --by-role`
-Detect smells: `lint --arch-smell --format json` (stable envelope even when empty)
+| Entry-like classes | `search @RestController --by-annotation` / `search --name '*Controller' --kind CLASS` |
+| Persistence-like classes | `search @Entity --by-annotation` / `search @Repository --by-annotation` |
+| Package boundaries | `overview --deps-only` |
+| Flow shape | `callees-of <method-fqn> --depth N --blocks package` |
+| Type structure | `context <fqn> --enrich` |
 
 ---
 
@@ -203,14 +194,14 @@ Agent typically composes 2–4 commands. Common patterns:
 3. hierarchy <EachEntity>                         # inheritance shape
 ```
 
-### "Architecture overview + smells"
+### "Architecture overview"
 
 ```
 1. survey-baseline <repo> --format json           # bounded map first
-2. annotate --auto --format json                  # infer roles + quality summary
-3. overview --deps-only --limit 50                # package skeleton
-4. lint                                           # detect arch smells
-5. search DOMAIN_MODEL --by-role --limit 50       # check classified nodes
+2. overview --deps-only --limit 50                # package skeleton
+3. search @Entity --by-annotation --limit 50      # persistence/domain candidates
+4. search @RestController --by-annotation         # entry candidates
+5. callees-of <entry#method> --depth 5 --blocks package
 ```
 
 ### "Bounded contexts / package dependencies"

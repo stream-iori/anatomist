@@ -41,9 +41,9 @@ public class DoctorCommand implements Callable<Integer> {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline", "export",
-                "annotate", "lint", "doctor"));
+                "annotate", "doctor"));
         out.put("capabilities", List.of(
-                "json-query-output", "index-json-summary", "auto-arch-roles",
+                "json-query-output", "index-json-summary",
                 "spring-beans", "spring-mvc-routes", "spring-xml"));
 
         if (exists) {

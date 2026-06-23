@@ -65,22 +65,6 @@ public class SearchService {
         return runNodeQuery(conn, sql.toString(), args);
     }
 
-    public List<NodeRow> searchByRole(String role, int limit) {
-        return searchByRole(role, limit, 0);
-    }
-
-    public List<NodeRow> searchByRole(String role, int limit, int offset) {
-        String sql = "SELECT " + RowMappers.NODE_COLS
-                + " FROM nodes n JOIN arch_roles ar ON n.id = ar.node_id "
-                + " WHERE ar.role = ? "
-                + " ORDER BY n.qualified_name LIMIT ? OFFSET ?";
-        List<Object> args = new ArrayList<>();
-        args.add(role);
-        args.add(limit > 0 ? limit : 50);
-        args.add(Math.max(0, offset));
-        return runNodeQuery(conn, sql, args);
-    }
-
     /** Precise simple-name match against {@code nodes.label} (glob: {@code *}→%, {@code ?}→_),
      *  bypassing FTS. Distinct from {@link #search} which matches the FTS index (incl. package path). */
     public List<NodeRow> searchByName(String glob, String kind, int limit) {
@@ -131,11 +115,6 @@ public class SearchService {
         args.add("%" + annotationTerm.replace("@", "") + "%");
         if (kind != null && !kind.isEmpty()) { sql.append("AND n.kind = ? "); args.add(kind); }
         return runScalarInt(conn, sql.toString(), args);
-    }
-
-    public int countByRole(String role) {
-        String sql = "SELECT COUNT(*) FROM nodes n JOIN arch_roles ar ON n.id = ar.node_id WHERE ar.role = ?";
-        return runScalarInt(conn, sql, List.of(role));
     }
 
     private static String globToLike(String glob) {

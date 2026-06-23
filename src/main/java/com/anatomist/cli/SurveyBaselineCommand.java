@@ -43,14 +43,11 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             CandidateSection entries = collectCandidates(limit,
                     new CandidateQuery("annotation:@RestController", q.searchByAnnotation("@RestController", "CLASS", limit)),
                     new CandidateQuery("annotation:@Controller", q.searchByAnnotation("@Controller", "CLASS", limit)),
-                    new CandidateQuery("role:ENTRY", q.searchByRole("ENTRY", limit)),
                     new CandidateQuery("name:*Controller", q.searchByName("*Controller", "CLASS", limit)));
             CandidateSection domains = collectCandidates(limit,
-                    new CandidateQuery("role:DOMAIN_MODEL", q.searchByRole("DOMAIN_MODEL", limit)),
                     new CandidateQuery("annotation:@Entity", q.searchByAnnotation("@Entity", "CLASS", limit)),
                     new CandidateQuery("name:*Order*", q.searchByName("*Order*", "CLASS", limit)));
             CandidateSection repositories = collectCandidates(limit,
-                    new CandidateQuery("role:REPOSITORY", q.searchByRole("REPOSITORY", limit)),
                     new CandidateQuery("annotation:@Repository", q.searchByAnnotation("@Repository", "CLASS", limit)),
                     new CandidateQuery("name:*Repository", q.searchByName("*Repository", null, limit)));
             CandidateSection events = collectCandidates(limit,
@@ -64,9 +61,6 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             candidateSources.put("events", events.sources());
 
             List<String> warnings = new ArrayList<>();
-            if (overview.archRoleCounts.isEmpty()) {
-                warnings.add("arch_roles_empty_run_anatomist_annotate_auto_for_role_based_candidates");
-            }
             if (entries.rows().isEmpty()) warnings.add("no_entry_candidates_found");
 
             Map<String, Object> out = new LinkedHashMap<>();
@@ -80,7 +74,6 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             out.put("domain_candidates", domains.rows());
             out.put("repositories", repositories.rows());
             out.put("events", events.rows());
-            out.put("smells", List.of());
             out.put("candidate_sources", candidateSources);
             out.put("budget", Map.of(
                     "mode", "sections",
@@ -93,7 +86,6 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             out.put("errors", List.of());
             out.put("next_queries", List.of(
                     "anatomist overview --depth 2 --format json --index " + db,
-                    "anatomist search ENTRY --by-role --index " + db,
                     "anatomist context <EntryClass> --members-limit 50 --index " + db,
                     "anatomist callees-of <Entry#method> --depth 3 --limit 50 --index " + db));
 

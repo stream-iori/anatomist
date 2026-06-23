@@ -29,9 +29,9 @@ public class SemanticPostProcessor {
             ConventionRule.annotation("org.springframework.stereotype.Repository",                    "DATA_ACCESS"),
             ConventionRule.annotation("org.springframework.web.bind.annotation.RestController",       "API_ENDPOINT"),
             ConventionRule.annotation("org.springframework.stereotype.Controller",                    "API_ENDPOINT"),
-            ConventionRule.annotation("jakarta.persistence.Entity",                                   "DOMAIN_MODEL"),
+            ConventionRule.annotation("jakarta.persistence.Entity",                                   "PERSISTENCE_ENTITY"),
             ConventionRule.annotation("org.springframework.transaction.annotation.Transactional",     "TRANSACTION_BOUNDARY"),
-            ConventionRule.annotation("org.springframework.stereotype.Component",                     "INFRASTRUCTURE"),
+            ConventionRule.annotation("org.springframework.stereotype.Component",                     "FRAMEWORK_COMPONENT"),
 
             // Naming rules (BR-004): match nodes.label endsWith; only for CLASS/INTERFACE/ENUM/RECORD.
             ConventionRule.naming("Service",       "BUSINESS_SERVICE"),
@@ -41,8 +41,8 @@ public class SemanticPostProcessor {
             ConventionRule.naming("Repository",    "DATA_ACCESS"),
             ConventionRule.naming("Dao",           "DATA_ACCESS"),
             ConventionRule.naming("Controller",    "API_ENDPOINT"),
-            ConventionRule.naming("Config",        "INFRASTRUCTURE"),
-            ConventionRule.naming("Configuration", "INFRASTRUCTURE")
+            ConventionRule.naming("Config",        "CONFIGURATION"),
+            ConventionRule.naming("Configuration", "CONFIGURATION")
     );
 
     public void process(ExtractionResult result) {

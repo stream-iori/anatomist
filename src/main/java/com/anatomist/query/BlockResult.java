@@ -8,7 +8,6 @@ import java.util.Set;
 
 public class BlockResult {
     public String name;
-    public String role;
     public List<String> methods = new ArrayList<>();
     public Set<String> owningTypes = new LinkedHashSet<>();
     public List<EdgeRow> internalEdges = new ArrayList<>();

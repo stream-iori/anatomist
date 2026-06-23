@@ -24,7 +24,7 @@ class AgentContractIT {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline", "export",
-                "annotate", "lint", "doctor"
+                "annotate", "doctor"
         };
         for (String cmd : commands) {
             RunResult r = runCli(cmd, "--help");
@@ -50,19 +50,6 @@ class AgentContractIT {
     }
 
     @Test
-    void lintJson_isEnvelopeEvenWhenNoSmells(@TempDir Path tmp) throws Exception {
-        Path db = buildFixtureIndex(tmp, false);
-        RunResult r = runCli("lint", "--format", "json", "--index", db.toString());
-        assertEquals(0, r.exitCode, r.stderr);
-        Map<?, ?> json = asObject(r.stdout);
-        assertEquals("lint", json.get("command"));
-        assertEquals("ok", json.get("status"));
-        assertTrue(json.containsKey("results"));
-        Map<?, ?> stats = (Map<?, ?>) json.get("stats");
-        assertNotNull(stats.get("total"));
-    }
-
-    @Test
     void indexJson_reportsStableSummary(@TempDir Path tmp) throws Exception {
         Path fixture = fixture();
         Path db = tmp.resolve("index-json.db");
@@ -84,31 +71,6 @@ class AgentContractIT {
         assertTrue(((Number) stats.get("methods")).intValue() >= 47);
         assertNotNull(stats.get("unresolved"));
         assertNotNull(json.get("schema_version"));
-    }
-
-    @Test
-    void annotateAutoJson_reportsRoleQuality(@TempDir Path tmp) throws Exception {
-        Path db = buildFixtureIndex(tmp, false);
-        RunResult r = runCli("annotate", "--auto", "--format", "json", "--index", db.toString());
-        assertEquals(0, r.exitCode, r.stderr);
-        Map<?, ?> json = asObject(r.stdout);
-        assertEquals("annotate --auto", json.get("command"));
-        assertEquals("ok", json.get("status"));
-        assertTrue(json.containsKey("roles_by_type"));
-        assertTrue(json.containsKey("unclassified_count"));
-        assertTrue(json.containsKey("reasons"));
-    }
-
-    @Test
-    void searchByRoleEmptyJson_explainsReason(@TempDir Path tmp) throws Exception {
-        Path db = buildFixtureIndex(tmp, false);
-        RunResult r = runCli("search", "APPLICATION", "--by-role", "--index", db.toString());
-        assertEquals(0, r.exitCode, r.stderr);
-        Map<?, ?> json = asObject(r.stdout);
-        Map<?, ?> stats = (Map<?, ?>) json.get("stats");
-        assertEquals(0, ((Number) stats.get("total")).intValue());
-        assertNotNull(stats.get("reason"));
-        assertNotNull(stats.get("suggestions"));
     }
 
     private static Path buildFixtureIndex(Path tmp, boolean springXml) throws Exception {

@@ -39,17 +39,11 @@ public class CallChainSlicer {
         Set<String> allNodeIds = new LinkedHashSet<>(typeIds);
         allNodeIds.addAll(methodIds);
         Map<String, List<String>> annots = batchAnnotations(allNodeIds);
-        Map<String, String> archRoles = batchArchRoles(typeIds);
-        Map<String, String> typeRole = new LinkedHashMap<>();
-        for (String typeId : typeIds) {
-            String fromDb = archRoles.get(typeId);
-            typeRole.put(typeId, fromDb != null ? fromDb : inferRole(annots.getOrDefault(typeId, List.of())));
-        }
 
         Map<String, List<EdgeRow>> fieldAccesses = batchFieldAccesses(methodIds);
         Map<String, String> javadocs = batchJavadocs(methodIds);
 
-        List<BlockResult> blocks = buildBlocks(chain, level, owningType, typePkg, typeRole, annots, fieldAccesses);
+        List<BlockResult> blocks = buildBlocks(chain, level, owningType, typePkg, annots, fieldAccesses);
 
         for (BlockResult b : blocks) {
             if (!b.methods.isEmpty()) {
@@ -64,7 +58,6 @@ public class CallChainSlicer {
             List<EdgeRow> chain, Level level,
             Map<String, String> owningType,
             Map<String, String> typePkg,
-            Map<String, String> typeRole,
             Map<String, List<String>> annots,
             Map<String, List<EdgeRow>> fieldAccesses) {
 
@@ -79,12 +72,11 @@ public class CallChainSlicer {
 
         for (String mid : seenMethods) {
             String typeId = owningType.get(mid);
-            String key = blockKey(mid, typeId, typePkg, typeRole, level);
+            String key = blockKey(typeId, typePkg, level);
             methodToBlockKey.put(mid, key);
             BlockResult block = blocksByKey.computeIfAbsent(key, k -> {
                 BlockResult b = new BlockResult();
-                b.role = typeId != null ? typeRole.getOrDefault(typeId, "UNKNOWN") : "UNKNOWN";
-                b.name = blockName(typeId, typePkg, b.role, level);
+                b.name = blockName(typeId, typePkg, level);
                 return b;
             });
             block.methods.add(mid);
@@ -145,25 +137,20 @@ public class CallChainSlicer {
         return result;
     }
 
-    private String blockKey(String methodId, String typeId,
-                            Map<String, String> typePkg, Map<String, String> typeRole,
-                            Level level) {
+    private String blockKey(String typeId, Map<String, String> typePkg, Level level) {
         if (typeId == null) return "__unknown__";
         if (level == Level.CLASS) return typeId;
-        String pkg = typePkg.getOrDefault(typeId, "");
-        String role = typeRole.getOrDefault(typeId, "UNKNOWN");
-        return pkg + ":" + role;
+        return typePkg.getOrDefault(typeId, "");
     }
 
-    private String blockName(String typeId, Map<String, String> typePkg, String role, Level level) {
-        if (typeId == null) return "(unknown) (" + role + ")";
+    private String blockName(String typeId, Map<String, String> typePkg, Level level) {
+        if (typeId == null) return "(unknown)";
         if (level == Level.CLASS) {
             String simple = typeId.contains(".") ? typeId.substring(typeId.lastIndexOf('.') + 1) : typeId;
             if (simple.contains("#")) simple = simple.substring(0, simple.indexOf('#'));
-            return simple + " (" + role + ")";
+            return simple;
         }
-        String pkg = typePkg.getOrDefault(typeId, "(default)");
-        return pkg + " (" + role + ")";
+        return typePkg.getOrDefault(typeId, "(default)");
     }
 
     private void updateDepth(BlockResult block, Integer depth) {
@@ -287,29 +274,6 @@ public class CallChainSlicer {
         return result;
     }
 
-    Map<String, String> batchArchRoles(Set<String> typeIds) {
-        Map<String, String> result = new HashMap<>();
-        if (typeIds.isEmpty()) return result;
-        List<String> ids = new ArrayList<>(typeIds);
-        for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
-            List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
-            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
-            String sql = "SELECT node_id, role FROM arch_roles WHERE node_id IN (" + placeholders + ")";
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        result.put(rs.getString(1), rs.getString(2));
-                    }
-                }
-            } catch (SQLException e) {
-                // arch_roles table may not exist in older DBs — fall back silently
-                return result;
-            }
-        }
-        return result;
-    }
-
     Map<String, String> batchJavadocs(Set<String> methodIds) {
         Map<String, String> result = new HashMap<>();
         List<String> ids = new ArrayList<>(methodIds);
@@ -331,17 +295,4 @@ public class CallChainSlicer {
         return result;
     }
 
-    static String inferRole(List<String> annotations) {
-        for (String a : annotations) {
-            String simple = a.contains(".") ? a.substring(a.lastIndexOf('.') + 1) : a;
-            switch (simple) {
-                case "RestController": case "Controller": return "CONTROLLER";
-                case "Service": return "SERVICE";
-                case "Repository": return "REPOSITORY";
-                case "Component": return "COMPONENT";
-                default: break;
-            }
-        }
-        return "UNKNOWN";
-    }
 }

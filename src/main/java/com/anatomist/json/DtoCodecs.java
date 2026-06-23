@@ -189,13 +189,6 @@ public final class DtoCodecs {
             put(m, "package_deps", r.packageDeps);
             put(m, "related_docs", r.relatedDocs);
             put(m, "suggested_queries", r.suggestedQueries);
-            if (r.archRole != null) {
-                Map<String, Object> ar = obj();
-                put(ar, "role", r.archRole.role);
-                put(ar, "confidence", r.archRole.confidence);
-                put(ar, "source", r.archRole.source);
-                put(m, "arch_role", ar);
-            }
             return m;
         }
         @Override public EnrichResult fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -254,7 +247,6 @@ public final class DtoCodecs {
             put(m, "external_edge_counts", r.externalEdgeCounts);
             put(m, "packages", r.packages);
             put(m, "package_deps", r.packageDeps);
-            if (!r.archRoleCounts.isEmpty()) put(m, "arch_role_counts", r.archRoleCounts);
             return m;
         }
         @Override public OverviewResult fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -282,7 +274,6 @@ public final class DtoCodecs {
         @Override public Object toTree(BlockResult b) {
             Map<String, Object> m = obj();
             put(m, "name", b.name);
-            put(m, "role", b.role);
             put(m, "methods", b.methods);
             put(m, "owning_types", new java.util.ArrayList<>(b.owningTypes));
             put(m, "internal_edges", b.internalEdges);

@@ -35,7 +35,6 @@ class ProgressiveDisclosureIT {
         assertNotNull(json.get("domain_candidates"));
         assertNotNull(json.get("repositories"));
         assertNotNull(json.get("events"));
-        assertNotNull(json.get("smells"));
         assertNotNull(json.get("budget"));
         assertNotNull(json.get("candidate_sources"));
         assertNotNull(json.get("warnings"));

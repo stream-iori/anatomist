@@ -21,9 +21,9 @@ class SemanticPostProcessorTest {
             "org.springframework.stereotype.Repository,                    DATA_ACCESS",
             "org.springframework.web.bind.annotation.RestController,       API_ENDPOINT",
             "org.springframework.stereotype.Controller,                    API_ENDPOINT",
-            "jakarta.persistence.Entity,                                   DOMAIN_MODEL",
+            "jakarta.persistence.Entity,                                   PERSISTENCE_ENTITY",
             "org.springframework.transaction.annotation.Transactional,     TRANSACTION_BOUNDARY",
-            "org.springframework.stereotype.Component,                     INFRASTRUCTURE"
+            "org.springframework.stereotype.Component,                     FRAMEWORK_COMPONENT"
     })
     void conventionRule_annotation_matchesAndWritesMedium(String fqn, String expectedCategory) {
         ExtractionResult r = new ExtractionResult();
@@ -46,8 +46,8 @@ class SemanticPostProcessorTest {
             "OrderRepository,     DATA_ACCESS",
             "OrderDao,            DATA_ACCESS",
             "OrderController,     API_ENDPOINT",
-            "AppConfig,           INFRASTRUCTURE",
-            "AppConfiguration,    INFRASTRUCTURE"
+            "AppConfig,           CONFIGURATION",
+            "AppConfiguration,    CONFIGURATION"
     })
     void conventionRule_naming_matchesAndWritesMedium(String label, String expectedCategory) {
         ExtractionResult r = new ExtractionResult();

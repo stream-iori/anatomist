@@ -17,6 +17,9 @@ SOURCES    := FIXTURE + "/api/src/main/java:" + FIXTURE + "/domain/src/main/java
 SMOKE_DB   := "/tmp/anatomist-smoke.db"
 NATIVE_BIN := ROOT + "/target/anatomist"
 INSTALL_DIR := env_var_or_default("ANATOMIST_INSTALL_DIR", env_var("HOME") + "/.local/bin")
+UPLOAD_BASE := env_var_or_default("ANATOMIST_UPLOAD_BASE", "http://6.12.3.250:8100/upload")
+DIST_BASE   := env_var_or_default("ANATOMIST_DIST_BASE", "http://6.12.3.250:8100/dist-bin")
+DIST_NAME   := env_var_or_default("ANATOMIST_DIST_NAME", "anatomist-darwin-aarch64")
 
 # Default: list recipes
 default:
@@ -48,10 +51,41 @@ native:
     file {{NATIVE_BIN}}
     ls -lh {{NATIVE_BIN}}
 
+# Build native, then upload it to the nginx dist-bin mirror.
+upload-native: native
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -x "{{NATIVE_BIN}}"
+    echo "Uploading {{NATIVE_BIN}}"
+    echo "  PUT: {{UPLOAD_BASE}}/{{DIST_NAME}}"
+    echo "  GET: {{DIST_BASE}}/{{DIST_NAME}}"
+    curl --noproxy '*' \
+        --retry 3 --retry-all-errors \
+        --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+        -fT "{{NATIVE_BIN}}" "{{UPLOAD_BASE}}/{{DIST_NAME}}"
+    echo
+    curl --noproxy '*' -fsSI "{{DIST_BASE}}/{{DIST_NAME}}" | sed -n '1,8p'
+
 # Build a Linux amd64 native binary inside a CentOS 7.9 container
 # (use this from macOS to produce a binary that runs on RHEL/CentOS/Ubuntu servers)
 native-linux-amd64:
     ./docker/build-linux-amd64.sh
+
+# Build the Linux amd64 native binary, then upload it to the nginx dist-bin mirror.
+upload-linux-amd64: native-linux-amd64
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -x "{{NATIVE_BIN}}"
+    DIST_NAME="anatomist-linux-amd64"
+    echo "Uploading {{NATIVE_BIN}}"
+    echo "  PUT: {{UPLOAD_BASE}}/${DIST_NAME}"
+    echo "  GET: {{DIST_BASE}}/${DIST_NAME}"
+    curl --noproxy '*' \
+        --retry 3 --retry-all-errors \
+        --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+        -fT "{{NATIVE_BIN}}" "{{UPLOAD_BASE}}/${DIST_NAME}"
+    echo
+    curl --noproxy '*' -fsSI "{{DIST_BASE}}/${DIST_NAME}" | sed -n '1,8p'
 
 # Rebuild the Docker build image from scratch (forces yum + GraalVM re-download)
 native-linux-amd64-rebuild:

@@ -10,10 +10,10 @@ ARCH=$(uname -m)
 
 case "${OS}-${ARCH}" in
     darwin-arm64)  BINARY="anatomist-darwin-aarch64" ;;
-    # linux-x86_64)  BINARY="anatomist-linux-amd64" ;;
+    linux-x86_64)  BINARY="anatomist-linux-amd64" ;;
     *)
         echo "Error: unsupported platform ${OS}-${ARCH}"
-        echo "Currently only darwin-arm64 (Apple Silicon) is supported."
+        echo "Supported platforms: darwin-arm64, linux-x86_64."
         exit 1
         ;;
 esac

@@ -34,15 +34,6 @@ public final class MarkdownFormatter {
             sb.append('\n');
         }
 
-        if (!ov.archRoleCounts.isEmpty()) {
-            sb.append("## Architecture Roles\n\n");
-            sb.append("| Role | Count |\n|---|---|\n");
-            for (Map.Entry<String, Long> e : ov.archRoleCounts.entrySet()) {
-                sb.append("| ").append(e.getKey()).append(" | ").append(e.getValue()).append(" |\n");
-            }
-            sb.append('\n');
-        }
-
         sb.append("## Edges\n\n");
         sb.append("| Relation | Internal | External |\n|---|---|---|\n");
         java.util.LinkedHashSet<String> rels = new java.util.LinkedHashSet<>();
@@ -93,8 +84,6 @@ public final class MarkdownFormatter {
         if (n.sourceLocation != null) sb.append("| source_location | ").append(n.sourceLocation).append(" |\n");
         if (n.module != null) sb.append("| module | ").append(n.module).append(" |\n");
         if (n.javadoc != null) sb.append("| javadoc | ").append(n.javadoc).append(" |\n");
-        if (r.archRole != null) sb.append("| arch_role | **").append(r.archRole.role)
-                .append("** (").append(r.archRole.confidence).append(") |\n");
         sb.append('\n');
 
         // Members split into fields/methods/other.

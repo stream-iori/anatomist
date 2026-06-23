@@ -31,9 +31,6 @@ class CallChainSlicerTest {
                     + "source_location TEXT, metadata TEXT)");
             s.execute("CREATE TABLE annotations (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     + "node_id TEXT NOT NULL, annotation_fqn TEXT NOT NULL, attributes TEXT)");
-            s.execute("CREATE TABLE arch_roles (node_id TEXT PRIMARY KEY, "
-                    + "role TEXT NOT NULL, confidence TEXT NOT NULL, source TEXT NOT NULL)");
-
             // Types
             s.execute("INSERT INTO nodes VALUES "
                     + "('com.example.ctrl.OrderController','OrderController','CLASS',"
@@ -125,23 +122,21 @@ class CallChainSlicerTest {
         assertEquals(3, r.blocks.size());
 
         BlockResult ctrl = r.blocks.get(0);
-        assertEquals("OrderController (CONTROLLER)", ctrl.name);
-        assertEquals("CONTROLLER", ctrl.role);
+        assertEquals("OrderController", ctrl.name);
         assertTrue(ctrl.methods.contains("com.example.ctrl.OrderController#create"));
 
         BlockResult svc = r.blocks.get(1);
-        assertEquals("OrderService (SERVICE)", svc.name);
-        assertEquals("SERVICE", svc.role);
+        assertEquals("OrderService", svc.name);
         assertTrue(svc.methods.contains("com.example.svc.OrderService#process"));
         assertTrue(svc.methods.contains("com.example.svc.OrderService#validate"));
         assertEquals(1, svc.internalEdges.size());
 
         BlockResult repo = r.blocks.get(2);
-        assertEquals("OrderRepo (REPOSITORY)", repo.name);
+        assertEquals("OrderRepo", repo.name);
     }
 
     @Test
-    void packageLevel_mergesSamePackageSameRole() {
+    void packageLevel_groupsByPackage() {
         List<EdgeRow> chain = List.of(
                 edge("com.example.ctrl.OrderController#create", "com.example.svc.OrderService#process", "CALLS", 1),
                 edge("com.example.svc.OrderService#process", "com.example.repo.OrderRepo#save", "CALLS", 2));
@@ -151,9 +146,9 @@ class CallChainSlicerTest {
 
         assertEquals("package", r.level);
         assertEquals(3, r.blocks.size());
-        assertEquals("CONTROLLER", r.blocks.get(0).role);
-        assertEquals("SERVICE", r.blocks.get(1).role);
-        assertEquals("REPOSITORY", r.blocks.get(2).role);
+        assertEquals("com.example.ctrl", r.blocks.get(0).name);
+        assertEquals("com.example.svc", r.blocks.get(1).name);
+        assertEquals("com.example.repo", r.blocks.get(2).name);
     }
 
     @Test
@@ -165,7 +160,7 @@ class CallChainSlicerTest {
         SliceResult r = slicer.slice(chain, CallChainSlicer.Level.CLASS);
 
         BlockResult svc = r.blocks.stream()
-                .filter(b -> "SERVICE".equals(b.role))
+                .filter(b -> "OrderService".equals(b.name))
                 .findFirst().orElseThrow();
         assertEquals(1, svc.fieldsRead.size());
         assertEquals("READS", svc.fieldsRead.get(0).relation);
@@ -180,7 +175,7 @@ class CallChainSlicerTest {
         SliceResult r = slicer.slice(chain, CallChainSlicer.Level.CLASS);
 
         BlockResult ctrl = r.blocks.stream()
-                .filter(b -> "CONTROLLER".equals(b.role))
+                .filter(b -> "OrderController".equals(b.name))
                 .findFirst().orElseThrow();
         assertTrue(ctrl.annotations.stream().anyMatch(a -> a.contains("RestController")));
     }
@@ -214,53 +209,9 @@ class CallChainSlicerTest {
         SliceResult r = slicer.slice(chain, CallChainSlicer.Level.CLASS);
 
         BlockResult svc = r.blocks.stream()
-                .filter(b -> "SERVICE".equals(b.role))
+                .filter(b -> "OrderService".equals(b.name))
                 .findFirst().orElseThrow();
         assertArrayEquals(new int[]{2, 2}, svc.depthRange);
-    }
-
-    @Test
-    void archRoles_takePriorityOverAnnotationInference() throws Exception {
-        // Insert arch_roles: override SERVICE → APPLICATION, REPOSITORY stays
-        try (Statement s = conn.createStatement()) {
-            s.execute("INSERT INTO arch_roles VALUES ('com.example.ctrl.OrderController','ENTRY','auto_annotation','@RestController')");
-            s.execute("INSERT INTO arch_roles VALUES ('com.example.svc.OrderService','APPLICATION','auto_call_pattern','call pattern')");
-            s.execute("INSERT INTO arch_roles VALUES ('com.example.repo.OrderRepo','REPOSITORY','auto_annotation','@Repository')");
-        }
-
-        List<EdgeRow> chain = List.of(
-                edge("com.example.ctrl.OrderController#create", "com.example.svc.OrderService#process", "CALLS", 1),
-                edge("com.example.svc.OrderService#process", "com.example.repo.OrderRepo#save", "CALLS", 2));
-
-        CallChainSlicer slicer = new CallChainSlicer(conn);
-        SliceResult r = slicer.slice(chain, CallChainSlicer.Level.CLASS);
-
-        // Should use arch_roles values, not annotation-based inference
-        assertEquals("ENTRY", r.blocks.get(0).role);
-        assertEquals("APPLICATION", r.blocks.get(1).role);
-        assertEquals("REPOSITORY", r.blocks.get(2).role);
-
-        // Cleanup for other tests
-        try (Statement s = conn.createStatement()) {
-            s.execute("DELETE FROM arch_roles");
-        }
-    }
-
-    @Test
-    void roleInference_coversAllSpringStereotypes() {
-        assertEquals("CONTROLLER", CallChainSlicer.inferRole(
-                List.of("org.springframework.web.bind.annotation.RestController")));
-        assertEquals("CONTROLLER", CallChainSlicer.inferRole(
-                List.of("org.springframework.stereotype.Controller")));
-        assertEquals("SERVICE", CallChainSlicer.inferRole(
-                List.of("org.springframework.stereotype.Service")));
-        assertEquals("REPOSITORY", CallChainSlicer.inferRole(
-                List.of("org.springframework.stereotype.Repository")));
-        assertEquals("COMPONENT", CallChainSlicer.inferRole(
-                List.of("org.springframework.stereotype.Component")));
-        assertEquals("UNKNOWN", CallChainSlicer.inferRole(List.of()));
-        assertEquals("UNKNOWN", CallChainSlicer.inferRole(
-                List.of("javax.persistence.Entity")));
     }
 
     @Test
@@ -272,7 +223,7 @@ class CallChainSlicerTest {
         SliceResult r = slicer.slice(List.of(e), CallChainSlicer.Level.CLASS);
 
         BlockResult svc = r.blocks.stream()
-                .filter(b -> "SERVICE".equals(b.role))
+                .filter(b -> "OrderService".equals(b.name))
                 .findFirst().orElseThrow();
         assertTrue(svc.controlFlowContext.contains("if-then@42"));
     }

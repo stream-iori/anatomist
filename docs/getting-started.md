@@ -71,19 +71,6 @@ anatomist callers-of com.example.shop.service.OrderService#createOrder --depth 2
 anatomist deps-of com.example.shop.service.OrderService --limit 20 --index /tmp/shop.db
 ```
 
-## Architecture role analysis
-
-```bash
-# Auto-infer DDD architecture layers
-anatomist annotate --auto --index /tmp/shop.db
-
-# Detect architecture smells
-anatomist lint --arch-smell --index /tmp/shop.db
-
-# Find all ENTRY-layer classes
-anatomist search ENTRY --by-role --index /tmp/shop.db
-```
-
 ## Output format
 
 Every query outputs a JSON envelope:

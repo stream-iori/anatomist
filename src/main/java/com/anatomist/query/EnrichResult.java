@@ -1,8 +1,5 @@
 package com.anatomist.query;
 
-
-import com.anatomist.model.ArchRole;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,7 +17,6 @@ public class EnrichResult {
     public List<Map<String, Object>> packageDeps = new ArrayList<>();
     public List<DocSnippet> relatedDocs = new ArrayList<>();
     public List<String> suggestedQueries = new ArrayList<>();
-    public ArchRole archRole;
 
     public Map<String, Object> toStats() {
         Map<String, Object> s = new LinkedHashMap<>();

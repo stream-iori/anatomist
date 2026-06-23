@@ -13,7 +13,7 @@ JavaParser + SymbolSolver-based Java code intelligence tool. Indexes a Java proj
                                        ┌───────────────────────────────┐
                                        │  CLI / JSON responses for     │
                                        │  search / context / callers / │
-                                       │  callees / hierarchy / lint   │
+                                       │  callees / hierarchy / deps   │
                                        └───────────────────────────────┘
 ```
 
@@ -43,21 +43,19 @@ For Agent integration, prefer machine-readable health and build checks:
 anatomist doctor --format json --index /tmp/shop.db
 anatomist index . --format json --output /tmp/shop.db
 anatomist survey-baseline . --format json --index /tmp/shop.db
-anatomist annotate --auto --format json --index /tmp/shop.db
 ```
 
 ---
 
 ## What it does
 
-- 19 CLI commands covering: search, context, call chain, hierarchy, dependencies, field access, overview, survey-baseline, export, annotation, lint
-- Stable Agent contract: every subcommand supports `--help`; `doctor`, `index`, and `annotate --auto` support JSON status summaries
+- CLI commands covering: search, context, call chain, hierarchy, dependencies, field access, overview, survey-baseline, export, annotation
+- Stable Agent contract: every subcommand supports `--help`; `doctor` and `index` support JSON status summaries
 - Progressive disclosure for large repos: `survey-baseline`, paged search, paged context members, and paged/filtered call chains
 - SymbolSolver-level call resolution (not naive label match) — distinguishes INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE
 - Stable IDs for lambdas, method refs, anonymous classes
 - Incremental re-index (only changed files)
 - Spring XML bean wiring (`--spring-xml`)
-- Architecture role inference (DDD 7 layers) + smell detection (6 rules)
 - Pagination + keyword filter on all list queries
 - GraalVM native binary (~10ms cold start vs ~300ms JVM)
 

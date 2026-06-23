@@ -71,7 +71,6 @@ class ArchExportTest {
         type.put("kind", "CLASS");
         type.put("qualified_name", "com.test.TestClass");
         type.put("package", "com.test");
-        type.put("role", "APPLICATION");
         type.put("is_abstract", false);
         type.put("annotations", List.of("Service"));
         type.put("method_count", 3);
@@ -107,7 +106,6 @@ class ArchExportTest {
         stats.put("kind_counts", new LinkedHashMap<>());
         stats.put("internal_edge_counts", new LinkedHashMap<>());
         stats.put("external_edge_counts", new LinkedHashMap<>());
-        stats.put("arch_role_counts", new LinkedHashMap<>());
         stats.put("package_count", 0L);
         return stats;
     }

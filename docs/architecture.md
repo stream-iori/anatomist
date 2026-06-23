@@ -2,15 +2,14 @@
 
 ## Package layout under `src/main/java/com/anatomist/`
 
-- `model/` — Plain data: `Node`, `Edge`, `Annotation`, `ArchRole`, `ExtractionResult`
+- `model/` — Plain data: `Node`, `Edge`, `Annotation`, `ExtractionResult`
 - `core/` — Index-phase plumbing: `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, `NodeIdGenerator`, `ExtractionContext`, `SpringBeanParser`, `JavadocSummary`
-- `annotations/` — `@ArchRole` annotation (SOURCE retention) + `Category` enum (7 DDD layers)
 - `extract/` — `Extractor` interface + 8 implementations (`TypeExtractor`, `MethodExtractor`, `FieldExtractor`, `AnnotationExtractor`, `CallGraphExtractor`, `HierarchyExtractor`, `ReferenceExtractor`, `FieldAccessExtractor`). All store javadoc as summary only. Plus `XmlBeanExtractor` (post-Java pass for Spring XML beans).
 - `framework/` — Internal analyzer SPI for framework/middleware concepts. `JavaAstAnalyzer` handles AST-backed concepts, `ProjectAnalyzer` handles project resources. `AnalyzerRegistry` wires built-ins.
 - `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
-- `store/` — `SqliteStore` (schema + atomic batched write + arch_roles read/write)
-- `semantic/` — Post-index intelligence: `SemanticPostProcessor` (convention rules), `ArchRoleInferrer` (L1+L2 DDD role inference), `SmellDetector` (6 architecture smell rules)
-- `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `CallGraphService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs: `QueryEnvelope`, `NodeRow`, `EdgeRow`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `CallChainSlicer` groups call chains into blocks with arch_roles priority. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
+- `store/` — `SqliteStore` (schema + atomic batched write)
+- `semantic/` — Post-index annotations from direct code evidence: `SemanticPostProcessor` writes convention-based labels such as service, data access, API endpoint, DTO, persistence entity, and transaction boundary.
+- `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `CallGraphService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs: `QueryEnvelope`, `NodeRow`, `EdgeRow`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `CallChainSlicer` groups call chains into class/package blocks. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
 - `export/` — `ExportHtmlWriter`: self-contained HTML with SVG force-directed renderer
 - `cli/` — picocli commands (17 subcommands)
 
@@ -56,7 +55,7 @@ Built-ins are registered in `AnalyzerRegistry`. Keep shared relations generic (`
 - **`edges` CHECK constraint:** `is_external=0 ⇒ target_id NOT NULL & external_target_fqn NULL` and vice versa.
 - **Symbol resolution failure → skip the entity.** Catch `RuntimeException`, call `ctx.incrementUnresolved()`.
 - **Index and Query are separate.** Query-side code must never import `com.github.javaparser.*`.
-- **`arch_roles` is post-index.** Populated by `annotate --auto`, read at query time. `CallChainSlicer` falls back to annotation heuristic when empty.
+- **No architecture role inference.** The index stores code facts and lightweight semantic annotations. Higher-level architecture judgment belongs to the calling Agent.
 - **JavaDoc stored as summary only.** Extracted via `JavadocSummary.extract()` (strips @tags, first sentence rule).
 - **Query output is Agent-bounded.** callees-of/callers-of: MAX_DEPTH=20 + BFS dedup; enrich: 200 lines; deps-of/used-by/field-access: default --limit 50 + pagination; overview --deps-only: default 30.
 - **Spring Boot basics are static facts.** `BEAN`, `ROUTE`, `INJECTS`, and `HANDLES` are configured/static evidence, not proof of the exact runtime object under profiles, conditions, or AOP.
@@ -66,7 +65,7 @@ Built-ins are registered in `AnalyzerRegistry`. Keep shared relations generic (`
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Tables: `nodes`, `edges`, `annotations`, `node_names` (FTS5), `documents`, `doc_content` (FTS5), `semantic_annotations`, `arch_roles`, `file_cache`, `project_meta`, `file_dependencies`.
+Tables: `nodes`, `edges`, `annotations`, `node_names` (FTS5), `documents`, `doc_content` (FTS5), `semantic_annotations`, `file_cache`, `project_meta`, `file_dependencies`.
 
 ## Fixtures
 

@@ -60,14 +60,14 @@ JSON includes:
 
 | Field | Meaning |
 |-------|---------|
-| `overview` | Node/edge/package/role counts |
-| `entry_candidates` | Likely controllers or ENTRY-role classes |
+| `overview` | Node/edge/package counts |
+| `entry_candidates` | Likely controllers or route handler classes |
 | `domain_candidates` | Likely domain model classes |
 | `repositories` | Likely repository/data-access types |
 | `events` | Event/listener candidates |
-| `candidate_sources` | Per-section evidence source counts, e.g. annotation, role, naming convention |
+| `candidate_sources` | Per-section evidence source counts, e.g. annotation or naming convention |
 | `budget` | Per-section emission limits |
-| `warnings` / `errors` | Machine-readable quality notes; warns when arch roles have not been inferred |
+| `warnings` / `errors` | Machine-readable quality notes |
 | `next_queries` | Suggested follow-up commands |
 
 ### `index-docs`
@@ -87,10 +87,10 @@ anatomist watch <project-path> [--auto-index] [--debounce-ms 500]
 ## Query Phase
 
 ### `search`
-Find nodes by name (FTS5), precise simple-name, annotation, or architecture role.
+Find nodes by name (FTS5), precise simple-name, or annotation.
 
 ```bash
-anatomist search <term> [--kind CLASS|METHOD|...] [--limit 20] [--by-annotation] [--by-role] --index <db>
+anatomist search <term> [--kind CLASS|METHOD|...] [--limit 20] [--by-annotation] --index <db>
 anatomist search <term> --limit 20 --offset 20 --index <db>
 anatomist search --name '<glob>' [--kind CLASS|INTERFACE|...] [--count] --index <db>
 anatomist search <term> --count --index <db>
@@ -99,7 +99,6 @@ anatomist search <term> --count --index <db>
 - Default `<term>`: FTS5 match over qualified name / label / javadoc — **also matches package path tokens** (e.g. `search Facade` matches everything under a `.facade.` package). FTS results carry a `stats.label_matches` count: how many returned rows actually match the simple name, so an inflated `total` is easy to spot.
 - `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*EventPlugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
 - `--count`: return only the true total (results omitted), **independent of `--limit`**. Works with `--name` or FTS.
-- `--by-role`: when empty, `stats.reason` and `stats.suggestions` explain likely causes instead of returning a bare empty list.
 - Search output always reports `stats.total`, `stats.limit`, `stats.offset`, `stats.truncated`, and `budget`, including the first page. Continue with `next_queries` when `stats.truncated=true`.
 
 ### `context`
@@ -111,7 +110,7 @@ anatomist context <fqn> --members-limit 50 --members-offset 50 --index <db>
 ```
 
 - Default: node + fields + methods + annotations + framework facts (`DEFINED_BY`, `INJECTS`, `HANDLES`, `WIRES`)
-- `--enrich`: adds semantic annotations, arch_role, related docs, suggested queries
+- `--enrich`: adds semantic annotations, related docs, suggested queries
 - `--format markdown`: 200-line budgeted output
 - `--members-limit` / `--members-offset`: page class members for large classes
 - `--methods-only` / `--fields-only`: narrow member paging by kind
@@ -125,7 +124,7 @@ anatomist callees-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter Orde
 ```
 
 - Max depth: 20. BFS with dedup (no infinite loops).
-- `--blocks`: slices chain into architectural blocks with DDD role labels.
+- `--blocks`: slices chain into class or package blocks.
 - `--through-callbacks`: follow CALLS made inside anonymous-class / lambda bodies defined in the method (and nested), attributing them to the method. Essential for template-callback code (`SettleServiceTemplate#execute(callback)`, `TransactionTemplate.execute(...)`, stream lambdas) where the real downstream logic lives in the callback body. Synthesized edges are tagged `call_kind=CALLBACK` (when no original kind) and carry `via=<body-id>` pointing at the callback the call physically came from.
 - `--limit` / `--offset` / `--filter`: page wide call graphs and narrow by source/target/relation substring. JSON always includes paging stats and `budget`, including the first page.
 
@@ -194,7 +193,7 @@ Project-wide statistics and package dependency skeleton.
 anatomist overview [--format markdown|json] [--depth N] [--deps-only] [--limit 30] [--offset 0] --index <db>
 ```
 
-- Includes: node kind counts, edge counts, arch_role distribution, package tallies, package deps
+- Includes: node kind counts, edge counts, package tallies, package deps
 - `--deps-only`: output only package dependency edges
 - `--depth N`: collapse package tree to N segments
 
@@ -208,21 +207,15 @@ anatomist export --format html --output <file.html> [--max-edges 20000] --index 
 ## Annotation Phase
 
 ### `annotate`
-Write business-semantic annotations or auto-infer architecture roles.
+Write business-semantic annotations.
 
 ```bash
 # Manual annotation
 anatomist annotate <node-id> --category BUSINESS_SERVICE --label "订单服务" --index <db>
 
-# Auto-infer DDD layers (L1 annotation + L2 call-pattern rules)
-anatomist annotate --auto --index <db>
-anatomist annotate --auto --format json --index <db>
-
 # Batch from JSON file
 anatomist annotate --from-json annotations.json --index <db>
 ```
-
-`annotate --auto --format json` reports `roles_by_type`, `inferred_count`, `unclassified_count`, and low-confidence `reasons` so Agents can distinguish index success from role inference success.
 
 ## Agent Integration Contract
 
@@ -232,29 +225,10 @@ Use these commands for deterministic tool integration:
 |------|---------|
 | Discover CLI/schema/capabilities | `anatomist doctor --format json` |
 | Build index and verify success | `anatomist index <repo> --format json` |
-| Infer architecture roles and check quality | `anatomist annotate --auto --format json --index <db>` |
-| Query domain/entry candidates | `anatomist search ENTRY --by-role --index <db>` |
+| Build a bounded first-pass map | `anatomist survey-baseline <repo> --format json --index <db>` |
+| Query candidate code facts | `anatomist search <term> --limit 50 --index <db>` |
 
 All subcommands support `--help` for self-discovery.
-
-### `lint`
-Detect architecture smells.
-
-```bash
-anatomist lint --arch-smell [--format markdown|json] --index <db>
-```
-
-With `--format json`, `lint` returns a stable object envelope:
-`command`, `status`, `results`, `stats`, `warnings`, and `errors`.
-This remains true when no smells are found.
-
-Detects 6 smell types:
-- **anemic-model** — DOMAIN_MODEL with only getters/setters
-- **fat-application** — APPLICATION class with business logic
-- **layer-bypass** — ENTRY directly calls REPOSITORY
-- **circular-dependency** — APPLICATION ↔ DOMAIN_SERVICE bidirectional
-- **adapter-leak** — non-ADAPTER class calls HTTP/MQ clients
-- **domain-spillover** — DOMAIN_MODEL depends on framework annotations
 
 ## Pagination
 

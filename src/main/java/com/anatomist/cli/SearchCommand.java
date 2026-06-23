@@ -11,8 +11,8 @@ import java.util.List;
 
 @Command(name = "search",
         mixinStandardHelpOptions = true,
-        description = "Find nodes by name (FTS5), by precise simple-name (--name), by annotation (--by-annotation), or by arch role (--by-role).",
-        footer = "%nExamples:%n  search OrderService%n  search --name '*EventPlugin' --kind CLASS%n  search Facade --count%n  search @RestController --by-annotation --kind CLASS%n  search ADAPTER --by-role%n%nEmpty --by-role results include stats.reason and stats.suggestions.")
+        description = "Find nodes by name (FTS5), by precise simple-name (--name), or by annotation (--by-annotation).",
+        footer = "%nExamples:%n  search OrderService%n  search --name '*EventPlugin' --kind CLASS%n  search Facade --count%n  search @RestController --by-annotation --kind CLASS")
 public class SearchCommand extends QueryCommand {
 
     @Parameters(index = "0", arity = "0..1", description = "Search term (e.g. OrderService, @RestController). Omit when using --name.")
@@ -36,9 +36,6 @@ public class SearchCommand extends QueryCommand {
     @Option(names = "--by-annotation", description = "Treat <term> as an annotation FQN/substring.")
     boolean byAnnotation;
 
-    @Option(names = "--by-role", description = "Find nodes by arch_role (ENTRY, APPLICATION, DOMAIN_SERVICE, DOMAIN_MODEL, REPOSITORY, ADAPTER, INFRASTRUCTURE).")
-    boolean byRole;
-
     @Override
     protected QueryEnvelope execute(QueryService q) {
         if (count) {
@@ -55,9 +52,6 @@ public class SearchCommand extends QueryCommand {
         if (name != null) {
             results = q.searchByName(name, kind, limit, offset);
             total = q.countByName(name, kind);
-        } else if (byRole) {
-            results = q.searchByRole(term, limit, offset);
-            total = q.countByRole(term);
         } else if (byAnnotation) {
             results = q.searchByAnnotation(term, kind, limit, offset);
             total = q.countByAnnotation(term, kind);
@@ -72,15 +66,9 @@ public class SearchCommand extends QueryCommand {
             env.nextQueries = List.of(buildQueryString().replaceAll(" --offset \\d+", "")
                     + " --offset " + env.stats.get("next_offset"));
         }
-        if (byRole && results.isEmpty()) {
-            env.stats.put("reason", "no_nodes_for_role_or_arch_roles_not_inferred");
-            env.stats.put("suggestions", List.of(
-                    "run anatomist annotate --auto --index <index.db>",
-                    "check role spelling: ENTRY APPLICATION DOMAIN_SERVICE DOMAIN_MODEL REPOSITORY ADAPTER INFRASTRUCTURE"));
-        }
         // FTS hits can match the package path rather than the class name; surface how many
         // results actually match the simple name so the Agent isn't misled by an inflated total.
-        if (name == null && !byRole && !byAnnotation && term != null) {
+        if (name == null && !byAnnotation && term != null) {
             String needle = term.replace("*", "").toLowerCase();
             long labelHits = results.stream()
                     .filter(r -> r.label != null && r.label.toLowerCase().contains(needle))
@@ -95,7 +83,6 @@ public class SearchCommand extends QueryCommand {
         if (term != null) sb.append(" ").append(term);
         if (name != null) sb.append(" --name ").append(name);
         if (byAnnotation) sb.append(" --by-annotation");
-        if (byRole) sb.append(" --by-role");
         if (kind != null) sb.append(" --kind ").append(kind);
         if (count) sb.append(" --count");
         if (limit != 20) sb.append(" --limit ").append(limit);

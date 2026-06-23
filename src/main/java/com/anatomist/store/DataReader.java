@@ -1,6 +1,5 @@
 package com.anatomist.store;
 
-import com.anatomist.model.ArchRole;
 import com.anatomist.model.FileCacheEntry;
 
 import java.sql.Connection;
@@ -55,39 +54,6 @@ public class DataReader {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to read project_meta", e);
         }
-    }
-
-    public List<ArchRole> queryArchRoles(String role) {
-        List<ArchRole> out = new ArrayList<>();
-        String sql = role == null
-                ? "SELECT node_id, role, confidence, source FROM arch_roles"
-                : "SELECT node_id, role, confidence, source FROM arch_roles WHERE role = ?";
-        try (PreparedStatement ps = conn().prepareStatement(sql)) {
-            if (role != null) ps.setString(1, role);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    out.add(new ArchRole(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to query arch_roles", e);
-        }
-        return out;
-    }
-
-    public Optional<ArchRole> getArchRole(String nodeId) {
-        String sql = "SELECT node_id, role, confidence, source FROM arch_roles WHERE node_id = ?";
-        try (PreparedStatement ps = conn().prepareStatement(sql)) {
-            ps.setString(1, nodeId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(new ArchRole(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to get arch_role", e);
-        }
-        return Optional.empty();
     }
 
     public Set<String> dependentsOf(List<String> seed) {

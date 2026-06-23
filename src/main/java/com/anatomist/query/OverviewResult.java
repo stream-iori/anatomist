@@ -17,9 +17,6 @@ public class OverviewResult {
     public List<PackageStat> packages = new ArrayList<>();
     /** Reuses {@link QueryService#packageDeps()}: (source_package, target_package, relation, edge_count). */
     public List<Map<String, Object>> packageDeps = new ArrayList<>();
-    /** Architecture role → count (from arch_roles table). */
-    public Map<String, Long> archRoleCounts = new LinkedHashMap<>();
-
     public Map<String, Object> toStats() {
         Map<String, Object> s = new LinkedHashMap<>();
         long types = 0;

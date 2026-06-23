@@ -1,7 +1,6 @@
 package com.anatomist.store;
 
 import com.anatomist.model.Annotation;
-import com.anatomist.model.ArchRole;
 import com.anatomist.model.Document;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
@@ -94,7 +93,6 @@ public class SqliteStore implements IndexWriter {
     public void runAnalyze() { writer.runAnalyze(); }
     public void upsertSemanticAnnotation(SemanticAnnotation sa) { writer.upsertSemanticAnnotation(sa); }
     public void upsertSemanticAnnotations(List<SemanticAnnotation> sas) { writer.upsertSemanticAnnotations(sas); }
-    public void upsertArchRoles(List<ArchRole> roles) { writer.upsertArchRoles(roles); }
     public void insertDocuments(List<Document> docs) { writer.insertDocuments(docs); }
     public void updateFileCache(List<FileCacheEntry> entries) { writer.updateFileCache(entries); }
     public void upsertProjectMeta(String key, String value) { writer.upsertProjectMeta(key, value); }
@@ -114,8 +112,6 @@ public class SqliteStore implements IndexWriter {
 
     public Map<String, FileCacheEntry> readFileCache() { return reader.readFileCache(); }
     public Optional<String> readProjectMeta(String key) { return reader.readProjectMeta(key); }
-    public List<ArchRole> queryArchRoles(String role) { return reader.queryArchRoles(role); }
-    public Optional<ArchRole> getArchRole(String nodeId) { return reader.getArchRole(nodeId); }
     public Set<String> dependentsOf(List<String> seed) { return reader.dependentsOf(seed); }
     public Set<String> allNodeIds() { return reader.allNodeIds(); }
     public Map<String, Long> queryKindCounts() { return reader.queryKindCounts(); }
