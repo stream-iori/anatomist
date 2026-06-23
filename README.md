@@ -42,6 +42,7 @@ For Agent integration, prefer machine-readable health and build checks:
 ```bash
 anatomist doctor --format json --index /tmp/shop.db
 anatomist index . --format json --output /tmp/shop.db
+anatomist survey-baseline . --format json --index /tmp/shop.db
 anatomist annotate --auto --format json --index /tmp/shop.db
 ```
 
@@ -49,8 +50,9 @@ anatomist annotate --auto --format json --index /tmp/shop.db
 
 ## What it does
 
-- 17 CLI commands covering: search, context, call chain, hierarchy, dependencies, field access, overview, export, annotation, lint
+- 19 CLI commands covering: search, context, call chain, hierarchy, dependencies, field access, overview, survey-baseline, export, annotation, lint
 - Stable Agent contract: every subcommand supports `--help`; `doctor`, `index`, and `annotate --auto` support JSON status summaries
+- Progressive disclosure for large repos: `survey-baseline`, paged search, paged context members, and paged/filtered call chains
 - SymbolSolver-level call resolution (not naive label match) — distinguishes INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE
 - Stable IDs for lambdas, method refs, anonymous classes
 - Incremental re-index (only changed files)
@@ -73,7 +75,7 @@ anatomist annotate --auto --format json --index /tmp/shop.db
 | Doc | Purpose |
 |-----|---------|
 | [docs/getting-started.md](docs/getting-started.md) | Installation, first index, first query |
-| [docs/commands.md](docs/commands.md) | Full CLI reference (all 17 commands + flags) |
+| [docs/commands.md](docs/commands.md) | Full CLI reference (all 19 commands + flags) |
 | [docs/architecture.md](docs/architecture.md) | Package layout, data flow, design constraints |
 | [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
 | [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |

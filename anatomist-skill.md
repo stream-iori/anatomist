@@ -47,7 +47,7 @@ runtime behavior, build/CI issues, or non-Java code.
 
 Every command emits JSON to stdout in the shape:
 ```json
-{ "query": "<echo of cmd line>", "results": [...], "stats": {...} }
+{ "query": "<echo of cmd line>", "results": [...], "stats": {...}, "budget": {...} }
 ```
 
 Mutation commands that Agents should call in JSON mode:
@@ -56,7 +56,11 @@ Mutation commands that Agents should call in JSON mode:
 |---|---|
 | Check CLI/index/schema/capabilities | `doctor --format json [--index <db>]` |
 | Build an index and verify counts/errors | `index <project-root> --format json [--output <db>]` |
+| First bounded map for a large repo | `survey-baseline <project-root> --format json --index <db>` |
 | Infer roles and judge quality | `annotate --auto --format json --index <db>` |
+
+`survey-baseline` also reports `candidate_sources` and `warnings`; inspect them
+before treating missing role-based candidates as a business fact.
 
 When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
 `stats.suggestions` before concluding the project has no matching role.
@@ -66,6 +70,7 @@ When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
 | You want… | Command |
 |---|---|
 | Locate a type/method by name | `search OrderService` |
+| Page a large search | `search Order --limit 50 --offset 50` |
 | Restrict by kind | `search OrderService --kind METHOD` |
 | Count/enumerate a naming pattern precisely (e.g. all `*Facade`) | `search --name '*Facade' --kind INTERFACE` |
 | How many match? (true count, ignores `--limit`) | `search --name '*EventPlugin' --kind CLASS --count` |
@@ -81,6 +86,7 @@ When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
 | You want… | Command |
 |---|---|
 | Fields + method signatures of a class | `context <fqn>` |
+| Page members of a large class | `context <fqn> --members-limit 50 --members-offset 50` |
 | Same + 1-hop outgoing calls per method | `context <fqn> --with-callees` |
 | Same + N-hop calls | `context <fqn> --with-callees=3` |
 | Enriched view (semantic annotations + docs + suggested queries) | `context <fqn> --enrich` |
@@ -91,7 +97,7 @@ When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
 | Package → package dependency skeleton | `overview --deps-only` |
 | Full project summary (node counts, edge counts, per-package stats) | `overview` |
 | Architecture role inference | `annotate --auto --format json` |
-| Architecture smell detection | `lint` |
+| Architecture smell detection | `lint --format json` |
 
 ### Trace call chains
 
@@ -99,6 +105,7 @@ When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
 |---|---|
 | What does this method call? | `callees-of <method-fqn>` |
 | Recursive (multi-hop) callees | `callees-of <method-fqn> --depth 5` |
+| Page/filter a wide call graph | `callees-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter Order` |
 | Chain stops at a template/executor (e.g. only `→ execute`)? Follow into the callback | `callees-of <method-fqn> --depth 5 --through-callbacks` |
 | Calls only in loops | `callees-of <method-fqn> --in-loop` |
 | Calls only in branches | `callees-of <method-fqn> --in-branch` |
@@ -124,6 +131,11 @@ When `search <ROLE> --by-role` returns no rows, inspect `stats.reason` and
 --offset 0        Skip N results
 --filter <term>   Substring match on target label/FQN
 ```
+
+Paged JSON uses `stats.truncated` and `stats.next_offset`; continue with
+`next_queries` when present. `search`, `callees-of`, and `callers-of` report
+`stats.total`, `stats.limit`, `stats.offset`, `stats.truncated`, and top-level
+`budget` even on the first page.
 
 ---
 
@@ -158,7 +170,7 @@ The resolver accepts increasingly loose forms:
 | INFRASTRUCTURE | Config, utilities, cross-cutting concerns |
 
 Query roles: `search ADAPTER --by-role`
-Detect smells: `lint --arch-smell` (e.g., DOMAIN_MODEL calling INFRASTRUCTURE)
+Detect smells: `lint --arch-smell --format json` (stable envelope even when empty)
 
 ---
 
@@ -194,10 +206,11 @@ Agent typically composes 2–4 commands. Common patterns:
 ### "Architecture overview + smells"
 
 ```
-1. annotate --auto --format json                  # infer roles + quality summary
-2. overview                                       # project summary
-3. lint                                           # detect arch smells
-4. search DOMAIN_MODEL --by-role                  # check classified nodes
+1. survey-baseline <repo> --format json           # bounded map first
+2. annotate --auto --format json                  # infer roles + quality summary
+3. overview --deps-only --limit 50                # package skeleton
+4. lint                                           # detect arch smells
+5. search DOMAIN_MODEL --by-role --limit 50       # check classified nodes
 ```
 
 ### "Bounded contexts / package dependencies"

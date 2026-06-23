@@ -49,6 +49,27 @@ JSON includes:
 | `commands` | Supported subcommands for Agent self-discovery |
 | `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
 
+### `survey-baseline`
+Return a bounded first-pass map for large repositories.
+
+```bash
+anatomist survey-baseline <project-path> --format json --index <db>
+```
+
+JSON includes:
+
+| Field | Meaning |
+|-------|---------|
+| `overview` | Node/edge/package/role counts |
+| `entry_candidates` | Likely controllers or ENTRY-role classes |
+| `domain_candidates` | Likely domain model classes |
+| `repositories` | Likely repository/data-access types |
+| `events` | Event/listener candidates |
+| `candidate_sources` | Per-section evidence source counts, e.g. annotation, role, naming convention |
+| `budget` | Per-section emission limits |
+| `warnings` / `errors` | Machine-readable quality notes; warns when arch roles have not been inferred |
+| `next_queries` | Suggested follow-up commands |
+
 ### `index-docs`
 Index project markdown documents for FTS5 search.
 
@@ -70,6 +91,7 @@ Find nodes by name (FTS5), precise simple-name, annotation, or architecture role
 
 ```bash
 anatomist search <term> [--kind CLASS|METHOD|...] [--limit 20] [--by-annotation] [--by-role] --index <db>
+anatomist search <term> --limit 20 --offset 20 --index <db>
 anatomist search --name '<glob>' [--kind CLASS|INTERFACE|...] [--count] --index <db>
 anatomist search <term> --count --index <db>
 ```
@@ -78,38 +100,46 @@ anatomist search <term> --count --index <db>
 - `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*EventPlugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
 - `--count`: return only the true total (results omitted), **independent of `--limit`**. Works with `--name` or FTS.
 - `--by-role`: when empty, `stats.reason` and `stats.suggestions` explain likely causes instead of returning a bare empty list.
+- Search output always reports `stats.total`, `stats.limit`, `stats.offset`, `stats.truncated`, and `budget`, including the first page. Continue with `next_queries` when `stats.truncated=true`.
 
 ### `context`
 Show node structure + optional enrichment.
 
 ```bash
 anatomist context <fqn> [--with-callees=N] [--enrich] [--with-docs] [--package <pkg>] [--format markdown|json] --index <db>
+anatomist context <fqn> --members-limit 50 --members-offset 50 --index <db>
 ```
 
 - Default: node + fields + methods + annotations + framework facts (`DEFINED_BY`, `INJECTS`, `HANDLES`, `WIRES`)
 - `--enrich`: adds semantic annotations, arch_role, related docs, suggested queries
 - `--format markdown`: 200-line budgeted output
+- `--members-limit` / `--members-offset`: page class members for large classes
+- `--methods-only` / `--fields-only`: narrow member paging by kind
 
 ### `callees-of`
 Outgoing call chain from a method.
 
 ```bash
 anatomist callees-of <method-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
+anatomist callees-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter Order --index <db>
 ```
 
 - Max depth: 20. BFS with dedup (no infinite loops).
 - `--blocks`: slices chain into architectural blocks with DDD role labels.
 - `--through-callbacks`: follow CALLS made inside anonymous-class / lambda bodies defined in the method (and nested), attributing them to the method. Essential for template-callback code (`SettleServiceTemplate#execute(callback)`, `TransactionTemplate.execute(...)`, stream lambdas) where the real downstream logic lives in the callback body. Synthesized edges are tagged `call_kind=CALLBACK` (when no original kind) and carry `via=<body-id>` pointing at the callback the call physically came from.
+- `--limit` / `--offset` / `--filter`: page wide call graphs and narrow by source/target/relation substring. JSON always includes paging stats and `budget`, including the first page.
 
 ### `callers-of`
 Incoming call chain (impact analysis).
 
 ```bash
 anatomist callers-of <method-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
+anatomist callers-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter Controller --index <db>
 ```
 
 - Pierces interface/abstract dispatch via OVERRIDES (interface method → implementors).
 - `--through-callbacks`: when an incoming call originates inside an anonymous-class / lambda body, attribute it to the enclosing real method (tagged `via=<body-id>`, `call_kind=CALLBACK`) instead of reporting the synthetic `$anon@…#process()` node — so impact analysis reaches the actual caller.
+- `--limit` / `--offset` / `--filter`: page wide impact graphs and continue with `stats.next_offset`. JSON always includes paging stats and `budget`, including the first page.
 
 ### `call-path`
 Shortest path between two methods.
@@ -214,6 +244,10 @@ Detect architecture smells.
 anatomist lint --arch-smell [--format markdown|json] --index <db>
 ```
 
+With `--format json`, `lint` returns a stable object envelope:
+`command`, `status`, `results`, `stats`, `warnings`, and `errors`.
+This remains true when no smells are found.
+
 Detects 6 smell types:
 - **anemic-model** — DOMAIN_MODEL with only getters/setters
 - **fat-application** — APPLICATION class with business logic
@@ -232,7 +266,20 @@ Detects 6 smell types:
 | `--offset N` | Skip N results | 0 |
 | `--filter <keyword>` | Substring match on target label/FQN | none |
 
-JSON stats always include `{"total": N, "offset": N, "truncated": bool}`.
+JSON stats include `{"total": N, "limit": N, "offset": N, "truncated": bool}`. When more rows exist, outputs add `next_offset` and `next_queries`. Paged commands include top-level `budget` so Agents can distinguish emitted rows from total matches.
+
+## Large Repository Workflow
+
+Use this progressive path instead of asking for everything at once:
+
+| Step | Command |
+|------|---------|
+| 1. Health and capabilities | `anatomist doctor --format json --index <db>` |
+| 2. Bounded project map | `anatomist survey-baseline <repo> --format json --index <db>` |
+| 3. Package skeleton | `anatomist overview --deps-only --limit 50 --offset 0 --index <db>` |
+| 4. Candidate expansion | `anatomist search <term> --limit 50 --offset 0 --index <db>` |
+| 5. Type drill-down | `anatomist context <type> --members-limit 50 --index <db>` |
+| 6. Flow drill-down | `anatomist callees-of <method> --depth 3 --limit 50 --index <db>` |
 
 ## Context Filters
 
