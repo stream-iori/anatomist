@@ -76,7 +76,7 @@ class IncrementalSpringXmlIT {
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
-            assertEquals(4, scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'"));
+            assertEquals(4, xmlBeanCount(st));
         }
 
         // Remove the orderEventPublisher bean and the property that wires it.
@@ -95,7 +95,7 @@ class IncrementalSpringXmlIT {
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
-            assertEquals(3, scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'"),
+            assertEquals(3, xmlBeanCount(st),
                     "one bean removed");
             assertEquals(0, scalar(st,
                     "SELECT count(*) FROM nodes WHERE id LIKE 'bean:orderEventPublisher@%'"),
@@ -125,7 +125,7 @@ class IncrementalSpringXmlIT {
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
-            assertEquals(4, scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'"),
+            assertEquals(4, xmlBeanCount(st),
                     "bean graph preserved across java edit");
             int wires = scalar(st,
                     "SELECT count(*) FROM edges WHERE relation='WIRES' AND is_external=0 "
@@ -142,7 +142,7 @@ class IncrementalSpringXmlIT {
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
-            assertTrue(scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'") > 0);
+            assertTrue(xmlBeanCount(st) > 0);
             assertTrue(scalar(st, "SELECT count(*) FROM edges WHERE relation='WIRES'") > 0);
         }
 
@@ -151,13 +151,22 @@ class IncrementalSpringXmlIT {
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
-            assertEquals(0, scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'"),
-                    "all beans gone after xml delete");
+            assertEquals(0, xmlBeanCount(st),
+                    "all XML beans gone after xml delete");
             assertEquals(0, scalar(st, "SELECT count(*) FROM edges WHERE relation='WIRES'"),
                     "all WIRES gone after xml delete");
-            assertEquals(0, scalar(st, "SELECT count(*) FROM edges WHERE relation='DEFINED_BY'"),
-                    "all DEFINED_BY gone after xml delete");
+            assertEquals(0, xmlDefinedByCount(st),
+                    "all XML DEFINED_BY gone after xml delete");
         }
+    }
+
+    private static int xmlBeanCount(Statement st) throws Exception {
+        return scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN' AND source_file LIKE '%.xml'");
+    }
+
+    private static int xmlDefinedByCount(Statement st) throws Exception {
+        return scalar(st, "SELECT count(*) FROM edges WHERE relation='DEFINED_BY' "
+                + "AND source_file LIKE '%.xml'");
     }
 
     private static int scalar(Statement st, String sql) throws Exception {

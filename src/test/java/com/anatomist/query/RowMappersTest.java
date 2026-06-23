@@ -97,7 +97,8 @@ class RowMappersTest {
         Path db = freshDb(tmp);
         String sql = "WITH RECURSIVE chain AS ("
                 + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-                + "         e.call_kind, e.is_external, e.source_file, e.source_location, e.context, 1 AS depth"
+                + "         e.call_kind, e.confidence, e.is_external, e.source_file,"
+                + "         e.source_location, e.context, e.metadata, 1 AS depth"
                 + "    FROM edges e WHERE e.relation='CALLS'"
                 + ") SELECT " + RowMappers.EDGE_COLS_CHAIN
                 + "    FROM chain c "
