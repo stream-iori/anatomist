@@ -38,19 +38,39 @@ public class CallersOfCommand extends QueryCommand {
             description = "Slice chain into blocks: class | package (default: package).")
     String blocks;
 
+    @Option(names = "--limit", description = "Max call-chain edges to emit (default 50, 0=all).")
+    int limit = 50;
+
+    @Option(names = "--offset", description = "Skip N call-chain edges for pagination.")
+    int offset = 0;
+
+    @Option(names = "--filter", description = "Filter edges by source/target/relation substring.")
+    String filter;
+
     @Override
     protected QueryEnvelope execute(QueryService q) {
         List<EdgeRow> rows = ContextFilter.apply(q.callersOf(method, depth, throughCallbacks), inLoop, inBranch);
+        if (filter != null && !filter.isBlank()) {
+            rows = rows.stream().filter(e -> Disclosure.matches(e, filter)).toList();
+        }
+        int total = rows.size();
+        List<EdgeRow> page = limit > 0 ? Disclosure.page(rows, limit, offset) : rows;
         String query = "callers-of " + method + " --depth " + depth
                 + (throughCallbacks ? " --through-callbacks" : "");
-        QueryEnvelope env = new QueryEnvelope(query, rows);
+        QueryEnvelope env = new QueryEnvelope(query, page);
         int maxDepth = rows.stream().mapToInt(r -> r.depth == null ? 0 : r.depth).max().orElse(0);
         env.stats.put("max_depth", maxDepth);
+        Disclosure.putPaging(env, total, limit > 0 ? limit : Math.max(total, 1), offset);
+        Disclosure.putBudget(env, "edges", page.size(), total);
+        if ((Boolean) env.stats.get("truncated")) {
+            env.nextQueries = List.of(query + " --limit " + env.stats.get("limit")
+                    + " --offset " + env.stats.get("next_offset"));
+        }
         if (blocks != null) {
             CallChainSlicer slicer = new CallChainSlicer(q.connection());
             CallChainSlicer.Level level = "class".equalsIgnoreCase(blocks)
                     ? CallChainSlicer.Level.CLASS : CallChainSlicer.Level.PACKAGE;
-            env.blocks = slicer.slice(rows, level);
+            env.blocks = slicer.slice(page, level);
         }
         return env;
     }

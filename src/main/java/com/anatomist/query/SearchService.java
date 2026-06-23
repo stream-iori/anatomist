@@ -18,6 +18,10 @@ public class SearchService {
     }
 
     public List<NodeRow> search(String term, String kind, int limit) {
+        return search(term, kind, limit, 0);
+    }
+
+    public List<NodeRow> search(String term, String kind, int limit, int offset) {
         String ftsExpr = term == null ? "" : term.trim();
         if (ftsExpr.isEmpty()) return Collections.emptyList();
         if (!ftsExpr.matches(".*[\\s\"():*-].*")) ftsExpr = ftsExpr + "*";
@@ -33,12 +37,17 @@ public class SearchService {
             sql.append("AND n.kind = ? ");
             args.add(kind);
         }
-        sql.append("ORDER BY rank LIMIT ?");
+        sql.append("ORDER BY rank LIMIT ? OFFSET ?");
         args.add(limit > 0 ? limit : 20);
+        args.add(Math.max(0, offset));
         return runNodeQuery(conn, sql.toString(), args);
     }
 
     public List<NodeRow> searchByAnnotation(String annotationTerm, String kind, int limit) {
+        return searchByAnnotation(annotationTerm, kind, limit, 0);
+    }
+
+    public List<NodeRow> searchByAnnotation(String annotationTerm, String kind, int limit, int offset) {
         StringBuilder sql = new StringBuilder()
                 .append("SELECT DISTINCT ").append(RowMappers.NODE_COLS).append(" ")
                 .append("FROM nodes n JOIN annotations a ON n.id = a.node_id ")
@@ -50,32 +59,43 @@ public class SearchService {
             sql.append("AND n.kind = ? ");
             args.add(kind);
         }
-        sql.append("ORDER BY n.qualified_name LIMIT ?");
+        sql.append("ORDER BY n.qualified_name LIMIT ? OFFSET ?");
         args.add(limit > 0 ? limit : 50);
+        args.add(Math.max(0, offset));
         return runNodeQuery(conn, sql.toString(), args);
     }
 
     public List<NodeRow> searchByRole(String role, int limit) {
+        return searchByRole(role, limit, 0);
+    }
+
+    public List<NodeRow> searchByRole(String role, int limit, int offset) {
         String sql = "SELECT " + RowMappers.NODE_COLS
                 + " FROM nodes n JOIN arch_roles ar ON n.id = ar.node_id "
                 + " WHERE ar.role = ? "
-                + " ORDER BY n.qualified_name LIMIT ?";
+                + " ORDER BY n.qualified_name LIMIT ? OFFSET ?";
         List<Object> args = new ArrayList<>();
         args.add(role);
         args.add(limit > 0 ? limit : 50);
+        args.add(Math.max(0, offset));
         return runNodeQuery(conn, sql, args);
     }
 
     /** Precise simple-name match against {@code nodes.label} (glob: {@code *}→%, {@code ?}→_),
      *  bypassing FTS. Distinct from {@link #search} which matches the FTS index (incl. package path). */
     public List<NodeRow> searchByName(String glob, String kind, int limit) {
+        return searchByName(glob, kind, limit, 0);
+    }
+
+    public List<NodeRow> searchByName(String glob, String kind, int limit, int offset) {
         StringBuilder sql = new StringBuilder("SELECT ").append(RowMappers.NODE_COLS)
                 .append(" FROM nodes n WHERE n.label LIKE ? ");
         List<Object> args = new ArrayList<>();
         args.add(globToLike(glob));
         if (kind != null && !kind.isEmpty()) { sql.append("AND n.kind = ? "); args.add(kind); }
-        sql.append("ORDER BY n.qualified_name LIMIT ?");
+        sql.append("ORDER BY n.qualified_name LIMIT ? OFFSET ?");
         args.add(limit > 0 ? limit : 50);
+        args.add(Math.max(0, offset));
         return runNodeQuery(conn, sql.toString(), args);
     }
 
@@ -100,6 +120,22 @@ public class SearchService {
         args.add(ftsExpr);
         if (kind != null && !kind.isEmpty()) { sql.append("AND n.kind = ? "); args.add(kind); }
         return runScalarInt(conn, sql.toString(), args);
+    }
+
+    public int countByAnnotation(String annotationTerm, String kind) {
+        StringBuilder sql = new StringBuilder()
+                .append("SELECT COUNT(DISTINCT n.id) ")
+                .append("FROM nodes n JOIN annotations a ON n.id = a.node_id ")
+                .append("WHERE a.annotation_fqn LIKE ? ");
+        List<Object> args = new ArrayList<>();
+        args.add("%" + annotationTerm.replace("@", "") + "%");
+        if (kind != null && !kind.isEmpty()) { sql.append("AND n.kind = ? "); args.add(kind); }
+        return runScalarInt(conn, sql.toString(), args);
+    }
+
+    public int countByRole(String role) {
+        String sql = "SELECT COUNT(*) FROM nodes n JOIN arch_roles ar ON n.id = ar.node_id WHERE ar.role = ?";
+        return runScalarInt(conn, sql, List.of(role));
     }
 
     private static String globToLike(String glob) {

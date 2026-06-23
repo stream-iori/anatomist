@@ -40,8 +40,8 @@ public class DoctorCommand implements Callable<Integer> {
         out.put("commands", List.of(
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "hierarchy", "implementors-of", "deps-of", "used-by",
-                "field-access", "call-path", "overview", "export", "annotate",
-                "lint", "doctor"));
+                "field-access", "call-path", "overview", "survey-baseline", "export",
+                "annotate", "lint", "doctor"));
         out.put("capabilities", List.of(
                 "json-query-output", "index-json-summary", "auto-arch-roles",
                 "spring-beans", "spring-mvc-routes", "spring-xml"));

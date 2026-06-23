@@ -207,6 +207,8 @@ public final class DtoCodecs {
             put(m, "query", env.query);
             put(m, "results", env.results);
             put(m, "stats", env.stats);
+            if (!env.budget.isEmpty()) put(m, "budget", env.budget);
+            put(m, "next_queries", env.nextQueries);
             put(m, "blocks", env.blocks);
             return m;
         }

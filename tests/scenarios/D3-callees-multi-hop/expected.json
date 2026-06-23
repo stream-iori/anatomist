@@ -1,4 +1,10 @@
 {
+  "budget" : {
+    "emitted" : 28,
+    "mode" : "edges",
+    "total" : 28,
+    "truncated" : false
+  },
   "query" : "callees-of com.example.shop.controller.OrderController#create --depth 5",
   "results" : [ {
     "call_kind" : "INSTANCE",
@@ -321,7 +327,10 @@
     "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save"
   } ],
   "stats" : {
+    "limit" : 50,
     "max_depth" : 3,
-    "total" : 28
+    "offset" : 0,
+    "total" : 28,
+    "truncated" : false
   }
 }

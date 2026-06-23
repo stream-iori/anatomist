@@ -4,6 +4,7 @@ import com.anatomist.query.ContextResult;
 import com.anatomist.query.EnrichResult;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.MarkdownFormatter;
+import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
@@ -35,6 +36,18 @@ public class ContextCommand implements Callable<Integer> {
             description = "Include outgoing CALLS, N hops (default 1 when flag present).")
     Integer withCallees;
 
+    @Option(names = "--members-limit", description = "Max contained members to emit (default 0 = all).")
+    int membersLimit = 0;
+
+    @Option(names = "--members-offset", description = "Skip N contained members for pagination.")
+    int membersOffset = 0;
+
+    @Option(names = "--methods-only", description = "Emit only METHOD/CONSTRUCTOR members.")
+    boolean methodsOnly;
+
+    @Option(names = "--fields-only", description = "Emit only FIELD members.")
+    boolean fieldsOnly;
+
     @Option(names = "--format", description = "Output format: markdown | json (default: json; with --enrich: markdown).")
     String format;
 
@@ -65,12 +78,62 @@ public class ContextCommand implements Callable<Integer> {
 
     private int callContext(Path db) {
         try (QueryService q = new QueryService(db)) {
+            List<NodeRow> candidates = q.resolveNodeRows(target);
+            if (candidates.size() > 1) {
+                QueryEnvelope env = new QueryEnvelope(buildQueryString(), candidates);
+                env.stats.clear();
+                env.stats.put("total", 0);
+                env.stats.put("ambiguous", true);
+                env.stats.put("candidates", candidates.size());
+                env.stats.put("reason", "target_resolves_to_multiple_nodes");
+                env.nextQueries = candidates.stream()
+                        .map(n -> "anatomist context " + n.qualifiedName + " --index " + db)
+                        .toList();
+                JsonFormatter.emit(System.out, env);
+                return 2;
+            }
             ContextResult r = q.context(target, withCallees == null ? 0 : withCallees);
+            int membersTotal = 0;
+            int safeOffset = 0;
+            boolean membersTruncated = false;
+            if (r != null) {
+                java.util.List<com.anatomist.query.NodeRow> members = r.members;
+                if (methodsOnly) {
+                    members = members.stream()
+                            .filter(m -> "METHOD".equals(m.kind) || "CONSTRUCTOR".equals(m.kind))
+                            .toList();
+                } else if (fieldsOnly) {
+                    members = members.stream().filter(m -> "FIELD".equals(m.kind)).toList();
+                }
+                membersTotal = members.size();
+                safeOffset = Math.max(0, Math.min(membersOffset, membersTotal));
+                if (membersLimit > 0) {
+                    int end = Math.min(safeOffset + membersLimit, membersTotal);
+                    r.members = new java.util.ArrayList<>(members.subList(safeOffset, end));
+                    membersTruncated = end < membersTotal;
+                } else {
+                    r.members = new java.util.ArrayList<>(members.subList(safeOffset, membersTotal));
+                }
+            }
             QueryEnvelope env = new QueryEnvelope(buildQueryString(),
                     r == null ? List.of() : List.of(r));
             env.stats.clear();
             if (r != null) env.stats.putAll(r.toStats());
             else env.stats.put("total", 0);
+            boolean memberPagingRequested = membersLimit > 0 || membersOffset > 0 || methodsOnly || fieldsOnly;
+            if (r != null && memberPagingRequested) {
+                env.stats.put("members_total", membersTotal);
+                env.stats.put("members_offset", safeOffset);
+                env.stats.put("members_limit", membersLimit > 0 ? membersLimit : membersTotal);
+                env.stats.put("members_truncated", membersTruncated);
+                if (membersTruncated) {
+                    int nextOffset = safeOffset + membersLimit;
+                    env.stats.put("members_next_offset", nextOffset);
+                    env.nextQueries = List.of(buildQueryString().replaceAll(" --members-offset \\d+", "")
+                            + " --members-offset " + nextOffset);
+                }
+                Disclosure.putBudget(env, "members", r.members.size(), membersTotal);
+            }
             JsonFormatter.emit(System.out, env);
             return r == null ? 2 : 0;
         }
@@ -106,6 +169,10 @@ public class ContextCommand implements Callable<Integer> {
         if (pkg != null) sb.append(" --package ").append(pkg);
         if (withCallees != null) sb.append(" --with-callees=").append(withCallees);
         if (format != null) sb.append(" --format ").append(format);
+        if (membersLimit > 0) sb.append(" --members-limit ").append(membersLimit);
+        if (membersOffset > 0) sb.append(" --members-offset ").append(membersOffset);
+        if (methodsOnly) sb.append(" --methods-only");
+        if (fieldsOnly) sb.append(" --fields-only");
         if (withDocs) sb.append(" --with-docs");
         return sb.toString();
     }

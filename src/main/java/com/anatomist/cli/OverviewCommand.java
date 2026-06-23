@@ -55,6 +55,13 @@ public class OverviewCommand implements Callable<Integer> {
                 env.stats.put("total", total);
                 env.stats.put("offset", safeOffset);
                 env.stats.put("truncated", end < total);
+                if (end < total) {
+                    env.stats.put("limit", effectiveLimit);
+                    env.stats.put("next_offset", end);
+                    env.nextQueries = List.of("overview --deps-only --limit " + effectiveLimit
+                            + " --offset " + end);
+                    Disclosure.putBudget(env, "package_deps", page.size(), total);
+                }
                 JsonFormatter.emit(System.out, env);
                 return 0;
             }

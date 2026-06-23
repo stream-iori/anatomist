@@ -1,4 +1,11 @@
 {
+  "budget" : {
+    "emitted" : 5,
+    "mode" : "rows",
+    "total" : 15,
+    "truncated" : true
+  },
+  "next_queries" : [ "search OrderService --limit 5 --offset 5" ],
   "query" : "search OrderService --limit 5",
   "results" : [ {
     "id" : "bean:orderService",
@@ -43,6 +50,10 @@
   } ],
   "stats" : {
     "label_matches" : 3,
-    "total" : 5
+    "limit" : 5,
+    "next_offset" : 5,
+    "offset" : 0,
+    "total" : 15,
+    "truncated" : true
   }
 }

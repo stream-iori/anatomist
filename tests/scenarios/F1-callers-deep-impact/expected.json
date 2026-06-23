@@ -1,4 +1,10 @@
 {
+  "budget" : {
+    "emitted" : 3,
+    "mode" : "edges",
+    "total" : 3,
+    "truncated" : false
+  },
   "query" : "callers-of com.example.shop.service.OrderValidator#validate --depth 5",
   "results" : [ {
     "call_kind" : "INSTANCE",
@@ -38,7 +44,10 @@
     "target_qualified_name" : "com.example.shop.service.OrderService#createOrder"
   } ],
   "stats" : {
+    "limit" : 50,
     "max_depth" : 2,
-    "total" : 3
+    "offset" : 0,
+    "total" : 3,
+    "truncated" : false
   }
 }

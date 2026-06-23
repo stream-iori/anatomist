@@ -23,8 +23,8 @@ class AgentContractIT {
         String[] commands = {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "hierarchy", "implementors-of", "deps-of", "used-by",
-                "field-access", "call-path", "overview", "export", "annotate", "lint",
-                "doctor"
+                "field-access", "call-path", "overview", "survey-baseline", "export",
+                "annotate", "lint", "doctor"
         };
         for (String cmd : commands) {
             RunResult r = runCli(cmd, "--help");
@@ -44,8 +44,22 @@ class AgentContractIT {
         assertEquals("ok", json.get("status"));
         assertEquals(Boolean.TRUE, json.get("index_exists"));
         assertTrue(((List<?>) json.get("commands")).contains("search"));
+        assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
+    }
+
+    @Test
+    void lintJson_isEnvelopeEvenWhenNoSmells(@TempDir Path tmp) throws Exception {
+        Path db = buildFixtureIndex(tmp, false);
+        RunResult r = runCli("lint", "--format", "json", "--index", db.toString());
+        assertEquals(0, r.exitCode, r.stderr);
+        Map<?, ?> json = asObject(r.stdout);
+        assertEquals("lint", json.get("command"));
+        assertEquals("ok", json.get("status"));
+        assertTrue(json.containsKey("results"));
+        Map<?, ?> stats = (Map<?, ?>) json.get("stats");
+        assertNotNull(stats.get("total"));
     }
 
     @Test

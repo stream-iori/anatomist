@@ -65,8 +65,16 @@ public class QueryService implements AutoCloseable {
         return search.search(term, kind, limit);
     }
 
+    public List<NodeRow> search(String term, String kind, int limit, int offset) {
+        return search.search(term, kind, limit, offset);
+    }
+
     public List<NodeRow> searchByName(String glob, String kind, int limit) {
         return search.searchByName(glob, kind, limit);
+    }
+
+    public List<NodeRow> searchByName(String glob, String kind, int limit, int offset) {
+        return search.searchByName(glob, kind, limit, offset);
     }
 
     public int countByName(String glob, String kind) {
@@ -81,8 +89,24 @@ public class QueryService implements AutoCloseable {
         return search.searchByAnnotation(annotationTerm, kind, limit);
     }
 
+    public List<NodeRow> searchByAnnotation(String annotationTerm, String kind, int limit, int offset) {
+        return search.searchByAnnotation(annotationTerm, kind, limit, offset);
+    }
+
     public List<NodeRow> searchByRole(String role, int limit) {
         return search.searchByRole(role, limit);
+    }
+
+    public List<NodeRow> searchByRole(String role, int limit, int offset) {
+        return search.searchByRole(role, limit, offset);
+    }
+
+    public int countByAnnotation(String annotationTerm, String kind) {
+        return search.countByAnnotation(annotationTerm, kind);
+    }
+
+    public int countByRole(String role) {
+        return search.countByRole(role);
     }
 
     public List<NodeRow> implementorsOf(String typeRef) {
@@ -207,5 +231,9 @@ public class QueryService implements AutoCloseable {
 
     public NodeRow resolveNodeRow(String input) {
         return resolver.resolveNodeRow(input);
+    }
+
+    public List<NodeRow> resolveNodeRows(String input) {
+        return resolver.resolveNodeRows(input);
     }
 }

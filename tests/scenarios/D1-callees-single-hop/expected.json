@@ -1,4 +1,10 @@
 {
+  "budget" : {
+    "emitted" : 17,
+    "mode" : "edges",
+    "total" : 17,
+    "truncated" : false
+  },
   "query" : "callees-of com.example.shop.service.OrderService#createOrder --depth 1",
   "results" : [ {
     "call_kind" : "STATIC",
@@ -203,7 +209,10 @@
     "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save"
   } ],
   "stats" : {
+    "limit" : 50,
     "max_depth" : 1,
-    "total" : 17
+    "offset" : 0,
+    "total" : 17,
+    "truncated" : false
   }
 }

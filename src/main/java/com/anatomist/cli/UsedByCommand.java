@@ -48,6 +48,14 @@ public class UsedByCommand implements Callable<Integer> {
                 env.stats.put("total", paged.total());
                 env.stats.put("offset", paged.offset());
                 env.stats.put("truncated", paged.truncated());
+                if (paged.truncated()) {
+                    env.stats.put("limit", limit > 0 ? limit : 50);
+                    int nextOffset = paged.offset() + (limit > 0 ? limit : 50);
+                    env.stats.put("next_offset", nextOffset);
+                    env.nextQueries = List.of("used-by " + type + " --limit "
+                            + (limit > 0 ? limit : 50) + " --offset " + nextOffset);
+                    Disclosure.putBudget(env, "edges", paged.items().size(), paged.total());
+                }
                 JsonFormatter.emit(System.out, env);
             }
             return 0;

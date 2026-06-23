@@ -24,6 +24,9 @@ public class SearchCommand extends QueryCommand {
     @Option(names = "--limit", description = "Max results. Default 20.")
     int limit = 20;
 
+    @Option(names = "--offset", description = "Skip N results for pagination. Default 0.")
+    int offset = 0;
+
     @Option(names = "--name", description = "Precise simple-name match against label (glob: * ?, e.g. '*EventPlugin'). Bypasses FTS.")
     String name;
 
@@ -48,11 +51,27 @@ public class SearchCommand extends QueryCommand {
             return env;
         }
         List<NodeRow> results;
-        if (name != null) results = q.searchByName(name, kind, limit);
-        else if (byRole) results = q.searchByRole(term, limit);
-        else if (byAnnotation) results = q.searchByAnnotation(term, kind, limit);
-        else results = q.search(term, kind, limit);
+        int total;
+        if (name != null) {
+            results = q.searchByName(name, kind, limit, offset);
+            total = q.countByName(name, kind);
+        } else if (byRole) {
+            results = q.searchByRole(term, limit, offset);
+            total = q.countByRole(term);
+        } else if (byAnnotation) {
+            results = q.searchByAnnotation(term, kind, limit, offset);
+            total = q.countByAnnotation(term, kind);
+        } else {
+            results = q.search(term, kind, limit, offset);
+            total = q.countSearch(term, kind);
+        }
         QueryEnvelope env = new QueryEnvelope(buildQueryString(), results);
+        Disclosure.putPaging(env, total, limit, offset);
+        Disclosure.putBudget(env, "rows", results.size(), total);
+        if ((Boolean) env.stats.get("truncated")) {
+            env.nextQueries = List.of(buildQueryString().replaceAll(" --offset \\d+", "")
+                    + " --offset " + env.stats.get("next_offset"));
+        }
         if (byRole && results.isEmpty()) {
             env.stats.put("reason", "no_nodes_for_role_or_arch_roles_not_inferred");
             env.stats.put("suggestions", List.of(
@@ -80,6 +99,7 @@ public class SearchCommand extends QueryCommand {
         if (kind != null) sb.append(" --kind ").append(kind);
         if (count) sb.append(" --count");
         if (limit != 20) sb.append(" --limit ").append(limit);
+        if (offset != 0) sb.append(" --offset ").append(offset);
         return sb.toString();
     }
 }

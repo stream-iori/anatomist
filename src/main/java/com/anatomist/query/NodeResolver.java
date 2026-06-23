@@ -165,6 +165,21 @@ final class NodeResolver {
         return null;
     }
 
+    /** Resolve to every candidate in the same priority order as {@link #resolveNodeRow(String)}. */
+    List<NodeRow> resolveNodeRows(String input) {
+        if (input == null || input.isEmpty()) return Collections.emptyList();
+        List<String> ids;
+        if (input.contains("#") || input.contains("(")) {
+            ids = resolveMethodIds(input);
+            if (!ids.isEmpty()) return readNodesById(ids);
+        }
+        ids = resolveTypeIds(input);
+        if (!ids.isEmpty()) return readNodesById(ids);
+        ids = resolveMethodIds(input);
+        if (!ids.isEmpty()) return readNodesById(ids);
+        return Collections.emptyList();
+    }
+
     NodeRow readNodeById(String id) {
         if (id == null) return null;
         if (nodeCache.containsKey(id)) return nodeCache.get(id);
@@ -179,6 +194,15 @@ final class NodeResolver {
         } catch (SQLException e) {
             throw new RuntimeException("query failed: " + e.getMessage(), e);
         }
+    }
+
+    private List<NodeRow> readNodesById(List<String> ids) {
+        List<NodeRow> rows = new ArrayList<>();
+        for (String id : ids) {
+            NodeRow row = readNodeById(id);
+            if (row != null) rows.add(row);
+        }
+        return rows;
     }
 
     void preloadNodes(Collection<String> ids) {

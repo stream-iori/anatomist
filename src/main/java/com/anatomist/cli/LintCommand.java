@@ -1,11 +1,13 @@
 package com.anatomist.cli;
 
+import com.anatomist.json.Json;
 import com.anatomist.semantic.SmellDetector;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,16 +35,17 @@ public class LintCommand implements Callable<Integer> {
             SmellDetector detector = new SmellDetector(store);
             List<SmellDetector.Smell> smells = detector.detect();
 
+            if ("json".equalsIgnoreCase(format)) {
+                printJson(smells);
+                return 0;
+            }
+
             if (smells.isEmpty()) {
                 System.out.println("No architecture smells detected.");
                 return 0;
             }
 
-            if ("json".equals(format)) {
-                printJson(smells);
-            } else {
-                printMarkdown(smells);
-            }
+            printMarkdown(smells);
             return smells.isEmpty() ? 0 : 0;
         }
     }
@@ -68,22 +71,28 @@ public class LintCommand implements Callable<Integer> {
     }
 
     private void printJson(List<SmellDetector.Smell> smells) {
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < smells.size(); i++) {
-            SmellDetector.Smell s = smells.get(i);
-            if (i > 0) sb.append(",");
-            sb.append("{\"type\":\"").append(escape(s.type)).append("\"");
-            sb.append(",\"node_id\":\"").append(escape(s.nodeId)).append("\"");
-            sb.append(",\"node_label\":\"").append(escape(s.nodeLabel)).append("\"");
-            sb.append(",\"description\":\"").append(escape(s.description)).append("\"");
-            sb.append(",\"suggestion\":\"").append(escape(s.suggestion)).append("\"}");
+        List<Map<String, Object>> rows = new ArrayList<>();
+        Map<String, Integer> byType = new LinkedHashMap<>();
+        for (SmellDetector.Smell s : smells) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("type", s.type);
+            row.put("node_id", s.nodeId);
+            row.put("node_label", s.nodeLabel);
+            row.put("description", s.description);
+            row.put("suggestion", s.suggestion);
+            rows.add(row);
+            byType.merge(s.type, 1, Integer::sum);
         }
-        sb.append("]");
-        System.out.println(sb);
-    }
-
-    private static String escape(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("total", smells.size());
+        stats.put("types", byType);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("command", "lint");
+        out.put("status", "ok");
+        out.put("results", rows);
+        out.put("stats", stats);
+        out.put("warnings", List.of());
+        out.put("errors", List.of());
+        System.out.println(Json.writePretty(out));
     }
 }
