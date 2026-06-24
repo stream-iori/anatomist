@@ -60,8 +60,8 @@ class ContextEnrichIT {
 
             SemanticAnnotation sa = new SemanticAnnotation();
             sa.nodeId = "com.example.shop.service.OrderService";
-            sa.category = "BUSINESS_SERVICE";
-            sa.businessLabel = "订单服务";
+            sa.category = "REVIEWED";
+            sa.businessLabel = "reviewed";
             sa.source = "LLM";
             sa.confidence = "MEDIUM";
             store.upsertSemanticAnnotation(sa);
@@ -74,7 +74,7 @@ class ContextEnrichIT {
                 "--index", dbPath.toString());
         assertTrue(out.contains("# OrderService"));
         assertTrue(out.contains("## Semantic Annotations"));
-        assertTrue(out.contains("订单服务"));
+        assertTrue(out.contains("reviewed"));
         long lines = out.lines().count();
         assertTrue(lines <= MarkdownFormatter_LINE_CAP + 10,
                 "context --enrich OrderService should stay under cap; got " + lines);

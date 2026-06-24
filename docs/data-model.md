@@ -12,7 +12,7 @@ From scenario requirements, only store what Agent actually queries.
 | **CALLS** | `MethodCallExpr.resolve()` | caller method → callee method; `call_kind` = INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE | Call chain tracing, impact analysis |
 | **INHERITS** | `getAncestors()` class ancestors | child → parent class | Inheritance chain |
 | **IMPLEMENTS** | `getAncestors()` interface ancestors | implementor → interface | "Who implements this interface?" |
-| **ANNOTATED_WITH** | `getAnnotations().resolve()` | node → annotation | "All @RestController classes" |
+| **ANNOTATED_WITH** | `getAnnotations().resolve()` | node → annotation | "All nodes annotated with @Deprecated" |
 
 ### Supplementary 4 (cover remaining 20%)
 
@@ -172,7 +172,7 @@ ROUTE:                  route:<HTTP_METHOD> <path>                    → route:
 | Column | Type | Description |
 |--------|------|-------------|
 | `node_id` | TEXT FK | Annotated node |
-| `annotation_fqn` | TEXT | e.g. `org.springframework.web.bind.annotation.RestController` |
+| `annotation_fqn` | TEXT | e.g. `java.lang.Deprecated` |
 | `attributes` | TEXT | JSON e.g. `{"value": "/api/orders"}` |
 
 Separate table because annotation-based search (B4 scenario) needs SQL precision queries — can't efficiently index inside metadata JSON.

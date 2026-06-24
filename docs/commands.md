@@ -50,7 +50,7 @@ JSON includes:
 | `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
 
 ### `survey-baseline`
-Return a bounded first-pass map for large repositories.
+Return a structural first-pass baseline for large repositories.
 
 ```bash
 anatomist survey-baseline <project-path> --format json --index <db>
@@ -60,15 +60,10 @@ JSON includes:
 
 | Field | Meaning |
 |-------|---------|
-| `overview` | Node/edge/package counts |
-| `entry_candidates` | Likely controllers or route handler classes |
-| `domain_candidates` | Likely domain model classes |
-| `repositories` | Likely repository/data-access types |
-| `events` | Event/listener candidates |
-| `candidate_sources` | Per-section evidence source counts, e.g. annotation or naming convention |
-| `budget` | Per-section emission limits |
+| `overview` | Aggregate package/type/method/package-dependency counts |
+| `budget` | Structural summary size metadata |
 | `warnings` / `errors` | Machine-readable quality notes |
-| `next_queries` | Suggested follow-up commands |
+| `next_queries` | Suggested structural follow-up commands |
 
 ### `index-docs`
 Index project markdown documents for FTS5 search.
@@ -97,7 +92,7 @@ anatomist search <term> --count --index <db>
 ```
 
 - Default `<term>`: FTS5 match over qualified name / label / javadoc — **also matches package path tokens** (e.g. `search Facade` matches everything under a `.facade.` package). FTS results carry a `stats.label_matches` count: how many returned rows actually match the simple name, so an inflated `total` is easy to spot.
-- `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*EventPlugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
+- `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*Plugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
 - `--count`: return only the true total (results omitted), **independent of `--limit`**. Works with `--name` or FTS.
 - Search output always reports `stats.total`, `stats.limit`, `stats.offset`, `stats.truncated`, and `budget`, including the first page. Continue with `next_queries` when `stats.truncated=true`.
 
@@ -133,7 +128,7 @@ Incoming call chain (impact analysis).
 
 ```bash
 anatomist callers-of <method-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
-anatomist callers-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter Controller --index <db>
+anatomist callers-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter <keyword> --index <db>
 ```
 
 - Pierces interface/abstract dispatch via OVERRIDES (interface method → implementors).
@@ -207,11 +202,11 @@ anatomist export --format html --output <file.html> [--max-edges 20000] --index 
 ## Annotation Phase
 
 ### `annotate`
-Write business-semantic annotations.
+Write user-supplied semantic annotations.
 
 ```bash
 # Manual annotation
-anatomist annotate <node-id> --category BUSINESS_SERVICE --label "订单服务" --index <db>
+anatomist annotate <node-id> --category REVIEWED --label "reviewed" --index <db>
 
 # Batch from JSON file
 anatomist annotate --from-json annotations.json --index <db>
@@ -225,8 +220,8 @@ Use these commands for deterministic tool integration:
 |------|---------|
 | Discover CLI/schema/capabilities | `anatomist doctor --format json` |
 | Build index and verify success | `anatomist index <repo> --format json` |
-| Build a bounded first-pass map | `anatomist survey-baseline <repo> --format json --index <db>` |
-| Query candidate code facts | `anatomist search <term> --limit 50 --index <db>` |
+| Build a structural first-pass baseline | `anatomist survey-baseline <repo> --format json --index <db>` |
+| Query code facts | `anatomist search <term> --limit 50 --index <db>` |
 
 All subcommands support `--help` for self-discovery.
 
@@ -249,9 +244,9 @@ Use this progressive path instead of asking for everything at once:
 | Step | Command |
 |------|---------|
 | 1. Health and capabilities | `anatomist doctor --format json --index <db>` |
-| 2. Bounded project map | `anatomist survey-baseline <repo> --format json --index <db>` |
+| 2. Structural project baseline | `anatomist survey-baseline <repo> --format json --index <db>` |
 | 3. Package skeleton | `anatomist overview --deps-only --limit 50 --offset 0 --index <db>` |
-| 4. Candidate expansion | `anatomist search <term> --limit 50 --offset 0 --index <db>` |
+| 4. Symbol search | `anatomist search <term> --limit 50 --offset 0 --index <db>` |
 | 5. Type drill-down | `anatomist context <type> --members-limit 50 --index <db>` |
 | 6. Flow drill-down | `anatomist callees-of <method> --depth 3 --limit 50 --index <db>` |
 

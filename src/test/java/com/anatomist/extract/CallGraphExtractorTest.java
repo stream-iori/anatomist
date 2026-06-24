@@ -130,4 +130,65 @@ class CallGraphExtractorTest {
                 .findFirst().orElseThrow();
         assertNull(call.context);
     }
+
+    @Test
+    void unresolvedStaticTemplateCall_emitsBindableExternalTarget() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "class A {\n"
+                + "  MissingResult result;\n"
+                + "  void run(){\n"
+                + "    Template.execute(result, new Callback(){\n"
+                + "      public void done(){ Template.fillSuccessResult(result); }\n"
+                + "    });\n"
+                + "  }\n"
+                + "}\n"
+                + "interface Callback { void done(); }\n"
+                + "class Template {\n"
+                + "  static void execute(MissingResult result, Callback callback){}\n"
+                + "  static void fillSuccessResult(MissingResult result){}\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new CallGraphExtractor(ctx).extract(cu, r);
+
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CALLS".equals(e.relation)
+                        && "STATIC".equals(e.callKind)
+                        && "INFERRED".equals(e.confidence)
+                        && "pkg.A#run()".equals(e.sourceId)
+                        && "pkg.Template#execute(<unresolved>,pkg.Callback)".equals(e.externalTargetFqn)),
+                "static template execute fallback missing; got " + describe(r.edges));
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CALLS".equals(e.relation)
+                        && "STATIC".equals(e.callKind)
+                        && "pkg.A#run()$anon@L5#done()".equals(e.sourceId)
+                        && "pkg.Template#fillSuccessResult(<unresolved>)".equals(e.externalTargetFqn)),
+                "static template callback fallback missing; got " + describe(r.edges));
+    }
+
+    @Test
+    void unresolvedLowercaseScope_doesNotEmitStaticTypeFallback() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "class A {\n"
+                + "  MissingDep dep;\n"
+                + "  MissingArg arg;\n"
+                + "  void run(){ dep.init(arg); }\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new CallGraphExtractor(ctx).extract(cu, r);
+
+        assertFalse(r.edges.stream().anyMatch(e ->
+                "pkg.dep#init(<unresolved>)".equals(e.externalTargetFqn)),
+                "lowercase variable scope must not become a static type fallback; got " + describe(r.edges));
+    }
+
+    private static String describe(List<Edge> edges) {
+        return edges.stream()
+                .map(e -> e.sourceId + " -" + e.relation + "/" + e.callKind + "/" + e.confidence
+                        + "-> " + (e.isExternal ? e.externalTargetFqn : e.targetId)
+                        + " @" + e.sourceLocation)
+                .toList()
+                .toString();
+    }
 }

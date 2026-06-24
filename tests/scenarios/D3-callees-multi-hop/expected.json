@@ -1,12 +1,22 @@
 {
   "budget" : {
-    "emitted" : 28,
+    "emitted" : 29,
     "mode" : "edges",
-    "total" : 28,
+    "total" : 29,
     "truncated" : false
   },
   "query" : "callees-of com.example.shop.controller.OrderController#create --depth 5",
   "results" : [ {
+    "call_kind" : "STATIC",
+    "confidence" : "INFERRED",
+    "depth" : 1,
+    "external_target_fqn" : "org.springframework.http.ResponseEntity#ok(com.example.shop.domain.dto.OrderResult)",
+    "is_external" : true,
+    "relation" : "CALLS",
+    "source" : "com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "create",
+    "source_location" : "L24"
+  }, {
     "call_kind" : "INSTANCE",
     "confidence" : "EXTRACTED",
     "depth" : 1,
@@ -330,7 +340,7 @@
     "limit" : 50,
     "max_depth" : 3,
     "offset" : 0,
-    "total" : 28,
+    "total" : 29,
     "truncated" : false
   }
 }

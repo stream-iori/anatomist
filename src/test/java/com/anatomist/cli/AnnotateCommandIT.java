@@ -54,8 +54,8 @@ class AnnotateCommandIT {
     void annotate_singleWrite_succeeds() throws Exception {
         String node = "com.example.shop.service.OrderService";
         int rc = runExit("annotate", node,
-                "--label", "订单服务",
-                "--category", "BUSINESS_SERVICE",
+                "--label", "reviewed",
+                "--category", "REVIEWED",
                 "--source", "LLM",
                 "--confidence", "HIGH",
                 "--index", dbPath.toString());
@@ -64,10 +64,10 @@ class AnnotateCommandIT {
         try (Connection c = openDb()) {
             assertEquals(1, count(c,
                     "SELECT count(*) FROM semantic_annotations "
-                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='BUSINESS_SERVICE'"));
-            assertEquals("订单服务", scalar(c,
+                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='REVIEWED'"));
+            assertEquals("reviewed", scalar(c,
                     "SELECT business_label FROM semantic_annotations "
-                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='BUSINESS_SERVICE'"));
+                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='REVIEWED'"));
         }
     }
 
@@ -75,26 +75,26 @@ class AnnotateCommandIT {
     void annotate_upsert_updatesInPlace() throws Exception {
         String node = "com.example.shop.service.PriceCalculator";
         assertEquals(0, runExit("annotate", node,
-                "--label", "v1", "--category", "BUSINESS_SERVICE",
+                "--label", "v1", "--category", "REVIEWED",
                 "--source", "LLM", "--index", dbPath.toString()));
         assertEquals(0, runExit("annotate", node,
-                "--label", "v2", "--category", "BUSINESS_SERVICE",
+                "--label", "v2", "--category", "REVIEWED",
                 "--source", "LLM", "--index", dbPath.toString()));
 
         try (Connection c = openDb()) {
             assertEquals(1, count(c,
                     "SELECT count(*) FROM semantic_annotations "
-                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='BUSINESS_SERVICE'"));
+                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='REVIEWED'"));
             assertEquals("v2", scalar(c,
                     "SELECT business_label FROM semantic_annotations "
-                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='BUSINESS_SERVICE'"));
+                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='REVIEWED'"));
         }
     }
 
     @Test
     void annotate_sourceConvention_rejectedExit1() {
         int rc = runExit("annotate", "com.example.shop.service.OrderService",
-                "--label", "x", "--category", "BUSINESS_SERVICE",
+                "--label", "x", "--category", "REVIEWED",
                 "--source", "CONVENTION",
                 "--index", dbPath.toString());
         assertEquals(1, rc);
@@ -103,7 +103,7 @@ class AnnotateCommandIT {
     @Test
     void annotate_sourceJavadoc_rejectedExit1() {
         int rc = runExit("annotate", "com.example.shop.service.OrderService",
-                "--label", "x", "--category", "BUSINESS_SERVICE",
+                "--label", "x", "--category", "REVIEWED",
                 "--source", "JAVADOC",
                 "--index", dbPath.toString());
         assertEquals(1, rc);
@@ -136,7 +136,7 @@ class AnnotateCommandIT {
         Path batch = tmp.resolve("bad.json");
         Files.writeString(batch,
                 "[{\"node_id\":\"com.example.shop.service.OrderService\","
-              + "\"category\":\"BUSINESS_SERVICE\",\"source\":\"CONVENTION\"}]",
+              + "\"category\":\"REVIEWED\",\"source\":\"CONVENTION\"}]",
                 StandardCharsets.UTF_8);
         int rc = runExit("annotate", "--from-json", batch.toString(),
                 "--index", dbPath.toString());

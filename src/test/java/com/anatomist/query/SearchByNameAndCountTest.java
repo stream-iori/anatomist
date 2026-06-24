@@ -35,19 +35,19 @@ class SearchByNameAndCountTest {
         r.nodes.add(type("com.x.facade.api.FooService", "FooService", "INTERFACE"));
         r.nodes.add(type("com.x.facade.api.BarService", "BarService", "INTERFACE"));
         r.nodes.add(type("com.x.facade.dto.FooRequest", "FooRequest", "CLASS")); // lives under .facade but not a Service
-        r.nodes.add(type("com.x.plugin.PaySuccessEventPlugin", "PaySuccessEventPlugin", "CLASS"));
-        r.nodes.add(type("com.x.plugin.RefundEventPlugin", "RefundEventPlugin", "CLASS"));
+        r.nodes.add(type("com.x.plugin.PaySuccessPlugin", "PaySuccessPlugin", "CLASS"));
+        r.nodes.add(type("com.x.plugin.RefundPlugin", "RefundPlugin", "CLASS"));
 
         // Implementor hierarchy: Iface ← AbstractBase ← ConcreteImpl (differently named,
-        // mirroring imerchantsettle where some impls don't end in "EventPlugin").
-        r.nodes.add(type("com.x.plugin.SubscriberEventPlugin", "SubscriberEventPlugin", "INTERFACE"));
+        // mirroring cases where some impls don't end in "Plugin").
+        r.nodes.add(type("com.x.plugin.SubscriberPlugin", "SubscriberPlugin", "INTERFACE"));
         r.nodes.add(type("com.x.plugin.AbstractPluginBase", "AbstractPluginBase", "CLASS"));
         r.nodes.add(type("com.x.plugin.WithdrawReverseHandler", "WithdrawReverseHandler", "CLASS"));
         store.write(r);
 
         ExtractionResult e = new ExtractionResult();
-        // AbstractPluginBase implements SubscriberEventPlugin (direct)
-        e.edges.add(impl("com.x.plugin.AbstractPluginBase", "com.x.plugin.SubscriberEventPlugin", "IMPLEMENTS"));
+        // AbstractPluginBase implements SubscriberPlugin (direct)
+        e.edges.add(impl("com.x.plugin.AbstractPluginBase", "com.x.plugin.SubscriberPlugin", "IMPLEMENTS"));
         // WithdrawReverseHandler extends AbstractPluginBase (transitive)
         e.edges.add(impl("com.x.plugin.WithdrawReverseHandler", "com.x.plugin.AbstractPluginBase", "INHERITS"));
         store.write(e);
@@ -65,8 +65,8 @@ class SearchByNameAndCountTest {
             assertEquals(2, services.size(), "only the two *Service interfaces");
             assertTrue(services.stream().allMatch(n -> n.label.endsWith("Service")));
 
-            List<NodeRow> plugins = q.searchByName("*EventPlugin", "CLASS", 50);
-            assertEquals(2, plugins.size(), "two *EventPlugin classes (Abstract/Concrete excluded by name)");
+            List<NodeRow> plugins = q.searchByName("*Plugin", "CLASS", 50);
+            assertEquals(2, plugins.size(), "two *Plugin classes (Abstract/Concrete excluded by name)");
         }
     }
 
@@ -83,21 +83,21 @@ class SearchByNameAndCountTest {
     @Test
     void implementorsOf_nonRecursive_directOnly() {
         try (QueryService q = new QueryService(dbPath)) {
-            List<NodeRow> direct = q.implementorsOf("SubscriberEventPlugin", false);
+            List<NodeRow> direct = q.implementorsOf("SubscriberPlugin", false);
             assertEquals(1, direct.size(), "only the direct implementor AbstractPluginBase");
             assertEquals("com.x.plugin.AbstractPluginBase", direct.get(0).id);
-            assertEquals(1, q.countImplementorsOf("SubscriberEventPlugin", false));
+            assertEquals(1, q.countImplementorsOf("SubscriberPlugin", false));
         }
     }
 
     @Test
     void implementorsOf_recursive_includesTransitive() {
         try (QueryService q = new QueryService(dbPath)) {
-            List<NodeRow> all = q.implementorsOf("SubscriberEventPlugin", true);
+            List<NodeRow> all = q.implementorsOf("SubscriberPlugin", true);
             assertEquals(2, all.size(), "AbstractPluginBase + WithdrawReverseHandler");
             assertTrue(all.stream().anyMatch(n -> "com.x.plugin.WithdrawReverseHandler".equals(n.id)),
                     "transitive concrete impl surfaced");
-            assertEquals(2, q.countImplementorsOf("SubscriberEventPlugin", true));
+            assertEquals(2, q.countImplementorsOf("SubscriberPlugin", true));
         }
     }
 

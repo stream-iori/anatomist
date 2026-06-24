@@ -28,24 +28,24 @@ class SqliteStoreUpsertTest {
     void upsertSemanticAnnotation_insertsNewRow(@TempDir Path tmp) throws Exception {
         store = setup(tmp);
 
-        SemanticAnnotation sa = sa("com.x.OrderService", "BUSINESS_SERVICE", "LLM", "MEDIUM", "订单服务");
+        SemanticAnnotation sa = sa("com.x.OrderService", "REVIEWED", "LLM", "MEDIUM", "reviewed");
         store.upsertSemanticAnnotation(sa);
 
         Connection c = store.connection();
         assertEquals(1, count(c, "SELECT count(*) FROM semantic_annotations"));
-        assertEquals("订单服务", readLabel(c, "com.x.OrderService", "BUSINESS_SERVICE", "LLM"));
+        assertEquals("reviewed", readLabel(c, "com.x.OrderService", "REVIEWED", "LLM"));
     }
 
     @Test
     void upsertSemanticAnnotation_replacesOnDuplicateKey(@TempDir Path tmp) throws Exception {
         store = setup(tmp);
 
-        store.upsertSemanticAnnotation(sa("com.x.OrderService", "BUSINESS_SERVICE", "LLM", "MEDIUM", "v1"));
-        store.upsertSemanticAnnotation(sa("com.x.OrderService", "BUSINESS_SERVICE", "LLM", "HIGH", "v2"));
+        store.upsertSemanticAnnotation(sa("com.x.OrderService", "REVIEWED", "LLM", "MEDIUM", "v1"));
+        store.upsertSemanticAnnotation(sa("com.x.OrderService", "REVIEWED", "LLM", "HIGH", "v2"));
 
         Connection c = store.connection();
         assertEquals(1, count(c, "SELECT count(*) FROM semantic_annotations"));
-        assertEquals("v2", readLabel(c, "com.x.OrderService", "BUSINESS_SERVICE", "LLM"));
+        assertEquals("v2", readLabel(c, "com.x.OrderService", "REVIEWED", "LLM"));
         try (Statement st = c.createStatement();
              ResultSet rs = st.executeQuery("SELECT confidence FROM semantic_annotations WHERE node_id='com.x.OrderService'")) {
             assertTrue(rs.next());
@@ -57,8 +57,8 @@ class SqliteStoreUpsertTest {
     void upsertSemanticAnnotation_distinctSourceCoexists(@TempDir Path tmp) throws Exception {
         store = setup(tmp);
 
-        store.upsertSemanticAnnotation(sa("com.x.OrderService", "BUSINESS_SERVICE", "LLM", "MEDIUM", "from-llm"));
-        store.upsertSemanticAnnotation(sa("com.x.OrderService", "BUSINESS_SERVICE", "DOC", "HIGH", "from-doc"));
+        store.upsertSemanticAnnotation(sa("com.x.OrderService", "REVIEWED", "LLM", "MEDIUM", "from-llm"));
+        store.upsertSemanticAnnotation(sa("com.x.OrderService", "REVIEWED", "DOC", "HIGH", "from-doc"));
 
         Connection c = store.connection();
         assertEquals(2, count(c, "SELECT count(*) FROM semantic_annotations"));
@@ -68,18 +68,18 @@ class SqliteStoreUpsertTest {
     void upsertSemanticAnnotations_batchUpserts(@TempDir Path tmp) throws Exception {
         store = setup(tmp);
 
-        store.upsertSemanticAnnotation(sa("com.x.OrderService", "BUSINESS_SERVICE", "LLM", "MEDIUM", "old"));
+        store.upsertSemanticAnnotation(sa("com.x.OrderService", "REVIEWED", "LLM", "MEDIUM", "old"));
 
         List<SemanticAnnotation> batch = List.of(
-                sa("com.x.OrderService", "BUSINESS_SERVICE", "LLM", "HIGH", "updated"),
-                sa("com.x.PaymentService", "BUSINESS_SERVICE", "LLM", "MEDIUM", "new")
+                sa("com.x.OrderService", "REVIEWED", "LLM", "HIGH", "updated"),
+                sa("com.x.PaymentService", "REVIEWED", "LLM", "MEDIUM", "new")
         );
         store.upsertSemanticAnnotations(batch);
 
         Connection c = store.connection();
         assertEquals(2, count(c, "SELECT count(*) FROM semantic_annotations"));
-        assertEquals("updated", readLabel(c, "com.x.OrderService", "BUSINESS_SERVICE", "LLM"));
-        assertEquals("new", readLabel(c, "com.x.PaymentService", "BUSINESS_SERVICE", "LLM"));
+        assertEquals("updated", readLabel(c, "com.x.OrderService", "REVIEWED", "LLM"));
+        assertEquals("new", readLabel(c, "com.x.PaymentService", "REVIEWED", "LLM"));
     }
 
     private static SqliteStore setup(Path tmp) {

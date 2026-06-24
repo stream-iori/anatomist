@@ -74,6 +74,47 @@ class EdgeTargetBinderTest {
         assertEquals("java.lang.Math#abs(int)", edge.externalTargetFqn);
     }
 
+    @Test
+    void bindsExternalMethodWhenOwnerNameAndArityAreUnique() {
+        ExtractionResult result = new ExtractionResult();
+        result.nodes.add(node("com.example.Template#execute(com.example.Base,com.example.Callback)"));
+
+        Edge edge = new Edge();
+        edge.sourceId = "com.example.Service#run()";
+        edge.relation = "CALLS";
+        edge.externalTargetFqn = "com.example.Template#execute(com.example.Child,com.example.Callback)";
+        edge.isExternal = true;
+        result.edges.add(edge);
+
+        int rebound = EdgeTargetBinder.bindExternalTargets(result);
+
+        assertEquals(1, rebound);
+        assertFalse(edge.isExternal);
+        assertEquals("com.example.Template#execute(com.example.Base,com.example.Callback)", edge.targetId);
+        assertNull(edge.externalTargetFqn);
+    }
+
+    @Test
+    void doesNotBindAmbiguousMethodArity() {
+        ExtractionResult result = new ExtractionResult();
+        result.nodes.add(node("com.example.Template#execute(com.example.Base,com.example.Callback)"));
+        result.nodes.add(node("com.example.Template#execute(com.example.Other,com.example.Callback)"));
+
+        Edge edge = new Edge();
+        edge.sourceId = "com.example.Service#run()";
+        edge.relation = "CALLS";
+        edge.externalTargetFqn = "com.example.Template#execute(com.example.Child,com.example.Callback)";
+        edge.isExternal = true;
+        result.edges.add(edge);
+
+        int rebound = EdgeTargetBinder.bindExternalTargets(result);
+
+        assertEquals(0, rebound);
+        assertTrue(edge.isExternal);
+        assertNull(edge.targetId);
+        assertEquals("com.example.Template#execute(com.example.Child,com.example.Callback)", edge.externalTargetFqn);
+    }
+
     private static Node node(String id) {
         Node n = new Node();
         n.id = id;

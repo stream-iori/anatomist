@@ -31,13 +31,13 @@ class ProgressiveDisclosureIT {
         assertEquals("ok", json.get("status"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("overview"));
-        assertNotNull(json.get("entry_candidates"));
-        assertNotNull(json.get("domain_candidates"));
-        assertNotNull(json.get("repositories"));
-        assertNotNull(json.get("events"));
         assertNotNull(json.get("budget"));
-        assertNotNull(json.get("candidate_sources"));
         assertNotNull(json.get("warnings"));
+        assertFalse(json.containsKey("entry_candidates"));
+        assertFalse(json.containsKey("domain_candidates"));
+        assertFalse(json.containsKey("repositories"));
+        assertFalse(json.containsKey("events"));
+        assertFalse(json.containsKey("candidate_sources"));
         assertFalse(((List<?>) json.get("next_queries")).isEmpty());
     }
 

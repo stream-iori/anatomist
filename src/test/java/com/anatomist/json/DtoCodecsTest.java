@@ -106,13 +106,13 @@ class DtoCodecsTest {
     @Test
     void semanticAnnotationRow_snakeCase() {
         SemanticAnnotationRow r = new SemanticAnnotationRow();
-        r.category = "BUSINESS_SERVICE";
-        r.businessLabel = "订单服务";
+        r.category = "REVIEWED";
+        r.businessLabel = "reviewed";
         r.source = "LLM";
         r.confidence = "MEDIUM";
         String got = Json.writePretty(r);
-        assertTrue(got.contains("\"business_label\" : \"订单服务\""), got);
-        assertTrue(got.contains("\"category\" : \"BUSINESS_SERVICE\""), got);
+        assertTrue(got.contains("\"business_label\" : \"reviewed\""), got);
+        assertTrue(got.contains("\"category\" : \"REVIEWED\""), got);
         assertFalse(got.contains("business_description"));
         assertFalse(got.contains("domain_context"));
     }
@@ -157,11 +157,11 @@ class DtoCodecsTest {
 
     @Test
     void semanticAnnotation_readSnakeCase() {
-        String src = "{\"node_id\":\"com.x.A\",\"category\":\"BUSINESS_SERVICE\","
+        String src = "{\"node_id\":\"com.x.A\",\"category\":\"REVIEWED\","
                 + "\"business_label\":\"label\",\"source\":\"LLM\",\"confidence\":\"HIGH\"}";
         SemanticAnnotation sa = SemanticAnnotation.fromJson((Map<String, Object>) Json.parseTree(src));
         assertEquals("com.x.A", sa.nodeId);
-        assertEquals("BUSINESS_SERVICE", sa.category);
+        assertEquals("REVIEWED", sa.category);
         assertEquals("label", sa.businessLabel);
         assertEquals("LLM", sa.source);
         assertEquals("HIGH", sa.confidence);

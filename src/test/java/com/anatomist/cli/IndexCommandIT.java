@@ -99,13 +99,12 @@ class IndexCommandIT {
             assertEquals(2, handles, "expected 2 MVC HANDLES edges");
 
             // Phase 2 — semantic annotations & stdout line.
-            // Note: this IT runs with --no-classpath, so SymbolSolver cannot
-            // resolve Spring annotation FQNs (only java.lang.Override survives).
-            // Therefore only naming rules fire on this fixture (≥6 hits).
-            // Annotation-rule coverage is proven by SemanticPostProcessorTest.
-            int semantic = scalar(st, "SELECT count(*) FROM semantic_annotations");
-            assertTrue(semantic >= 6,
-                    "expected ≥6 semantic_annotations rows on fixture (naming rules); got " + semantic);
+            // Built-in indexing must not infer architecture/business categories
+            // from names or annotations.
+            int conventionSemantic = scalar(st,
+                    "SELECT count(*) FROM semantic_annotations WHERE source='CONVENTION'");
+            assertEquals(0, conventionSemantic,
+                    "expected no convention-based semantic annotations; got " + conventionSemantic);
             assertTrue(stdout.contains("Semantic annotations:"),
                     "stdout should contain 'Semantic annotations:' line; got:\n" + stdout);
 

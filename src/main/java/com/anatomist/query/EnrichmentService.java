@@ -160,11 +160,6 @@ public class EnrichmentService {
             out.add("anatomist used-by " + q);
             out.add("anatomist hierarchy " + q);
         }
-        boolean hasBusinessService = r.semanticAnnotations.stream()
-                .anyMatch(sa -> "BUSINESS_SERVICE".equals(sa.category));
-        if (hasBusinessService) {
-            out.add("anatomist implementors-of " + q);
-        }
         return out;
     }
 

@@ -59,8 +59,8 @@ class EnrichQueryIT {
 
             SemanticAnnotation sa = new SemanticAnnotation();
             sa.nodeId = "com.example.shop.service.OrderService";
-            sa.category = "BUSINESS_SERVICE";
-            sa.businessLabel = "订单服务";
+            sa.category = "REVIEWED";
+            sa.businessLabel = "reviewed";
             sa.source = "LLM";
             sa.confidence = "MEDIUM";
             store.upsertSemanticAnnotation(sa);
@@ -86,7 +86,7 @@ class EnrichQueryIT {
             assertFalse(r.members.isEmpty(), "OrderService has methods/fields");
             assertTrue(r.members.stream().anyMatch(m -> "createOrder".equals(m.label)));
             assertFalse(r.semanticAnnotations.isEmpty(), "seeded LLM annotation should be present");
-            assertEquals("BUSINESS_SERVICE", r.semanticAnnotations.get(0).category);
+            assertEquals("REVIEWED", r.semanticAnnotations.get(0).category);
             assertFalse(r.callees.isEmpty(), "createOrder calls should be picked up at depth=1");
             assertFalse(r.suggestedQueries.isEmpty(), "suggested queries should be derived");
         }
@@ -137,11 +137,12 @@ class EnrichQueryIT {
         try (QueryService q = new QueryService(dbPath)) {
             List<SemanticAnnotationRow> rows = q.readSemanticAnnotations(
                     "com.example.shop.service.OrderService");
-            // SemanticPostProcessor auto-adds a CONVENTION row at index time;
-            // we also seeded an LLM row in @BeforeAll.
+            // @BeforeAll seeds one explicit LLM row. The indexer must not add
+            // convention-based business/category rows.
             assertTrue(rows.size() >= 1);
             assertTrue(rows.stream().anyMatch(r ->
-                    "BUSINESS_SERVICE".equals(r.category) && "LLM".equals(r.source)));
+                    "REVIEWED".equals(r.category) && "LLM".equals(r.source)));
+            assertTrue(rows.stream().noneMatch(r -> "CONVENTION".equals(r.source)));
         }
     }
 

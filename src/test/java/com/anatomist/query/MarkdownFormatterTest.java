@@ -70,15 +70,15 @@ class MarkdownFormatterTest {
         EnrichResult r = nodeResult("OrderService", "CLASS",
                 "com.example.shop.service.OrderService");
         SemanticAnnotationRow sa = new SemanticAnnotationRow();
-        sa.category = "BUSINESS_SERVICE";
-        sa.businessLabel = "订单服务";
+        sa.category = "REVIEWED";
+        sa.businessLabel = "reviewed";
         sa.source = "LLM";
         sa.confidence = "MEDIUM";
         r.semanticAnnotations.add(sa);
 
         String md = MarkdownFormatter.format(r);
-        assertTrue(md.contains("BUSINESS_SERVICE"));
-        assertTrue(md.contains("订单服务"));
+        assertTrue(md.contains("REVIEWED"));
+        assertTrue(md.contains("reviewed"));
         assertTrue(md.contains("LLM"));
     }
 

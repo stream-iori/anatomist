@@ -119,7 +119,7 @@ class SqliteStoreWriteTest {
         r.nodes.add(node("com.x.OrderService", "OrderService", "CLASS"));
         SemanticAnnotation sa = new SemanticAnnotation();
         sa.nodeId = "com.x.OrderService";
-        sa.category = "BUSINESS_SERVICE";
+        sa.category = "REVIEWED";
         sa.source = "CONVENTION";
         sa.confidence = "MEDIUM";
         r.semanticAnnotations.add(sa);
@@ -128,7 +128,7 @@ class SqliteStoreWriteTest {
 
         Connection c = store.connection();
         assertEquals(1, count(c,
-                "SELECT count(*) FROM semantic_annotations WHERE node_id='com.x.OrderService' AND source='CONVENTION' AND category='BUSINESS_SERVICE'"));
+                "SELECT count(*) FROM semantic_annotations WHERE node_id='com.x.OrderService' AND source='CONVENTION' AND category='REVIEWED'"));
     }
 
     @Test

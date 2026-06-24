@@ -18,11 +18,11 @@ import java.util.concurrent.Callable;
 
 @Command(name = "annotate",
         mixinStandardHelpOptions = true,
-        description = "Write business-semantic annotations to the index.")
+        description = "Write user-supplied semantic annotations to the index.")
 public class AnnotateCommand implements Callable<Integer> {
 
-    /** Sources allowed to be written by the CLI. CONVENTION and JAVADOC are auto-generated
-     *  by SemanticPostProcessor / future extractors — manual entry would conflict. */
+    /** Sources allowed to be written by the CLI. JAVADOC is generated from source comments;
+     *  manual entry would conflict. CONVENTION is reserved and not user-writable. */
     static final Set<String> ALLOWED_SOURCES = Set.of("DOC", "LLM");
     static final Set<String> ALLOWED_CONFIDENCES = Set.of("HIGH", "MEDIUM", "LOW");
 
@@ -30,16 +30,16 @@ public class AnnotateCommand implements Callable<Integer> {
             description = "Node ID (FQN). Omit when using --from-json.")
     String nodeId;
 
-    @Option(names = "--label", description = "Business label (free text).")
+    @Option(names = "--label", description = "Label (free text).")
     String label;
 
-    @Option(names = "--category", description = "Business category (e.g. BUSINESS_SERVICE).")
+    @Option(names = "--category", description = "Category (free text, e.g. REVIEWED).")
     String category;
 
-    @Option(names = "--context", description = "Domain context (free text).")
+    @Option(names = "--context", description = "Context (free text).")
     String context;
 
-    @Option(names = "--description", description = "Business description (free text).")
+    @Option(names = "--description", description = "Description (free text).")
     String description;
 
     @Option(names = "--source", description = "Source: DOC | LLM (default LLM).")
@@ -106,7 +106,7 @@ public class AnnotateCommand implements Callable<Integer> {
         if (sa.category == null || sa.category.isEmpty()) return "category is required";
         if (sa.source == null || sa.source.isEmpty()) return "source is required";
         if (!ALLOWED_SOURCES.contains(sa.source)) {
-            return "source must be DOC or LLM (CONVENTION and JAVADOC are auto-generated); got " + sa.source;
+            return "source must be DOC or LLM (CONVENTION is reserved and JAVADOC is generated); got " + sa.source;
         }
         if (sa.confidence == null || sa.confidence.isEmpty()) sa.confidence = "MEDIUM";
         if (!ALLOWED_CONFIDENCES.contains(sa.confidence)) {
