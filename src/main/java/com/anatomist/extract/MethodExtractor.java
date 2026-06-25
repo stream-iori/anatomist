@@ -237,7 +237,7 @@ public class MethodExtractor implements Extractor {
             entry.put("name", p.getNameAsString());
             String typeDesc;
             try { typeDesc = NodeIdGenerator.erasedTypeDescribe(p.getType().resolve()); }
-            catch (RuntimeException e) { typeDesc = "<unresolved>"; }
+            catch (RuntimeException e) { typeDesc = AstTypeNames.of(p.getType(), p); }
             entry.put("type", typeDesc);
             params.add(entry);
         }
@@ -389,7 +389,7 @@ public class MethodExtractor implements Extractor {
         return decl.getParameters().stream()
                 .map(p -> {
                     try { return erasedTypeDescribe(p.getType().resolve()); }
-                    catch (RuntimeException e) { return "<unresolved>"; }
+            catch (RuntimeException e) { return AstTypeNames.of(p.getType(), p); }
                 })
                 .collect(java.util.stream.Collectors.joining(","));
     }
@@ -408,7 +408,7 @@ public class MethodExtractor implements Extractor {
             p.put("name", pDecl.getNameAsString());
             String typeDesc;
             try { typeDesc = erasedTypeDescribe(pDecl.getType().resolve()); }
-            catch (RuntimeException e) { typeDesc = "<unresolved>"; }
+            catch (RuntimeException e) { typeDesc = AstTypeNames.of(pDecl.getType(), pDecl); }
             p.put("type", typeDesc);
             params.add(p);
         }
@@ -455,7 +455,11 @@ public class MethodExtractor implements Extractor {
             p.put("name", name);
             String typeDesc;
             try { typeDesc = erasedTypeDescribe(r.getParam(i).getType()); }
-            catch (RuntimeException e) { typeDesc = "<unresolved>"; }
+            catch (RuntimeException e) {
+                typeDesc = i < decl.getParameters().size()
+                        ? AstTypeNames.of(decl.getParameter(i).getType(), decl.getParameter(i))
+                        : "<unresolved>";
+            }
             p.put("type", typeDesc);
             params.add(p);
         }

@@ -6,7 +6,7 @@
       "REFERENCES" : 13
     },
     "internal_edge_counts" : {
-      "CALLS" : 27,
+      "CALLS" : 29,
       "CONTAINS" : 77,
       "DEFINED_BY" : 6,
       "HANDLES" : 2,
@@ -16,6 +16,7 @@
       "OVERRIDES" : 4,
       "READS" : 23,
       "REFERENCES" : 32,
+      "WIRES" : 1,
       "WRITES" : 19
     },
     "kind_counts" : {
@@ -117,7 +118,7 @@
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.event"
     }, {
-      "edge_count" : 2,
+      "edge_count" : 4,
       "relation" : "CALLS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.repository"

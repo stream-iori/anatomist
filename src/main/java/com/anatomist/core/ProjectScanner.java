@@ -38,7 +38,7 @@ public class ProjectScanner {
         }
         List<Path> out = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(root)) {
-            stream.filter(this::notInExcludedDir)
+            stream.filter(p -> notInExcludedDir(root.relativize(p)))
                     .filter(p -> Files.isRegularFile(p))
                     .filter(p -> p.getFileName().toString().endsWith(".java"))
                     .forEach(out::add);
@@ -66,7 +66,7 @@ public class ProjectScanner {
         }
         List<Path> out = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(root)) {
-            stream.filter(this::notInExcludedDir)
+            stream.filter(p -> notInExcludedDir(root.relativize(p)))
                     .filter(Files::isRegularFile)
                     .filter(p -> p.getFileName().toString().endsWith(".xml"))
                     .filter(SpringBeanParser::isSpringBeansFile)

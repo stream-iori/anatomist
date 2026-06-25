@@ -77,7 +77,10 @@ public class ClasspathDetector {
                         + "; proceeding with classpath from the " + union.size()
                         + " entries that did resolve (some modules failed)");
             }
-            AnatomistLog.debug("classpath: union total = " + union.size() + " jar(s)");
+            for (Path output : detectBuildOutputClasspath(projectRoot)) {
+                union.add(output.toString());
+            }
+            AnatomistLog.debug("classpath: union total = " + union.size() + " entrie(s)");
             return new ArrayList<>(union);
         } catch (IOException | InterruptedException e) {
             warn("mvn classpath detection failed (" + e.getMessage() + "), proceeding with empty classpath");
@@ -135,6 +138,7 @@ public class ClasspathDetector {
             if (hasMain) {
                 List<Path> out = new ArrayList<>();
                 out.add(mainSrc);
+                out.addAll(findGeneratedSourceRoots(projectRoot));
                 if (includeTests && hasTest) out.add(testSrc);
                 return out;
             }
@@ -154,17 +158,78 @@ public class ClasspathDetector {
         Path mainTail = Path.of("src", "main", "java");
         Path testTail = Path.of("src", "test", "java");
         try (Stream<Path> walk = Files.walk(projectRoot)) {
-            return walk
+            java.util.LinkedHashSet<Path> roots = walk
                     .filter(Files::isDirectory)
                     .filter(p -> p.endsWith(mainTail) || (includeTests && p.endsWith(testTail)))
                     .filter(p -> !isUnderExcludedDir(projectRoot.relativize(p)))
                     .sorted()
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+            roots.addAll(findGeneratedSourceRoots(projectRoot));
+            return new ArrayList<>(roots);
         } catch (IOException e) {
             warn("failed to scan for module source roots under " + projectRoot
                     + ": " + e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    public List<Path> detectBuildOutputClasspath(Path projectRoot) {
+        if (projectRoot == null || !Files.isDirectory(projectRoot)) return Collections.emptyList();
+        Path classesTail = Path.of("target", "classes");
+        Path testClassesTail = Path.of("target", "test-classes");
+        try (Stream<Path> walk = Files.walk(projectRoot)) {
+            return walk.filter(Files::isDirectory)
+                    .filter(p -> p.endsWith(classesTail) || p.endsWith(testClassesTail))
+                    .filter(p -> !isNestedUnderBuildOutput(projectRoot.relativize(p)))
+                    .sorted()
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            warn("failed to scan for build output classpath under " + projectRoot
+                    + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private List<Path> findGeneratedSourceRoots(Path projectRoot) {
+        if (projectRoot == null || !Files.isDirectory(projectRoot)) return Collections.emptyList();
+        try (Stream<Path> walk = Files.walk(projectRoot)) {
+            return walk.filter(Files::isDirectory)
+                    .filter(this::isGeneratedJavaSourceRoot)
+                    .sorted()
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            warn("failed to scan for generated source roots under " + projectRoot
+                    + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private boolean isGeneratedJavaSourceRoot(Path p) {
+        String s = p.toString().replace('\\', '/');
+        if (!s.contains("/target/generated-sources/")) return false;
+        Path parent = p.getParent();
+        if (parent == null || !"generated-sources".equals(parent.getFileName().toString())) return false;
+        Path grand = parent.getParent();
+        if (grand == null || !"target".equals(grand.getFileName().toString())) return false;
+        try (Stream<Path> children = Files.walk(p)) {
+            return children.anyMatch(child -> Files.isRegularFile(child)
+                    && child.getFileName().toString().endsWith(".java"));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static boolean isNestedUnderBuildOutput(Path relative) {
+        int targetClassesSeen = 0;
+        String prev = "";
+        for (Path part : relative) {
+            String name = part.toString();
+            if ("classes".equals(name) && "target".equals(prev)) targetClassesSeen++;
+            if ("test-classes".equals(name) && "target".equals(prev)) targetClassesSeen++;
+            if (targetClassesSeen > 1) return true;
+            prev = name;
+        }
+        return false;
     }
 
     private static boolean isUnderExcludedDir(Path relative) {

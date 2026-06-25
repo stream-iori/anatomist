@@ -21,7 +21,7 @@ public class IndexStatsPrinter {
         Map<String, Long> relCounts = r.relationCounts();
         out.println("Indexed " + cfg.projectRoot());
         out.println("  Source paths: " + cfg.sourcePaths());
-        out.println("  Classpath:    " + cfg.classpathEntries().size() + " jars");
+        out.println("  Classpath:    " + cfg.classpathEntries().size() + " entries");
         out.println("  Source files: " + cfg.sourceFiles().size());
         out.println("  Types:        " + types);
         out.println("  Methods:      " + methods);
@@ -41,6 +41,9 @@ public class IndexStatsPrinter {
         }
         out.println("  Semantic annotations: " + r.semanticAnnotationCount());
         out.println("  Unresolved:   " + r.unresolvedCount());
+        if (r.unresolvedCount() > 0 && !r.samplingEnabled()) {
+            out.println("  Unresolved detail: enable -Danatomist.sampleUnresolved=true for categories");
+        }
         out.println("  File cache:   " + r.fileCacheSize() + " entries");
         out.println("  Output:       " + cfg.dbPath());
         if (r.samplingEnabled() && r.unresolvedSamples() != null) {

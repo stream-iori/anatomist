@@ -76,7 +76,10 @@ public class NodeIdGenerator {
 
     private static String paramTypeOrUnresolved(ResolvedMethodLikeDeclaration m, int i) {
         try {
-            return erasedTypeDescribe(m.getParam(i).getType());
+            String rendered = erasedTypeDescribe(m.getParam(i).getType());
+            return rendered == null || rendered.isBlank() || "null".equals(rendered)
+                    ? "<unresolved>"
+                    : rendered;
         } catch (RuntimeException e) {
             return "<unresolved>";
         }
@@ -117,11 +120,19 @@ public class NodeIdGenerator {
         if (type == null) return "<unknown>";
         try {
             ResolvedType erased = type.erasure();
-            return erased.describe();
+            String rendered = erased.describe();
+            return rendered == null || rendered.isBlank() || "null".equals(rendered)
+                    ? "<unknown>"
+                    : rendered;
         } catch (RuntimeException e) {
             // Some Resolved* types do not implement erasure() (e.g. void); fall
             // back to whatever describe() gives.
-            try { return type.describe(); }
+            try {
+                String rendered = type.describe();
+                return rendered == null || rendered.isBlank() || "null".equals(rendered)
+                        ? "<unknown>"
+                        : rendered;
+            }
             catch (RuntimeException e2) { return "<unknown>"; }
         }
     }

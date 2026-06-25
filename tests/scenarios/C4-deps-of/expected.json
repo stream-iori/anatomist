@@ -197,6 +197,19 @@
     "target_label" : "getId",
     "target_qualified_name" : "com.example.shop.domain.entity.Order#getId"
   }, {
+    "call_kind" : "INTERFACE",
+    "confidence" : "INFERRED",
+    "depth" : 1,
+    "is_external" : false,
+    "metadata" : "{\"via\":\"injected-call\",\"interfaceType\":\"com.example.shop.repository.OrderRepository\",\"source\":\"com.example.shop.repository.OrderRepository#save(com.example.shop.domain.entity.Order)\",\"candidates\":[\"com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)\"]}",
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L38",
+    "target" : "com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+    "target_label" : "save",
+    "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save"
+  }, {
     "call_kind" : "INSTANCE",
     "confidence" : "EXTRACTED",
     "depth" : 1,
@@ -401,10 +414,23 @@
     "target" : "com.example.shop.service.OrderValidator",
     "target_label" : "OrderValidator",
     "target_qualified_name" : "com.example.shop.service.OrderValidator"
+  }, {
+    "confidence" : "INFERRED",
+    "depth" : 1,
+    "is_external" : false,
+    "metadata" : "{\"via\":\"injection\",\"source\":\"com.example.shop.repository.OrderRepository\",\"candidates\":[\"com.example.shop.repository.InMemoryOrderRepository\"]}",
+    "relation" : "WIRES",
+    "source" : "com.example.shop.service.OrderService",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_label" : "OrderService",
+    "source_location" : "L22",
+    "target" : "com.example.shop.repository.InMemoryOrderRepository",
+    "target_label" : "InMemoryOrderRepository",
+    "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository"
   } ],
   "stats" : {
     "offset" : 0,
-    "total" : 35,
+    "total" : 37,
     "truncated" : false
   }
 }

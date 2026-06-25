@@ -72,6 +72,12 @@ public class IndexOrchestrator {
             }
         }
 
+        int wired = new WiringResolver().apply(result);
+        if (wired > 0) {
+            AnatomistLog.warn("added " + wired + " DI-informed wiring edges "
+                    + "for " + cfg.projectRoot());
+        }
+
         int rebound = EdgeTargetBinder.bindExternalTargets(result);
         if (rebound > 0) {
             AnatomistLog.warn("rebound " + rebound + " external edges to internal nodes "
@@ -101,6 +107,7 @@ public class IndexOrchestrator {
         populateFileCache(store, cfg.projectRoot(), cachedFiles);
         store.upsertProjectMeta("dropped_dangling_edges", String.valueOf(dropped));
         store.upsertProjectMeta("rebound_external_edges", String.valueOf(rebound));
+        store.upsertProjectMeta("wiring_resolved_edges", String.valueOf(wired));
         store.upsertProjectMeta("java_version", String.valueOf(cfg.javaVersion()));
         store.upsertProjectMeta("classpath_hash",
                 FileCacheService.sha256OfString(classpathFingerprint(cfg.classpathEntries(), cfg.classpathOverride())));

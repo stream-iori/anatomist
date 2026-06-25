@@ -93,8 +93,8 @@ class HierarchyExtractorTest {
         assertTrue(r.edges.stream().anyMatch(e ->
                 "OVERRIDES".equals(e.relation)
                         && "INFERRED".equals(e.confidence)
-                        && "pkg.A#run(<unresolved>)".equals(e.sourceId)
-                        && "pkg.I#run(<unresolved>)".equals(e.targetId)),
+                        && e.sourceId != null && e.sourceId.startsWith("pkg.A#run(")
+                        && e.targetId != null && e.targetId.startsWith("pkg.I#run(")),
                 "fallback OVERRIDES edge missing; got " + r.edges);
     }
 }

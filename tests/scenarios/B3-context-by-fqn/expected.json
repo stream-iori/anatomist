@@ -79,6 +79,19 @@
       "target" : "com.example.shop.event.OrderEventPublisher",
       "target_label" : "OrderEventPublisher",
       "target_qualified_name" : "com.example.shop.event.OrderEventPublisher"
+    }, {
+      "confidence" : "INFERRED",
+      "depth" : 1,
+      "is_external" : false,
+      "metadata" : "{\"via\":\"injection\",\"source\":\"com.example.shop.repository.OrderRepository\",\"candidates\":[\"com.example.shop.repository.InMemoryOrderRepository\"]}",
+      "relation" : "WIRES",
+      "source" : "com.example.shop.service.OrderService",
+      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+      "source_label" : "OrderService",
+      "source_location" : "L22",
+      "target" : "com.example.shop.repository.InMemoryOrderRepository",
+      "target_label" : "InMemoryOrderRepository",
+      "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository"
     } ],
     "members" : [ {
       "id" : "com.example.shop.service.OrderService#orderRepository",
@@ -165,7 +178,7 @@
   } ],
   "stats" : {
     "annotations" : 0,
-    "framework" : 6,
+    "framework" : 7,
     "members" : 9
   }
 }

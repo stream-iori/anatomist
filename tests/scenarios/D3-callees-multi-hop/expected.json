@@ -1,8 +1,8 @@
 {
   "budget" : {
-    "emitted" : 29,
+    "emitted" : 30,
     "mode" : "edges",
-    "total" : 29,
+    "total" : 30,
     "truncated" : false
   },
   "query" : "callees-of com.example.shop.controller.OrderController#create --depth 5",
@@ -134,6 +134,19 @@
     "target" : "com.example.shop.event.OrderEventPublisher#publish(com.example.shop.domain.event.OrderCreatedEvent)",
     "target_label" : "publish",
     "target_qualified_name" : "com.example.shop.event.OrderEventPublisher#publish"
+  }, {
+    "call_kind" : "INTERFACE",
+    "confidence" : "INFERRED",
+    "depth" : 2,
+    "is_external" : false,
+    "metadata" : "{\"via\":\"injected-call\",\"interfaceType\":\"com.example.shop.repository.OrderRepository\",\"source\":\"com.example.shop.repository.OrderRepository#save(com.example.shop.domain.entity.Order)\",\"candidates\":[\"com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)\"]}",
+    "relation" : "CALLS",
+    "source" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_label" : "createOrder",
+    "source_location" : "L38",
+    "target" : "com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+    "target_label" : "save",
+    "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save"
   }, {
     "call_kind" : "INTERFACE",
     "confidence" : "EXTRACTED",
@@ -340,7 +353,7 @@
     "limit" : 50,
     "max_depth" : 3,
     "offset" : 0,
-    "total" : 29,
+    "total" : 30,
     "truncated" : false
   }
 }

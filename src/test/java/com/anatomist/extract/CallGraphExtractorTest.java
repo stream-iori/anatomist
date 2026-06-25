@@ -156,13 +156,13 @@ class CallGraphExtractorTest {
                         && "STATIC".equals(e.callKind)
                         && "INFERRED".equals(e.confidence)
                         && "pkg.A#run()".equals(e.sourceId)
-                        && "pkg.Template#execute(<unresolved>,pkg.Callback)".equals(e.externalTargetFqn)),
+                        && "pkg.Template#execute(pkg.MissingResult,pkg.Callback)".equals(e.externalTargetFqn)),
                 "static template execute fallback missing; got " + describe(r.edges));
         assertTrue(r.edges.stream().anyMatch(e ->
                 "CALLS".equals(e.relation)
                         && "STATIC".equals(e.callKind)
                         && "pkg.A#run()$anon@L5#done()".equals(e.sourceId)
-                        && "pkg.Template#fillSuccessResult(<unresolved>)".equals(e.externalTargetFqn)),
+                        && "pkg.Template#fillSuccessResult(pkg.MissingResult)".equals(e.externalTargetFqn)),
                 "static template callback fallback missing; got " + describe(r.edges));
     }
 

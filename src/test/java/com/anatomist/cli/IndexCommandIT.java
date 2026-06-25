@@ -172,13 +172,13 @@ class IndexCommandIT {
             assertTrue(definedByInternal >= 10,
                     "annotation + XML beans should map to indexed classes; got " + definedByInternal);
 
-            // OrderService bean wires orderRepository/eventPublisher/priceCalculator,
-            // all CLASS->CLASS internal edges.
+            // XML wires orderRepository/eventPublisher/priceCalculator; annotation
+            // injection also narrows OrderRepository to InMemoryOrderRepository.
             int wiresInternal = scalar(st,
                     "SELECT count(*) FROM edges WHERE relation='WIRES' AND is_external=0 "
                             + "AND source_id='com.example.shop.service.OrderService'");
-            assertEquals(3, wiresInternal,
-                    "OrderService should wire 3 collaborators; got " + wiresInternal);
+            assertTrue(wiresInternal >= 4,
+                    "OrderService should wire XML collaborators plus DI narrowing; got " + wiresInternal);
 
             // The bean's source_file is the xml, and it's cached for incremental.
             int xmlCache = scalar(st,
@@ -202,16 +202,17 @@ class IndexCommandIT {
                     "used-by PriceCalculator should include WIRES ← OrderService");
         }
 
-        // Without the flag: annotation-driven Spring Boot concepts remain, XML-only
-        // WIRES stay off.
+        // Without the flag: annotation-driven Spring Boot concepts remain, XML
+        // bean nodes stay off. Annotation DI may still emit WIRES.
         Path withoutDb = tmp.resolve("without.db");
         assertEquals(0, indexWithArgs(fixture, withoutDb, projectSource, false));
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + withoutDb);
              Statement st = c.createStatement()) {
             assertTrue(scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'") >= 6,
                     "annotation BEAN nodes should not require --spring-xml");
-            assertEquals(0, scalar(st, "SELECT count(*) FROM edges WHERE relation='WIRES'"),
-                    "no --spring-xml ⇒ no XML WIRES edges");
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM nodes WHERE kind='BEAN' AND source_file LIKE '%.xml'"),
+                    "no --spring-xml ⇒ no XML BEAN nodes");
         }
     }
 }

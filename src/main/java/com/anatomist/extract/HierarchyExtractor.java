@@ -241,7 +241,7 @@ public class HierarchyExtractor implements Extractor {
         return method.getParameters().stream()
                 .map(p -> {
                     try { return erasedTypeDescribe(p.getType().resolve()); }
-                    catch (RuntimeException e) { return "<unresolved>"; }
+                    catch (RuntimeException e) { return AstTypeNames.of(p.getType(), p); }
                 })
                 .collect(Collectors.joining(","));
     }
@@ -258,23 +258,7 @@ public class HierarchyExtractor implements Extractor {
 
     private static String resolveTypeName(ClassOrInterfaceDeclaration decl, String simpleName) {
         if (simpleName == null || simpleName.isBlank()) return null;
-        if (simpleName.contains(".")) return simpleName;
-        Optional<CompilationUnit> cuOpt = decl.findCompilationUnit();
-        if (cuOpt.isPresent()) {
-            CompilationUnit cu = cuOpt.get();
-            for (var imp : cu.getImports()) {
-                if (imp.isAsterisk()) continue;
-                String imported = imp.getNameAsString();
-                int dot = imported.lastIndexOf('.');
-                if (dot >= 0 && imported.substring(dot + 1).equals(simpleName)) {
-                    return imported;
-                }
-            }
-            return cu.getPackageDeclaration()
-                    .map(pkg -> pkg.getNameAsString() + "." + simpleName)
-                    .orElse(simpleName);
-        }
-        return simpleName;
+        return AstTypeNames.qualifySimpleName(decl, simpleName);
     }
 
     private static boolean isKnownInternalInterface(ClassOrInterfaceDeclaration decl,

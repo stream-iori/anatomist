@@ -370,11 +370,14 @@ public class IndexCommand implements Callable<Integer> {
 
     List<Path> resolveClasspath(ClasspathDetector cd, Path projectRoot) {
         if (noClasspath) return Collections.emptyList();
+        java.util.LinkedHashSet<Path> out = new java.util.LinkedHashSet<>();
         if (classpath != null && !classpath.isEmpty()) {
-            return Arrays.stream(classpath.split(File.pathSeparator))
+            Arrays.stream(classpath.split(File.pathSeparator))
                     .map(String::trim).filter(s -> !s.isEmpty())
                     .map(Path::of)
-                    .collect(Collectors.toList());
+                    .forEach(out::add);
+            out.addAll(cd.detectBuildOutputClasspath(projectRoot));
+            return new ArrayList<>(out);
         }
         return cd.detect(projectRoot).stream().map(Path::of).collect(Collectors.toList());
     }

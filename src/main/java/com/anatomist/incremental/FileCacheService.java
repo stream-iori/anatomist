@@ -15,7 +15,7 @@ import java.util.Set;
 
 public class FileCacheService {
 
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     public static final class Changes {
         public final List<String> changed;

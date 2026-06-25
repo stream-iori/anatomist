@@ -87,6 +87,29 @@ class ClasspathDetectorTest {
     }
 
     @Test
+    void detectSourcePaths_includesGeneratedSourcesRoots(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project/>");
+        Path main = Files.createDirectories(tmp.resolve("app/core/src/main/java"));
+        Path generated = Files.createDirectories(tmp.resolve("app/core/target/generated-sources/annotations"));
+        Path pkg = Files.createDirectories(generated.resolve("com/example"));
+        Files.writeString(pkg.resolve("GeneratedType.java"), "package com.example; class GeneratedType {}");
+
+        List<Path> paths = new ClasspathDetector().detectSourcePaths(tmp);
+        assertTrue(paths.contains(main), "expected main source root; got " + paths);
+        assertTrue(paths.contains(generated), "expected generated source root; got " + paths);
+    }
+
+    @Test
+    void detectBuildOutputClasspath_collectsTargetClasses(@TempDir Path tmp) throws Exception {
+        Path classes = Files.createDirectories(tmp.resolve("app/core/target/classes"));
+        Path testClasses = Files.createDirectories(tmp.resolve("app/core/target/test-classes"));
+
+        List<Path> paths = new ClasspathDetector().detectBuildOutputClasspath(tmp);
+        assertTrue(paths.contains(classes), "expected target/classes; got " + paths);
+        assertTrue(paths.contains(testClasses), "expected target/test-classes; got " + paths);
+    }
+
+    @Test
     void detectSourcePaths_includesTestRootsWhenRequested(@TempDir Path tmp) throws Exception {
         Files.writeString(tmp.resolve("pom.xml"), "<project/>");
         Path main = Files.createDirectories(tmp.resolve("app/core/src/main/java"));
