@@ -7,7 +7,7 @@
     },
     "internal_edge_counts" : {
       "CALLS" : 27,
-      "CONTAINS" : 76,
+      "CONTAINS" : 77,
       "DEFINED_BY" : 6,
       "HANDLES" : 2,
       "IMPLEMENTS" : 1,

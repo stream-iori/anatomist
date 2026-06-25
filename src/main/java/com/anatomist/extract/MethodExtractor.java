@@ -11,19 +11,23 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodLikeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
+import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserAnonymousClassDeclaration;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.anatomist.core.NodeIdGenerator.erasedTypeDescribe;
 
@@ -62,6 +66,18 @@ public class MethodExtractor implements Extractor {
             }
 
             @Override
+            public void visit(ObjectCreationExpr n, Void arg) {
+                n.getAnonymousClassBody().ifPresent(body -> {
+                    for (BodyDeclaration<?> member : body) {
+                        if (member instanceof MethodDeclaration md) {
+                            emitAnonymousMethodFallback(md, sf, result);
+                        }
+                    }
+                });
+                super.visit(n, arg);
+            }
+
+            @Override
             public void visit(LambdaExpr n, Void arg) {
                 emitLambda(n, sf, result);
                 super.visit(n, arg);
@@ -81,6 +97,7 @@ public class MethodExtractor implements Extractor {
             r = decl.resolve();
         } catch (RuntimeException e) {
             ctx.incrementUnresolved();
+            emitAnonymousMethodFallback(decl, sourceFile, result);
             return;
         }
         ResolvedTypeDeclaration declType;
@@ -113,6 +130,51 @@ public class MethodExtractor implements Extractor {
         result.nodes.add(n);
 
         result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
+    }
+
+    private void emitAnonymousMethodFallback(MethodDeclaration decl, String sourceFile,
+                                             ExtractionResult result) {
+        String classId = anonymousClassId(decl);
+        if (classId == null) return;
+
+        String methodId = classId + "#" + decl.getNameAsString()
+                + "(" + astSignature(decl) + ")";
+
+        Node n = new Node();
+        n.id = methodId;
+        n.label = decl.getNameAsString();
+        n.kind = "METHOD";
+        n.qualifiedName = classId + "#" + decl.getNameAsString();
+        n.pkg = decl.findCompilationUnit()
+                .flatMap(CompilationUnit::getPackageDeclaration)
+                .map(p -> p.getNameAsString())
+                .orElse(null);
+        n.sourceFile = sourceFile;
+        n.sourceLocation = "L" + lineOf(decl);
+        n.module = ctx.module();
+        n.scope = ctx.scope();
+        n.javadoc = com.anatomist.core.JavadocSummary.extract(
+                decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
+        n.metadata = methodMetadataFallback(decl);
+        result.nodes.add(n);
+
+        result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
+    }
+
+    private String anonymousClassId(MethodDeclaration decl) {
+        Optional<ObjectCreationExpr> anon = decl.findAncestor(ObjectCreationExpr.class)
+                .filter(o -> o.getAnonymousClassBody().isPresent());
+        if (anon.isEmpty()) return null;
+        int line = anon.get().getBegin().map(p -> p.line).orElse(0);
+
+        Optional<MethodDeclaration> outer = anon.get().findAncestor(MethodDeclaration.class);
+        if (outer.isEmpty()) return null;
+        try {
+            return ctx.idGenerator().forMethod(outer.get().resolve()) + "$anon@L" + line;
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved(e);
+            return null;
+        }
     }
 
     private void emitConstructor(ConstructorDeclaration decl, String sourceFile, ExtractionResult result) {
@@ -277,6 +339,7 @@ public class MethodExtractor implements Extractor {
      * fine; only local classes are still skipped here.
      */
     private static boolean skipDeclaringType(ResolvedTypeDeclaration declType) {
+        if (declType instanceof JavaParserAnonymousClassDeclaration) return false;
         // JavaParser does not expose "is local class" as a uniform predicate.
         // Anonymous declarations come back as JavaParserAnonymousClassDeclaration
         // — those are emitted by TypeExtractor, keep them. Reject things that
@@ -322,8 +385,55 @@ public class MethodExtractor implements Extractor {
         return false;
     }
 
+    private static String astSignature(MethodDeclaration decl) {
+        return decl.getParameters().stream()
+                .map(p -> {
+                    try { return erasedTypeDescribe(p.getType().resolve()); }
+                    catch (RuntimeException e) { return "<unresolved>"; }
+                })
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
     private static int lineOf(com.github.javaparser.ast.Node n) {
         return n.getBegin().map(p -> p.line).orElse(0);
+    }
+
+    private static String methodMetadataFallback(MethodDeclaration decl) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("returnType", decl.getType().asString());
+
+        List<Map<String, String>> params = new ArrayList<>();
+        for (com.github.javaparser.ast.body.Parameter pDecl : decl.getParameters()) {
+            Map<String, String> p = new LinkedHashMap<>();
+            p.put("name", pDecl.getNameAsString());
+            String typeDesc;
+            try { typeDesc = erasedTypeDescribe(pDecl.getType().resolve()); }
+            catch (RuntimeException e) { typeDesc = "<unresolved>"; }
+            p.put("type", typeDesc);
+            params.add(p);
+        }
+        meta.put("parameters", params);
+        meta.put("isStatic", decl.isStatic());
+        meta.put("isAbstract", decl.isAbstract());
+        meta.put("isConstructor", false);
+        meta.put("isAccessor", isAccessor(decl));
+
+        List<String> mods = new ArrayList<>();
+        for (Modifier m : decl.getModifiers()) {
+            mods.add(m.getKeyword().asString());
+        }
+        meta.put("modifiers", mods);
+
+        StringBuilder sig = new StringBuilder(decl.getNameAsString()).append("(");
+        for (int i = 0; i < params.size(); i++) {
+            if (i > 0) sig.append(", ");
+            Map<String, String> p = params.get(i);
+            sig.append(p.get("type")).append(' ').append(p.get("name"));
+        }
+        sig.append(")");
+        meta.put("signature", sig.toString());
+        meta.put("bindingResolved", false);
+        return Json.writeCompact(meta);
     }
 
     private static String methodMetadata(com.github.javaparser.ast.body.CallableDeclaration<?> decl,

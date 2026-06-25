@@ -5,6 +5,7 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.LambdaExpr;
@@ -65,7 +66,7 @@ final class AstEnclosing {
 
     private String tryMethodId(MethodDeclaration md) {
         try { return gen.forMethod(md.resolve()); }
-        catch (RuntimeException e) { return null; }
+        catch (RuntimeException e) { return anonymousMethodFallbackId(md); }
     }
 
     private String tryConstructorId(ConstructorDeclaration cd) {
@@ -76,6 +77,29 @@ final class AstEnclosing {
     private String tryTypeId(TypeDeclaration<?> td) {
         try { return gen.forType(td.resolve()); }
         catch (RuntimeException e) { return null; }
+    }
+
+    private String anonymousMethodFallbackId(MethodDeclaration md) {
+        Optional<ObjectCreationExpr> anon = md.findAncestor(ObjectCreationExpr.class)
+                .filter(o -> o.getAnonymousClassBody().isPresent());
+        if (anon.isEmpty()) return null;
+        Optional<MethodDeclaration> outer = anon.get().findAncestor(MethodDeclaration.class);
+        if (outer.isEmpty()) return null;
+        String outerId;
+        try { outerId = gen.forMethod(outer.get().resolve()); }
+        catch (RuntimeException e) { return null; }
+        int line = anon.get().getBegin().map(p -> p.line).orElse(0);
+        return outerId + "$anon@L" + line + "#" + md.getNameAsString()
+                + "(" + astSignature(md) + ")";
+    }
+
+    private static String astSignature(MethodDeclaration md) {
+        return md.getParameters().stream()
+                .map(p -> {
+                    try { return NodeIdGenerator.erasedTypeDescribe(p.getType().resolve()); }
+                    catch (RuntimeException e) { return "<unresolved>"; }
+                })
+                .collect(java.util.stream.Collectors.joining(","));
     }
 
     /**

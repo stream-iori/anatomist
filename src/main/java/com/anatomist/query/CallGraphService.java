@@ -251,14 +251,20 @@ public class CallGraphService {
     }
 
     public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef, int maxDepth) {
+        return callPath(fromMethodRef, toMethodRef, maxDepth, false);
+    }
+
+    public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef,
+                                  int maxDepth, boolean throughCallbacks) {
         List<String> froms = resolver.resolveMethodIds(fromMethodRef);
         List<String> tos   = resolver.resolveMethodIds(toMethodRef);
         if (froms.isEmpty() || tos.isEmpty()) return Collections.emptyList();
         int depthCap = Math.min(maxDepth > 0 ? maxDepth : 5, MAX_DEPTH);
 
         Map<String, String> parent = new LinkedHashMap<>();
-        Map<String, String> hopRelation = new HashMap<>();
+        Map<String, EdgeRow> hopRows = new HashMap<>();
         Map<String, Integer> depth = new HashMap<>();
+        Set<String> visitedCallbackBodies = new HashSet<>();
         Deque<String> bfsFrontier = new ArrayDeque<>();
         for (String f : froms) { depth.put(f, 0); bfsFrontier.add(f); }
 
@@ -269,23 +275,14 @@ public class CallGraphService {
             int d = depth.get(cur);
             if (d >= depthCap) continue;
 
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT target_id FROM edges WHERE source_id = ? AND relation = 'CALLS' "
-                  + "  AND is_external = 0 AND target_id IS NOT NULL")) {
-                ps.setString(1, cur);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        String next = rs.getString(1);
-                        if (depth.containsKey(next)) continue;
-                        depth.put(next, d + 1);
-                        parent.put(next, cur);
-                        hopRelation.put(next, "CALLS");
-                        if (toSet.contains(next)) { hit = next; break; }
-                        bfsFrontier.addLast(next);
-                    }
-                }
-            } catch (SQLException e) {
-                throw rethrow(e);
+            for (EdgeRow edge : pathOutgoingCalls(cur, d + 1, throughCallbacks, visitedCallbackBodies)) {
+                String next = edge.target;
+                if (next == null || Boolean.TRUE.equals(edge.isExternal) || depth.containsKey(next)) continue;
+                depth.put(next, d + 1);
+                parent.put(next, cur);
+                hopRows.put(next, edge);
+                if (toSet.contains(next)) { hit = next; break; }
+                bfsFrontier.addLast(next);
             }
 
             if (hit == null) {
@@ -293,7 +290,7 @@ public class CallGraphService {
                     if (depth.containsKey(impl)) continue;
                     depth.put(impl, d + 1);
                     parent.put(impl, cur);
-                    hopRelation.put(impl, "OVERRIDES");
+                    hopRows.put(impl, makeOverrideEdge(cur, impl, d + 1));
                     if (toSet.contains(impl)) { hit = impl; break; }
                     bfsFrontier.addLast(impl);
                 }
@@ -311,29 +308,40 @@ public class CallGraphService {
 
         List<EdgeRow> rows = new ArrayList<>();
         for (int i = 1; i < chain.size(); i++) {
-            String src = chain.get(i - 1);
             String tgt = chain.get(i);
-            String rel = hopRelation.getOrDefault(tgt, "CALLS");
-            if ("OVERRIDES".equals(rel)) {
-                rows.add(makeOverrideEdge(src, tgt, i));
-            } else {
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT " + RowMappers.edgeColsFlat("?")
-                      + RowMappers.EDGE_FROM_JOINS
-                      + " WHERE e.source_id = ? AND e.target_id = ? AND e.relation = 'CALLS' "
-                      + " LIMIT 1")) {
-                    ps.setInt(1, i);
-                    ps.setString(2, src);
-                    ps.setString(3, tgt);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            rows.add(RowMappers.mapEdge(rs));
-                        }
-                    }
-                } catch (SQLException e) {
-                    throw rethrow(e);
-                }
+            EdgeRow row = hopRows.get(tgt);
+            if (row != null) {
+                row.depth = i;
+                rows.add(row);
             }
+        }
+        return rows;
+    }
+
+    private List<EdgeRow> pathOutgoingCalls(String methodId, int depth,
+                                            boolean throughCallbacks,
+                                            Set<String> visitedCallbackBodies) {
+        List<EdgeRow> rows = queryCallsOut(List.of(methodId), depth).stream()
+                .filter(e -> !Boolean.TRUE.equals(e.isExternal) && e.target != null)
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        if (!throughCallbacks) return rows;
+
+        Map<String, List<String>> bodiesByMethod =
+                collectCallbackBodies(List.of(methodId), visitedCallbackBodies);
+        List<String> bodyIds = bodiesByMethod.getOrDefault(methodId, Collections.emptyList());
+        if (bodyIds.isEmpty()) return rows;
+
+        NodeRow outerNode = resolver.readNodeById(methodId);
+        for (EdgeRow edge : queryCallsOut(bodyIds, depth)) {
+            if (Boolean.TRUE.equals(edge.isExternal) || edge.target == null) continue;
+            edge.via = edge.source;
+            edge.source = methodId;
+            if (outerNode != null) {
+                edge.sourceLabel = outerNode.label;
+                edge.sourceFile = outerNode.sourceFile;
+            }
+            if (edge.callKind == null) edge.callKind = "CALLBACK";
+            rows.add(edge);
         }
         return rows;
     }

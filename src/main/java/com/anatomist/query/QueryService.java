@@ -141,6 +141,11 @@ public class QueryService implements AutoCloseable {
         return callGraph.callPath(fromMethodRef, toMethodRef, maxDepth);
     }
 
+    public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef,
+                                  int maxDepth, boolean throughCallbacks) {
+        return callGraph.callPath(fromMethodRef, toMethodRef, maxDepth, throughCallbacks);
+    }
+
     // ── Dependencies ────────────────────────────────────────────────────
 
     public List<EdgeRow> depsOf(String typeRef) {

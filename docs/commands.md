@@ -139,8 +139,10 @@ anatomist callers-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter <key
 Shortest path between two methods.
 
 ```bash
-anatomist call-path <from-fqn> <to-fqn> [--depth N] [--blocks=class|package] --index <db>
+anatomist call-path <from-fqn> <to-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
 ```
+
+- `--through-callbacks`: allow the shortest-path BFS to traverse calls made inside anonymous-class / lambda callback bodies. Callback hops keep the outer method as `source` and record the physical body in `via`.
 
 ### `hierarchy`
 Inheritance chain + interfaces for a type.

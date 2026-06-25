@@ -138,6 +138,28 @@ class CalleesThroughCallbacksTest {
         }
     }
 
+    @Test
+    void callPath_withoutFlag_callbackBodyIsInvisible() {
+        try (QueryService q = new QueryService(dbPath)) {
+            List<EdgeRow> path = q.callPath(M, "com.d.Dep#run()", 3, false);
+            assertTrue(path.isEmpty(), "callback body call is not part of plain shortest-path search");
+        }
+    }
+
+    @Test
+    void callPath_withFlag_traversesCallbackBody() {
+        try (QueryService q = new QueryService(dbPath)) {
+            List<EdgeRow> path = q.callPath(M, "com.d.Dep#run()", 3, true);
+
+            assertEquals(1, path.size(), "callback body call is surfaced as one attributed hop");
+            EdgeRow hop = path.get(0);
+            assertEquals(M, hop.source);
+            assertEquals("com.d.Dep#run()", hop.target);
+            assertEquals(PROCESS, hop.via);
+            assertEquals("INTERFACE", hop.callKind);
+        }
+    }
+
     // ── P1: reverse penetration (callers-of) ──────────────────────────────
 
     @Test

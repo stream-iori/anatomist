@@ -8,6 +8,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
@@ -16,6 +17,7 @@ import com.github.javaparser.resolution.types.ResolvedType;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -53,7 +55,13 @@ public class HierarchyExtractor implements Extractor {
                                   ExtractionResult result) {
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) {
+            ctx.incrementUnresolved(e);
+            if (decl instanceof ClassOrInterfaceDeclaration cid) {
+                emitTypeAncestryFallback(cid, result);
+            }
+            return;
+        }
         String sourceId = ctx.idGenerator().forType(rt);
         boolean isInterface = rt.isInterface();
 
@@ -102,7 +110,11 @@ public class HierarchyExtractor implements Extractor {
         if (decl.isInterface()) return; // skip — interfaces overriding interface methods is rarely meaningful here
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) {
+            ctx.incrementUnresolved(e);
+            emitInterfaceOverridesFallback(decl, result);
+            return;
+        }
 
         // Gather candidate super methods (BFS via getAllAncestors, dedup by FQN+erased-signature).
         List<ResolvedMethodDeclaration> superMethods;
@@ -115,6 +127,7 @@ public class HierarchyExtractor implements Extractor {
                     .collect(Collectors.toList());
         } catch (RuntimeException e) {
             ctx.incrementUnresolved();
+            emitInterfaceOverridesFallback(decl, result);
             return;
         }
 
@@ -160,5 +173,135 @@ public class HierarchyExtractor implements Extractor {
             e.isExternal = true;
         }
         return e;
+    }
+
+    private void emitTypeAncestryFallback(ClassOrInterfaceDeclaration decl, ExtractionResult result) {
+        String sourceId = typeIdFallback(decl);
+        if (sourceId == null) return;
+        for (ClassOrInterfaceType iface : decl.getImplementedTypes()) {
+            String target = resolveTypeName(decl, iface.getNameAsString());
+            if (target != null) result.edges.add(hierarchyEdgeFallback(sourceId, target, "IMPLEMENTS"));
+        }
+        for (ClassOrInterfaceType parent : decl.getExtendedTypes()) {
+            String target = resolveTypeName(decl, parent.getNameAsString());
+            if (target != null) result.edges.add(hierarchyEdgeFallback(sourceId, target, "INHERITS"));
+        }
+    }
+
+    private void emitInterfaceOverridesFallback(ClassOrInterfaceDeclaration decl, ExtractionResult result) {
+        String sourceType = typeIdFallback(decl);
+        if (sourceType == null) return;
+        Set<String> seen = new HashSet<>();
+        for (ClassOrInterfaceType iface : decl.getImplementedTypes()) {
+            String ifaceType = resolveTypeName(decl, iface.getNameAsString());
+            if (ifaceType == null || looksExternal(ifaceType)) continue;
+            if (!isKnownInternalInterface(decl, iface.getNameAsString(), ifaceType)) continue;
+            for (MethodDeclaration method : decl.getMethods()) {
+                String source = methodIdFallback(method, sourceType);
+                if (source == null) continue;
+                String target = ifaceType + "#" + method.getNameAsString()
+                        + "(" + methodSignatureKey(method) + ")";
+                String key = source + "->" + target;
+                if (!seen.add(key)) continue;
+
+                Edge e = new Edge();
+                e.sourceId = source;
+                e.targetId = target;
+                e.relation = "OVERRIDES";
+                e.confidence = "INFERRED";
+                e.isExternal = false;
+                result.edges.add(e);
+            }
+        }
+    }
+
+    private Edge hierarchyEdgeFallback(String sourceId, String targetType, String relation) {
+        Edge e = new Edge();
+        e.sourceId = sourceId;
+        e.relation = relation;
+        e.confidence = "INFERRED";
+        if (looksExternal(targetType)) {
+            e.externalTargetFqn = targetType;
+            e.isExternal = true;
+        } else {
+            e.targetId = targetType;
+            e.isExternal = false;
+        }
+        return e;
+    }
+
+    private String methodIdFallback(MethodDeclaration method, String sourceType) {
+        try { return ctx.idGenerator().forMethod(method.resolve()); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+        return sourceType + "#" + method.getNameAsString()
+                + "(" + methodSignatureKey(method) + ")";
+    }
+
+    private static String methodSignatureKey(MethodDeclaration method) {
+        return method.getParameters().stream()
+                .map(p -> {
+                    try { return erasedTypeDescribe(p.getType().resolve()); }
+                    catch (RuntimeException e) { return "<unresolved>"; }
+                })
+                .collect(Collectors.joining(","));
+    }
+
+    private String typeIdFallback(ClassOrInterfaceDeclaration decl) {
+        try { return ctx.idGenerator().forType(decl.resolve()); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+        Optional<CompilationUnit> cuOpt = decl.findCompilationUnit();
+        String pkg = cuOpt.flatMap(CompilationUnit::getPackageDeclaration)
+                .map(p -> p.getNameAsString() + ".")
+                .orElse("");
+        return pkg + decl.getNameAsString();
+    }
+
+    private static String resolveTypeName(ClassOrInterfaceDeclaration decl, String simpleName) {
+        if (simpleName == null || simpleName.isBlank()) return null;
+        if (simpleName.contains(".")) return simpleName;
+        Optional<CompilationUnit> cuOpt = decl.findCompilationUnit();
+        if (cuOpt.isPresent()) {
+            CompilationUnit cu = cuOpt.get();
+            for (var imp : cu.getImports()) {
+                if (imp.isAsterisk()) continue;
+                String imported = imp.getNameAsString();
+                int dot = imported.lastIndexOf('.');
+                if (dot >= 0 && imported.substring(dot + 1).equals(simpleName)) {
+                    return imported;
+                }
+            }
+            return cu.getPackageDeclaration()
+                    .map(pkg -> pkg.getNameAsString() + "." + simpleName)
+                    .orElse(simpleName);
+        }
+        return simpleName;
+    }
+
+    private static boolean isKnownInternalInterface(ClassOrInterfaceDeclaration decl,
+                                                    String simpleName,
+                                                    String resolvedName) {
+        Optional<CompilationUnit> cuOpt = decl.findCompilationUnit();
+        if (cuOpt.isEmpty()) return false;
+        CompilationUnit cu = cuOpt.get();
+
+        boolean localInterface = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                .anyMatch(t -> t.isInterface() && t.getNameAsString().equals(simpleName));
+        if (localInterface) return true;
+
+        return cu.getImports().stream()
+                .filter(i -> !i.isAsterisk())
+                .map(i -> i.getNameAsString())
+                .anyMatch(imported -> imported.equals(resolvedName) && !looksExternal(imported));
+    }
+
+    private static boolean looksExternal(String fqn) {
+        return fqn.startsWith("java.")
+                || fqn.startsWith("javax.")
+                || fqn.startsWith("jakarta.")
+                || fqn.startsWith("org.")
+                || fqn.startsWith("com.github.")
+                || fqn.startsWith("com.google.")
+                || fqn.startsWith("com.alibaba.")
+                || fqn.startsWith("com.alipay.");
     }
 }

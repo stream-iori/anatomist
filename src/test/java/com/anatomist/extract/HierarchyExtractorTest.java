@@ -78,4 +78,23 @@ class HierarchyExtractorTest {
                         && "java.io.Closeable".equals(e.externalTargetFqn));
         assertTrue(inheritsCloseable, "interface→interface INHERITS missing; got " + r.edges);
     }
+
+    @Test
+    void unresolvedImplementsList_stillInfersInterfaceOverridesByAst() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A implements I, MissingBase {\n"
+                + "  public void run(Missing m) {}\n"
+                + "}\n"
+                + "interface I { void run(Missing m); }\n");
+        ExtractionResult r = new ExtractionResult();
+        new HierarchyExtractor(ctx).extract(cu, r);
+
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "OVERRIDES".equals(e.relation)
+                        && "INFERRED".equals(e.confidence)
+                        && "pkg.A#run(<unresolved>)".equals(e.sourceId)
+                        && "pkg.I#run(<unresolved>)".equals(e.targetId)),
+                "fallback OVERRIDES edge missing; got " + r.edges);
+    }
 }

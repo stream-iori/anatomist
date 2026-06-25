@@ -183,6 +183,48 @@ class CallGraphExtractorTest {
                 "lowercase variable scope must not become a static type fallback; got " + describe(r.edges));
     }
 
+    @Test
+    void unresolvedUnscopedLocalCall_fallsBackToUniqueSameClassMethod() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "class A {\n"
+                + "  void run(Missing m){ helper(m); }\n"
+                + "  private void helper(Missing m){}\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new CallGraphExtractor(ctx).extract(cu, r);
+
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CALLS".equals(e.relation)
+                        && "INSTANCE".equals(e.callKind)
+                        && "INFERRED".equals(e.confidence)
+                        && "pkg.A#run(<unresolved>)".equals(e.sourceId)
+                        && "pkg.A#helper(<unresolved>)".equals(e.targetId)
+                        && !e.isExternal),
+                "unresolved unscoped local call fallback missing; got " + describe(r.edges));
+    }
+
+    @Test
+    void unresolvedAnonymousMethodBody_usesStableAnonMethodSourceFallback() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "class A {\n"
+                + "  void outer(){ new Callback(){ public void done(Missing m){ helper(m); } }; }\n"
+                + "  void helper(Missing m){}\n"
+                + "}\n"
+                + "interface Callback { void done(Missing m); }\n");
+        ExtractionResult r = new ExtractionResult();
+        new CallGraphExtractor(ctx).extract(cu, r);
+
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CALLS".equals(e.relation)
+                        && e.sourceId.startsWith("pkg.A#outer()$anon@L")
+                        && e.sourceId.endsWith("#done(<unresolved>)")
+                        && "pkg.A#helper(<unresolved>)".equals(e.targetId)
+                        && !e.isExternal),
+                "anonymous unresolved callback body call fallback missing; got " + describe(r.edges));
+    }
+
     private static String describe(List<Edge> edges) {
         return edges.stream()
                 .map(e -> e.sourceId + " -" + e.relation + "/" + e.callKind + "/" + e.confidence

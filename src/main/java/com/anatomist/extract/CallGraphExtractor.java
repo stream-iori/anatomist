@@ -5,6 +5,8 @@ import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
@@ -120,8 +122,58 @@ public class CallGraphExtractor implements Extractor {
         String enclosingId = enclosingMethodId(call);
         if (enclosingId == null) return;
 
+        if (emitLocalMethodFallback(call, enclosingId, result)) return;
         if (emitScopeTypeFallback(call, enclosingId, result)) return;
         emitStaticNameFallback(call, enclosingId, result);
+    }
+
+    private boolean emitLocalMethodFallback(MethodCallExpr call, String enclosingId,
+                                            ExtractionResult result) {
+        if (call.getScope().isPresent()) return false;
+
+        Optional<TypeDeclaration> typeOpt = call.findAncestor(TypeDeclaration.class);
+        if (typeOpt.isEmpty()) return false;
+
+        @SuppressWarnings("unchecked")
+        List<MethodDeclaration> methods = (List<MethodDeclaration>) typeOpt.get().getMethods();
+        List<MethodDeclaration> candidates = methods.stream()
+                .filter(m -> m.getNameAsString().equals(call.getNameAsString()))
+                .filter(m -> m.getParameters().size() == call.getArguments().size())
+                .toList();
+        if (candidates.size() != 1) return false;
+
+        String targetId = methodId(candidates.get(0));
+        if (targetId == null || targetId.equals(enclosingId)) return false;
+
+        Edge e = baseEdge(call, enclosingId);
+        e.callKind = "INSTANCE";
+        e.confidence = "INFERRED";
+        e.targetId = targetId;
+        e.isExternal = false;
+        result.edges.add(e);
+        return true;
+    }
+
+    private String methodId(MethodDeclaration method) {
+        try { return ctx.idGenerator().forMethod(method.resolve()); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+
+        Optional<TypeDeclaration> typeOpt = method.findAncestor(TypeDeclaration.class);
+        if (typeOpt.isEmpty()) return null;
+
+        Optional<CompilationUnit> cuOpt = method.findCompilationUnit();
+        String pkg = cuOpt.flatMap(CompilationUnit::getPackageDeclaration)
+                .map(p -> p.getNameAsString() + ".")
+                .orElse("");
+        return pkg + typeOpt.get().getNameAsString()
+                + "#" + method.getNameAsString()
+                + "(" + method.getParameters().stream()
+                        .map(p -> {
+                            try { return NodeIdGenerator.erasedTypeDescribe(p.getType().resolve()); }
+                            catch (RuntimeException e) { return "<unresolved>"; }
+                        })
+                        .collect(Collectors.joining(","))
+                + ")";
     }
 
     private boolean emitScopeTypeFallback(MethodCallExpr call, String enclosingId, ExtractionResult result) {

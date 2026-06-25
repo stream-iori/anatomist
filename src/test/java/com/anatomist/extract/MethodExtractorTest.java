@@ -155,6 +155,61 @@ class MethodExtractorTest {
     }
 
     @Test
+    void visit_anonymousClassMethod_emitsMethodNodeContainedByAnonClass() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;"
+                + "public class A {"
+                + "  void outer() {"
+                + "    new Runnable(){ public void run(){} };"
+                + "  }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        String anonMethod = r.nodes.stream()
+                .filter(n -> "METHOD".equals(n.kind))
+                .map(n -> n.id)
+                .filter(id -> id.startsWith("pkg.A#outer()$anon@L"))
+                .filter(id -> id.endsWith("#run()"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("anonymous method node missing; got " + r.nodes));
+        String anonClass = anonMethod.substring(0, anonMethod.indexOf("#run()"));
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CONTAINS".equals(e.relation)
+                        && anonClass.equals(e.sourceId)
+                        && anonMethod.equals(e.targetId)),
+                "anonymous class must CONTAIN its method; got " + r.edges);
+    }
+
+    @Test
+    void visit_unresolvedAnonymousClassMethod_emitsStableFallbackMethodNode() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;"
+                + "public class A {"
+                + "  void outer() {"
+                + "    new Callback(){ public void done(Missing m){} };"
+                + "  }"
+                + "}"
+                + "interface Callback { void done(Missing m); }");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        String anonMethod = r.nodes.stream()
+                .filter(n -> "METHOD".equals(n.kind))
+                .map(n -> n.id)
+                .filter(id -> id.startsWith("pkg.A#outer()$anon@L"))
+                .filter(id -> id.endsWith("#done(<unresolved>)"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("fallback anonymous method node missing; got " + r.nodes));
+        String anonClass = anonMethod.substring(0, anonMethod.indexOf("#done("));
+        assertTrue(r.edges.stream().anyMatch(e ->
+                "CONTAINS".equals(e.relation)
+                        && anonClass.equals(e.sourceId)
+                        && anonMethod.equals(e.targetId)),
+                "fallback anonymous class must CONTAIN its method; got " + r.edges);
+    }
+
+    @Test
     void visit_nestedLambda_emitsDistinctIds() {
         CompilationUnit cu = JavaParserTestSupport.parse(
                 "package pkg; import java.util.function.Function;"

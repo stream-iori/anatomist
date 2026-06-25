@@ -30,13 +30,18 @@ public class CallPathCommand implements Callable<Integer> {
             description = "Slice chain into blocks: class | package (default: package).")
     String blocks;
 
+    @Option(names = "--through-callbacks",
+            description = "Follow calls inside anonymous-class / lambda callback bodies and record via=<body-id>.")
+    boolean throughCallbacks;
+
     @Override
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
-            List<EdgeRow> rows = q.callPath(from, to, depth);
+            List<EdgeRow> rows = q.callPath(from, to, depth, throughCallbacks);
             QueryEnvelope env = new QueryEnvelope(
-                    "call-path " + from + " " + to + " --depth " + depth, rows);
+                    "call-path " + from + " " + to + " --depth " + depth
+                            + (throughCallbacks ? " --through-callbacks" : ""), rows);
             env.stats.put("path_length", rows.size());
             env.stats.put("found", !rows.isEmpty());
             if (blocks != null) {
