@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -10,7 +12,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+
+import static com.anatomist.query.QueryInfra.bind;
+import static com.anatomist.query.QueryInfra.bindStrings;
+import static com.anatomist.query.QueryInfra.qmarks;
 
 /**
  * Resolves free-form user input (FQNs, {@code Class#method}, {@code Class.field},
@@ -21,9 +26,6 @@ import java.util.Set;
  * <p>Shares the caller's {@link Connection}; does not own its lifecycle.</p>
  */
 final class NodeResolver {
-
-    private static final Set<String> TYPE_KINDS = Set.of(
-            "CLASS", "INTERFACE", "ENUM", "ANNOTATION", "RECORD", "ANONYMOUS_CLASS");
 
     private final Connection conn;
     private final Map<String, NodeRow> nodeCache = new HashMap<>();
@@ -43,19 +45,19 @@ final class NodeResolver {
 
         // Try exact qualified_name first.
         String sql = "SELECT id FROM nodes WHERE qualified_name = ? AND kind IN ("
-                + qmarks(TYPE_KINDS.size()) + ")";
+                + qmarks(GraphConstants.TYPE_KINDS.size()) + ")";
         List<Object> args = new ArrayList<>();
         args.add(t);
-        args.addAll(TYPE_KINDS);
+        args.addAll(GraphConstants.TYPE_KINDS);
         List<String> ids = runStringColumn(sql, args);
         if (!ids.isEmpty()) return ids;
 
         // Else label match
         sql = "SELECT id FROM nodes WHERE label = ? AND kind IN ("
-                + qmarks(TYPE_KINDS.size()) + ") ORDER BY qualified_name";
+                + qmarks(GraphConstants.TYPE_KINDS.size()) + ") ORDER BY qualified_name";
         args.clear();
         args.add(t);
-        args.addAll(TYPE_KINDS);
+        args.addAll(GraphConstants.TYPE_KINDS);
         return runStringColumn(sql, args);
     }
 
@@ -214,10 +216,10 @@ final class NodeResolver {
         if (toLoad.isEmpty()) return;
         for (int off = 0; off < toLoad.size(); off += 500) {
             List<String> batch = toLoad.subList(off, Math.min(off + 500, toLoad.size()));
-            String ph = String.join(",", Collections.nCopies(batch.size(), "?"));
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT " + RowMappers.NODE_COLS + " FROM nodes n WHERE id IN (" + ph + ")")) {
-                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                    "SELECT " + RowMappers.NODE_COLS + " FROM nodes n WHERE id IN ("
+                            + qmarks(batch.size()) + ")")) {
+                bindStrings(ps, batch);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         NodeRow row = RowMappers.mapNode(rs);
@@ -233,10 +235,7 @@ final class NodeResolver {
 
     private List<String> runStringColumn(String sql, List<Object> args) {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            for (int i = 0; i < args.size(); i++) {
-                Object v = args.get(i);
-                ps.setString(i + 1, v == null ? null : v.toString());
-            }
+            bind(ps, args);
             try (ResultSet rs = ps.executeQuery()) {
                 List<String> out = new ArrayList<>();
                 while (rs.next()) out.add(rs.getString(1));
@@ -245,11 +244,5 @@ final class NodeResolver {
         } catch (SQLException e) {
             throw new RuntimeException("query failed: " + e.getMessage(), e);
         }
-    }
-
-    private static String qmarks(int n) {
-        StringBuilder sb = new StringBuilder(n * 2);
-        for (int i = 0; i < n; i++) sb.append(i == 0 ? "?" : ",?");
-        return sb.toString();
     }
 }

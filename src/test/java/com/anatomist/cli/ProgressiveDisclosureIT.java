@@ -134,6 +134,26 @@ class ProgressiveDisclosureIT {
     }
 
     @Test
+    void callChainJson_canAttachSourceWindow(@TempDir Path tmp) throws Exception {
+        Path db = buildFixtureIndex(tmp);
+
+        RunResult r = runCli("callees-of", "OrderService#createOrder",
+                "--depth", "1",
+                "--limit", "1",
+                "--source-window", "1",
+                "--index", db.toString());
+
+        assertEquals(0, r.exitCode, r.stderr);
+        Map<?, ?> json = asObject(r.stdout);
+        Map<?, ?> edge = (Map<?, ?>) ((List<?>) json.get("results")).get(0);
+        Map<?, ?> window = (Map<?, ?>) edge.get("source_window");
+        assertNotNull(window, "source_window should be attached when requested: " + r.stdout);
+        assertNotNull(window.get("path"));
+        assertNotNull(window.get("line"));
+        assertTrue(((String) window.get("snippet")).contains("|"));
+    }
+
+    @Test
     void contextJson_reportsAmbiguousTargetInsteadOfPickingFirst(@TempDir Path tmp) throws Exception {
         Path project = tmp.resolve("ambiguous");
         Path src = project.resolve("src/main/java");
@@ -181,6 +201,7 @@ class ProgressiveDisclosureIT {
         RunResult callees = runCli("callees-of", "--help");
         assertEquals(0, callees.exitCode, callees.stderr);
         assertTrue(callees.stdout.contains("--filter"));
+        assertTrue(callees.stdout.contains("--source-window"));
     }
 
     private static Path buildFixtureIndex(Path tmp) throws Exception {

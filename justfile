@@ -20,6 +20,8 @@ INSTALL_DIR := env_var_or_default("ANATOMIST_INSTALL_DIR", env_var("HOME") + "/.
 UPLOAD_BASE := env_var_or_default("ANATOMIST_UPLOAD_BASE", "http://6.12.3.250:8100/upload")
 DIST_BASE   := env_var_or_default("ANATOMIST_DIST_BASE", "http://6.12.3.250:8100/dist-bin")
 DIST_NAME   := env_var_or_default("ANATOMIST_DIST_NAME", "anatomist-darwin-aarch64")
+UPLOAD_MODE := env_var_or_default("ANATOMIST_UPLOAD_MODE", "put")
+UPLOAD_FIELD := env_var_or_default("ANATOMIST_UPLOAD_FIELD", "file")
 
 # Default: list recipes
 default:
@@ -57,12 +59,28 @@ upload-native: native
     set -euo pipefail
     test -x "{{NATIVE_BIN}}"
     echo "Uploading {{NATIVE_BIN}}"
-    echo "  PUT: {{UPLOAD_BASE}}/{{DIST_NAME}}"
+    echo "  mode: {{UPLOAD_MODE}}"
+    echo "  PUT:  {{UPLOAD_BASE}}/{{DIST_NAME}}"
+    echo "  POST: {{UPLOAD_BASE}} (field={{UPLOAD_FIELD}}, filename={{DIST_NAME}})"
     echo "  GET: {{DIST_BASE}}/{{DIST_NAME}}"
-    curl --noproxy '*' \
-        --retry 3 --retry-all-errors \
-        --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
-        -fT "{{NATIVE_BIN}}" "{{UPLOAD_BASE}}/{{DIST_NAME}}"
+    case "{{UPLOAD_MODE}}" in
+      put)
+        curl --noproxy '*' \
+            --retry 3 --retry-all-errors \
+            --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+            -fT "{{NATIVE_BIN}}" "{{UPLOAD_BASE}}/{{DIST_NAME}}"
+        ;;
+      post|multipart)
+        curl --noproxy '*' \
+            --retry 3 --retry-all-errors \
+            --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+            -F "{{UPLOAD_FIELD}}=@{{NATIVE_BIN}};filename={{DIST_NAME}}" "{{UPLOAD_BASE}}"
+        ;;
+      *)
+        echo "ERROR: unsupported ANATOMIST_UPLOAD_MODE={{UPLOAD_MODE}} (use put or post)"
+        exit 2
+        ;;
+    esac
     echo
     curl --noproxy '*' -fsSI "{{DIST_BASE}}/{{DIST_NAME}}" | sed -n '1,8p'
 
@@ -78,12 +96,28 @@ upload-linux-amd64: native-linux-amd64
     test -x "{{NATIVE_BIN}}"
     DIST_NAME="anatomist-linux-amd64"
     echo "Uploading {{NATIVE_BIN}}"
-    echo "  PUT: {{UPLOAD_BASE}}/${DIST_NAME}"
+    echo "  mode: {{UPLOAD_MODE}}"
+    echo "  PUT:  {{UPLOAD_BASE}}/${DIST_NAME}"
+    echo "  POST: {{UPLOAD_BASE}} (field={{UPLOAD_FIELD}}, filename=${DIST_NAME})"
     echo "  GET: {{DIST_BASE}}/${DIST_NAME}"
-    curl --noproxy '*' \
-        --retry 3 --retry-all-errors \
-        --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
-        -fT "{{NATIVE_BIN}}" "{{UPLOAD_BASE}}/${DIST_NAME}"
+    case "{{UPLOAD_MODE}}" in
+      put)
+        curl --noproxy '*' \
+            --retry 3 --retry-all-errors \
+            --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+            -fT "{{NATIVE_BIN}}" "{{UPLOAD_BASE}}/${DIST_NAME}"
+        ;;
+      post|multipart)
+        curl --noproxy '*' \
+            --retry 3 --retry-all-errors \
+            --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+            -F "{{UPLOAD_FIELD}}=@{{NATIVE_BIN}};filename=${DIST_NAME}" "{{UPLOAD_BASE}}"
+        ;;
+      *)
+        echo "ERROR: unsupported ANATOMIST_UPLOAD_MODE={{UPLOAD_MODE}} (use put or post)"
+        exit 2
+        ;;
+    esac
     echo
     curl --noproxy '*' -fsSI "{{DIST_BASE}}/${DIST_NAME}" | sed -n '1,8p'
 

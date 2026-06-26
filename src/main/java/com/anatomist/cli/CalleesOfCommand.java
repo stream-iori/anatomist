@@ -14,7 +14,9 @@ import java.util.List;
 @Command(name = "callees-of",
         mixinStandardHelpOptions = true,
         description = "Outgoing CALLS from a method, optionally recursive (--depth N).",
-        footer = "%nExamples:%n  callees-of com.example.OrderService#create --depth 3%n  callees-of OrderService#create --blocks package")
+        footer = "%nExamples:%n  callees-of com.example.OrderService#create --depth 3"
+                + "%n  callees-of OrderService#create --source-window=3"
+                + "%n  callees-of OrderService#create --blocks package")
 public class CalleesOfCommand extends QueryCommand {
 
     @Parameters(index = "0", description = "Method FQN (Class#method or pkg.Class.method).")
@@ -47,6 +49,11 @@ public class CalleesOfCommand extends QueryCommand {
     @Option(names = "--filter", description = "Filter edges by source/target/relation substring.")
     String filter;
 
+    @Option(names = "--source-window", arity = "0..1", fallbackValue = "3",
+            description = "Attach source_window with path, line, start_line, end_line, "
+                    + "and numbered snippet. Optional value is surrounding context lines.")
+    Integer sourceWindow;
+
     @Override
     protected QueryEnvelope execute(QueryService q) {
         List<EdgeRow> rows = ContextFilter.apply(q.calleesOf(method, depth, throughCallbacks), inLoop, inBranch);
@@ -55,6 +62,9 @@ public class CalleesOfCommand extends QueryCommand {
         }
         int total = rows.size();
         List<EdgeRow> page = limit > 0 ? Disclosure.page(rows, limit, offset) : rows;
+        if (sourceWindow != null) {
+            q.attachSourceWindows(page, Math.max(0, sourceWindow));
+        }
         String query = "callees-of " + method + " --depth " + depth
                 + (throughCallbacks ? " --through-callbacks" : "");
         QueryEnvelope env = new QueryEnvelope(query, page);

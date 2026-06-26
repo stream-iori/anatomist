@@ -1,5 +1,9 @@
 package com.anatomist.model;
 
+import static com.anatomist.model.GraphConstants.Confidence.EXTRACTED;
+import static com.anatomist.model.GraphConstants.Relation.CALLS;
+import static com.anatomist.model.GraphConstants.Relation.REFERENCES;
+
 public class Edge {
     public String sourceId;
     public String targetId;
@@ -19,9 +23,9 @@ public class Edge {
         Edge e = new Edge();
         e.sourceId = sourceId;
         e.targetId = targetId;
-        e.relation = "CALLS";
+        e.relation = CALLS;
         e.callKind = callKind;
-        e.confidence = "EXTRACTED";
+        e.confidence = EXTRACTED;
         e.sourceLocation = sourceLocation;
         e.isExternal = false;
         return e;
@@ -31,9 +35,9 @@ public class Edge {
         Edge e = new Edge();
         e.sourceId = sourceId;
         e.externalTargetFqn = externalTargetFqn;
-        e.relation = "CALLS";
+        e.relation = CALLS;
         e.callKind = callKind;
-        e.confidence = "EXTRACTED";
+        e.confidence = EXTRACTED;
         e.sourceLocation = sourceLocation;
         e.isExternal = true;
         return e;
@@ -43,8 +47,8 @@ public class Edge {
         Edge e = new Edge();
         e.sourceId = sourceId;
         e.targetId = targetId;
-        e.relation = "REFERENCES";
-        e.confidence = "EXTRACTED";
+        e.relation = REFERENCES;
+        e.confidence = EXTRACTED;
         e.isExternal = isExternal;
         return e;
     }

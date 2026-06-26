@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,15 +27,13 @@ public class OverviewResult {
         }
         s.put("packages", packages.size());
         s.put("types", types);
-        s.put("methods", kindCounts.getOrDefault("METHOD", 0L)
-                + kindCounts.getOrDefault("CONSTRUCTOR", 0L));
+        s.put("methods", kindCounts.getOrDefault(GraphConstants.Kind.METHOD, 0L)
+                + kindCounts.getOrDefault(GraphConstants.Kind.CONSTRUCTOR, 0L));
         s.put("package_deps", packageDeps.size());
         return s;
     }
 
     private static boolean TYPE_KIND(String kind) {
-        return "CLASS".equals(kind) || "INTERFACE".equals(kind) || "ENUM".equals(kind)
-                || "ANNOTATION".equals(kind) || "RECORD".equals(kind)
-                || "ANONYMOUS_CLASS".equals(kind);
+        return GraphConstants.TYPE_KINDS.contains(kind);
     }
 }

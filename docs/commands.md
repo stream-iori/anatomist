@@ -31,6 +31,20 @@ Example:
 anatomist index . --format json --output /tmp/index.db
 ```
 
+Full indexing also writes a source snapshot into `project_meta`. The most useful
+keys for Agents are:
+
+| Key | Meaning |
+|-----|---------|
+| `source_root` | Absolute project root used to resolve `source_window` snippets |
+| `source_paths` | Source roots included in this index |
+| `indexed_at` | Index timestamp |
+| `source_git_commit` | Git commit of the indexed source tree, when available |
+| `source_git_branch` | Git branch, when available |
+| `source_git_dirty` | Whether the source worktree had uncommitted changes |
+| `source_git_commit_time` | Commit timestamp, when available |
+| `source_git_remote_origin_url` | Origin URL, when available |
+
 ### `doctor`
 Report CLI capabilities, schema version, and index health.
 
@@ -114,35 +128,49 @@ anatomist context <fqn> --members-limit 50 --members-offset 50 --index <db>
 Outgoing call chain from a method.
 
 ```bash
-anatomist callees-of <method-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
+anatomist callees-of <method-fqn> [--depth N] [--through-callbacks] [--source-window[=N]] [--blocks=class|package] --index <db>
 anatomist callees-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter Order --index <db>
+anatomist callees-of <method-fqn> --depth 2 --source-window=3 --index <db>
 ```
 
 - Max depth: 20. BFS with dedup (no infinite loops).
 - `--blocks`: slices chain into class or package blocks.
 - `--through-callbacks`: follow CALLS made inside anonymous-class / lambda bodies defined in the method (and nested), attributing them to the method. Essential for template-callback code (`SettleServiceTemplate#execute(callback)`, `TransactionTemplate.execute(...)`, stream lambdas) where the real downstream logic lives in the callback body. Synthesized edges are tagged `call_kind=CALLBACK` (when no original kind) and carry `via=<body-id>` pointing at the callback the call physically came from.
+- `--source-window[=N]`: attach a `source_window` object to each emitted edge, using `source_location` plus `project_meta.source_root`. Default context is 3 lines when the flag is present. Use it when an Agent answer needs source evidence without opening every file separately.
 - `--limit` / `--offset` / `--filter`: page wide call graphs and narrow by source/target/relation substring. JSON always includes paging stats and `budget`, including the first page.
+
+`source_window` JSON shape:
+
+| Field | Meaning |
+|-------|---------|
+| `path` | Absolute source file path |
+| `line` | Edge line number |
+| `start_line` / `end_line` | Included snippet range |
+| `snippet` | Numbered source lines |
 
 ### `callers-of`
 Incoming call chain (impact analysis).
 
 ```bash
-anatomist callers-of <method-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
+anatomist callers-of <method-fqn> [--depth N] [--through-callbacks] [--source-window[=N]] [--blocks=class|package] --index <db>
 anatomist callers-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter <keyword> --index <db>
+anatomist callers-of <method-fqn> --depth 2 --source-window=3 --index <db>
 ```
 
 - Pierces interface/abstract dispatch via OVERRIDES (interface method → implementors).
 - `--through-callbacks`: when an incoming call originates inside an anonymous-class / lambda body, attribute it to the enclosing real method (tagged `via=<body-id>`, `call_kind=CALLBACK`) instead of reporting the synthetic `$anon@…#process()` node — so impact analysis reaches the actual caller.
+- `--source-window[=N]`: attach numbered source snippets to returned caller edges. Good for impact reports where each caller needs file/line evidence.
 - `--limit` / `--offset` / `--filter`: page wide impact graphs and continue with `stats.next_offset`. JSON always includes paging stats and `budget`, including the first page.
 
 ### `call-path`
 Shortest path between two methods.
 
 ```bash
-anatomist call-path <from-fqn> <to-fqn> [--depth N] [--through-callbacks] [--blocks=class|package] --index <db>
+anatomist call-path <from-fqn> <to-fqn> [--depth N] [--through-callbacks] [--source-window[=N]] [--blocks=class|package] --index <db>
 ```
 
 - `--through-callbacks`: allow the shortest-path BFS to traverse calls made inside anonymous-class / lambda callback bodies. Callback hops keep the outer method as `source` and record the physical body in `via`.
+- `--source-window[=N]`: attach source snippets to each hop. Use it when explaining a concrete end-to-end path.
 
 ### `hierarchy`
 Inheritance chain + interfaces for a type.
@@ -251,6 +279,7 @@ Use this progressive path instead of asking for everything at once:
 | 4. Symbol search | `anatomist search <term> --limit 50 --offset 0 --index <db>` |
 | 5. Type drill-down | `anatomist context <type> --members-limit 50 --index <db>` |
 | 6. Flow drill-down | `anatomist callees-of <method> --depth 3 --limit 50 --index <db>` |
+| 7. Source-backed proof | `anatomist callees-of <method> --depth 2 --limit 20 --source-window=3 --index <db>` |
 
 ## Context Filters
 

@@ -37,6 +37,7 @@ Index notes:
 | Spring annotations matter | Avoid `--no-classpath`; let classpath detection resolve external annotations. |
 | Spring XML matters | Add `--spring-xml` so XML bean wiring becomes `WIRES` facts. |
 | Re-indexing | Prefer `--incremental` when updating an existing index. |
+| Clean rebuild | Use `--recreate` when stale DB/doc data is more dangerous than rebuild cost. |
 | DB path | Default is `~/.anatomist/<repo-name>/index.db`; all query commands accept `--index`. |
 
 ---
@@ -72,6 +73,18 @@ Use these labels in answers that mix code facts with interpretation:
 When giving business or architecture analysis, include file/line, node id, or
 relation evidence wherever possible.
 
+Use `--source-window` when the answer needs file/line proof and the graph result
+already narrowed the scope. It keeps the workflow source-backed without forcing
+the Agent to open every candidate file.
+
+| Situation | Prefer |
+|---|---|
+| "Show the call path and evidence" | `call-path ... --source-window=2` |
+| "What does this method call until DB?" | `callees-of ... --depth N --source-window=3` |
+| "Who will be affected? give code evidence" | `callers-of ... --depth N --source-window=3` |
+| Huge graph, first pass only | omit `--source-window`; page/filter first |
+| Need exact branch/commit/staleness | inspect `project_meta` keys: `source_git_commit`, `source_git_dirty`, `indexed_at` |
+
 ---
 
 ## Few-shot patterns
@@ -102,6 +115,13 @@ anatomist callees-of <method> --depth <n> --index <db>
 If the chain stops at a template/executor or callback container, check help for
 callback traversal and consider `--through-callbacks`.
 
+When reporting behavior back to a human, rerun the narrowed call query with
+source snippets:
+
+```bash
+anatomist callees-of <method> --depth <n> --source-window=3 --index <db>
+```
+
 ### Impact analysis
 
 User asks what breaks if a type/method changes.
@@ -114,6 +134,8 @@ anatomist field-access <field> --index <db>
 
 Separate "direct users" from "recursive callers". If results are paged, continue
 with `next_queries` rather than assuming the first page is complete.
+Use `callers-of ... --source-window=3` for final impact reports where the user
+expects concrete caller lines.
 
 ### Architecture or smell evidence
 
@@ -146,8 +168,44 @@ matches." Do not upgrade matches into business facts.
 
 User wants a readable slice of a path.
 
-Use anatomist to locate nodes and edges. Read source only for the few files
-identified by the index when prose behavior or code snippets are needed.
+```bash
+anatomist call-path <from-method> <to-method> --depth <n> --source-window=2 --index <db>
+```
+
+Use this for "from Facade/message handler to DB" or "why does this endpoint
+reach this DAO" questions. The graph gives the path; `source_window` gives
+small file/line snippets for each hop. Read full source only when the snippet
+is not enough to understand conditions, literals, or surrounding business logic.
+
+### DB-oriented tracing
+
+User asks whether an entry reaches DB, or asks for reverse DB impact.
+
+```bash
+anatomist search --name '*DAO' --kind INTERFACE --index <db>
+anatomist callees-of <facade-or-handler-method> --depth 8 --through-callbacks --source-window=2 --index <db>
+anatomist callers-of <dao-method> --depth 8 --through-callbacks --source-window=2 --index <db>
+```
+
+Scenario rules:
+
+| Scenario | What to say |
+|---|---|
+| Entry → DAO path found | Present the chain as code fact; include snippets only for decisive hops |
+| DAO reverse callers found | Separate direct repository/service callers from higher-level facade/message entries |
+| Path crosses callback/template | Use `--through-callbacks` and mention `via` when present |
+| No path found | Say no static path found in this index; do not claim runtime impossibility |
+
+### Reproducibility check
+
+Before trusting a DB built earlier, inspect snapshot metadata:
+
+```bash
+sqlite3 <db> "select key,value from project_meta where key in ('source_root','indexed_at','source_git_commit','source_git_dirty');"
+```
+
+If `source_git_dirty=true`, say the index came from a dirty worktree. If
+`source_root` no longer exists, `--source-window` cannot attach snippets.
 
 ---
 
@@ -161,6 +219,8 @@ identified by the index when prose behavior or code snippets are needed.
 | Ignore pagination | Use `stats.truncated`, `next_offset`, and `next_queries`. |
 | Trust naming patterns as semantics | Mark naming matches as weak signals. |
 | Stop at `template.execute` / lambda wrapper | Consider callback traversal if supported by help. |
+| Paste long source files into the answer | Use `--source-window` snippets and cite file/line. |
+| Assume the DB matches current source | Check `project_meta.indexed_at` and `source_git_dirty` when precision matters. |
 | Use `survey-baseline` for candidates | Use it only for aggregate structural baseline. |
 
 ---
@@ -172,6 +232,8 @@ identified by the index when prose behavior or code snippets are needed.
 | JSON shape | Query output generally has `query`, `results`, `stats`, and often `budget`. |
 | Depth | Recursive call depth is capped; check command help for current limit. |
 | External edges | External targets may have FQN text but no internal node id. |
+| Source windows | `--source-window[=N]` derives snippets from `project_meta.source_root`; snippets may be absent if source moved. |
+| Git metadata | `project_meta` records commit/branch/dirty when the source root is inside a Git worktree. |
 | `--no-classpath` | Suppresses many external annotation resolutions. |
 | Locking | Query commands use read locks; index commands use write locks. |
 | Incremental | Uses file hashing and dependency realignment; large changes may degrade to full. |

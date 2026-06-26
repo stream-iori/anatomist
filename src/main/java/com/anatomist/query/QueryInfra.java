@@ -59,6 +59,12 @@ final class QueryInfra {
         }
     }
 
+    static void bindStrings(PreparedStatement ps, List<String> values) throws SQLException {
+        for (int i = 0; i < values.size(); i++) {
+            ps.setString(i + 1, values.get(i));
+        }
+    }
+
     static String qmarks(int n) {
         StringBuilder sb = new StringBuilder(n * 2);
         for (int i = 0; i < n; i++) sb.append(i == 0 ? "?" : ",?");

@@ -29,6 +29,55 @@ import static org.junit.jupiter.api.Assertions.*;
 class IndexCommandIT {
 
     @Test
+    void recreateDeletesExistingDatabaseAndSidecarsBeforeIndex(@TempDir Path tmp) throws Exception {
+        Path project = tmp.resolve("proj");
+        Path sourceRoot = project.resolve("src/main/java/p");
+        Files.createDirectories(sourceRoot);
+        Files.writeString(sourceRoot.resolve("A.java"),
+                "package p; class A { void run() {} }\n", StandardCharsets.UTF_8);
+        Files.writeString(project.resolve("README.md"),
+                "# Stale doc\n\nold\n", StandardCharsets.UTF_8);
+
+        Path db = tmp.resolve("index.db");
+        assertEquals(0, new CommandLine(new IndexCommand()).execute(
+                project.toString(), "--no-classpath", "--output", db.toString(), "--format", "json"));
+        assertEquals(0, new CommandLine(new IndexDocsCommand()).execute(
+                project.toString(), "--index", db.toString()));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st, "SELECT count(*) FROM documents WHERE path='README.md'"));
+        }
+
+        byte[] staleWal = "stale-wal".getBytes(StandardCharsets.UTF_8);
+        byte[] staleShm = "stale-shm".getBytes(StandardCharsets.UTF_8);
+        Path wal = db.resolveSibling(db.getFileName() + "-wal");
+        Path shm = db.resolveSibling(db.getFileName() + "-shm");
+        Files.write(wal, staleWal);
+        Files.write(shm, staleShm);
+
+        assertEquals(0, new CommandLine(new IndexCommand()).execute(
+                project.toString(), "--no-classpath", "--output", db.toString(),
+                "--recreate", "--format", "json"));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(0, scalar(st, "SELECT count(*) FROM documents"),
+                    "--recreate should rebuild the DB instead of preserving document rows");
+            assertTrue(scalar(st, "SELECT count(*) FROM nodes WHERE qualified_name='p.A'") > 0,
+                    "recreated index should contain freshly indexed Java nodes");
+        }
+        if (Files.exists(wal)) {
+            assertFalse(java.util.Arrays.equals(staleWal, Files.readAllBytes(wal)),
+                    "old WAL sidecar content should not survive --recreate");
+        }
+        if (Files.exists(shm)) {
+            assertFalse(java.util.Arrays.equals(staleShm, Files.readAllBytes(shm)),
+                    "old SHM sidecar content should not survive --recreate");
+        }
+    }
+
+    @Test
     void indexesMiniSpringShop_typesMethodsContains(@TempDir Path tmp) throws Exception {
         Path repoRoot = Path.of(System.getProperty("user.dir"));
         Path fixture = repoRoot.resolve("fixtures/mini-spring-shop");
@@ -115,6 +164,11 @@ class IndexCommandIT {
             assertEquals(1, javaVerMeta, "project_meta should contain java_version row");
             int cpHash = scalar(st, "SELECT count(*) FROM project_meta WHERE key='classpath_hash'");
             assertEquals(1, cpHash, "project_meta should contain classpath_hash row");
+            assertEquals(fixture.toAbsolutePath().normalize().toString(),
+                    scalarString(st, "SELECT value FROM project_meta WHERE key='source_root'"),
+                    "project_meta should record source_root for source windows");
+            assertNotNull(scalarString(st, "SELECT value FROM project_meta WHERE key='indexed_at'"),
+                    "project_meta should record indexed_at");
             int fileDeps = scalar(st, "SELECT count(*) FROM file_dependencies");
             assertTrue(fileDeps >= 0, "file_dependencies table should be queryable");
 
@@ -127,6 +181,13 @@ class IndexCommandIT {
         try (ResultSet rs = st.executeQuery(sql)) {
             assertTrue(rs.next());
             return rs.getInt(1);
+        }
+    }
+
+    private static String scalarString(Statement st, String sql) throws Exception {
+        try (ResultSet rs = st.executeQuery(sql)) {
+            assertTrue(rs.next());
+            return rs.getString(1);
         }
     }
 

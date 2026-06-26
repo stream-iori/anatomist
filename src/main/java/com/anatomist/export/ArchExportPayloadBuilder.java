@@ -1,6 +1,7 @@
 package com.anatomist.export;
 
 import com.anatomist.json.Json;
+import com.anatomist.model.GraphConstants;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -283,7 +284,7 @@ public final class ArchExportPayloadBuilder {
 
                 for (Map<String, Object> member : typeMembers) {
                     String kind = (String) member.get("kind");
-                    if (!"METHOD".equals(kind) && !"CONSTRUCTOR".equals(kind)) continue;
+                    if (!GraphConstants.METHOD_KINDS.contains(kind)) continue;
 
                     String loc = (String) member.get("source_location");
                     if (loc == null || !loc.startsWith("L")) continue;

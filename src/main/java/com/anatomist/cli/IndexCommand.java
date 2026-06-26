@@ -21,6 +21,7 @@ import com.anatomist.extract.XmlBeanExtractor;
 import com.anatomist.incremental.FileCacheService;
 import com.anatomist.json.Json;
 import com.anatomist.incremental.IncrementalIndexer;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.semantic.SemanticPostProcessor;
@@ -92,6 +93,11 @@ public class IndexCommand implements Callable<Integer> {
 
     @Option(names = "--full", description = "Force full re-index (default behavior).")
     boolean full;
+
+    @Option(names = "--recreate",
+            description = "Delete the existing SQLite index and sidecar files before full indexing. "
+                    + "Useful when schema or stale-table state is suspect. Disables incremental mode.")
+    boolean recreate;
 
     @Option(names = "--max-realign-files",
             description = "Cap on the realign closure size; above it, incremental degrades to full.",
@@ -175,7 +181,7 @@ public class IndexCommand implements Callable<Integer> {
                     : output.toAbsolutePath().normalize();
             Files.createDirectories(dbPath.getParent());
 
-            boolean useIncremental = incremental && !full && Files.exists(dbPath);
+            boolean useIncremental = incremental && !full && !recreate && Files.exists(dbPath);
 
             if (useIncremental) {
                 try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
@@ -195,7 +201,7 @@ public class IndexCommand implements Callable<Integer> {
                                 : "schema_version mismatch";
                         System.err.println("INFO: incremental degraded to full (" + reason + ")");
                         return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                                jv, factory, dbPath, classpath, started, config);
+                                jv, factory, dbPath, classpath, started, config, false);
                     }
                     FileCacheService fcs = new FileCacheService();
                     List<Path> hashTargets = sourceFiles;
@@ -219,7 +225,7 @@ public class IndexCommand implements Callable<Integer> {
                         System.err.println("INFO: incremental degraded to full ("
                                 + summary.degradationReason + ")");
                         return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                                jv, factory, dbPath, classpath, started, config);
+                                jv, factory, dbPath, classpath, started, config, false);
                     }
 
                     long elapsed = System.currentTimeMillis() - started;
@@ -243,7 +249,7 @@ public class IndexCommand implements Callable<Integer> {
             }
 
             return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                    jv, factory, dbPath, classpath, started, config);
+                    jv, factory, dbPath, classpath, started, config, recreate);
         } catch (Exception e) {
             System.err.println("ERROR: index failed: " + e.getMessage());
             e.printStackTrace(System.err);
@@ -260,34 +266,47 @@ public class IndexCommand implements Callable<Integer> {
                                  Path dbPath,
                                  String classpathOverride,
                                  long started,
-                                 ProjectConfig config) throws Exception {
+                                 ProjectConfig config,
+                                 boolean recreateDb) throws Exception {
         com.anatomist.core.IndexConfig cfg = new com.anatomist.core.IndexConfig(
                 projectRoot, sourcePaths, classpathEntries, sourceFiles,
                 jv, springXml, config, dbPath, classpathOverride, debug);
         com.anatomist.core.IndexOrchestrator orchestrator =
                 new com.anatomist.core.IndexOrchestrator(cfg, factory);
 
-        try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
-             SqliteStore store = new SqliteStore(dbPath)) {
-            com.anatomist.core.IndexResult result = orchestrator.run(store);
-            if ("json".equalsIgnoreCase(format)) {
-                emitIndexJson(result, cfg);
-            } else {
-                com.anatomist.core.IndexStatsPrinter.print(result, cfg, System.out);
+        try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath)) {
+            if (recreateDb) {
+                recreateIndexFiles(dbPath);
             }
-            if (!"json".equalsIgnoreCase(format) && result.samplingEnabled() && result.unresolvedSamples() != null) {
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Object> samples = result.unresolvedSamples();
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Long> sampleData = (java.util.Map<String, Long>) samples.get("samples");
-                @SuppressWarnings("unchecked")
-                java.util.Set<String> projectPackages = (java.util.Set<String>) samples.get("projectPackages");
-                long unresolvedCount = ((Number) samples.get("unresolvedCount")).longValue();
-                com.anatomist.core.UnresolvedReporter.print(
-                        System.out, sampleData, projectPackages, unresolvedCount);
+            try (SqliteStore store = new SqliteStore(dbPath)) {
+                com.anatomist.core.IndexResult result = orchestrator.run(store);
+                if ("json".equalsIgnoreCase(format)) {
+                    emitIndexJson(result, cfg);
+                } else {
+                    com.anatomist.core.IndexStatsPrinter.print(result, cfg, System.out);
+                }
+                if (!"json".equalsIgnoreCase(format) && result.samplingEnabled()
+                        && result.unresolvedSamples() != null) {
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> samples = result.unresolvedSamples();
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Long> sampleData = (java.util.Map<String, Long>) samples.get("samples");
+                    @SuppressWarnings("unchecked")
+                    java.util.Set<String> projectPackages = (java.util.Set<String>) samples.get("projectPackages");
+                    long unresolvedCount = ((Number) samples.get("unresolvedCount")).longValue();
+                    com.anatomist.core.UnresolvedReporter.print(
+                            System.out, sampleData, projectPackages, unresolvedCount);
+                }
             }
         }
         return 0;
+    }
+
+    private static void recreateIndexFiles(Path dbPath) throws java.io.IOException {
+        Files.deleteIfExists(dbPath.resolveSibling(dbPath.getFileName() + "-wal"));
+        Files.deleteIfExists(dbPath.resolveSibling(dbPath.getFileName() + "-shm"));
+        Files.deleteIfExists(dbPath.resolveSibling(dbPath.getFileName() + "-journal"));
+        Files.deleteIfExists(dbPath);
     }
 
     private void emitIndexJson(com.anatomist.core.IndexResult result,
@@ -296,15 +315,15 @@ public class IndexCommand implements Callable<Integer> {
         java.util.Map<String, Long> kinds = result.kindCounts();
         java.util.Map<String, Long> relations = result.relationCounts();
         long types = kinds.entrySet().stream()
-                .filter(e -> Set.of("CLASS", "INTERFACE", "ENUM", "ANONYMOUS_CLASS", "RECORD").contains(e.getKey()))
+                .filter(e -> GraphConstants.INDEX_SUMMARY_TYPE_KINDS.contains(e.getKey()))
                 .mapToLong(java.util.Map.Entry::getValue)
                 .sum();
         stats.put("source_files", cfg.sourceFiles().size());
         stats.put("types", types);
-        stats.put("classes", kinds.getOrDefault("CLASS", 0L));
-        stats.put("methods", kinds.getOrDefault("METHOD", 0L));
-        stats.put("fields", kinds.getOrDefault("FIELD", 0L));
-        stats.put("beans", kinds.getOrDefault("BEAN", 0L));
+        stats.put("classes", kinds.getOrDefault(GraphConstants.Kind.CLASS, 0L));
+        stats.put("methods", kinds.getOrDefault(GraphConstants.Kind.METHOD, 0L));
+        stats.put("fields", kinds.getOrDefault(GraphConstants.Kind.FIELD, 0L));
+        stats.put("beans", kinds.getOrDefault(GraphConstants.Kind.BEAN, 0L));
         stats.put("unresolved", result.unresolvedCount());
         stats.put("dropped_dangling_edges", result.droppedDanglingEdges());
         stats.put("file_cache_entries", result.fileCacheSize());

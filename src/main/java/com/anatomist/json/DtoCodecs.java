@@ -14,6 +14,7 @@ import com.anatomist.query.PackageStat;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.SemanticAnnotationRow;
 import com.anatomist.query.SliceResult;
+import com.anatomist.query.SourceWindow;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -45,6 +46,7 @@ public final class DtoCodecs {
     private static void registerAll() {
         JsonCodecRegistry.register(NodeRow.class, NODE_ROW);
         JsonCodecRegistry.register(EdgeRow.class, EDGE_ROW);
+        JsonCodecRegistry.register(SourceWindow.class, SOURCE_WINDOW);
         JsonCodecRegistry.register(HierarchyResult.Entry.class, HIERARCHY_ENTRY);
         JsonCodecRegistry.register(HierarchyResult.class, HIERARCHY);
         JsonCodecRegistry.register(ContextResult.class, CONTEXT);
@@ -104,12 +106,26 @@ public final class DtoCodecs {
             put(m, "depth", e.depth);
             put(m, "source_file", e.sourceFile);
             put(m, "source_location", e.sourceLocation);
+            put(m, "source_window", e.sourceWindow);
             put(m, "context", e.context);
             put(m, "metadata", e.metadata);
             put(m, "via", e.via);
             return m;
         }
         @Override public EdgeRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
+    };
+
+    private static final JsonCodec<SourceWindow> SOURCE_WINDOW = new JsonCodec<>() {
+        @Override public Object toTree(SourceWindow s) {
+            Map<String, Object> m = obj();
+            put(m, "path", s.path);
+            put(m, "line", s.line);
+            put(m, "start_line", s.startLine);
+            put(m, "end_line", s.endLine);
+            put(m, "snippet", s.snippet);
+            return m;
+        }
+        @Override public SourceWindow fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };
 
     private static final JsonCodec<HierarchyResult.Entry> HIERARCHY_ENTRY = new JsonCodec<>() {

@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -9,9 +11,6 @@ import java.util.*;
 import static com.anatomist.query.QueryInfra.*;
 
 public class OverviewService {
-
-    private static final Set<String> TYPE_KINDS = Set.of(
-            "CLASS", "INTERFACE", "ENUM", "ANNOTATION", "RECORD", "ANONYMOUS_CLASS");
 
     private final Connection conn;
 
@@ -130,8 +129,8 @@ public class OverviewService {
             String kind = rs.getString(2);
             long count = rs.getLong(3);
             PackageStat stat = byPkg.computeIfAbsent(pkg, PackageStat::new);
-            if (TYPE_KINDS.contains(kind)) stat.types += count;
-            else if ("METHOD".equals(kind) || "CONSTRUCTOR".equals(kind)) stat.methods += count;
+            if (GraphConstants.TYPE_KINDS.contains(kind)) stat.types += count;
+            else if (GraphConstants.METHOD_KINDS.contains(kind)) stat.methods += count;
             return null;
         });
         ov.packages.addAll(byPkg.values());

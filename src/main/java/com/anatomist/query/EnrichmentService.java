@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -9,9 +11,6 @@ import java.util.*;
 import static com.anatomist.query.QueryInfra.*;
 
 public class EnrichmentService {
-
-    private static final Set<String> TYPE_KINDS = Set.of(
-            "CLASS", "INTERFACE", "ENUM", "ANNOTATION", "RECORD", "ANONYMOUS_CLASS");
 
     private final Connection conn;
     private final NodeResolver resolver;
@@ -55,9 +54,9 @@ public class EnrichmentService {
         List<NodeRow> types = runNodeQuery(conn,
                 "SELECT " + RowMappers.NODE_COLS
               + "  FROM nodes n WHERE package = ? AND kind IN ("
-              + qmarks(TYPE_KINDS.size()) + ") "
+              + qmarks(GraphConstants.TYPE_KINDS.size()) + ") "
               + " ORDER BY label",
-                concat(List.of(pkg), new ArrayList<>(TYPE_KINDS)));
+                concat(List.of(pkg), new ArrayList<>(GraphConstants.TYPE_KINDS)));
         if (types.isEmpty()) return null;
 
         EnrichResult r = new EnrichResult();
@@ -150,10 +149,10 @@ public class EnrichmentService {
         if (r.node == null) return out;
         String q = r.node.qualifiedName;
         String kind = r.node.kind;
-        if ("METHOD".equals(kind) || "CONSTRUCTOR".equals(kind)) {
+        if (GraphConstants.METHOD_KINDS.contains(kind)) {
             out.add("anatomist callers-of " + q);
             out.add("anatomist callees-of " + q + " --depth 3");
-        } else if (TYPE_KINDS.contains(kind)) {
+        } else if (GraphConstants.TYPE_KINDS.contains(kind)) {
             out.add("anatomist callers-of " + q);
             out.add("anatomist callees-of " + q + " --depth 2");
             out.add("anatomist deps-of " + q);

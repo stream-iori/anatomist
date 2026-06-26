@@ -1,11 +1,12 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -16,6 +17,28 @@ import java.util.Set;
 public class CallChainSlicer {
 
     private static final int BATCH_SIZE = 500;
+    private static final String UNKNOWN_BLOCK_KEY = "__unknown__";
+    private static final String UNKNOWN_BLOCK_NAME = "(unknown)";
+    private static final String DEFAULT_PACKAGE_NAME = "(default)";
+    private static final String SQL_OWNING_TYPES_TEMPLATE = """
+            SELECT target_id, source_id
+            FROM edges
+            WHERE relation = 'CONTAINS'
+            AND is_external = 0
+            AND target_id IN (%s)
+            """;
+    private static final String SQL_PACKAGES_TEMPLATE =
+            "SELECT id, package FROM nodes WHERE id IN (%s)";
+    private static final String SQL_ANNOTATIONS_TEMPLATE =
+            "SELECT node_id, annotation_fqn FROM annotations WHERE node_id IN (%s)";
+    private static final String SQL_FIELD_ACCESSES_TEMPLATE = """
+            SELECT source_id, target_id, relation, is_external, external_target_fqn, context
+            FROM edges
+            WHERE source_id IN (%s)
+            AND relation IN ('READS','WRITES')
+            """;
+    private static final String SQL_JAVADOCS_TEMPLATE =
+            "SELECT id, javadoc FROM nodes WHERE id IN (%s) AND javadoc IS NOT NULL";
 
     private final Connection conn;
 
@@ -88,8 +111,8 @@ public class CallChainSlicer {
             for (String mid : block.methods) {
                 List<EdgeRow> fa = fieldAccesses.getOrDefault(mid, List.of());
                 for (EdgeRow e : fa) {
-                    if ("READS".equals(e.relation)) block.fieldsRead.add(e);
-                    else if ("WRITES".equals(e.relation)) block.fieldsWritten.add(e);
+                    if (GraphConstants.Relation.READS.equals(e.relation)) block.fieldsRead.add(e);
+                    else if (GraphConstants.Relation.WRITES.equals(e.relation)) block.fieldsWritten.add(e);
                 }
                 List<String> ma = annots.getOrDefault(mid, List.of());
                 for (String a : ma) {
@@ -138,19 +161,19 @@ public class CallChainSlicer {
     }
 
     private String blockKey(String typeId, Map<String, String> typePkg, Level level) {
-        if (typeId == null) return "__unknown__";
+        if (typeId == null) return UNKNOWN_BLOCK_KEY;
         if (level == Level.CLASS) return typeId;
         return typePkg.getOrDefault(typeId, "");
     }
 
     private String blockName(String typeId, Map<String, String> typePkg, Level level) {
-        if (typeId == null) return "(unknown)";
+        if (typeId == null) return UNKNOWN_BLOCK_NAME;
         if (level == Level.CLASS) {
             String simple = typeId.contains(".") ? typeId.substring(typeId.lastIndexOf('.') + 1) : typeId;
             if (simple.contains("#")) simple = simple.substring(0, simple.indexOf('#'));
             return simple;
         }
-        return typePkg.getOrDefault(typeId, "(default)");
+        return typePkg.getOrDefault(typeId, DEFAULT_PACKAGE_NAME);
     }
 
     private void updateDepth(BlockResult block, Integer depth) {
@@ -182,11 +205,9 @@ public class CallChainSlicer {
         List<String> ids = new ArrayList<>(methodIds);
         for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
             List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
-            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
-            String sql = "SELECT target_id, source_id FROM edges WHERE relation = 'CONTAINS' "
-                    + "AND is_external = 0 AND target_id IN (" + placeholders + ")";
+            String sql = SQL_OWNING_TYPES_TEMPLATE.formatted(QueryInfra.qmarks(batch.size()));
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                QueryInfra.bindStrings(ps, batch);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         result.put(rs.getString(1), rs.getString(2));
@@ -204,10 +225,9 @@ public class CallChainSlicer {
         List<String> ids = new ArrayList<>(typeIds);
         for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
             List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
-            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
-            String sql = "SELECT id, package FROM nodes WHERE id IN (" + placeholders + ")";
+            String sql = SQL_PACKAGES_TEMPLATE.formatted(QueryInfra.qmarks(batch.size()));
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                QueryInfra.bindStrings(ps, batch);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         result.put(rs.getString(1), rs.getString(2));
@@ -225,11 +245,9 @@ public class CallChainSlicer {
         List<String> ids = new ArrayList<>(nodeIds);
         for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
             List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
-            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
-            String sql = "SELECT node_id, annotation_fqn FROM annotations WHERE node_id IN ("
-                    + placeholders + ")";
+            String sql = SQL_ANNOTATIONS_TEMPLATE.formatted(QueryInfra.qmarks(batch.size()));
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                QueryInfra.bindStrings(ps, batch);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         result.computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
@@ -248,13 +266,9 @@ public class CallChainSlicer {
         List<String> ids = new ArrayList<>(methodIds);
         for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
             List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
-            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
-            String sql = "SELECT source_id, target_id, relation, is_external, "
-                    + "external_target_fqn, context "
-                    + "FROM edges WHERE source_id IN (" + placeholders + ") "
-                    + "AND relation IN ('READS','WRITES')";
+            String sql = SQL_FIELD_ACCESSES_TEMPLATE.formatted(QueryInfra.qmarks(batch.size()));
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                QueryInfra.bindStrings(ps, batch);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         EdgeRow e = new EdgeRow();
@@ -279,10 +293,9 @@ public class CallChainSlicer {
         List<String> ids = new ArrayList<>(methodIds);
         for (int off = 0; off < ids.size(); off += BATCH_SIZE) {
             List<String> batch = ids.subList(off, Math.min(off + BATCH_SIZE, ids.size()));
-            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
-            String sql = "SELECT id, javadoc FROM nodes WHERE id IN (" + placeholders + ") AND javadoc IS NOT NULL";
+            String sql = SQL_JAVADOCS_TEMPLATE.formatted(QueryInfra.qmarks(batch.size()));
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
+                QueryInfra.bindStrings(ps, batch);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         result.put(rs.getString(1), rs.getString(2));

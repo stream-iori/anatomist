@@ -23,6 +23,7 @@ import picocli.CommandLine.HelpCommand;
                 "  anatomist survey-baseline . --format json Structural baseline",
                 "  anatomist search OrderService             Find nodes by name",
                 "  anatomist callees-of Class#method         Show outgoing calls",
+                "  anatomist callees-of Class#method --source-window=3",
                 "  anatomist context com.example.MyClass     Type overview + members",
                 "",
                 "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",

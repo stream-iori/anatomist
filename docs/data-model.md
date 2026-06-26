@@ -158,14 +158,46 @@ ROUTE:                  route:<HTTP_METHOD> <path>                    → route:
 | `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES |
 | `call_kind` | TEXT | CALLS only: INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE |
 | `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for query-time dispatch bridges |
-| `context` | TEXT | REFERENCES: field_type/parameter_type/return_type/generic_arg |
+| `context` | TEXT | CALLS/READS/WRITES: lightweight control path such as `for@L4>if-then@L5`; REFERENCES: field_type/parameter_type/return_type/generic_arg |
 | `is_external` | INTEGER | 0=internal, 1=external |
+| `source_file` | TEXT | Relative source file path when known |
+| `source_location` | TEXT | Line marker such as `L32`; query commands can turn this into `source_window` snippets |
+| `metadata` | TEXT | Optional JSON payload for edge-specific details |
 
 **CHECK constraint**: `is_external=0 ⇒ target_id NOT NULL & external_target_fqn NULL` (and inverse).
 
 **Composite indexes**: `(relation, is_external, target_id)` and `(relation, is_external, external_target_fqn)`.
 
 **Target split rationale**: Prevents name collision between internal node ID and external FQN text; schema enforces correctness without runtime checks.
+
+## Project Meta
+
+`project_meta` is a key/value table for index snapshot metadata. It is the
+place to add small scalar facts that affect query interpretation but do not
+belong on every node or edge.
+
+| Key | Meaning | Use Case |
+|-----|---------|----------|
+| `source_root` | Absolute root of the indexed source tree | Resolve `source_window.path` |
+| `source_paths` | Path-separated source roots included in this index | Debug missing files/classes |
+| `indexed_at` | Timestamp of the index run | Detect stale DBs |
+| `source_git_commit` | Git commit at index time | Reproduce exact source snapshot |
+| `source_git_branch` | Git branch at index time | Human context |
+| `source_git_dirty` | `true` when uncommitted changes existed | Warn that DB may not match a clean commit |
+| `source_git_commit_time` | Commit timestamp | Audit/repro |
+| `source_git_remote_origin_url` | Git origin URL | Trace repository source |
+| `java_version` | Java parser language level | Debug parser behavior |
+| `classpath_hash` | Fingerprint of classpath input | Detect changed resolution environment |
+| `index_version` | File-cache/schema version | Incremental compatibility |
+
+`source_window` is not stored as a table. It is derived at query time from:
+
+```
+project_meta.source_root + edges.source_file + edges.source_location
+```
+
+If an edge lacks `source_file`, query code falls back to the source node's
+`nodes.source_file`.
 
 ## Annotations Table
 

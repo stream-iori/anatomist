@@ -4,6 +4,7 @@ import com.anatomist.model.Annotation;
 import com.anatomist.model.Document;
 import com.anatomist.model.Edge;
 import com.anatomist.model.FileCacheEntry;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.anatomist.model.SemanticAnnotation;
 
@@ -16,6 +17,53 @@ import java.time.Instant;
 import java.util.List;
 
 public class DataWriter {
+    private static final String SQL_DELETE_SEMANTIC_ANNOTATION_BY_KEY =
+            "DELETE FROM semantic_annotations WHERE node_id=? AND category=? AND source=?";
+    private static final String SQL_INSERT_SEMANTIC_ANNOTATION =
+            "INSERT INTO semantic_annotations"
+                    + "(node_id,doc_id,category,business_label,business_description,domain_context,source,confidence)"
+                    + " VALUES (?,?,?,?,?,?,?,?)";
+    private static final String SQL_INSERT_DOCUMENT =
+            "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
+    private static final String SQL_INSERT_FILE_CACHE =
+            "INSERT OR REPLACE INTO file_cache"
+                    + "(source_file,hash,schema_version,last_indexed,node_count,edge_count)"
+                    + " VALUES (?,?,?,?,?,?)";
+    private static final String SQL_UPSERT_PROJECT_META =
+            "INSERT INTO project_meta(key,value) VALUES (?,?) "
+                    + "ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+    private static final String SQL_DELETE_SEMANTIC_ANNOTATIONS_BY_SOURCE_FILE =
+            "DELETE FROM semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)";
+    private static final String SQL_DELETE_FILE_CACHE_BY_SOURCE_FILE =
+            "DELETE FROM file_cache WHERE source_file=?";
+    private static final String SQL_DELETE_NODES_BY_SOURCE_FILE =
+            "DELETE FROM nodes WHERE source_file=?";
+    private static final String SQL_DELETE_WIRING_EDGES =
+            "DELETE FROM edges WHERE relation='" + GraphConstants.Relation.WIRES + "'";
+    private static final String SQL_DELETE_XML_BEANS =
+            "DELETE FROM nodes WHERE kind='" + GraphConstants.Kind.BEAN + "' AND source_file LIKE '%.xml'";
+    private static final String SQL_DELETE_FILE_DEPENDENCIES =
+            "DELETE FROM file_dependencies";
+    private static final String SQL_DERIVE_FILE_DEPENDENCIES = """
+            INSERT OR IGNORE INTO file_dependencies(source_file, depends_on_file)
+            SELECT DISTINCT sn.source_file, tn.source_file
+            FROM edges e
+            JOIN nodes sn ON e.source_id = sn.id
+            JOIN nodes tn ON e.target_id = tn.id
+            WHERE e.is_external=0
+            AND sn.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+            AND sn.source_file <> tn.source_file
+            """;
+    private static final String SQL_INSERT_NODE =
+            "INSERT OR REPLACE INTO nodes"
+                    + "(id,label,kind,qualified_name,package,source_file,source_location,module,scope,javadoc,metadata)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String SQL_INSERT_EDGE =
+            "INSERT INTO edges"
+                    + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,context,is_external,source_file,source_location,metadata)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String SQL_INSERT_ANNOTATION =
+            "INSERT INTO annotations(node_id,annotation_fqn,attributes) VALUES (?,?,?)";
 
     private final ConnectionSupplier connSupplier;
 
@@ -98,27 +146,16 @@ public class DataWriter {
 
     public void upsertSemanticAnnotations(List<SemanticAnnotation> sas) {
         if (sas == null || sas.isEmpty()) return;
-        String del = "DELETE FROM semantic_annotations WHERE node_id=? AND category=? AND source=?";
-        String ins = "INSERT INTO semantic_annotations" +
-                "(node_id,doc_id,category,business_label,business_description,domain_context,source,confidence)" +
-                " VALUES (?,?,?,?,?,?,?,?)";
         inTransaction(c -> {
-            try (PreparedStatement psDel = c.prepareStatement(del);
-                 PreparedStatement psIns = c.prepareStatement(ins)) {
+            try (PreparedStatement psDel = c.prepareStatement(SQL_DELETE_SEMANTIC_ANNOTATION_BY_KEY);
+                 PreparedStatement psIns = c.prepareStatement(SQL_INSERT_SEMANTIC_ANNOTATION)) {
                 for (SemanticAnnotation sa : sas) {
                     psDel.setString(1, sa.nodeId);
                     psDel.setString(2, sa.category);
                     psDel.setString(3, sa.source);
                     psDel.executeUpdate();
 
-                    if (sa.nodeId == null) psIns.setNull(1, Types.VARCHAR); else psIns.setString(1, sa.nodeId);
-                    if (sa.docId == null) psIns.setNull(2, Types.INTEGER); else psIns.setInt(2, sa.docId);
-                    if (sa.category == null) psIns.setNull(3, Types.VARCHAR); else psIns.setString(3, sa.category);
-                    if (sa.businessLabel == null) psIns.setNull(4, Types.VARCHAR); else psIns.setString(4, sa.businessLabel);
-                    if (sa.businessDescription == null) psIns.setNull(5, Types.VARCHAR); else psIns.setString(5, sa.businessDescription);
-                    if (sa.domainContext == null) psIns.setNull(6, Types.VARCHAR); else psIns.setString(6, sa.domainContext);
-                    psIns.setString(7, sa.source);
-                    psIns.setString(8, sa.confidence);
+                    bindSemanticAnnotation(psIns, sa);
                     psIns.executeUpdate();
                 }
             }
@@ -127,15 +164,10 @@ public class DataWriter {
 
     public void insertDocuments(List<Document> docs) {
         if (docs == null || docs.isEmpty()) return;
-        String sql = "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
         inTransaction(c -> {
-            try (PreparedStatement ps = c.prepareStatement(sql)) {
+            try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_DOCUMENT)) {
                 for (Document d : docs) {
-                    ps.setString(1, d.path);
-                    if (d.title == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, d.title);
-                    if (d.content == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, d.content);
-                    ps.setString(4, d.docType);
-                    if (d.module == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, d.module);
+                    bindDocument(ps, d);
                     ps.addBatch();
                 }
                 ps.executeBatch();
@@ -144,19 +176,14 @@ public class DataWriter {
     }
 
     public void replaceDocuments(List<Document> docs) {
-        String sql = "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
         inTransaction(c -> {
             try (Statement st = c.createStatement()) {
                 st.execute("DELETE FROM documents");
             }
             if (docs == null || docs.isEmpty()) return;
-            try (PreparedStatement ps = c.prepareStatement(sql)) {
+            try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_DOCUMENT)) {
                 for (Document d : docs) {
-                    ps.setString(1, d.path);
-                    if (d.title == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, d.title);
-                    if (d.content == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, d.content);
-                    ps.setString(4, d.docType);
-                    if (d.module == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, d.module);
+                    bindDocument(ps, d);
                     ps.addBatch();
                 }
                 ps.executeBatch();
@@ -172,10 +199,7 @@ public class DataWriter {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
-        String sql = "INSERT OR REPLACE INTO file_cache" +
-                "(source_file,hash,schema_version,last_indexed,node_count,edge_count)" +
-                " VALUES (?,?,?,?,?,?)";
-        try (PreparedStatement ps = c.prepareStatement(sql)) {
+        try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_FILE_CACHE)) {
             for (FileCacheEntry entry : entries) {
                 ps.setString(1, entry.sourceFile());
                 ps.setString(2, entry.hash());
@@ -198,11 +222,9 @@ public class DataWriter {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
-        try (PreparedStatement ps = c.prepareStatement(
-                "INSERT INTO project_meta(key,value) VALUES (?,?) " +
-                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value")) {
+        try (PreparedStatement ps = c.prepareStatement(SQL_UPSERT_PROJECT_META)) {
             ps.setString(1, key);
-            if (value == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, value);
+            setNullableString(ps, 2, value);
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("Failed to upsert project_meta", e);
@@ -217,12 +239,9 @@ public class DataWriter {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
-        String delSem = "DELETE FROM semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)";
-        String delFc = "DELETE FROM file_cache WHERE source_file=?";
-        String delNodes = "DELETE FROM nodes WHERE source_file=?";
-        try (PreparedStatement psSem = c.prepareStatement(delSem);
-             PreparedStatement psFc = c.prepareStatement(delFc);
-             PreparedStatement psNodes = c.prepareStatement(delNodes)) {
+        try (PreparedStatement psSem = c.prepareStatement(SQL_DELETE_SEMANTIC_ANNOTATIONS_BY_SOURCE_FILE);
+             PreparedStatement psFc = c.prepareStatement(SQL_DELETE_FILE_CACHE_BY_SOURCE_FILE);
+             PreparedStatement psNodes = c.prepareStatement(SQL_DELETE_NODES_BY_SOURCE_FILE)) {
             for (String f : sourceFiles) {
                 psSem.setString(1, f); psSem.addBatch();
                 psNodes.setString(1, f); psNodes.addBatch();
@@ -244,8 +263,8 @@ public class DataWriter {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
         try (Statement st = c.createStatement()) {
-            st.execute("DELETE FROM edges WHERE relation='WIRES'");
-            st.execute("DELETE FROM nodes WHERE kind='BEAN' AND source_file LIKE '%.xml'");
+            st.execute(SQL_DELETE_WIRING_EDGES);
+            st.execute(SQL_DELETE_XML_BEANS);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete spring bean graph", e);
         }
@@ -259,7 +278,7 @@ public class DataWriter {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
         try (Statement st = c.createStatement()) {
-            st.execute("DELETE FROM file_dependencies");
+            st.execute(SQL_DELETE_FILE_DEPENDENCIES);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to clear file_dependencies", e);
         }
@@ -273,16 +292,7 @@ public class DataWriter {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
         try (Statement st = c.createStatement()) {
-            st.execute(
-                    "INSERT OR IGNORE INTO file_dependencies(source_file, depends_on_file) " +
-                            "SELECT DISTINCT sn.source_file, tn.source_file " +
-                            "FROM edges e " +
-                            "JOIN nodes sn ON e.source_id = sn.id " +
-                            "JOIN nodes tn ON e.target_id = tn.id " +
-                            "WHERE e.is_external=0 " +
-                            "AND sn.source_file IS NOT NULL AND tn.source_file IS NOT NULL " +
-                            "AND sn.source_file <> tn.source_file"
-            );
+            st.execute(SQL_DERIVE_FILE_DEPENDENCIES);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to derive file_dependencies", e);
         }
@@ -292,10 +302,7 @@ public class DataWriter {
 
     static void insertNodes(Connection c, List<Node> nodes) throws SQLException {
         if (nodes == null || nodes.isEmpty()) return;
-        String sql = "INSERT OR REPLACE INTO nodes" +
-                "(id,label,kind,qualified_name,package,source_file,source_location,module,scope,javadoc,metadata)" +
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)";
-        try (PreparedStatement ps = c.prepareStatement(sql)) {
+        try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_NODE)) {
             for (Node n : nodes) {
                 ps.setString(1, n.id);
                 ps.setString(2, n.label);
@@ -305,7 +312,7 @@ public class DataWriter {
                 ps.setString(6, n.sourceFile == null ? "" : n.sourceFile);
                 ps.setString(7, n.sourceLocation);
                 ps.setString(8, n.module);
-                ps.setString(9, n.scope == null ? "MAIN" : n.scope);
+                ps.setString(9, n.scope == null ? GraphConstants.Scope.MAIN : n.scope);
                 ps.setString(10, n.javadoc);
                 ps.setString(11, n.metadata);
                 ps.addBatch();
@@ -316,18 +323,15 @@ public class DataWriter {
 
     static void insertEdges(Connection c, List<Edge> edges) throws SQLException {
         if (edges == null || edges.isEmpty()) return;
-        String sql = "INSERT INTO edges" +
-                "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,context,is_external,source_file,source_location,metadata)" +
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)";
-        try (PreparedStatement ps = c.prepareStatement(sql)) {
+        try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_EDGE)) {
             for (Edge e : edges) {
                 ps.setString(1, e.sourceId);
-                if (e.targetId == null) ps.setNull(2, Types.VARCHAR); else ps.setString(2, e.targetId);
-                if (e.externalTargetFqn == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, e.externalTargetFqn);
+                setNullableString(ps, 2, e.targetId);
+                setNullableString(ps, 3, e.externalTargetFqn);
                 ps.setString(4, e.relation);
-                if (e.callKind == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, e.callKind);
-                ps.setString(6, e.confidence == null ? "EXTRACTED" : e.confidence);
-                if (e.context == null) ps.setNull(7, Types.VARCHAR); else ps.setString(7, e.context);
+                setNullableString(ps, 5, e.callKind);
+                ps.setString(6, e.confidence == null ? GraphConstants.Confidence.EXTRACTED : e.confidence);
+                setNullableString(ps, 7, e.context);
                 ps.setInt(8, e.isExternal ? 1 : 0);
                 ps.setString(9, e.sourceFile);
                 ps.setString(10, e.sourceLocation);
@@ -340,8 +344,7 @@ public class DataWriter {
 
     static void insertAnnotations(Connection c, List<Annotation> anns) throws SQLException {
         if (anns == null || anns.isEmpty()) return;
-        String sql = "INSERT INTO annotations(node_id,annotation_fqn,attributes) VALUES (?,?,?)";
-        try (PreparedStatement ps = c.prepareStatement(sql)) {
+        try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_ANNOTATION)) {
             for (Annotation a : anns) {
                 ps.setString(1, a.nodeId);
                 ps.setString(2, a.annotationFqn);
@@ -354,22 +357,41 @@ public class DataWriter {
 
     static void insertSemanticAnnotations(Connection c, List<SemanticAnnotation> sas) throws SQLException {
         if (sas == null || sas.isEmpty()) return;
-        String sql = "INSERT INTO semantic_annotations" +
-                "(node_id,doc_id,category,business_label,business_description,domain_context,source,confidence)" +
-                " VALUES (?,?,?,?,?,?,?,?)";
-        try (PreparedStatement ps = c.prepareStatement(sql)) {
+        try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_SEMANTIC_ANNOTATION)) {
             for (SemanticAnnotation sa : sas) {
-                if (sa.nodeId == null) ps.setNull(1, Types.VARCHAR); else ps.setString(1, sa.nodeId);
-                if (sa.docId == null) ps.setNull(2, Types.INTEGER); else ps.setInt(2, sa.docId);
-                if (sa.category == null) ps.setNull(3, Types.VARCHAR); else ps.setString(3, sa.category);
-                if (sa.businessLabel == null) ps.setNull(4, Types.VARCHAR); else ps.setString(4, sa.businessLabel);
-                if (sa.businessDescription == null) ps.setNull(5, Types.VARCHAR); else ps.setString(5, sa.businessDescription);
-                if (sa.domainContext == null) ps.setNull(6, Types.VARCHAR); else ps.setString(6, sa.domainContext);
-                ps.setString(7, sa.source);
-                ps.setString(8, sa.confidence);
+                bindSemanticAnnotation(ps, sa);
                 ps.addBatch();
             }
             ps.executeBatch();
         }
+    }
+
+    private static void bindDocument(PreparedStatement ps, Document d) throws SQLException {
+        ps.setString(1, d.path);
+        setNullableString(ps, 2, d.title);
+        setNullableString(ps, 3, d.content);
+        ps.setString(4, d.docType);
+        setNullableString(ps, 5, d.module);
+    }
+
+    private static void bindSemanticAnnotation(PreparedStatement ps, SemanticAnnotation sa) throws SQLException {
+        setNullableString(ps, 1, sa.nodeId);
+        setNullableInt(ps, 2, sa.docId);
+        setNullableString(ps, 3, sa.category);
+        setNullableString(ps, 4, sa.businessLabel);
+        setNullableString(ps, 5, sa.businessDescription);
+        setNullableString(ps, 6, sa.domainContext);
+        ps.setString(7, sa.source);
+        ps.setString(8, sa.confidence);
+    }
+
+    private static void setNullableString(PreparedStatement ps, int index, String value) throws SQLException {
+        if (value == null) ps.setNull(index, Types.VARCHAR);
+        else ps.setString(index, value);
+    }
+
+    private static void setNullableInt(PreparedStatement ps, int index, Integer value) throws SQLException {
+        if (value == null) ps.setNull(index, Types.INTEGER);
+        else ps.setInt(index, value);
     }
 }

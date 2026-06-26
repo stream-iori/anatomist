@@ -105,13 +105,7 @@ public class IndexOrchestrator {
             cachedFiles.addAll(xmlFiles);
         }
         populateFileCache(store, cfg.projectRoot(), cachedFiles);
-        store.upsertProjectMeta("dropped_dangling_edges", String.valueOf(dropped));
-        store.upsertProjectMeta("rebound_external_edges", String.valueOf(rebound));
-        store.upsertProjectMeta("wiring_resolved_edges", String.valueOf(wired));
-        store.upsertProjectMeta("java_version", String.valueOf(cfg.javaVersion()));
-        store.upsertProjectMeta("classpath_hash",
-                FileCacheService.sha256OfString(classpathFingerprint(cfg.classpathEntries(), cfg.classpathOverride())));
-        store.upsertProjectMeta("index_version", String.valueOf(FileCacheService.CURRENT_SCHEMA_VERSION));
+        ProjectMetadata.write(store, cfg, dropped, rebound, wired);
         store.clearFileDependencies();
         store.deriveFileDependencies();
 

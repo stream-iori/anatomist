@@ -15,7 +15,9 @@ import java.util.concurrent.Callable;
 
 @Command(name = "call-path",
         mixinStandardHelpOptions = true,
-        description = "Shortest CALLS chain from <from> to <to> (BFS; empty when unreachable).")
+        description = "Shortest CALLS chain from <from> to <to> (BFS; empty when unreachable).",
+        footer = "%nExamples:%n  call-path Controller#handle Repository#save --depth 5"
+                + "%n  call-path Controller#handle Repository#save --source-window=2")
 public class CallPathCommand implements Callable<Integer> {
 
     @Parameters(index = "0", description = "Source method ref.") String from;
@@ -34,11 +36,19 @@ public class CallPathCommand implements Callable<Integer> {
             description = "Follow calls inside anonymous-class / lambda callback bodies and record via=<body-id>.")
     boolean throughCallbacks;
 
+    @Option(names = "--source-window", arity = "0..1", fallbackValue = "3",
+            description = "Attach source_window with path, line, start_line, end_line, "
+                    + "and numbered snippet. Optional value is surrounding context lines.")
+    Integer sourceWindow;
+
     @Override
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
             List<EdgeRow> rows = q.callPath(from, to, depth, throughCallbacks);
+            if (sourceWindow != null) {
+                q.attachSourceWindows(rows, Math.max(0, sourceWindow));
+            }
             QueryEnvelope env = new QueryEnvelope(
                     "call-path " + from + " " + to + " --depth " + depth
                             + (throughCallbacks ? " --through-callbacks" : ""), rows);

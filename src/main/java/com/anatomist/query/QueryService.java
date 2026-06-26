@@ -33,6 +33,7 @@ public class QueryService implements AutoCloseable {
     private final DependencyService dependency;
     private final OverviewService overview;
     private final EnrichmentService enrichment;
+    private final SourceWindowService sourceWindows;
 
     public Connection connection() { return conn; }
 
@@ -51,6 +52,7 @@ public class QueryService implements AutoCloseable {
         this.dependency = new DependencyService(conn, resolver);
         this.overview = new OverviewService(conn);
         this.enrichment = new EnrichmentService(conn, resolver, typeContext, overview);
+        this.sourceWindows = new SourceWindowService(conn);
     }
 
     @Override
@@ -144,6 +146,10 @@ public class QueryService implements AutoCloseable {
     public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef,
                                   int maxDepth, boolean throughCallbacks) {
         return callGraph.callPath(fromMethodRef, toMethodRef, maxDepth, throughCallbacks);
+    }
+
+    public void attachSourceWindows(List<EdgeRow> rows, int contextLines) {
+        sourceWindows.attachToEdges(rows, contextLines);
     }
 
     // ── Dependencies ────────────────────────────────────────────────────

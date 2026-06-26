@@ -1,22 +1,20 @@
 package com.anatomist.core;
 
+import com.anatomist.model.GraphConstants;
+
 import java.io.PrintStream;
 import java.util.Map;
-import java.util.Set;
 
 public class IndexStatsPrinter {
-
-    private static final Set<String> TYPE_KINDS = Set.of(
-            "CLASS", "INTERFACE", "ENUM", "ANONYMOUS_CLASS", "RECORD");
 
     public static void print(IndexResult r, IndexConfig cfg, PrintStream out) {
         Map<String, Long> kindCounts = r.kindCounts();
         long types = kindCounts.entrySet().stream()
-                .filter(e -> TYPE_KINDS.contains(e.getKey()))
+                .filter(e -> GraphConstants.INDEX_SUMMARY_TYPE_KINDS.contains(e.getKey()))
                 .mapToLong(Map.Entry::getValue).sum();
-        long methods = kindCounts.getOrDefault("METHOD", 0L);
-        long fields = kindCounts.getOrDefault("FIELD", 0L);
-        long beans = kindCounts.getOrDefault("BEAN", 0L);
+        long methods = kindCounts.getOrDefault(GraphConstants.Kind.METHOD, 0L);
+        long fields = kindCounts.getOrDefault(GraphConstants.Kind.FIELD, 0L);
+        long beans = kindCounts.getOrDefault(GraphConstants.Kind.BEAN, 0L);
 
         Map<String, Long> relCounts = r.relationCounts();
         out.println("Indexed " + cfg.projectRoot());
@@ -27,17 +25,17 @@ public class IndexStatsPrinter {
         out.println("  Methods:      " + methods);
         out.println("  Fields:       " + fields);
         out.println("  Annotations:  " + r.annotationCount());
-        out.println("  CONTAINS:     " + relCounts.getOrDefault("CONTAINS", 0L));
-        out.println("  INHERITS:     " + relCounts.getOrDefault("INHERITS", 0L));
-        out.println("  IMPLEMENTS:   " + relCounts.getOrDefault("IMPLEMENTS", 0L));
-        out.println("  OVERRIDES:    " + relCounts.getOrDefault("OVERRIDES", 0L));
-        out.println("  REFERENCES:   " + relCounts.getOrDefault("REFERENCES", 0L));
-        out.println("  CALLS:        " + relCounts.getOrDefault("CALLS", 0L));
-        out.println("  READS:        " + relCounts.getOrDefault("READS", 0L));
-        out.println("  WRITES:       " + relCounts.getOrDefault("WRITES", 0L));
+        out.println("  CONTAINS:     " + relCounts.getOrDefault(GraphConstants.Relation.CONTAINS, 0L));
+        out.println("  INHERITS:     " + relCounts.getOrDefault(GraphConstants.Relation.INHERITS, 0L));
+        out.println("  IMPLEMENTS:   " + relCounts.getOrDefault(GraphConstants.Relation.IMPLEMENTS, 0L));
+        out.println("  OVERRIDES:    " + relCounts.getOrDefault(GraphConstants.Relation.OVERRIDES, 0L));
+        out.println("  REFERENCES:   " + relCounts.getOrDefault(GraphConstants.Relation.REFERENCES, 0L));
+        out.println("  CALLS:        " + relCounts.getOrDefault(GraphConstants.Relation.CALLS, 0L));
+        out.println("  READS:        " + relCounts.getOrDefault(GraphConstants.Relation.READS, 0L));
+        out.println("  WRITES:       " + relCounts.getOrDefault(GraphConstants.Relation.WRITES, 0L));
         if (r.springXml()) {
             out.println("  Beans:        " + beans
-                    + " (WIRES " + relCounts.getOrDefault("WIRES", 0L) + ")");
+                    + " (WIRES " + relCounts.getOrDefault(GraphConstants.Relation.WIRES, 0L) + ")");
         }
         out.println("  Semantic annotations: " + r.semanticAnnotationCount());
         out.println("  Unresolved:   " + r.unresolvedCount());

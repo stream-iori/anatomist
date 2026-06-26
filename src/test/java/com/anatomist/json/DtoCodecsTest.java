@@ -9,6 +9,7 @@ import com.anatomist.query.HierarchyResult;
 import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.SemanticAnnotationRow;
+import com.anatomist.query.SourceWindow;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -68,6 +69,26 @@ class DtoCodecsTest {
         e.via = "A#m()$anon@L1#process()";
         String withVia = Json.writePretty(e);
         assertTrue(withVia.contains("\"via\" : \"A#m()$anon@L1#process()\""), withVia);
+    }
+
+    @Test
+    void edgeRow_emitsSourceWindow_whenSet() {
+        EdgeRow e = new EdgeRow();
+        e.source = "A#m()";
+        e.relation = "CALLS";
+        SourceWindow w = new SourceWindow();
+        w.path = "A.java";
+        w.line = 12;
+        w.startLine = 11;
+        w.endLine = 13;
+        w.snippet = "12 | dep.run();";
+        e.sourceWindow = w;
+
+        String got = Json.writePretty(e);
+
+        assertTrue(got.contains("\"source_window\""), got);
+        assertTrue(got.contains("\"start_line\" : 11"), got);
+        assertTrue(got.contains("\"snippet\" : \"12 | dep.run();\""), got);
     }
 
     @Test
