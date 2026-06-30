@@ -1,6 +1,10 @@
 package com.anatomist.incremental;
 
 import com.anatomist.model.FileCacheEntry;
+import com.anatomist.model.Edge;
+import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.Node;
+import com.anatomist.store.FileCacheService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -60,5 +64,56 @@ class FileCacheServiceTest {
         assertTrue(ch.deleted.contains("Gone.java"));
         assertTrue(ch.changed.isEmpty());
         assertTrue(ch.added.isEmpty());
+    }
+
+    @Test
+    void countBySourceFileCombinesMultipleExtractionResults() {
+        ExtractionResult java = new ExtractionResult();
+        java.nodes.add(node("p.A", "src/A.java"));
+        java.nodes.add(node("p.A#m()", "src/A.java"));
+        java.edges.add(edge("p.A", "p.A#m()", "src/A.java"));
+
+        ExtractionResult xml = new ExtractionResult();
+        xml.nodes.add(node("bean:a", "src/beans.xml"));
+        xml.edges.add(edge("bean:a", "p.A", "src/beans.xml"));
+
+        Map<String, FileCacheService.SourceFileStats> stats =
+                FileCacheService.countBySourceFile(java, xml);
+
+        assertEquals(new FileCacheService.SourceFileStats(2, 1), stats.get("src/A.java"));
+        assertEquals(new FileCacheService.SourceFileStats(1, 1), stats.get("src/beans.xml"));
+    }
+
+    @Test
+    void buildEntriesFromRelativeFilesUsesHashesAndStats() {
+        Map<String, String> hashes = Map.of("src/A.java", "hash-a");
+        Map<String, FileCacheService.SourceFileStats> stats = Map.of(
+                "src/A.java", new FileCacheService.SourceFileStats(2, 3));
+
+        List<FileCacheEntry> entries = FileCacheService.buildEntries(
+                List.of("src/A.java", "src/Missing.java"), hashes, stats, "now");
+
+        assertEquals(1, entries.size());
+        FileCacheEntry entry = entries.get(0);
+        assertEquals("src/A.java", entry.sourceFile());
+        assertEquals("hash-a", entry.hash());
+        assertEquals(FileCacheService.CURRENT_SCHEMA_VERSION, entry.schemaVersion());
+        assertEquals(2, entry.nodeCount());
+        assertEquals(3, entry.edgeCount());
+    }
+
+    private static Node node(String id, String sourceFile) {
+        Node n = new Node();
+        n.id = id;
+        n.sourceFile = sourceFile;
+        return n;
+    }
+
+    private static Edge edge(String sourceId, String targetId, String sourceFile) {
+        Edge e = new Edge();
+        e.sourceId = sourceId;
+        e.targetId = targetId;
+        e.sourceFile = sourceFile;
+        return e;
     }
 }

@@ -3,6 +3,7 @@ package com.anatomist.extract;
 import com.anatomist.core.SpringBeanParser.ParsedBean;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 
 import java.util.HashMap;
@@ -32,10 +33,10 @@ public final class XmlBeanExtractor {
 
     private final String scope;
 
-    public XmlBeanExtractor() { this("MAIN"); }
+    public XmlBeanExtractor() { this(GraphConstants.Scope.MAIN); }
 
     public XmlBeanExtractor(String scope) {
-        this.scope = scope != null ? scope : "MAIN";
+        this.scope = scope != null ? scope : GraphConstants.Scope.MAIN;
     }
 
     public void extract(List<ParsedBean> beans, Set<String> knownIds,
@@ -52,7 +53,7 @@ public final class XmlBeanExtractor {
             Node n = new Node();
             n.id = beanId;
             n.label = b.name();
-            n.kind = "BEAN";
+            n.kind = GraphConstants.Kind.BEAN;
             n.qualifiedName = b.name();
             n.sourceFile = sourceFile;
             n.sourceLocation = "L" + b.line();
@@ -61,7 +62,7 @@ public final class XmlBeanExtractor {
             result.nodes.add(n);
 
             // DEFINED_BY: BEAN → class.
-            Edge def = baseEdge("DEFINED_BY", sourceFile, b.line());
+            Edge def = baseEdge(GraphConstants.Relation.DEFINED_BY, sourceFile, b.line());
             def.sourceId = beanId;
             if (classKnown) { def.targetId = cls; def.isExternal = false; }
             else { def.externalTargetFqn = cls; def.isExternal = true; }
@@ -72,7 +73,7 @@ public final class XmlBeanExtractor {
             for (String ref : b.refs()) {
                 String refClass = beanClass.get(ref);
                 if (refClass == null) continue; // ref to undeclared bean → unresolvable
-                Edge w = baseEdge("WIRES", sourceFile, b.line());
+                Edge w = baseEdge(GraphConstants.Relation.WIRES, sourceFile, b.line());
                 w.sourceId = cls;
                 if (knownIds.contains(refClass)) { w.targetId = refClass; w.isExternal = false; }
                 else { w.externalTargetFqn = refClass; w.isExternal = true; }
@@ -88,7 +89,7 @@ public final class XmlBeanExtractor {
     private static Edge baseEdge(String relation, String sourceFile, int line) {
         Edge e = new Edge();
         e.relation = relation;
-        e.confidence = "EXTRACTED";
+        e.confidence = GraphConstants.Confidence.EXTRACTED;
         e.sourceFile = sourceFile;
         e.sourceLocation = "L" + line;
         return e;

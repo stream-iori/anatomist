@@ -4,6 +4,7 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.json.Json;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -82,7 +83,8 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
         result.nodes.add(beanNode(beanId, beanName, sourceFile, lineOf(n),
                 Map.of("className", type.getQualifiedName(), "source", "annotation",
                         "stereotype", SpringAnnotationSupport.simpleName(ann.get()))));
-        result.edges.add(edge(beanId, typeId, "DEFINED_BY", sourceFile, lineOf(n), "CONFIGURED", null));
+        result.edges.add(edge(beanId, typeId, GraphConstants.Relation.DEFINED_BY,
+                sourceFile, lineOf(n), GraphConstants.Confidence.CONFIGURED, null));
     }
 
     private void emitBeanMethod(MethodDeclaration n, String sourceFile, ExtractionResult result) {
@@ -99,7 +101,8 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
         String beanId = beanId(beanName);
         result.nodes.add(beanNode(beanId, beanName, sourceFile, lineOf(n),
                 Map.of("factoryMethod", methodId, "returnType", returnType, "source", "bean_method")));
-        result.edges.add(edge(beanId, methodId, "DEFINED_BY", sourceFile, lineOf(n), "CONFIGURED", null));
+        result.edges.add(edge(beanId, methodId, GraphConstants.Relation.DEFINED_BY,
+                sourceFile, lineOf(n), GraphConstants.Confidence.CONFIGURED, null));
     }
 
     private void emitFieldInjection(FieldDeclaration n, String sourceFile, ExtractionResult result) {
@@ -141,7 +144,8 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
         if (injectedType == null || !injectedType.isReferenceType()) return;
         var td = injectedType.asReferenceType().getTypeDeclaration().orElse(null);
         if (td == null) return;
-        Edge e = edge(ownerId, null, "INJECTS", sourceFile, line, "CONFIGURED", null);
+        Edge e = edge(ownerId, null, GraphConstants.Relation.INJECTS,
+                sourceFile, line, GraphConstants.Confidence.CONFIGURED, null);
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("injectedType", injectedType.describe());
         if (ann != null) {
@@ -173,11 +177,11 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
         Node n = new Node();
         n.id = id;
         n.label = label;
-        n.kind = "BEAN";
+        n.kind = GraphConstants.Kind.BEAN;
         n.qualifiedName = label;
         n.sourceFile = sourceFile;
         n.sourceLocation = "L" + line;
-        n.scope = "MAIN";
+        n.scope = GraphConstants.Scope.MAIN;
         n.metadata = Json.writeCompact(meta);
         return n;
     }

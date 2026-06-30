@@ -4,6 +4,7 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
@@ -73,9 +74,9 @@ public class FieldAccessExtractor implements Extractor {
                 ResolvedFieldDeclaration field = fieldBindingOf(n.getTarget());
                 String enclosingId = enclosingId(n);
                 if (field != null && enclosingId != null) {
-                    emit(field, enclosingId, "WRITES", n, result);
+                    emit(field, enclosingId, GraphConstants.Relation.WRITES, n, result);
                     if (n.getOperator() != AssignExpr.Operator.ASSIGN) {
-                        emit(field, enclosingId, "READS", n, result);
+                        emit(field, enclosingId, GraphConstants.Relation.READS, n, result);
                     }
                 }
                 super.visit(n, arg);
@@ -87,7 +88,7 @@ public class FieldAccessExtractor implements Extractor {
                     ResolvedFieldDeclaration field = fieldBindingOf(n.getExpression());
                     String enclosingId = enclosingId(n);
                     if (field != null && enclosingId != null) {
-                        emit(field, enclosingId, "WRITES", n, result);
+                        emit(field, enclosingId, GraphConstants.Relation.WRITES, n, result);
                     }
                 }
                 super.visit(n, arg);
@@ -99,7 +100,7 @@ public class FieldAccessExtractor implements Extractor {
                 ResolvedFieldDeclaration field = fieldBindingOf(n);
                 String enclosingId = enclosingId(n);
                 if (field != null && enclosingId != null) {
-                    emit(field, enclosingId, "READS", n, result);
+                    emit(field, enclosingId, GraphConstants.Relation.READS, n, result);
                 }
                 super.visit(n, arg);
             }
@@ -110,7 +111,7 @@ public class FieldAccessExtractor implements Extractor {
                 ResolvedFieldDeclaration field = fieldBindingOf(n);
                 String enclosingId = enclosingId(n);
                 if (field != null && enclosingId != null) {
-                    emit(field, enclosingId, "READS", n, result);
+                    emit(field, enclosingId, GraphConstants.Relation.READS, n, result);
                 }
                 super.visit(n, arg);
             }
@@ -158,7 +159,7 @@ public class FieldAccessExtractor implements Extractor {
         Edge edge = new Edge();
         edge.sourceId = callerId;
         edge.relation = relation;
-        edge.confidence = "EXTRACTED";
+        edge.confidence = GraphConstants.Confidence.EXTRACTED;
         edge.sourceLocation = "L" + at.getBegin().map(p -> p.line).orElse(0);
         edge.context = ControlContext.of(at);
 

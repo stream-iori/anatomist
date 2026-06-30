@@ -4,6 +4,7 @@ import com.anatomist.query.ContextResult;
 import com.anatomist.query.EnrichResult;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.MarkdownFormatter;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryService;
@@ -100,10 +101,10 @@ public class ContextCommand implements Callable<Integer> {
                 java.util.List<com.anatomist.query.NodeRow> members = r.members;
                 if (methodsOnly) {
                     members = members.stream()
-                            .filter(m -> "METHOD".equals(m.kind) || "CONSTRUCTOR".equals(m.kind))
+                            .filter(m -> GraphConstants.METHOD_KINDS.contains(m.kind))
                             .toList();
                 } else if (fieldsOnly) {
-                    members = members.stream().filter(m -> "FIELD".equals(m.kind)).toList();
+                    members = members.stream().filter(m -> GraphConstants.Kind.FIELD.equals(m.kind)).toList();
                 }
                 membersTotal = members.size();
                 safeOffset = Math.max(0, Math.min(membersOffset, membersTotal));

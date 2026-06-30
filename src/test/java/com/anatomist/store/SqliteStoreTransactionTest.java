@@ -64,6 +64,29 @@ class SqliteStoreTransactionTest {
     }
 
     @Test
+    void rollsBackOnRuntimeExceptionLeavingNoPartialWrite(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("runtime.db");
+        try (SqliteStore store = new SqliteStore(db)) {
+            store.initSchema();
+            Connection c = store.connection();
+
+            RuntimeException boom = assertThrows(RuntimeException.class, () ->
+                    store.inTransaction(conn -> {
+                        try (Statement st = conn.createStatement()) {
+                            st.execute("INSERT INTO project_meta(key,value) VALUES ('r','1')");
+                        }
+                        throw new IllegalStateException("boom");
+                    }));
+
+            assertNotNull(boom);
+            assertTrue(c.getAutoCommit(), "autoCommit must be restored after rollback");
+            assertTrue(store.readProjectMeta("r").isEmpty(),
+                    "runtime failure must roll back partial writes");
+        }
+    }
+
+
+    @Test
     void writeStillAtomicViaTemplate(@TempDir Path tmp) {
         // Behavior parity: a normal write commits through the template.
         Path db = tmp.resolve("w.db");
@@ -80,6 +103,27 @@ class SqliteStoreTransactionTest {
             r.edges.add(e);
             store.write(r);
             assertTrue(store.allNodeIds().contains("p.A"));
+        }
+    }
+
+    @Test
+    void writeInCurrentTransactionRollsBackWithOuterTransaction(@TempDir Path tmp) {
+        Path db = tmp.resolve("current.db");
+        try (SqliteStore store = new SqliteStore(db)) {
+            store.initSchema();
+            ExtractionResult r = new ExtractionResult();
+            Node n = new Node();
+            n.id = "p.A"; n.label = "A"; n.kind = "CLASS"; n.qualifiedName = "p.A";
+            n.pkg = "p"; n.sourceFile = "p/A.java"; n.sourceLocation = "L1"; n.scope = "MAIN";
+            r.nodes.add(n);
+
+            assertThrows(RuntimeException.class, () -> store.inTransaction(conn -> {
+                store.writeInCurrentTransaction(r);
+                throw new SQLException("force rollback");
+            }));
+
+            assertFalse(store.allNodeIds().contains("p.A"),
+                    "writeInCurrentTransaction must participate in caller tx");
         }
     }
 

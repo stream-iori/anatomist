@@ -5,6 +5,7 @@ import com.anatomist.json.Json;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node.TreeTraversal;
@@ -131,7 +132,7 @@ public class TypeExtractor implements Extractor {
         Node n = new Node();
         n.id = id;
         n.label = "$anon";
-        n.kind = "ANONYMOUS_CLASS";
+        n.kind = GraphConstants.Kind.ANONYMOUS_CLASS;
         n.qualifiedName = id;
         n.pkg = enclosingMethod.declaringType().getPackageName();
         n.sourceFile = sourceFile;
@@ -146,8 +147,8 @@ public class TypeExtractor implements Extractor {
         Edge e = new Edge();
         e.sourceId = parentMethodId;
         e.targetId = id;
-        e.relation = "CONTAINS";
-        e.confidence = "EXTRACTED";
+        e.relation = GraphConstants.Relation.CONTAINS;
+        e.confidence = GraphConstants.Confidence.EXTRACTED;
         e.isExternal = false;
         e.sourceFile = sourceFile;
         e.sourceLocation = n.sourceLocation;
@@ -155,11 +156,11 @@ public class TypeExtractor implements Extractor {
     }
 
     private static String kindOf(TypeDeclaration<?> decl, ResolvedReferenceTypeDeclaration rt) {
-        if (decl instanceof EnumDeclaration) return "ENUM";
-        if (decl instanceof RecordDeclaration) return "RECORD";
-        if (decl instanceof AnnotationDeclaration) return "INTERFACE"; // annotations stored as INTERFACE per Phase 1 kind set
-        if (rt.isInterface()) return "INTERFACE";
-        return "CLASS";
+        if (decl instanceof EnumDeclaration) return GraphConstants.Kind.ENUM;
+        if (decl instanceof RecordDeclaration) return GraphConstants.Kind.RECORD;
+        if (decl instanceof AnnotationDeclaration) return GraphConstants.Kind.INTERFACE; // annotations stored as INTERFACE per Phase 1 kind set
+        if (rt.isInterface()) return GraphConstants.Kind.INTERFACE;
+        return GraphConstants.Kind.CLASS;
     }
 
     private static int lineOf(com.github.javaparser.ast.Node n) {

@@ -1,7 +1,7 @@
 package com.anatomist.cli;
 
-import com.anatomist.incremental.FileCacheService;
-import com.anatomist.json.DtoCodecs;
+import com.anatomist.store.FileCacheService;
+import com.anatomist.query.DtoCodecs;
 import com.anatomist.json.Json;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.QueryService;

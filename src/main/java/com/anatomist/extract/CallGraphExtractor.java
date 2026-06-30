@@ -5,6 +5,7 @@ import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.json.Json;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -12,7 +13,6 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
-import com.github.javaparser.ast.expr.SuperExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.MethodUsage;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
@@ -58,7 +58,7 @@ public class CallGraphExtractor implements Extractor {
                         super.visit(n, arg);
                         return;
                     }
-                    String callKind = classify(target, n);
+                    String callKind = CallKindClassifier.classify(target, n);
                     emit(n, target, callKind, result);
                 } catch (RuntimeException e) {
                     ctx.incrementUnresolved(e);
@@ -76,22 +76,10 @@ public class CallGraphExtractor implements Extractor {
                 ResolvedConstructorDeclaration target;
                 try { target = n.resolve(); }
                 catch (RuntimeException e) { ctx.incrementUnresolved(e); super.visit(n, arg); return; }
-                emit(n, target, "CONSTRUCTOR", result);
+                emit(n, target, GraphConstants.CallKind.CONSTRUCTOR, result);
                 super.visit(n, arg);
             }
         }.visit(unit, null);
-    }
-
-    private static String classify(ResolvedMethodDeclaration target, MethodCallExpr call) {
-        if (call.getScope().isPresent() && call.getScope().get() instanceof SuperExpr) {
-            return "SUPER";
-        }
-        if (target.isStatic()) return "STATIC";
-        try {
-            ResolvedReferenceTypeDeclaration t = target.declaringType().asReferenceType();
-            if (t.isInterface()) return "INTERFACE";
-        } catch (RuntimeException ignore) { }
-        return "INSTANCE";
     }
 
     private void emit(com.github.javaparser.ast.Node callNode,
@@ -102,9 +90,9 @@ public class CallGraphExtractor implements Extractor {
 
         Edge e = new Edge();
         e.sourceId = enclosingId;
-        e.relation = "CALLS";
+        e.relation = GraphConstants.Relation.CALLS;
         e.callKind = callKind;
-        e.confidence = "EXTRACTED";
+        e.confidence = GraphConstants.Confidence.EXTRACTED;
         e.sourceLocation = "L" + callNode.getBegin().map(p -> p.line).orElse(0);
         e.context = ControlContext.of(callNode);
 
@@ -135,7 +123,7 @@ public class CallGraphExtractor implements Extractor {
         emit(callNode, target, callKind, result);
         if (result.edges.size() > before) {
             Edge e = result.edges.get(result.edges.size() - 1);
-            e.confidence = "INFERRED";
+            e.confidence = GraphConstants.Confidence.INFERRED;
             e.metadata = metadata;
         }
     }
@@ -159,8 +147,8 @@ public class CallGraphExtractor implements Extractor {
 
         for (ResolvedMethodDeclaration target : targets) {
             Edge e = baseEdge(call, enclosingId);
-            e.callKind = classify(target, call);
-            e.confidence = "AMBIGUOUS";
+            e.callKind = CallKindClassifier.classify(target, call);
+            e.confidence = GraphConstants.Confidence.AMBIGUOUS;
             e.metadata = metadata;
             ResolvedTypeDeclaration decl;
             try { decl = target.declaringType(); }
@@ -249,8 +237,8 @@ public class CallGraphExtractor implements Extractor {
         if (targetId == null || targetId.equals(enclosingId)) return false;
 
         Edge e = baseEdge(call, enclosingId);
-        e.callKind = "INSTANCE";
-        e.confidence = "INFERRED";
+        e.callKind = GraphConstants.CallKind.INSTANCE;
+        e.confidence = GraphConstants.Confidence.INFERRED;
         e.targetId = targetId;
         e.isExternal = false;
         result.edges.add(e);
@@ -293,8 +281,10 @@ public class CallGraphExtractor implements Extractor {
             String targetId = methodId(target);
             if (targetId == null || targetId.equals(enclosingId)) continue;
             Edge e = baseEdge(call, enclosingId);
-            e.callKind = target.isStatic() ? "STATIC" : "INSTANCE";
-            e.confidence = ambiguous ? "AMBIGUOUS" : "INFERRED";
+            e.callKind = target.isStatic() ? GraphConstants.CallKind.STATIC : GraphConstants.CallKind.INSTANCE;
+            e.confidence = ambiguous
+                    ? GraphConstants.Confidence.AMBIGUOUS
+                    : GraphConstants.Confidence.INFERRED;
             e.targetId = targetId;
             e.isExternal = false;
             e.metadata = metadata;
@@ -353,7 +343,8 @@ public class CallGraphExtractor implements Extractor {
             solved = SymbolReference.unsolved(ResolvedMethodDeclaration.class);
         }
         if (solved.isSolved() && !unreliableSignature(solved.getCorrespondingDeclaration())) {
-            emit(call, solved.getCorrespondingDeclaration(), classify(solved.getCorrespondingDeclaration(), call), result);
+            emit(call, solved.getCorrespondingDeclaration(),
+                    CallKindClassifier.classify(solved.getCorrespondingDeclaration(), call), result);
             return true;
         }
 
@@ -371,7 +362,8 @@ public class CallGraphExtractor implements Extractor {
         List<ResolvedMethodDeclaration> targets = resolveByFallbackOverload(declOpt.get(), call);
         if (targets.isEmpty()) return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result);
         if (targets.size() == 1) {
-            emitInferred(call, targets.get(0), classify(targets.get(0), call), result, null);
+            emitInferred(call, targets.get(0),
+                    CallKindClassifier.classify(targets.get(0), call), result, null);
         } else {
             emitAmbiguous(call, targets, result);
         }
@@ -495,8 +487,11 @@ public class CallGraphExtractor implements Extractor {
 
         for (MethodDeclaration target : targets) {
             Edge e = baseEdge(call, enclosingId);
-            e.callKind = target.isStatic() ? "STATIC" : (owner.isInterface() ? "INTERFACE" : "INSTANCE");
-            e.confidence = ambiguous ? "AMBIGUOUS" : "INFERRED";
+            e.callKind = target.isStatic() ? GraphConstants.CallKind.STATIC
+                    : (owner.isInterface() ? GraphConstants.CallKind.INTERFACE : GraphConstants.CallKind.INSTANCE);
+            e.confidence = ambiguous
+                    ? GraphConstants.Confidence.AMBIGUOUS
+                    : GraphConstants.Confidence.INFERRED;
             e.metadata = metadata;
             if (ctx.isProjectInternal(owner)) {
                 e.targetId = astMethodId(owner, target);
@@ -528,8 +523,8 @@ public class CallGraphExtractor implements Extractor {
         if (typeFqn == null || typeFqn.isBlank() || "<unresolved>".equals(typeFqn)) return false;
 
         Edge e = baseEdge(call, enclosingId);
-        e.callKind = "INSTANCE";
-        e.confidence = "INFERRED";
+        e.callKind = GraphConstants.CallKind.INSTANCE;
+        e.confidence = GraphConstants.Confidence.INFERRED;
         e.externalTargetFqn = typeFqn + "#" + call.getNameAsString()
                 + "(" + fallbackParameterList(call) + ")";
         e.isExternal = true;
@@ -628,8 +623,8 @@ public class CallGraphExtractor implements Extractor {
         if (typeFqn == null || typeFqn.isBlank()) return;
 
         Edge e = baseEdge(call, enclosingId);
-        e.callKind = "STATIC";
-        e.confidence = "INFERRED";
+        e.callKind = GraphConstants.CallKind.STATIC;
+        e.confidence = GraphConstants.Confidence.INFERRED;
         e.externalTargetFqn = typeFqn + "#" + call.getNameAsString()
                 + "(" + fallbackParameterList(call) + ")";
         e.isExternal = true;
@@ -656,8 +651,8 @@ public class CallGraphExtractor implements Extractor {
     private Edge baseEdge(com.github.javaparser.ast.Node callNode, String sourceId) {
         Edge e = new Edge();
         e.sourceId = sourceId;
-        e.relation = "CALLS";
-        e.confidence = "EXTRACTED";
+        e.relation = GraphConstants.Relation.CALLS;
+        e.confidence = GraphConstants.Confidence.EXTRACTED;
         e.sourceLocation = "L" + callNode.getBegin().map(p -> p.line).orElse(0);
         e.context = ControlContext.of(callNode);
         return e;

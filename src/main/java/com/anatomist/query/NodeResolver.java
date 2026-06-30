@@ -16,6 +16,7 @@ import java.util.Map;
 import static com.anatomist.query.QueryInfra.bind;
 import static com.anatomist.query.QueryInfra.bindStrings;
 import static com.anatomist.query.QueryInfra.qmarks;
+import static com.anatomist.query.QueryInfra.sqlIn;
 
 /**
  * Resolves free-form user input (FQNs, {@code Class#method}, {@code Class.field},
@@ -70,7 +71,7 @@ final class NodeResolver {
         // Exact id (with parens)?
         if (input.contains("(") && input.endsWith(")")) {
             List<String> exact = runStringColumn(
-                    "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') AND id = ?",
+                    "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") AND id = ?",
                     List.of(input));
             if (!exact.isEmpty()) return exact;
         }
@@ -87,12 +88,12 @@ final class NodeResolver {
             if (typePart.contains(".")) {
                 String q = typePart + "#" + mname;
                 return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') "
+                        "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
                       + "  AND qualified_name = ? ORDER BY id", List.of(q));
             } else {
                 // short class name
                 return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') "
+                        "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
                       + "  AND qualified_name LIKE ? ORDER BY id",
                         List.of("%." + typePart + "#" + mname));
             }
@@ -105,12 +106,12 @@ final class NodeResolver {
             String mname = input.substring(dot + 1);
             if (typePart.contains(".")) {
                 return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') "
+                        "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
                       + "  AND qualified_name = ? ORDER BY id",
                         List.of(typePart + "#" + mname));
             } else {
                 return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') "
+                        "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
                       + "  AND qualified_name LIKE ? ORDER BY id",
                         List.of("%." + typePart + "#" + mname));
             }
@@ -118,7 +119,7 @@ final class NodeResolver {
 
         // bare method name
         return runStringColumn(
-                "SELECT id FROM nodes WHERE kind IN ('METHOD','CONSTRUCTOR') AND label = ? "
+                "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") AND label = ? "
               + " ORDER BY qualified_name", List.of(input));
     }
 
@@ -129,7 +130,7 @@ final class NodeResolver {
         // pkg.Class#field — exact id (FIELD id = <classFqn>#<name>, no parens)
         if (input.contains("#")) {
             return runStringColumn(
-                    "SELECT id FROM nodes WHERE kind='FIELD' AND id = ? ORDER BY id",
+                    "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD + "' AND id = ? ORDER BY id",
                     List.of(input));
         }
         // Class.field — split at last dot; if typePart is qualified, exact match
@@ -139,16 +140,16 @@ final class NodeResolver {
             String fname = input.substring(dot + 1);
             if (typePart.contains(".")) {
                 return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind='FIELD' AND id = ? ORDER BY id",
+                        "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD + "' AND id = ? ORDER BY id",
                         List.of(typePart + "#" + fname));
             }
             return runStringColumn(
-                    "SELECT id FROM nodes WHERE kind='FIELD' AND id LIKE ? ORDER BY id",
+                    "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD + "' AND id LIKE ? ORDER BY id",
                     List.of("%." + typePart + "#" + fname));
         }
         // bare name — by label
         return runStringColumn(
-                "SELECT id FROM nodes WHERE kind='FIELD' AND label = ? ORDER BY qualified_name",
+                "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD + "' AND label = ? ORDER BY qualified_name",
                 List.of(input));
     }
 

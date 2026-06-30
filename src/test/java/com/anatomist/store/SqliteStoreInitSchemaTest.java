@@ -60,6 +60,18 @@ class SqliteStoreInitSchemaTest {
         }
     }
 
+    @Test
+    void initSchema_writesUserVersion(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        try (Statement st = store.connection().createStatement();
+             ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+            assertTrue(rs.next());
+            assertEquals(IndexSchema.VERSION, rs.getInt(1));
+        }
+    }
+
     private static Set<String> listObjects(Connection c, String type) throws Exception {
         Set<String> out = new HashSet<>();
         try (Statement st = c.createStatement();

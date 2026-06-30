@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -133,17 +135,17 @@ public class SearchService {
         if (recursive) {
             sql = "WITH RECURSIVE impl(id) AS ("
                 + "  SELECT source_id FROM edges"
-                + "   WHERE relation IN ('IMPLEMENTS','INHERITS') AND is_external = 0"
+                + "   WHERE relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS) + ") AND is_external = 0"
                 + "     AND target_id IN (" + placeholders + ")"
                 + "  UNION"
                 + "  SELECT e.source_id FROM edges e JOIN impl ON e.target_id = impl.id"
-                + "   WHERE e.relation IN ('IMPLEMENTS','INHERITS') AND e.is_external = 0"
+                + "   WHERE e.relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS) + ") AND e.is_external = 0"
                 + ") SELECT " + RowMappers.NODE_COLS
                 + " FROM nodes n JOIN impl ON n.id = impl.id ORDER BY n.qualified_name";
         } else {
             sql = "SELECT " + RowMappers.NODE_COLS
                 + " FROM edges e JOIN nodes n ON e.source_id = n.id "
-                + " WHERE e.relation IN ('IMPLEMENTS','INHERITS') "
+                + " WHERE e.relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS) + ") "
                 + "   AND e.is_external = 0 AND e.target_id IN (" + placeholders + ") "
                 + " ORDER BY n.qualified_name";
         }
@@ -159,15 +161,15 @@ public class SearchService {
         if (recursive) {
             sql = "WITH RECURSIVE impl(id) AS ("
                 + "  SELECT source_id FROM edges"
-                + "   WHERE relation IN ('IMPLEMENTS','INHERITS') AND is_external = 0"
+                + "   WHERE relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS) + ") AND is_external = 0"
                 + "     AND target_id IN (" + placeholders + ")"
                 + "  UNION"
                 + "  SELECT e.source_id FROM edges e JOIN impl ON e.target_id = impl.id"
-                + "   WHERE e.relation IN ('IMPLEMENTS','INHERITS') AND e.is_external = 0"
+                + "   WHERE e.relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS) + ") AND e.is_external = 0"
                 + ") SELECT COUNT(*) FROM impl";
         } else {
             sql = "SELECT COUNT(DISTINCT e.source_id) FROM edges e"
-                + " WHERE e.relation IN ('IMPLEMENTS','INHERITS')"
+                + " WHERE e.relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS) + ")"
                 + "   AND e.is_external = 0 AND e.target_id IN (" + placeholders + ")";
         }
         return runScalarInt(conn, sql, new ArrayList<>(targetIds));

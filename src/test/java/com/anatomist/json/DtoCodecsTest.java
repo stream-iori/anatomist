@@ -1,6 +1,7 @@
 package com.anatomist.json;
 
 import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.query.DtoCodecs;
 import com.anatomist.query.ContextResult;
 import com.anatomist.query.DocSnippet;
 import com.anatomist.query.EdgeRow;

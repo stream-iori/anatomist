@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -14,10 +16,12 @@ public class CallGraphService {
 
     private final Connection conn;
     private final NodeResolver resolver;
+    private final CallbackBodyCollector callbackBodies;
 
     public CallGraphService(Connection conn, NodeResolver resolver) {
         this.conn = conn;
         this.resolver = resolver;
+        this.callbackBodies = new CallbackBodyCollector(conn);
     }
 
     public List<EdgeRow> calleesOf(String methodRef, int depth) {
@@ -56,8 +60,8 @@ public class CallGraphService {
 
             if (throughCallbacks) {
                 // Follow CALLS inside anonymous-class / lambda bodies defined within each
-                // frontier method, attributing them to the outer method (see collectCallbackBodies).
-                Map<String, List<String>> bodiesByMethod = collectCallbackBodies(current, visited);
+                // frontier method, attributing them to the outer method.
+                Map<String, List<String>> bodiesByMethod = callbackBodies.collect(current, visited);
                 for (Map.Entry<String, List<String>> entry : bodiesByMethod.entrySet()) {
                     String outer = entry.getKey();
                     List<String> bodyIds = entry.getValue();
@@ -101,66 +105,6 @@ public class CallGraphService {
             }
         }
         return dedup(result);
-    }
-
-    /**
-     * For each method id in {@code methods}, returns the transitive set of contained
-     * anonymous-class / lambda / method-ref body node ids whose outgoing CALLS should be
-     * attributed to that method. Walks CONTAINS edges; collects METHOD nodes whose id carries
-     * a synthetic {@code $anon@} / {@code $lambda@} marker plus LAMBDA / METHOD_REF nodes, and
-     * recurses through ANONYMOUS_CLASS containers (and nested anon/lambda) without collecting
-     * the container itself. Ordinary nested types and regular member methods are ignored so a
-     * class's other real methods never leak into the chain. Discovered body ids are added to
-     * {@code visited} so each body is expanded at most once across depth levels.
-     */
-    private Map<String, List<String>> collectCallbackBodies(List<String> methods, Set<String> visited) {
-        Map<String, List<String>> out = new LinkedHashMap<>();
-        for (String m : methods) {
-            List<String> bodies = new ArrayList<>();
-            Set<String> localSeen = new HashSet<>();
-            Deque<String> stack = new ArrayDeque<>();
-            stack.push(m);
-            while (!stack.isEmpty()) {
-                String cur = stack.pop();
-                for (NodeRef child : containsChildren(cur)) {
-                    if (!localSeen.add(child.id)) continue;
-                    switch (child.kind) {
-                        case "LAMBDA", "METHOD_REF" -> {
-                            if (visited.add(child.id)) bodies.add(child.id);
-                            stack.push(child.id);
-                        }
-                        case "ANONYMOUS_CLASS" -> stack.push(child.id);
-                        case "METHOD" -> {
-                            if (child.id.contains("$anon@") || child.id.contains("$lambda@")) {
-                                if (visited.add(child.id)) bodies.add(child.id);
-                                stack.push(child.id);
-                            }
-                        }
-                        default -> { /* ordinary nested type / member: ignore */ }
-                    }
-                }
-            }
-            out.put(m, bodies);
-        }
-        return out;
-    }
-
-    private record NodeRef(String id, String kind) {}
-
-    /** Direct CONTAINS children (id + kind) of the given node ids, batched. */
-    private List<NodeRef> containsChildren(String parentId) {
-        List<NodeRef> out = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT n.id, n.kind FROM edges e JOIN nodes n ON n.id = e.target_id "
-              + " WHERE e.source_id = ? AND e.relation = 'CONTAINS'")) {
-            ps.setString(1, parentId);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) out.add(new NodeRef(rs.getString(1), rs.getString(2)));
-            }
-        } catch (SQLException e) {
-            throw rethrow(e);
-        }
-        return out;
     }
 
     List<EdgeRow> callsTo(List<String> seedIds, int depth) {
@@ -327,7 +271,7 @@ public class CallGraphService {
         if (!throughCallbacks) return rows;
 
         Map<String, List<String>> bodiesByMethod =
-                collectCallbackBodies(List.of(methodId), visitedCallbackBodies);
+                callbackBodies.collect(List.of(methodId), visitedCallbackBodies);
         List<String> bodyIds = bodiesByMethod.getOrDefault(methodId, Collections.emptyList());
         if (bodyIds.isEmpty()) return rows;
 
@@ -353,7 +297,7 @@ public class CallGraphService {
             String ph = qmarks(batch.size());
             String sql = "SELECT " + RowMappers.edgeColsFlat("?")
                     + RowMappers.EDGE_FROM_JOINS
-                    + " WHERE e.source_id IN (" + ph + ") AND e.relation = 'CALLS'"
+                    + " WHERE e.source_id IN (" + ph + ") AND e.relation = '" + GraphConstants.Relation.CALLS + "'"
                     + " ORDER BY e.source_id, e.target_id";
             List<Object> args = new ArrayList<>();
             args.add(d);
@@ -370,7 +314,7 @@ public class CallGraphService {
             String ph = qmarks(batch.size());
             String sql = "SELECT " + RowMappers.edgeColsFlat("?")
                     + RowMappers.EDGE_FROM_JOINS
-                    + " WHERE e.target_id IN (" + ph + ") AND e.relation = 'CALLS'"
+                    + " WHERE e.target_id IN (" + ph + ") AND e.relation = '" + GraphConstants.Relation.CALLS + "'"
                     + " AND e.is_external = 0"
                     + " ORDER BY e.source_id, e.target_id";
             List<Object> args = new ArrayList<>();
@@ -390,7 +334,7 @@ public class CallGraphService {
             String ph = qmarks(batch.size());
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT target_id, source_id FROM edges"
-                  + " WHERE target_id IN (" + ph + ") AND relation = 'OVERRIDES' AND is_external = 0")) {
+                  + " WHERE target_id IN (" + ph + ") AND relation = '" + GraphConstants.Relation.OVERRIDES + "' AND is_external = 0")) {
                 for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
@@ -413,7 +357,7 @@ public class CallGraphService {
             String ph = qmarks(batch.size());
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT source_id, target_id FROM edges"
-                  + " WHERE source_id IN (" + ph + ") AND relation = 'OVERRIDES' AND is_external = 0")) {
+                  + " WHERE source_id IN (" + ph + ") AND relation = '" + GraphConstants.Relation.OVERRIDES + "' AND is_external = 0")) {
                 for (int i = 0; i < batch.size(); i++) ps.setString(i + 1, batch.get(i));
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
@@ -431,7 +375,7 @@ public class CallGraphService {
         List<String> impls = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT source_id FROM edges"
-              + " WHERE target_id = ? AND relation = 'OVERRIDES' AND is_external = 0")) {
+              + " WHERE target_id = ? AND relation = '" + GraphConstants.Relation.OVERRIDES + "' AND is_external = 0")) {
             ps.setString(1, methodId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) impls.add(rs.getString(1));
@@ -446,7 +390,7 @@ public class CallGraphService {
         List<String> ifaces = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT target_id FROM edges"
-              + " WHERE source_id = ? AND relation = 'OVERRIDES' AND is_external = 0")) {
+              + " WHERE source_id = ? AND relation = '" + GraphConstants.Relation.OVERRIDES + "' AND is_external = 0")) {
             ps.setString(1, methodId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) ifaces.add(rs.getString(1));
@@ -461,8 +405,8 @@ public class CallGraphService {
         EdgeRow row = new EdgeRow();
         row.source = ifaceMethodId;
         row.target = implMethodId;
-        row.relation = "OVERRIDES";
-        row.confidence = "INFERRED";
+        row.relation = GraphConstants.Relation.OVERRIDES;
+        row.confidence = GraphConstants.Confidence.INFERRED;
         row.isExternal = false;
         row.depth = d;
         NodeRow src = resolver.readNodeById(ifaceMethodId);

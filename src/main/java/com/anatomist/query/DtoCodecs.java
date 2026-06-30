@@ -1,20 +1,8 @@
-package com.anatomist.json;
+package com.anatomist.query;
 
+import com.anatomist.json.JsonCodec;
+import com.anatomist.json.JsonCodecRegistry;
 import com.anatomist.model.SemanticAnnotation;
-import com.anatomist.query.BlockResult;
-import com.anatomist.query.ClassEdge;
-import com.anatomist.query.ContextResult;
-import com.anatomist.query.DocSnippet;
-import com.anatomist.query.EdgeRow;
-import com.anatomist.query.EnrichResult;
-import com.anatomist.query.HierarchyResult;
-import com.anatomist.query.NodeRow;
-import com.anatomist.query.OverviewResult;
-import com.anatomist.query.PackageStat;
-import com.anatomist.query.QueryEnvelope;
-import com.anatomist.query.SemanticAnnotationRow;
-import com.anatomist.query.SliceResult;
-import com.anatomist.query.SourceWindow;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

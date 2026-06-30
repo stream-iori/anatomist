@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 final class QueryInfra {
@@ -68,6 +69,16 @@ final class QueryInfra {
     static String qmarks(int n) {
         StringBuilder sb = new StringBuilder(n * 2);
         for (int i = 0; i < n; i++) sb.append(i == 0 ? "?" : ",?");
+        return sb.toString();
+    }
+
+    static String sqlIn(Collection<String> values) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        for (String value : values) {
+            if (i++ > 0) sb.append(',');
+            sb.append('\'').append(value.replace("'", "''")).append('\'');
+        }
         return sb.toString();
     }
 

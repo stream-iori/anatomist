@@ -31,6 +31,7 @@ public class SchemaManager {
                 if (trimmed.isEmpty()) continue;
                 st.execute(trimmed);
             }
+            st.execute("PRAGMA user_version = " + IndexSchema.VERSION);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to initialize schema", e);
         }
@@ -44,6 +45,19 @@ public class SchemaManager {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to check schema existence", e);
         }
+    }
+
+    public int schemaVersion() {
+        try (Statement st = connSupplier.get().createStatement();
+             ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+            return rs.next() ? rs.getInt(1) : 0;
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read schema version", e);
+        }
+    }
+
+    public boolean schemaCompatible() {
+        return schemaVersion() == IndexSchema.VERSION;
     }
 
     public void clearAllData() {

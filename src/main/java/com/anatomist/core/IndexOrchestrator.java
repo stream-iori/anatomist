@@ -6,11 +6,10 @@ import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.framework.AnalysisContext;
 import com.anatomist.framework.AnalyzerRegistry;
-import com.anatomist.incremental.FileCacheService;
 import com.anatomist.model.ExtractionResult;
-import com.anatomist.model.FileCacheEntry;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
-import com.anatomist.semantic.SemanticPostProcessor;
+import com.anatomist.store.FileCacheService;
 import com.anatomist.store.SqliteStore;
 
 import java.nio.file.Path;
@@ -78,18 +77,18 @@ public class IndexOrchestrator {
                     + "for " + cfg.projectRoot());
         }
 
-        int rebound = EdgeTargetBinder.bindExternalTargets(result);
+        GraphPostProcessor.Summary post = new GraphPostProcessor().process(result);
+        int rebound = post.reboundExternalTargets();
         if (rebound > 0) {
             AnatomistLog.warn("rebound " + rebound + " external edges to internal nodes "
                     + "for " + cfg.projectRoot());
         }
 
-        int dropped = pruneDanglingInternalEdges(result);
+        int dropped = post.droppedDanglingFacts();
         if (dropped > 0) {
             AnatomistLog.warn("dropped " + dropped + " edges with dangling internal target "
                     + "(extractor gaps) for " + cfg.projectRoot());
         }
-        new SemanticPostProcessor().process(result);
 
         store.writeEdgesBatched(result.edges, ExtractionResult.FLUSH_THRESHOLD);
         store.writeAnnotationsBatched(result.annotations, result.semanticAnnotations,
@@ -106,8 +105,7 @@ public class IndexOrchestrator {
         }
         populateFileCache(store, cfg.projectRoot(), cachedFiles);
         ProjectMetadata.write(store, cfg, dropped, rebound, wired);
-        store.clearFileDependencies();
-        store.deriveFileDependencies();
+        store.refreshFileDependencies();
 
         store.runAnalyze();
 
@@ -142,35 +140,9 @@ public class IndexOrchestrator {
     }
 
     private static void populateFileCache(SqliteStore store, Path projectRoot, List<Path> sourceFiles) {
-        Map<String, int[]> perFile = new HashMap<>();
-        try (java.sql.Statement st = store.connection().createStatement();
-             java.sql.ResultSet rs = st.executeQuery(
-                     "SELECT source_file, COUNT(*) FROM nodes WHERE source_file <> '' GROUP BY source_file")) {
-            while (rs.next()) perFile.computeIfAbsent(rs.getString(1), k -> new int[2])[0] = rs.getInt(2);
-        } catch (java.sql.SQLException e) {
-            throw new RuntimeException(e);
-        }
-        try (java.sql.Statement st = store.connection().createStatement();
-             java.sql.ResultSet rs = st.executeQuery(
-                     "SELECT source_file, COUNT(*) FROM edges WHERE source_file IS NOT NULL GROUP BY source_file")) {
-            while (rs.next()) perFile.computeIfAbsent(rs.getString(1), k -> new int[2])[1] = rs.getInt(2);
-        } catch (java.sql.SQLException e) {
-            throw new RuntimeException(e);
-        }
         String now = Instant.now().toString();
-        List<FileCacheEntry> entries = new ArrayList<>();
-        for (Path f : sourceFiles) {
-            String rel;
-            try {
-                rel = projectRoot.relativize(f.toAbsolutePath().normalize()).toString();
-            } catch (IllegalArgumentException ex) {
-                rel = f.toAbsolutePath().toString();
-            }
-            String hash = FileCacheService.sha256(f.toAbsolutePath().normalize());
-            int[] cnt = perFile.getOrDefault(rel, new int[]{0, 0});
-            entries.add(new FileCacheEntry(rel, hash, FileCacheService.CURRENT_SCHEMA_VERSION,
-                    now, cnt[0], cnt[1]));
-        }
+        List<com.anatomist.model.FileCacheEntry> entries = FileCacheService.buildEntries(
+                projectRoot, sourceFiles, store.sourceFileStats(), now);
         if (!entries.isEmpty()) store.updateFileCache(entries);
     }
 
@@ -201,37 +173,7 @@ public class IndexOrchestrator {
     }
 
     private static boolean isType(String kind) {
-        return "CLASS".equals(kind) || "INTERFACE".equals(kind) || "ENUM".equals(kind)
-                || "ANONYMOUS_CLASS".equals(kind) || "RECORD".equals(kind);
-    }
-
-    static int pruneDanglingInternalEdges(ExtractionResult r) {
-        Set<String> known = new HashSet<>();
-        for (Node n : r.nodes) known.add(n.id);
-        int before = r.edges.size() + r.annotations.size();
-        boolean dbg = AnatomistLog.isDebugEnabled();
-        r.edges.removeIf(e -> {
-            boolean drop = !e.isExternal && (e.targetId == null || !known.contains(e.targetId));
-            if (drop && dbg) AnatomistLog.debug(
-                    "pruned edge (dangling target): " + e.relation + " "
-                            + e.sourceId + " -> " + e.targetId);
-            return drop;
-        });
-        r.edges.removeIf(e -> {
-            boolean drop = e.sourceId == null || !known.contains(e.sourceId);
-            if (drop && dbg) AnatomistLog.debug(
-                    "pruned edge (dangling source): " + e.relation + " "
-                            + e.sourceId + " -> " + e.targetId);
-            return drop;
-        });
-        r.annotations.removeIf(a -> {
-            boolean drop = a.nodeId == null || !known.contains(a.nodeId);
-            if (drop && dbg) AnatomistLog.debug(
-                    "pruned annotation (dangling node): " + a.annotationFqn
-                            + " on " + a.nodeId);
-            return drop;
-        });
-        return before - r.edges.size() - r.annotations.size();
+        return GraphConstants.INDEX_SUMMARY_TYPE_KINDS.contains(kind);
     }
 
     private static final class Progress {

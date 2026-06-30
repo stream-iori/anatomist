@@ -1,6 +1,8 @@
 package com.anatomist.store;
 
+import com.anatomist.model.Edge;
 import com.anatomist.model.FileCacheEntry;
+import com.anatomist.model.GraphConstants;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -20,6 +22,15 @@ import java.util.Set;
 public class DataReader {
 
     private final ConnectionSupplier connSupplier;
+
+    private static final String SQL_SELECT_WIRING_SOURCE_EDGES = """
+            SELECT source_id, target_id, external_target_fqn, relation, call_kind,
+                   confidence, context, is_external, source_file, source_location, metadata
+            FROM edges
+            WHERE relation IN (?, ?, ?, ?)
+              AND (metadata IS NULL
+                   OR (metadata NOT LIKE ? AND metadata NOT LIKE ?))
+            """;
 
     public DataReader(ConnectionSupplier connSupplier) {
         this.connSupplier = connSupplier;
@@ -82,6 +93,71 @@ public class DataReader {
             while (rs.next()) out.add(rs.getString(1));
         } catch (SQLException e) {
             throw new RuntimeException("Failed to read node ids", e);
+        }
+        return out;
+    }
+
+    public Map<String, FileCacheService.SourceFileStats> sourceFileStats() {
+        Map<String, FileCacheService.SourceFileStats> out = new LinkedHashMap<>();
+        try (Statement st = conn().createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT source_file, COUNT(*) FROM nodes WHERE source_file <> '' GROUP BY source_file")) {
+            while (rs.next()) {
+                out.put(rs.getString(1), new FileCacheService.SourceFileStats(rs.getInt(2), 0));
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to count nodes by source_file", e);
+        }
+        try (Statement st = conn().createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT source_file, COUNT(*) FROM edges WHERE source_file IS NOT NULL GROUP BY source_file")) {
+            while (rs.next()) {
+                String sourceFile = rs.getString(1);
+                FileCacheService.SourceFileStats prior = out.getOrDefault(
+                        sourceFile, new FileCacheService.SourceFileStats(0, 0));
+                out.put(sourceFile, new FileCacheService.SourceFileStats(prior.nodeCount(), rs.getInt(2)));
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to count edges by source_file", e);
+        }
+        return out;
+    }
+
+    public List<Edge> readWiringSourceEdges() {
+        Connection c = conn();
+        try {
+            return readWiringSourceEdges(c);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read wiring source edges", e);
+        }
+    }
+
+    static List<Edge> readWiringSourceEdges(Connection c) throws SQLException {
+        List<Edge> out = new ArrayList<>();
+        try (PreparedStatement ps = c.prepareStatement(SQL_SELECT_WIRING_SOURCE_EDGES)) {
+            ps.setString(1, GraphConstants.Relation.INJECTS);
+            ps.setString(2, GraphConstants.Relation.IMPLEMENTS);
+            ps.setString(3, GraphConstants.Relation.OVERRIDES);
+            ps.setString(4, GraphConstants.Relation.CALLS);
+            ps.setString(5, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"%");
+            ps.setString(6, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\"%");
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Edge e = new Edge();
+                    e.sourceId = rs.getString(1);
+                    e.targetId = rs.getString(2);
+                    e.externalTargetFqn = rs.getString(3);
+                    e.relation = rs.getString(4);
+                    e.callKind = rs.getString(5);
+                    e.confidence = rs.getString(6);
+                    e.context = rs.getString(7);
+                    e.isExternal = rs.getInt(8) != 0;
+                    e.sourceFile = rs.getString(9);
+                    e.sourceLocation = rs.getString(10);
+                    e.metadata = rs.getString(11);
+                    out.add(e);
+                }
+            }
         }
         return out;
     }

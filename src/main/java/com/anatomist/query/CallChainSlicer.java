@@ -23,10 +23,10 @@ public class CallChainSlicer {
     private static final String SQL_OWNING_TYPES_TEMPLATE = """
             SELECT target_id, source_id
             FROM edges
-            WHERE relation = 'CONTAINS'
+            WHERE relation = '%s'
             AND is_external = 0
             AND target_id IN (%s)
-            """;
+            """.formatted(GraphConstants.Relation.CONTAINS, "%s");
     private static final String SQL_PACKAGES_TEMPLATE =
             "SELECT id, package FROM nodes WHERE id IN (%s)";
     private static final String SQL_ANNOTATIONS_TEMPLATE =
@@ -35,8 +35,8 @@ public class CallChainSlicer {
             SELECT source_id, target_id, relation, is_external, external_target_fqn, context
             FROM edges
             WHERE source_id IN (%s)
-            AND relation IN ('READS','WRITES')
-            """;
+            AND relation IN (%s)
+            """.formatted("%s", QueryInfra.sqlIn(GraphConstants.FIELD_ACCESS_RELATIONS));
     private static final String SQL_JAVADOCS_TEMPLATE =
             "SELECT id, javadoc FROM nodes WHERE id IN (%s) AND javadoc IS NOT NULL";
 

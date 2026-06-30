@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.util.List;
 import java.util.Map;
 
@@ -87,9 +89,10 @@ public final class MarkdownFormatter {
         sb.append('\n');
 
         // Members split into fields/methods/other.
-        List<NodeRow> fields = r.members.stream().filter(m -> "FIELD".equals(m.kind)).toList();
+        List<NodeRow> fields = r.members.stream()
+                .filter(m -> GraphConstants.Kind.FIELD.equals(m.kind)).toList();
         List<NodeRow> methods = r.members.stream()
-                .filter(m -> "METHOD".equals(m.kind) || "CONSTRUCTOR".equals(m.kind)).toList();
+                .filter(m -> GraphConstants.METHOD_KINDS.contains(m.kind)).toList();
         if (!fields.isEmpty()) {
             sb.append("## Fields\n\n");
             for (NodeRow m : fields) sb.append("- `").append(m.label).append("`\n");

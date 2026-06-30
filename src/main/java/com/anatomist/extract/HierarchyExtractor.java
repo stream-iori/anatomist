@@ -4,6 +4,7 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
@@ -73,7 +74,7 @@ public class HierarchyExtractor implements Extractor {
                         .filter(s -> !"java.lang.Object".equals(s.getQualifiedName()))
                         .filter(s -> !"java.lang.Enum".equals(s.getQualifiedName()))
                         .ifPresent(s -> result.edges.add(
-                                hierarchyEdge(sourceId, s, "INHERITS")));
+                                hierarchyEdge(sourceId, s, GraphConstants.Relation.INHERITS)));
             } catch (RuntimeException ignore) { ctx.incrementUnresolved(ignore); }
         }
 
@@ -83,7 +84,7 @@ public class HierarchyExtractor implements Extractor {
                     ? rt.asInterface().getInterfacesExtended()
                     : rt.asClass().getInterfaces();
             for (ResolvedReferenceType i : ifs) {
-                String relation = isInterface ? "INHERITS" : "IMPLEMENTS";
+                String relation = isInterface ? GraphConstants.Relation.INHERITS : GraphConstants.Relation.IMPLEMENTS;
                 result.edges.add(hierarchyEdge(sourceId, i, relation));
             }
         } catch (RuntimeException ignore) { ctx.incrementUnresolved(ignore); }
@@ -93,7 +94,7 @@ public class HierarchyExtractor implements Extractor {
         Edge e = new Edge();
         e.sourceId = sourceId;
         e.relation = relation;
-        e.confidence = "EXTRACTED";
+        e.confidence = GraphConstants.Confidence.EXTRACTED;
 
         ResolvedReferenceTypeDeclaration t = target.getTypeDeclaration().orElse(null);
         if (t != null && ctx.isProjectInternal(t)) {
@@ -163,8 +164,8 @@ public class HierarchyExtractor implements Extractor {
     private Edge overrideEdge(ResolvedMethodDeclaration sub, ResolvedMethodDeclaration sup) {
         Edge e = new Edge();
         e.sourceId = ctx.idGenerator().forMethod(sub);
-        e.relation = "OVERRIDES";
-        e.confidence = "EXTRACTED";
+        e.relation = GraphConstants.Relation.OVERRIDES;
+        e.confidence = GraphConstants.Confidence.EXTRACTED;
         if (ctx.isProjectInternal(sup.declaringType())) {
             e.targetId = ctx.idGenerator().forMethod(sup);
             e.isExternal = false;
@@ -180,11 +181,11 @@ public class HierarchyExtractor implements Extractor {
         if (sourceId == null) return;
         for (ClassOrInterfaceType iface : decl.getImplementedTypes()) {
             String target = resolveTypeName(decl, iface.getNameAsString());
-            if (target != null) result.edges.add(hierarchyEdgeFallback(sourceId, target, "IMPLEMENTS"));
+            if (target != null) result.edges.add(hierarchyEdgeFallback(sourceId, target, GraphConstants.Relation.IMPLEMENTS));
         }
         for (ClassOrInterfaceType parent : decl.getExtendedTypes()) {
             String target = resolveTypeName(decl, parent.getNameAsString());
-            if (target != null) result.edges.add(hierarchyEdgeFallback(sourceId, target, "INHERITS"));
+            if (target != null) result.edges.add(hierarchyEdgeFallback(sourceId, target, GraphConstants.Relation.INHERITS));
         }
     }
 
@@ -207,8 +208,8 @@ public class HierarchyExtractor implements Extractor {
                 Edge e = new Edge();
                 e.sourceId = source;
                 e.targetId = target;
-                e.relation = "OVERRIDES";
-                e.confidence = "INFERRED";
+                e.relation = GraphConstants.Relation.OVERRIDES;
+                e.confidence = GraphConstants.Confidence.INFERRED;
                 e.isExternal = false;
                 result.edges.add(e);
             }
@@ -219,7 +220,7 @@ public class HierarchyExtractor implements Extractor {
         Edge e = new Edge();
         e.sourceId = sourceId;
         e.relation = relation;
-        e.confidence = "INFERRED";
+        e.confidence = GraphConstants.Confidence.INFERRED;
         if (looksExternal(targetType)) {
             e.externalTargetFqn = targetType;
             e.isExternal = true;

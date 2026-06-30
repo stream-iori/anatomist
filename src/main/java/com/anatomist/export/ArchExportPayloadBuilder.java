@@ -12,6 +12,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +88,7 @@ public final class ArchExportPayloadBuilder {
 
         String sql = "SELECT n.id, n.label, n.kind, n.qualified_name, n.package, n.javadoc, n.metadata"
                 + " FROM nodes n"
-                + " WHERE n.kind IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD')"
+                + " WHERE n.kind IN (" + sqlIn(GraphConstants.DECLARED_TYPE_KINDS) + ")"
                 + " ORDER BY n.qualified_name";
 
         List<Map<String, Object>> types = new ArrayList<>();
@@ -117,15 +118,15 @@ public final class ArchExportPayloadBuilder {
         int[] counts = {0, 0}; // [methods, fields]
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT n.kind, COUNT(*) FROM edges e JOIN nodes n ON e.target_id = n.id"
-                + " WHERE e.source_id = ? AND e.relation = 'CONTAINS' AND e.is_external = 0"
-                + "   AND n.kind IN ('METHOD','CONSTRUCTOR','FIELD')"
+                + " WHERE e.source_id = ? AND e.relation = '" + GraphConstants.Relation.CONTAINS + "' AND e.is_external = 0"
+                + "   AND n.kind IN (" + sqlIn(GraphConstants.MEMBER_KINDS) + ")"
                 + " GROUP BY n.kind")) {
             ps.setString(1, typeId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String kind = rs.getString(1);
                     int count = rs.getInt(2);
-                    if ("FIELD".equals(kind)) counts[1] = count;
+                    if (GraphConstants.Kind.FIELD.equals(kind)) counts[1] = count;
                     else counts[0] += count;
                 }
             }
@@ -138,7 +139,8 @@ public final class ArchExportPayloadBuilder {
     private Map<String, List<String>> loadTypeAnnotations() {
         Map<String, List<String>> result = new LinkedHashMap<>();
         String sql = "SELECT node_id, annotation_fqn FROM annotations"
-                + " WHERE node_id IN (SELECT id FROM nodes WHERE kind IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD'))"
+                + " WHERE node_id IN (SELECT id FROM nodes WHERE kind IN ("
+                + sqlIn(GraphConstants.DECLARED_TYPE_KINDS) + "))"
                 + " ORDER BY node_id";
         try {
             query(sql, rs -> {
@@ -162,8 +164,8 @@ public final class ArchExportPayloadBuilder {
                 + "       n.source_location, n.javadoc, n.source_file"
                 + " FROM edges e"
                 + " JOIN nodes n ON e.target_id = n.id"
-                + " WHERE e.relation = 'CONTAINS' AND e.is_external = 0"
-                + "   AND n.kind IN ('METHOD','CONSTRUCTOR','FIELD')"
+                + " WHERE e.relation = '" + GraphConstants.Relation.CONTAINS + "' AND e.is_external = 0"
+                + "   AND n.kind IN (" + sqlIn(GraphConstants.MEMBER_KINDS) + ")"
                 + " ORDER BY e.source_id, n.kind, n.label";
 
         query(sql, rs -> {
@@ -213,15 +215,16 @@ public final class ArchExportPayloadBuilder {
               + "  SELECT o.node_id, c.source_id, p.kind"
               + "  FROM owner o"
               + "  JOIN edges c INDEXED BY idx_edges_target_relation"
-              + "       ON c.target_id = o.cur_id AND c.relation = 'CONTAINS' AND c.is_external = 0"
+              + "       ON c.target_id = o.cur_id AND c.relation = '" + GraphConstants.Relation.CONTAINS + "' AND c.is_external = 0"
               + "  JOIN nodes p ON p.id = c.source_id"
-              + "  WHERE o.cur_kind NOT IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD')"
+              + "  WHERE o.cur_kind NOT IN (" + sqlIn(GraphConstants.DECLARED_TYPE_KINDS) + ")"
               + "), type_of AS ("
               + "  SELECT node_id, cur_id AS type_id FROM owner"
-              + "  WHERE cur_kind IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD')"
+              + "  WHERE cur_kind IN (" + sqlIn(GraphConstants.DECLARED_TYPE_KINDS) + ")"
               + ") "
               + "SELECT st.id AS source, tt.id AS target,"
-              + "       CASE WHEN e.relation IN ('IMPLEMENTS','INHERITS') THEN e.relation ELSE 'CALLS' END AS relation,"
+              + "       CASE WHEN e.relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS) + ") THEN e.relation ELSE '"
+              + GraphConstants.Relation.CALLS + "' END AS relation,"
               + "       COUNT(*) AS edge_count"
               + " FROM edges e"
               + " JOIN type_of so ON e.source_id = so.node_id"
@@ -229,9 +232,10 @@ public final class ArchExportPayloadBuilder {
               + " JOIN nodes st ON so.type_id = st.id"
               + " JOIN nodes tt ON ot.type_id = tt.id"
               + " WHERE e.is_external = 0"
-              + "   AND e.relation IN ('CALLS','REFERENCES','WIRES','IMPLEMENTS','INHERITS')"
+              + "   AND e.relation IN (" + sqlIn(GraphConstants.TYPE_EDGE_RELATIONS) + ")"
               + "   AND so.type_id <> ot.type_id"
-              + " GROUP BY st.id, tt.id, CASE WHEN e.relation IN ('IMPLEMENTS','INHERITS') THEN e.relation ELSE 'CALLS' END"
+              + " GROUP BY st.id, tt.id, CASE WHEN e.relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS)
+              + ") THEN e.relation ELSE '" + GraphConstants.Relation.CALLS + "' END"
               + " ORDER BY edge_count DESC"
               + (maxEdges > 0 ? " LIMIT " + maxEdges : "");
 
@@ -301,7 +305,7 @@ public final class ArchExportPayloadBuilder {
         // Resolve source files for member IDs
         Map<String, String> sourceFileByMember = new LinkedHashMap<>();
         String sql = "SELECT n.id, n.source_file FROM nodes n"
-                + " WHERE n.kind IN ('METHOD','CONSTRUCTOR') AND n.source_file IS NOT NULL";
+                + " WHERE n.kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") AND n.source_file IS NOT NULL";
         query(sql, rs -> {
             sourceFileByMember.put(rs.getString(1), rs.getString(2));
         });
@@ -420,6 +424,16 @@ public final class ArchExportPayloadBuilder {
 
     private static RuntimeException rethrow(SQLException e) {
         return new RuntimeException("query failed: " + e.getMessage(), e);
+    }
+
+    private static String sqlIn(Collection<String> values) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        for (String value : values) {
+            if (i++ > 0) sb.append(',');
+            sb.append('\'').append(value.replace("'", "''")).append('\'');
+        }
+        return sb.toString();
     }
 
     private record SnippetCandidate(String memberId, String typeId,

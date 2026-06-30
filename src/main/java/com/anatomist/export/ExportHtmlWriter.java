@@ -1,7 +1,7 @@
 package com.anatomist.export;
 
-import com.anatomist.json.DtoCodecs;
 import com.anatomist.json.Json;
+import com.anatomist.query.DtoCodecs;
 import com.anatomist.query.ClassEdge;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.PackageStat;

@@ -2,6 +2,7 @@ package com.anatomist.incremental;
 
 import com.anatomist.cli.IndexCommand;
 import com.anatomist.model.FileCacheEntry;
+import com.anatomist.store.FileCacheService;
 import com.anatomist.store.SqliteStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -178,6 +179,110 @@ class IncrementalIndexerIT {
              Statement st = c.createStatement()) {
             int row = scalar(st, "SELECT count(*) FROM file_cache");
             assertTrue(row > 0, "after degraded full index, file_cache should be populated");
+        }
+    }
+
+    @Test
+    void incrementalIndexesNewSpringRoute(@TempDir Path tmp) throws Exception {
+        Path project = setupFixtureCopy(tmp);
+        Path db = tmp.resolve("index.db");
+        assertEquals(0, runFullIndex(project, db));
+
+        Path controller = project.resolve(
+                "api/src/main/java/com/example/shop/controller/OrderController.java");
+        String original = Files.readString(controller);
+        Files.writeString(controller, original.replace(
+                "\n}\n",
+                "\n    @GetMapping(\"/ping\")\n"
+                        + "    public ResponseEntity<String> ping() {\n"
+                        + "        return ResponseEntity.ok(\"pong\");\n"
+                        + "    }\n"
+                        + "}\n"));
+
+        assertEquals(0, runIncremental(project, db));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM nodes WHERE id='route:GET /api/orders/ping' "
+                            + "AND kind='ROUTE'"));
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='HANDLES' "
+                            + "AND source_id='route:GET /api/orders/ping' "
+                            + "AND target_id='com.example.shop.controller.OrderController#ping()'"));
+        }
+    }
+
+    @Test
+    void incrementalIndexesNewSpringBean(@TempDir Path tmp) throws Exception {
+        Path project = setupFixtureCopy(tmp);
+        Path db = tmp.resolve("index.db");
+        assertEquals(0, runFullIndex(project, db));
+
+        Path bean = project.resolve(
+                "service/src/main/java/com/example/shop/service/NewAnnotatedService.java");
+        Files.writeString(bean,
+                "package com.example.shop.service;\n"
+                        + "import org.springframework.stereotype.Service;\n"
+                        + "@Service\n"
+                        + "public class NewAnnotatedService {}\n");
+
+        assertEquals(0, runIncremental(project, db));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM nodes WHERE id='bean:newAnnotatedService' "
+                            + "AND kind='BEAN'"));
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='DEFINED_BY' "
+                            + "AND source_id='bean:newAnnotatedService' "
+                            + "AND target_id='com.example.shop.service.NewAnnotatedService'"));
+        }
+    }
+
+    @Test
+    void incrementalRebuildsWiringFromExistingDbEdges(@TempDir Path tmp) throws Exception {
+        Path project = setupFixtureCopy(tmp);
+        Path db = tmp.resolve("index.db");
+        assertEquals(0, runFullIndex(project, db));
+
+        Path repo = project.resolve(
+                "service/src/main/java/com/example/shop/repository/SecondaryOrderRepository.java");
+        Files.writeString(repo,
+                "package com.example.shop.repository;\n"
+                        + "import com.example.shop.domain.entity.Order;\n"
+                        + "import org.springframework.stereotype.Repository;\n"
+                        + "import java.util.Optional;\n"
+                        + "@Repository\n"
+                        + "public class SecondaryOrderRepository implements OrderRepository {\n"
+                        + "  public Order save(Order order) { return order; }\n"
+                        + "  public Optional<Order> findById(String id) { return Optional.empty(); }\n"
+                        + "  public void deleteAll() {}\n"
+                        + "}\n");
+
+        assertEquals(0, runIncremental(project, db));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='WIRES' "
+                            + "AND source_id='com.example.shop.service.OrderService' "
+                            + "AND target_id='com.example.shop.repository.SecondaryOrderRepository' "
+                            + "AND metadata LIKE '%\"via\":\"injection\"%'"));
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='CALLS' "
+                            + "AND source_id='com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' "
+                            + "AND target_id='com.example.shop.repository.SecondaryOrderRepository#save(com.example.shop.domain.entity.Order)' "
+                            + "AND metadata LIKE '%\"via\":\"injected-call\"%'"));
+            assertEquals(2, scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='WIRES' "
+                            + "AND source_id='com.example.shop.service.OrderService' "
+                            + "AND target_id IN ("
+                            + "'com.example.shop.repository.InMemoryOrderRepository',"
+                            + "'com.example.shop.repository.SecondaryOrderRepository') "
+                            + "AND confidence='AMBIGUOUS' "
+                            + "AND metadata LIKE '%\"via\":\"injection\"%'"));
         }
     }
 

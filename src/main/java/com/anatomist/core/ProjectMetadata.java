@@ -1,6 +1,6 @@
 package com.anatomist.core;
 
-import com.anatomist.incremental.FileCacheService;
+import com.anatomist.store.FileCacheService;
 import com.anatomist.store.SqliteStore;
 
 import java.io.IOException;

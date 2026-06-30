@@ -6,6 +6,7 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
@@ -117,7 +118,7 @@ public class MethodExtractor implements Extractor {
         Node n = new Node();
         n.id = methodId;
         n.label = r.getName();
-        n.kind = "METHOD";
+        n.kind = GraphConstants.Kind.METHOD;
         n.qualifiedName = classId + "#" + r.getName();
         n.pkg = declType.getPackageName();
         n.sourceFile = sourceFile;
@@ -143,7 +144,7 @@ public class MethodExtractor implements Extractor {
         Node n = new Node();
         n.id = methodId;
         n.label = decl.getNameAsString();
-        n.kind = "METHOD";
+        n.kind = GraphConstants.Kind.METHOD;
         n.qualifiedName = classId + "#" + decl.getNameAsString();
         n.pkg = decl.findCompilationUnit()
                 .flatMap(CompilationUnit::getPackageDeclaration)
@@ -201,7 +202,7 @@ public class MethodExtractor implements Extractor {
         Node n = new Node();
         n.id = methodId;
         n.label = r.getName();
-        n.kind = "METHOD";
+        n.kind = GraphConstants.Kind.METHOD;
         n.qualifiedName = classId + "#" + r.getName();
         n.pkg = declType.getPackageName();
         n.sourceFile = sourceFile;
@@ -258,7 +259,7 @@ public class MethodExtractor implements Extractor {
         Node n = new Node();
         n.id = id;
         n.label = "$lambda";
-        n.kind = "LAMBDA";
+        n.kind = GraphConstants.Kind.LAMBDA;
         n.qualifiedName = id;
         n.sourceFile = sourceFile;
         n.sourceLocation = "L" + line;
@@ -296,7 +297,7 @@ public class MethodExtractor implements Extractor {
         Node n = new Node();
         n.id = id;
         n.label = "$methodref:" + ref.getIdentifier();
-        n.kind = "METHOD_REF";
+        n.kind = GraphConstants.Kind.METHOD_REF;
         n.qualifiedName = id;
         n.sourceFile = sourceFile;
         n.sourceLocation = "L" + line;
@@ -310,9 +311,9 @@ public class MethodExtractor implements Extractor {
         if (target != null) {
             Edge call = new Edge();
             call.sourceId = id;
-            call.relation = "CALLS";
-            call.callKind = target.isStatic() ? "STATIC" : "INSTANCE";
-            call.confidence = "EXTRACTED";
+            call.relation = GraphConstants.Relation.CALLS;
+            call.callKind = target.isStatic() ? GraphConstants.CallKind.STATIC : GraphConstants.CallKind.INSTANCE;
+            call.confidence = GraphConstants.Confidence.EXTRACTED;
             call.sourceLocation = "L" + line;
             try {
                 ResolvedTypeDeclaration decl = target.declaringType();
@@ -353,8 +354,8 @@ public class MethodExtractor implements Extractor {
         Edge e = new Edge();
         e.sourceId = classId;
         e.targetId = methodId;
-        e.relation = "CONTAINS";
-        e.confidence = "EXTRACTED";
+        e.relation = GraphConstants.Relation.CONTAINS;
+        e.confidence = GraphConstants.Confidence.EXTRACTED;
         e.isExternal = false;
         e.sourceFile = sourceFile;
         e.sourceLocation = sourceLoc;

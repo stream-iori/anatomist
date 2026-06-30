@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.model.GraphConstants;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -27,7 +29,7 @@ public class DependencyService {
         String sql = "SELECT " + RowMappers.edgeColsFlat("1")
                 + RowMappers.EDGE_FROM_JOINS
                 + " WHERE e.source_id IN (" + ph + ") "
-                + "   AND e.relation IN ('CALLS','REFERENCES','WIRES','INJECTS','HANDLES','DEFINED_BY') "
+                + "   AND e.relation IN (" + sqlIn(GraphConstants.DEPENDENCY_RELATIONS) + ") "
                 + " ORDER BY e.relation, e.source_id";
         return runEdgeQuery(conn, sql, new ArrayList<>(sources));
     }
@@ -45,7 +47,7 @@ public class DependencyService {
                 + RowMappers.EDGE_FROM_JOINS
                 + " WHERE e.target_id IN (" + ph + ") "
                 + "   AND e.is_external = 0 "
-                + "   AND e.relation IN ('CALLS','REFERENCES','WIRES','INJECTS','HANDLES','DEFINED_BY') "
+                + "   AND e.relation IN (" + sqlIn(GraphConstants.DEPENDENCY_RELATIONS) + ") "
                 + " ORDER BY e.relation, e.source_id";
         return runEdgeQuery(conn, sql, new ArrayList<>(targets));
     }
@@ -82,11 +84,11 @@ public class DependencyService {
     }
 
     public List<EdgeRow> fieldReaders(String fieldRef) {
-        return fieldEdgeQuery(fieldRef, "READS");
+        return fieldEdgeQuery(fieldRef, GraphConstants.Relation.READS);
     }
 
     public List<EdgeRow> fieldWriters(String fieldRef) {
-        return fieldEdgeQuery(fieldRef, "WRITES");
+        return fieldEdgeQuery(fieldRef, GraphConstants.Relation.WRITES);
     }
 
     public PagedResult<EdgeRow> fieldAccessPaged(String fieldRef, String mode, int limit, int offset, String filter) {
@@ -122,7 +124,7 @@ public class DependencyService {
         String ph = qmarks(typeIds.size());
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT target_id FROM edges WHERE source_id IN (" + ph + ") "
-              + "  AND relation = 'CONTAINS' AND is_external = 0")) {
+              + "  AND relation = '" + GraphConstants.Relation.CONTAINS + "' AND is_external = 0")) {
             for (int i = 0; i < typeIds.size(); i++) ps.setString(i + 1, typeIds.get(i));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) all.add(rs.getString(1));

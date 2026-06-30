@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.store.IndexSchema;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -174,6 +175,45 @@ class IndexCommandIT {
 
             assertTrue(stdout.contains("File cache:"),
                     "stdout should contain 'File cache:' line; got:\n" + stdout);
+        }
+    }
+
+    @Test
+    void incrementalRecreatesIncompatibleSchema(@TempDir Path tmp) throws Exception {
+        Path repoRoot = Path.of(System.getProperty("user.dir"));
+        Path fixture = repoRoot.resolve("fixtures/mini-spring-shop");
+        assertTrue(Files.isDirectory(fixture), "fixture missing: " + fixture);
+        String projectSource = String.join(File.pathSeparator,
+                fixture.resolve("api/src/main/java").toString(),
+                fixture.resolve("domain/src/main/java").toString(),
+                fixture.resolve("service/src/main/java").toString());
+        Path db = tmp.resolve("index.db");
+
+        assertEquals(0, new CommandLine(new IndexCommand()).execute(
+                fixture.toString(),
+                "--project-source", projectSource,
+                "--no-classpath",
+                "--output", db.toString()));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            st.execute("PRAGMA user_version = 1");
+        }
+
+        assertEquals(0, new CommandLine(new IndexCommand()).execute(
+                fixture.toString(),
+                "--project-source", projectSource,
+                "--no-classpath",
+                "--incremental",
+                "--output", db.toString()));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(IndexSchema.VERSION, scalar(st, "PRAGMA user_version"));
+            assertTrue(scalar(st, "SELECT count(*) FROM file_cache") > 0,
+                    "recreated index should repopulate file_cache");
+            assertTrue(scalar(st, "SELECT count(*) FROM nodes WHERE kind='ROUTE'") > 0,
+                    "recreated index should contain framework analyzer output");
         }
     }
 

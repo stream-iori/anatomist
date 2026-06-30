@@ -102,8 +102,9 @@ class IncrementalSpringXmlIT {
                     "removed bean node gone");
             int wires = scalar(st,
                     "SELECT count(*) FROM edges WHERE relation='WIRES' "
-                            + "AND source_id='com.example.shop.service.OrderService'");
-            assertEquals(2, wires, "OrderService now wires only 2 collaborators");
+                            + "AND source_id='com.example.shop.service.OrderService' "
+                            + "AND source_file LIKE '%.xml'");
+            assertEquals(2, wires, "OrderService XML now wires only 2 collaborators");
         }
     }
 
@@ -129,8 +130,9 @@ class IncrementalSpringXmlIT {
                     "bean graph preserved across java edit");
             int wires = scalar(st,
                     "SELECT count(*) FROM edges WHERE relation='WIRES' AND is_external=0 "
-                            + "AND source_id='com.example.shop.service.OrderService'");
-            assertEquals(3, wires, "WIRES reconnected to rewritten OrderService");
+                            + "AND source_id='com.example.shop.service.OrderService' "
+                            + "AND source_file LIKE '%.xml'");
+            assertEquals(3, wires, "XML WIRES reconnected to rewritten OrderService");
         }
     }
 
@@ -153,8 +155,9 @@ class IncrementalSpringXmlIT {
              Statement st = c.createStatement()) {
             assertEquals(0, xmlBeanCount(st),
                     "all XML beans gone after xml delete");
-            assertEquals(0, scalar(st, "SELECT count(*) FROM edges WHERE relation='WIRES'"),
-                    "all WIRES gone after xml delete");
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='WIRES' AND source_file LIKE '%.xml'"),
+                    "all XML WIRES gone after xml delete");
             assertEquals(0, xmlDefinedByCount(st),
                     "all XML DEFINED_BY gone after xml delete");
         }

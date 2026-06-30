@@ -1,6 +1,6 @@
 package com.anatomist.cli;
 
-import com.anatomist.incremental.FileCacheService;
+import com.anatomist.store.FileCacheService;
 import com.anatomist.json.Json;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;

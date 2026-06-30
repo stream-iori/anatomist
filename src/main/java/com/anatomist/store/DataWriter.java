@@ -40,6 +40,9 @@ public class DataWriter {
             "DELETE FROM nodes WHERE source_file=?";
     private static final String SQL_DELETE_WIRING_EDGES =
             "DELETE FROM edges WHERE relation='" + GraphConstants.Relation.WIRES + "'";
+    private static final String SQL_DELETE_GENERATED_WIRING_EDGES =
+            "DELETE FROM edges WHERE metadata LIKE '%\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"%'"
+                    + " OR metadata LIKE '%\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\"%'";
     private static final String SQL_DELETE_XML_BEANS =
             "DELETE FROM nodes WHERE kind='" + GraphConstants.Kind.BEAN + "' AND source_file LIKE '%.xml'";
     private static final String SQL_DELETE_FILE_DEPENDENCIES =
@@ -93,7 +96,7 @@ public class DataWriter {
         try {
             work.run(c);
             c.commit();
-        } catch (SQLException e) {
+        } catch (RuntimeException | SQLException e) {
             try { c.rollback(); } catch (SQLException ignore) {}
             throw new RuntimeException("Transaction failed: " + e.getMessage(), e);
         } finally {
@@ -104,6 +107,20 @@ public class DataWriter {
     public void writeNodes(List<Node> nodes) {
         if (nodes == null || nodes.isEmpty()) return;
         inTransaction(c -> insertNodes(c, nodes));
+    }
+
+    public void writeInCurrentTransaction(com.anatomist.model.ExtractionResult result) {
+        if (result == null) return;
+        Connection c;
+        try {
+            c = connSupplier.get();
+            insertNodes(c, result.nodes);
+            insertEdges(c, result.edges);
+            insertAnnotations(c, result.annotations);
+            insertSemanticAnnotations(c, result.semanticAnnotations);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to write graph in current transaction", e);
+        }
     }
 
     public void writeEdgesBatched(List<Edge> edges, int batchSize) {
@@ -270,6 +287,20 @@ public class DataWriter {
         }
     }
 
+    public void replaceGeneratedWiringEdges(List<Edge> edges) {
+        inTransaction(c -> replaceGeneratedWiringEdges(c, edges));
+    }
+
+    void replaceGeneratedWiringEdgesInCurrentTransaction(List<Edge> edges) {
+        Connection c;
+        try {
+            c = connSupplier.get();
+            replaceGeneratedWiringEdges(c, edges);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to replace generated wiring edges", e);
+        }
+    }
+
     public void clearFileDependencies() {
         Connection c;
         try {
@@ -295,6 +326,21 @@ public class DataWriter {
             st.execute(SQL_DERIVE_FILE_DEPENDENCIES);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to derive file_dependencies", e);
+        }
+    }
+
+    public void refreshFileDependencies() {
+        Connection c;
+        try {
+            c = connSupplier.get();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        try (Statement st = c.createStatement()) {
+            st.execute(SQL_DELETE_FILE_DEPENDENCIES);
+            st.execute(SQL_DERIVE_FILE_DEPENDENCIES);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to refresh file_dependencies", e);
         }
     }
 
@@ -340,6 +386,13 @@ public class DataWriter {
             }
             ps.executeBatch();
         }
+    }
+
+    static void replaceGeneratedWiringEdges(Connection c, List<Edge> edges) throws SQLException {
+        try (Statement st = c.createStatement()) {
+            st.execute(SQL_DELETE_GENERATED_WIRING_EDGES);
+        }
+        insertEdges(c, edges);
     }
 
     static void insertAnnotations(Connection c, List<Annotation> anns) throws SQLException {

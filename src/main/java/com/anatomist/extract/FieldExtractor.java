@@ -5,6 +5,7 @@ import com.anatomist.json.Json;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.EnumConstantDeclaration;
@@ -74,7 +75,7 @@ public class FieldExtractor implements Extractor {
             Node n = new Node();
             n.id = fieldId;
             n.label = name;
-            n.kind = "FIELD";
+            n.kind = GraphConstants.Kind.FIELD;
             n.qualifiedName = fieldId;
             n.pkg = rt.getPackageName();
             n.sourceFile = sourceFile;
@@ -104,7 +105,7 @@ public class FieldExtractor implements Extractor {
         Node ctor = new Node();
         ctor.id = ctorId;
         ctor.label = simple;
-        ctor.kind = "METHOD";
+        ctor.kind = GraphConstants.Kind.METHOD;
         ctor.qualifiedName = rt.getQualifiedName() + "#" + simple;
         ctor.pkg = rt.getPackageName();
         ctor.sourceFile = sourceFile;
@@ -148,7 +149,7 @@ public class FieldExtractor implements Extractor {
         Node n = new Node();
         n.id = fieldId;
         n.label = var.getNameAsString();
-        n.kind = "FIELD";
+        n.kind = GraphConstants.Kind.FIELD;
         n.qualifiedName = fieldId;
         n.pkg = declType.getPackageName();
         n.sourceFile = sourceFile;
@@ -215,8 +216,8 @@ public class FieldExtractor implements Extractor {
         Edge e = new Edge();
         e.sourceId = classId;
         e.targetId = fieldId;
-        e.relation = "CONTAINS";
-        e.confidence = "EXTRACTED";
+        e.relation = GraphConstants.Relation.CONTAINS;
+        e.confidence = GraphConstants.Confidence.EXTRACTED;
         e.isExternal = false;
         e.sourceFile = sourceFile;
         e.sourceLocation = sourceLoc;

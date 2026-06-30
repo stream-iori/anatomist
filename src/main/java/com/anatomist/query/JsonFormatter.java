@@ -1,6 +1,5 @@
 package com.anatomist.query;
 
-import com.anatomist.json.DtoCodecs;
 import com.anatomist.json.Json;
 
 import java.io.PrintStream;

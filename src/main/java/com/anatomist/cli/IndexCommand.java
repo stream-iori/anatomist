@@ -18,7 +18,7 @@ import com.anatomist.extract.MethodExtractor;
 import com.anatomist.extract.ReferenceExtractor;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.extract.XmlBeanExtractor;
-import com.anatomist.incremental.FileCacheService;
+import com.anatomist.store.FileCacheService;
 import com.anatomist.json.Json;
 import com.anatomist.incremental.IncrementalIndexer;
 import com.anatomist.model.GraphConstants;
@@ -184,6 +184,17 @@ public class IndexCommand implements Callable<Integer> {
             boolean useIncremental = incremental && !full && !recreate && Files.exists(dbPath);
 
             if (useIncremental) {
+                boolean schemaIncompatible;
+                try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
+                     SqliteStore store = new SqliteStore(dbPath)) {
+                    schemaIncompatible = store.schemaExists() && !store.schemaCompatible();
+                }
+                if (schemaIncompatible) {
+                    System.err.println("INFO: incremental degraded to full (schema_version mismatch)");
+                    return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
+                            jv, factory, dbPath, classpath, started, config, true);
+                }
+
                 try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
                      SqliteStore store = new SqliteStore(dbPath)) {
                     java.util.Map<String, FileCacheEntry> cache;
@@ -275,7 +286,16 @@ public class IndexCommand implements Callable<Integer> {
                 new com.anatomist.core.IndexOrchestrator(cfg, factory);
 
         try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath)) {
-            if (recreateDb) {
+            boolean shouldRecreate = recreateDb;
+            if (!shouldRecreate && Files.exists(dbPath)) {
+                try (SqliteStore probe = new SqliteStore(dbPath)) {
+                    shouldRecreate = probe.schemaExists() && !probe.schemaCompatible();
+                }
+                if (shouldRecreate) {
+                    System.err.println("INFO: recreating incompatible index schema at " + dbPath);
+                }
+            }
+            if (shouldRecreate) {
                 recreateIndexFiles(dbPath);
             }
             try (SqliteStore store = new SqliteStore(dbPath)) {

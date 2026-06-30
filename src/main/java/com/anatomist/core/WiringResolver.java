@@ -3,6 +3,7 @@ package com.anatomist.core;
 import com.anatomist.json.Json;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,23 +23,32 @@ public final class WiringResolver {
 
     public int apply(ExtractionResult result) {
         if (result == null || result.edges == null || result.edges.isEmpty()) return 0;
+        List<Edge> additions = resolve(result.edges);
+        result.edges.addAll(additions);
+        return additions.size();
+    }
+
+    public List<Edge> resolve(List<Edge> edges) {
+        if (edges == null || edges.isEmpty()) return List.of();
 
         Map<String, List<String>> implTypesByInterface = new HashMap<>();
         Map<String, List<String>> implMethodsByInterfaceMethod = new HashMap<>();
-        for (Edge e : result.edges) {
+        for (Edge e : edges) {
+            if (isGenerated(e)) continue;
             if (e.isExternal || e.targetId == null || e.sourceId == null) continue;
-            if ("IMPLEMENTS".equals(e.relation)) {
+            if (GraphConstants.Relation.IMPLEMENTS.equals(e.relation)) {
                 implTypesByInterface.computeIfAbsent(e.targetId, k -> new ArrayList<>()).add(e.sourceId);
-            } else if ("OVERRIDES".equals(e.relation)) {
+            } else if (GraphConstants.Relation.OVERRIDES.equals(e.relation)) {
                 implMethodsByInterfaceMethod.computeIfAbsent(e.targetId, k -> new ArrayList<>()).add(e.sourceId);
             }
         }
 
         List<Edge> additions = new ArrayList<>();
-        Set<String> seen = existingEdgeKeys(result.edges);
+        Set<String> seen = existingEdgeKeys(edges);
 
-        List<Edge> injections = result.edges.stream()
-                .filter(e -> "INJECTS".equals(e.relation) && !e.isExternal
+        List<Edge> injections = edges.stream()
+                .filter(e -> !isGenerated(e)
+                        && GraphConstants.Relation.INJECTS.equals(e.relation) && !e.isExternal
                         && e.sourceId != null && e.targetId != null)
                 .toList();
 
@@ -49,8 +59,9 @@ public final class WiringResolver {
             }
         }
 
-        for (Edge call : result.edges) {
-            if (!"CALLS".equals(call.relation) || call.isExternal || call.targetId == null) continue;
+        for (Edge call : edges) {
+            if (isGenerated(call)) continue;
+            if (!GraphConstants.Relation.CALLS.equals(call.relation) || call.isExternal || call.targetId == null) continue;
             String callerType = ownerTypeOfMethod(call.sourceId);
             String calleeType = ownerTypeOfMethod(call.targetId);
             if (callerType == null || calleeType == null) continue;
@@ -63,18 +74,19 @@ public final class WiringResolver {
             addWiredCalls(call, calleeType, implMethods, additions, seen);
         }
 
-        result.edges.addAll(additions);
-        return additions.size();
+        return additions;
     }
 
     private void addWires(Edge inject, List<String> implTypes, List<Edge> additions, Set<String> seen) {
-        String confidence = implTypes.size() == 1 ? "INFERRED" : "AMBIGUOUS";
-        String metadata = metadata("injection", inject.targetId, implTypes);
+        String confidence = implTypes.size() == 1
+                ? GraphConstants.Confidence.INFERRED
+                : GraphConstants.Confidence.AMBIGUOUS;
+        String metadata = metadata(GraphConstants.MetadataVia.INJECTION, inject.targetId, implTypes);
         for (String impl : implTypes) {
             Edge e = new Edge();
             e.sourceId = inject.sourceId;
             e.targetId = impl;
-            e.relation = "WIRES";
+            e.relation = GraphConstants.Relation.WIRES;
             e.confidence = confidence;
             e.isExternal = false;
             e.sourceFile = inject.sourceFile;
@@ -86,13 +98,15 @@ public final class WiringResolver {
 
     private void addWiredCalls(Edge call, String interfaceType, List<String> implMethods,
                                List<Edge> additions, Set<String> seen) {
-        String confidence = implMethods.size() == 1 ? "INFERRED" : "AMBIGUOUS";
-        String metadata = metadata("injected-call", interfaceType, call.targetId, implMethods);
+        String confidence = implMethods.size() == 1
+                ? GraphConstants.Confidence.INFERRED
+                : GraphConstants.Confidence.AMBIGUOUS;
+        String metadata = metadata(GraphConstants.MetadataVia.INJECTED_CALL, interfaceType, call.targetId, implMethods);
         for (String implMethod : implMethods) {
             Edge e = new Edge();
             e.sourceId = call.sourceId;
             e.targetId = implMethod;
-            e.relation = "CALLS";
+            e.relation = GraphConstants.Relation.CALLS;
             e.callKind = call.callKind;
             e.confidence = confidence;
             e.context = call.context;
@@ -136,6 +150,16 @@ public final class WiringResolver {
         Set<String> out = new HashSet<>();
         for (Edge e : edges) out.add(key(e));
         return out;
+    }
+
+    public static boolean isGenerated(Edge edge) {
+        return edge != null && isGeneratedMetadata(edge.metadata);
+    }
+
+    public static boolean isGeneratedMetadata(String metadata) {
+        return metadata != null
+                && (metadata.contains("\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"")
+                || metadata.contains("\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\""));
     }
 
     private static String key(Edge e) {

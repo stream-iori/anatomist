@@ -70,6 +70,8 @@ public class SqliteStore implements IndexWriter {
 
     public void initSchema() { schema.initSchema(); }
     public boolean schemaExists() { return schema.schemaExists(); }
+    public int schemaVersion() { return schema.schemaVersion(); }
+    public boolean schemaCompatible() { return schema.schemaCompatible(); }
     public void clearAllData() { schema.clearAllData(); }
 
     // ── Write ───────────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ public class SqliteStore implements IndexWriter {
     }
 
     public void writeNodes(List<Node> nodes) { writer.writeNodes(nodes); }
+    public void writeInCurrentTransaction(ExtractionResult result) { writer.writeInCurrentTransaction(result); }
     public void writeEdgesBatched(List<Edge> edges, int batchSize) { writer.writeEdgesBatched(edges, batchSize); }
     public void writeAnnotationsBatched(List<Annotation> annotations, List<SemanticAnnotation> semanticAnnotations, int batchSize) {
         writer.writeAnnotationsBatched(annotations, semanticAnnotations, batchSize);
@@ -99,8 +102,13 @@ public class SqliteStore implements IndexWriter {
     public void upsertProjectMeta(String key, String value) { writer.upsertProjectMeta(key, value); }
     public void deleteBySourceFiles(List<String> sourceFiles) { writer.deleteBySourceFiles(sourceFiles); }
     public void deleteSpringBeanGraph() { writer.deleteSpringBeanGraph(); }
+    public void replaceGeneratedWiringEdges(List<Edge> edges) { writer.replaceGeneratedWiringEdges(edges); }
+    public void replaceGeneratedWiringEdgesInCurrentTransaction(List<Edge> edges) {
+        writer.replaceGeneratedWiringEdgesInCurrentTransaction(edges);
+    }
     public void clearFileDependencies() { writer.clearFileDependencies(); }
     public void deriveFileDependencies() { writer.deriveFileDependencies(); }
+    public void refreshFileDependencies() { writer.refreshFileDependencies(); }
 
     @FunctionalInterface
     public interface TxWork {
@@ -115,6 +123,8 @@ public class SqliteStore implements IndexWriter {
     public Optional<String> readProjectMeta(String key) { return reader.readProjectMeta(key); }
     public Set<String> dependentsOf(List<String> seed) { return reader.dependentsOf(seed); }
     public Set<String> allNodeIds() { return reader.allNodeIds(); }
+    public Map<String, FileCacheService.SourceFileStats> sourceFileStats() { return reader.sourceFileStats(); }
+    public List<Edge> readWiringSourceEdges() { return reader.readWiringSourceEdges(); }
     public Map<String, Long> queryKindCounts() { return reader.queryKindCounts(); }
     public Map<String, Long> queryRelationCounts() { return reader.queryRelationCounts(); }
     public long queryAnnotationCount() { return reader.queryAnnotationCount(); }

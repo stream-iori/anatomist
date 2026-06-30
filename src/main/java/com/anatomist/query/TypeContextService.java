@@ -1,6 +1,7 @@
 package com.anatomist.query;
 
 import com.anatomist.json.Json;
+import com.anatomist.model.GraphConstants;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -34,7 +35,7 @@ public class TypeContextService {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT " + RowMappers.NODE_COLS
               + " FROM edges e JOIN nodes n ON e.target_id = n.id "
-              + " WHERE e.source_id = ? AND e.relation = 'CONTAINS' "
+              + " WHERE e.source_id = ? AND e.relation = '" + GraphConstants.Relation.CONTAINS + "' "
               + " ORDER BY n.kind, n.source_location")) {
             ps.setString(1, node.id);
             try (ResultSet rs = ps.executeQuery()) {
@@ -72,7 +73,7 @@ public class TypeContextService {
             args.addAll(contextIds);
             String sql = "SELECT " + RowMappers.edgeColsFlat("1")
                     + RowMappers.EDGE_FROM_JOINS
-                    + " WHERE e.relation IN ('DEFINED_BY','INJECTS','HANDLES','WIRES') "
+                    + " WHERE e.relation IN (" + sqlIn(GraphConstants.FRAMEWORK_RELATIONS) + ") "
                     + "   AND (e.source_id IN (" + ph + ") OR e.target_id IN (" + ph + ")) "
                     + " ORDER BY e.relation, e.source_id";
             r.framework.addAll(runEdgeQuery(conn, sql, args));
@@ -82,7 +83,7 @@ public class TypeContextService {
             List<String> sources = new ArrayList<>();
             sources.add(node.id);
             for (NodeRow m : r.members) {
-                if ("METHOD".equals(m.kind) || "CONSTRUCTOR".equals(m.kind)) sources.add(m.id);
+                if (GraphConstants.METHOD_KINDS.contains(m.kind)) sources.add(m.id);
             }
             r.callees = callGraph.callsFrom(sources, withCalleesDepth);
         }
@@ -106,12 +107,12 @@ public class TypeContextService {
         String sql = "WITH RECURSIVE chain(id, label, qname, depth) AS ("
                 + "  SELECT n.id, n.label, n.qualified_name, 1 "
                 + "    FROM edges e JOIN nodes n ON e.target_id = n.id "
-                + "   WHERE e.source_id = ? AND e.relation = 'INHERITS' AND e.is_external = 0 "
+                + "   WHERE e.source_id = ? AND e.relation = '" + GraphConstants.Relation.INHERITS + "' AND e.is_external = 0 "
                 + "  UNION ALL "
                 + "  SELECT n.id, n.label, n.qualified_name, c.depth + 1 "
                 + "    FROM edges e JOIN nodes n ON e.target_id = n.id "
                 + "    JOIN chain c ON e.source_id = c.id "
-                + "   WHERE e.relation = 'INHERITS' AND e.is_external = 0 AND c.depth < ?"
+                + "   WHERE e.relation = '" + GraphConstants.Relation.INHERITS + "' AND e.is_external = 0 AND c.depth < ?"
                 + ") SELECT id, label, qname, depth FROM chain ORDER BY depth";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, seed);
@@ -133,7 +134,7 @@ public class TypeContextService {
 
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT external_target_fqn FROM edges "
-              + " WHERE source_id = ? AND relation = 'INHERITS' AND is_external = 1")) {
+              + " WHERE source_id = ? AND relation = '" + GraphConstants.Relation.INHERITS + "' AND is_external = 1")) {
             ps.setString(1, seed);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -154,7 +155,7 @@ public class TypeContextService {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT n.id, n.label, n.qualified_name, e.is_external, e.external_target_fqn "
               + " FROM edges e LEFT JOIN nodes n ON e.target_id = n.id "
-              + " WHERE e.source_id = ? AND e.relation = 'IMPLEMENTS'")) {
+              + " WHERE e.source_id = ? AND e.relation = '" + GraphConstants.Relation.IMPLEMENTS + "'")) {
             ps.setString(1, seed);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {

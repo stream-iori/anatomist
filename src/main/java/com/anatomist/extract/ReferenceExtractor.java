@@ -4,6 +4,7 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.GraphConstants;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -113,8 +114,8 @@ public class ReferenceExtractor implements Extractor {
         ref.getTypeDeclaration().ifPresent(td -> {
             Edge e = new Edge();
             e.sourceId = sourceId;
-            e.relation = "REFERENCES";
-            e.confidence = "EXTRACTED";
+            e.relation = GraphConstants.Relation.REFERENCES;
+            e.confidence = GraphConstants.Confidence.EXTRACTED;
             e.context = context;
 
             if (ctx.isProjectInternal(td)) {
