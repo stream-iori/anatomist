@@ -99,9 +99,26 @@ tests/scenarios/<scenario-id>/
 
 **刷新机制**：`mvn test -Dtest=GoldenFileIT -Dgolden.update=true` 重新生成所有 `expected.json`。CI 默认不带这个开关，diff 不为空即 fail。**这套用例同时作为对外的命令使用手册**。
 
-**当前 8 个种子场景**：`B1-search-by-label` / `B3-context-by-fqn` / `C1-context-members` / `C2-hierarchy-extends` / `D1-callees-single-hop` / `D2-callers-single-hop` / `D3-callees-multi-hop` / `F1-callers-deep-impact`，覆盖 scenario-2-query.md 里 B/C/D/F 四类的代表路径。
+**当前 11 个种子场景**：`B1-search-by-label` / `B3-context-by-fqn` / `C1-context-members` / `C2-hierarchy-extends` / `C4-deps-of` / `D1-callees-single-hop` / `D2-callers-single-hop` / `D3-callees-multi-hop` / `D4-call-path` / `E1-overview` / `F1-callers-deep-impact`，覆盖搜索、上下文、层次、依赖、调用链、overview、影响面代表路径。
 
-## 五、增量测试拆分
+## 五、本地 E2E / Smoke 命令
+
+统一使用 SDKMAN JDK25：
+
+```bash
+source "$HOME/.sdkman/bin/sdkman-init.sh"
+sdk use java 25.0.3-graal
+```
+
+| 命令 | 验证什么 | 说明 |
+|------|----------|------|
+| `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | 包含 `context --enrich`；recipe 使用 fail-fast，命令失败不会被 `head` 掩盖。 |
+| `just native-smoke` | JVM jar 与 native binary 输出一致性 | 失败时保留 `/tmp/anatomist-native-smoke-*.log` 并打印 native 诊断。 |
+| `just external-cli PROJECT=/path/to/project` | 大型外部项目复杂 CLI | opt-in，本地手动跑；默认目标是 `/Users/stream/codes/antcodes/ipay/imerchantsettle`。 |
+
+`external-cli` 会重建临时 DB，并固定验证 Facade API、Handler 入口、DAO 正反查、字段访问和调用链，不进入默认 CI。
+
+## 六、增量测试拆分
 
 为消除文件系统事件层的不稳定性,把测试切两段：
 
@@ -110,7 +127,7 @@ tests/scenarios/<scenario-id>/
 | 增量 diff 正确性 | `anatomist index --incremental`（合成 diff,无 WatchService） | 主路径,覆盖率高 |
 | WatchService 集成 | 真启 watch 改文件 | 仅 1-2 个 happy-path,Linux 跑 |
 
-## 六、性能基线
+## 七、性能基线
 
 | 指标 | 目标 | 验证方式 |
 |------|-----|---------|
@@ -122,7 +139,7 @@ tests/scenarios/<scenario-id>/
 
 **不卡硬阈值,CI 记录 trend,回归超 20% 才 fail**。
 
-## 七、CI 流程
+## 八、CI 流程
 
 ```yaml
 jobs:
@@ -137,7 +154,7 @@ jobs:
 
 第 3 步同时充当 `ClasspathDetector` 的真实测试——如果 anatomist 跑 `mvn dependency:build-classpath` 失败,说明 detector 有 bug。
 
-## 八、Phase 对齐
+## 九、Phase 对齐
 
 | Phase | 引入的测试资产 | 状态 |
 |-------|--------------|------|

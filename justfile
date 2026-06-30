@@ -149,23 +149,43 @@ uninstall:
 
 # Unit tests
 test:
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
     mvn test
 
 # Integration tests (anything ending in *IT)
 it:
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
     mvn test -Dtest='*IT'
 
 # One specific test class or method
 test-one PATTERN:
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
     mvn test -Dtest='{{PATTERN}}'
 
 # Full regression (unit + IT). Same gate used before each merge.
 test-all:
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
     mvn -q clean test
     mvn -q test -Dtest='IndexCommandIT,QueryServiceIT,GoldenFileIT,MicroFixtureIT,EnrichQueryIT,EnrichCommandIT,AnnotateCommandIT,IndexDocsCommandIT,PicocliCodegenIT,JdkTypeCatalogBuilderIT,JdkTypeCatalogE2EIT,CommonsLangSmokeIT,JavaParserFactoryEmbeddedJdkIT,EmbeddedJdkSolverEndToEndIT'
 
 # Refresh golden files after an intentional output-format change
 golden-update:
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
     mvn test -Dtest=GoldenFileIT -Dgolden.update=true
 
 # ─────────────────────────────────── smoke (run binary end-to-end) ─────────────────────────────
@@ -180,16 +200,29 @@ index-fixture:
 
 # Run several query commands against the smoke index. Run `just index-fixture` first.
 smoke: index-fixture
-    @echo "=== search ==="
-    {{NATIVE_BIN}} search OrderService --index {{SMOKE_DB}} | head -15
-    @echo "=== callees-of ==="
-    {{NATIVE_BIN}} callees-of com.example.shop.service.OrderService#createOrder --depth 2 --index {{SMOKE_DB}} | head -20
-    @echo "=== context ==="
-    {{NATIVE_BIN}} context com.example.shop.service.OrderService --index {{SMOKE_DB}} | head -15
-    @echo "=== hierarchy ==="
-    {{NATIVE_BIN}} hierarchy com.example.shop.service.OrderService --index {{SMOKE_DB}} | head -15
-    @echo "=== enrich ==="
-    {{NATIVE_BIN}} enrich --node OrderService --index {{SMOKE_DB}} 2>&1 | head -10
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT
+
+    preview() {
+        local label="$1"
+        local lines="$2"
+        shift 2
+        local out="$TMP/${label//[^A-Za-z0-9_]/_}.out"
+        echo "=== $label ==="
+        if ! "$@" > "$out" 2>&1; then
+            cat "$out"
+            return 1
+        fi
+        head -n "$lines" "$out"
+    }
+
+    preview search 15 {{NATIVE_BIN}} search OrderService --index {{SMOKE_DB}}
+    preview callees-of 20 {{NATIVE_BIN}} callees-of com.example.shop.service.OrderService#createOrder --depth 2 --index {{SMOKE_DB}}
+    preview context 15 {{NATIVE_BIN}} context com.example.shop.service.OrderService --index {{SMOKE_DB}}
+    preview hierarchy 15 {{NATIVE_BIN}} hierarchy com.example.shop.service.OrderService --index {{SMOKE_DB}}
+    preview enrich 20 {{NATIVE_BIN}} context --enrich OrderService --index {{SMOKE_DB}}
 
 # Smoke the installed binary on $PATH (after `just install`).
 smoke-installed:
@@ -209,21 +242,51 @@ native-smoke: jar native
     source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
     sdk use java 25.0.3-graal || true
     set -eo pipefail
-    JVM="java -jar {{ROOT}}/target/anatomist.jar"
+    JVM=(java --enable-native-access=ALL-UNNAMED -jar "{{ROOT}}/target/anatomist.jar")
     NATIVE="{{NATIVE_BIN}}"
     DB_JVM="/tmp/anatomist-native-smoke-jvm.db"
     DB_NAT="/tmp/anatomist-native-smoke-native.db"
     SOURCES="{{SOURCES}}"
     FIXTURE="{{FIXTURE}}"
     OUT="/tmp/anatomist-native-smoke"
+    JVM_LOG="${OUT}-jvm-index.log"
+    NATIVE_LOG="${OUT}-native-index.log"
+
+    native_diagnostics() {
+        echo "=== Native diagnostics ==="
+        file "$NATIVE" || true
+        ls -lh "$NATIVE" || true
+        if command -v codesign >/dev/null 2>&1; then
+            codesign -dv --verbose=4 "$NATIVE" 2>&1 || true
+        fi
+        if command -v xattr >/dev/null 2>&1; then
+            xattr -l "$NATIVE" 2>&1 || true
+        fi
+        if command -v spctl >/dev/null 2>&1; then
+            spctl --assess --type execute -vv "$NATIVE" 2>&1 || true
+        fi
+    }
 
     echo "=== Indexing with JVM jar ==="
     rm -f "$DB_JVM"
-    $JVM index "$FIXTURE" --project-source "$SOURCES" --no-classpath --output "$DB_JVM" 2>/dev/null
+    "${JVM[@]}" index "$FIXTURE" --project-source "$SOURCES" --no-classpath --output "$DB_JVM" >"$JVM_LOG" 2>&1 || {
+        rc=$?
+        echo "JVM index failed with exit code $rc"
+        cat "$JVM_LOG"
+        exit "$rc"
+    }
+    cat "$JVM_LOG"
 
     echo "=== Indexing with native binary ==="
     rm -f "$DB_NAT"
-    $NATIVE index "$FIXTURE" --project-source "$SOURCES" --no-classpath --output "$DB_NAT" 2>/dev/null
+    "$NATIVE" index "$FIXTURE" --project-source "$SOURCES" --no-classpath --output "$DB_NAT" >"$NATIVE_LOG" 2>&1 || {
+        rc=$?
+        echo "native index failed with exit code $rc"
+        cat "$NATIVE_LOG"
+        native_diagnostics
+        exit "$rc"
+    }
+    cat "$NATIVE_LOG"
 
     CMDS=(
         "search OrderService"
@@ -237,8 +300,9 @@ native-smoke: jar native
     FAIL=0
     for cmd in "${CMDS[@]}"; do
         echo "--- $cmd ---"
-        $JVM $cmd --index "$DB_JVM" 2>/dev/null | sed 's/"query":"[^"]*"//' > "${OUT}-jvm.json"
-        $NATIVE $cmd --index "$DB_NAT" 2>/dev/null | sed 's/"query":"[^"]*"//' > "${OUT}-native.json"
+        read -r -a args <<< "$cmd"
+        "${JVM[@]}" "${args[@]}" --index "$DB_JVM" 2>/dev/null | sed 's/"query"[[:space:]]*:[[:space:]]*"[^"]*",*//' > "${OUT}-jvm.json"
+        "$NATIVE" "${args[@]}" --index "$DB_NAT" 2>/dev/null | sed 's/"query"[[:space:]]*:[[:space:]]*"[^"]*",*//' > "${OUT}-native.json"
         if ! diff -q "${OUT}-jvm.json" "${OUT}-native.json" > /dev/null 2>&1; then
             echo "FAIL: output differs for: $cmd"
             diff "${OUT}-jvm.json" "${OUT}-native.json" | head -20
@@ -254,6 +318,10 @@ native-smoke: jar native
         exit 1
     fi
     echo "native-smoke PASSED: all outputs identical"
+
+# Opt-in smoke against a large external project. Not part of default CI.
+external-cli PROJECT="/Users/stream/codes/antcodes/ipay/imerchantsettle": jar
+    PROJECT="{{PROJECT}}" scripts/verify-external-cli.sh
 
 # Compare native-binary startup latency vs JVM jar (3 runs each).
 bench-startup: index-fixture jar
