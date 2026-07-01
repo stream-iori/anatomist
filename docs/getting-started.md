@@ -39,6 +39,34 @@ curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
   ANATOMIST_INSTALL_SKILL=0 sh
 ```
 
+## Install from GitHub Releases
+
+GitHub release assets are published at `stream-iori/anatomist`:
+
+| Platform | Asset |
+|----------|-------|
+| macOS Apple Silicon | `anatomist-darwin-aarch64` |
+| Linux amd64 | `anatomist-linux-amd64` |
+| JVM fallback | `anatomist.jar` |
+
+macOS Apple Silicon:
+
+```bash
+curl -Lo anatomist \
+  https://github.com/stream-iori/anatomist/releases/latest/download/anatomist-darwin-aarch64
+chmod +x anatomist
+./anatomist --version
+```
+
+Linux amd64:
+
+```bash
+curl -Lo anatomist \
+  https://github.com/stream-iori/anatomist/releases/latest/download/anatomist-linux-amd64
+chmod +x anatomist
+./anatomist --version
+```
+
 ## Manual skill install
 
 The skill is published next to `install.sh` under `anatomist/SKILL.md`.

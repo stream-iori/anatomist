@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Maven test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up GraalVM
+        uses: actions/setup-java@v5
+        with:
+          distribution: graalvm
+          java-version: "25"
+          cache: maven
+
+      - name: Run tests
+        run: mvn -q test
+
+      - name: Build shaded jar
+        run: mvn -q -DskipTests package
+
+      - name: Smoke CLI
+        run: |
+          java -jar target/anatomist.jar --version
+          java -jar target/anatomist.jar doctor --format json

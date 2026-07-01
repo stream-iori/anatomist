@@ -14,7 +14,8 @@
 # Or one-shot build + extract:
 #   ./docker/build-linux-amd64.sh
 # =====================================================================
-FROM --platform=linux/amd64 swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/centos:centos7.9.2009
+ARG CENTOS_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/centos:centos7.9.2009
+FROM --platform=linux/amd64 ${CENTOS_IMAGE}
 
 # ---- 1. Switch CentOS 7 yum to vault (official mirror is dead post-EOL) ----
 RUN set -eux; \

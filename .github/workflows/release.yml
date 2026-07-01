@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build-jar:
+    name: Build JVM jar and static assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Set up GraalVM
+        uses: actions/setup-java@v5
+        with:
+          distribution: graalvm
+          java-version: "25"
+          cache: maven
+
+      - name: Build shaded jar
+        run: mvn -q -DskipTests package
+
+      - name: Stage assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp target/anatomist.jar release-assets/anatomist.jar
+          cp install.sh release-assets/install.sh
+          cp SKILL.md release-assets/SKILL.md
+          java -jar release-assets/anatomist.jar --version
+
+      - name: Upload jar/static assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: jar-and-static
+          path: release-assets/*
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS arm64 native binary
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Assert arm64 runner
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+
+      - name: Set up GraalVM
+        uses: actions/setup-java@v5
+        with:
+          distribution: graalvm
+          java-version: "25"
+          cache: maven
+
+      - name: Build native binary
+        run: mvn -Pnative -DskipTests package
+
+      - name: Stage macOS binary
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp target/anatomist release-assets/anatomist-darwin-aarch64
+          xattr -cr release-assets/anatomist-darwin-aarch64 2>/dev/null || true
+          codesign --force --sign - release-assets/anatomist-darwin-aarch64 2>/dev/null || true
+          file release-assets/anatomist-darwin-aarch64
+          release-assets/anatomist-darwin-aarch64 --version
+
+      - name: Upload macOS asset
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-native
+          path: release-assets/anatomist-darwin-aarch64
+          if-no-files-found: error
+
+  build-linux-amd64:
+    name: Build Linux amd64 native binary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Build native binary in CentOS 7 container
+        env:
+          ANATOMIST_LINUX_BASE_IMAGE: docker.io/library/centos:centos7.9.2009
+        run: ./docker/build-linux-amd64.sh
+
+      - name: Stage Linux binary
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp target/anatomist release-assets/anatomist-linux-amd64
+          file release-assets/anatomist-linux-amd64
+          release-assets/anatomist-linux-amd64 --version
+
+      - name: Upload Linux asset
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-native
+          path: release-assets/anatomist-linux-amd64
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-jar
+      - build-macos
+      - build-linux-amd64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: downloaded-artifacts
+
+      - name: Prepare upload directory
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          find downloaded-artifacts -maxdepth 3 -type f -exec cp {} upload/ \;
+          ls -lh upload
+
+      - name: Generate release notes
+        run: |
+          set -euo pipefail
+          git rev-parse "${RELEASE_TAG}^{commit}" >/dev/null
+          previous_tag="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^{commit}^" 2>/dev/null || true)"
+          {
+            echo "## Changes"
+            if [ -n "$previous_tag" ]; then
+              git log --oneline --no-merges "${previous_tag}..${RELEASE_TAG}" | sed 's/^/- /'
+            else
+              git log --oneline --no-merges -30 "${RELEASE_TAG}" | sed 's/^/- /'
+            fi
+            echo
+            echo "## Assets"
+            echo "- anatomist-darwin-aarch64"
+            echo "- anatomist-linux-amd64"
+            echo "- anatomist.jar"
+            echo "- install.sh"
+            echo "- SKILL.md"
+          } > release-notes.md
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "anatomist ${RELEASE_TAG}" \
+              --notes-file release-notes.md
+            gh release upload "${RELEASE_TAG}" upload/* --clobber
+          else
+            gh release create "${RELEASE_TAG}" upload/* \
+              --title "anatomist ${RELEASE_TAG}" \
+              --notes-file release-notes.md
+          fi

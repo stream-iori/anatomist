@@ -16,6 +16,7 @@ ROOT="$PWD"
 
 IMAGE_TAG="anatomist-build:linux-amd64"
 DOCKERFILE="docker/Dockerfile.amd64-build"
+BASE_IMAGE="${ANATOMIST_LINUX_BASE_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/centos:centos7.9.2009}"
 
 REBUILD=0
 for arg in "$@"; do
@@ -26,7 +27,10 @@ done
 
 if [[ $REBUILD -eq 1 ]] || ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
     echo "==> Building build image $IMAGE_TAG"
-    docker build --platform linux/amd64 -t "$IMAGE_TAG" -f "$DOCKERFILE" .
+    echo "==> Base image: $BASE_IMAGE"
+    docker build --platform linux/amd64 \
+        --build-arg CENTOS_IMAGE="$BASE_IMAGE" \
+        -t "$IMAGE_TAG" -f "$DOCKERFILE" .
 else
     echo "==> Using existing build image $IMAGE_TAG (pass --rebuild-image to force)"
 fi
