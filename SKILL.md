@@ -1,6 +1,6 @@
 ---
 name: anatomist
-description: Use when analyzing Java code structure with anatomist: indexing projects, searching symbols, tracing callees/callers/call paths, reverse-tracing repositories/DAOs, inspecting Spring wiring, and producing source-backed evidence for Agent answers.
+description: Use when analyzing Java code structure with anatomist: indexing projects and docs, watching incremental changes, searching symbols, tracing callees/callers/call paths, reverse-tracing repositories/DAOs, checking type hierarchy/implementors, inspecting Spring wiring, and producing source-backed evidence for Agent answers.
 ---
 
 # anatomist
@@ -148,6 +148,20 @@ Do not label a dependency as a smell unless you state the rule being applied,
 for example "controller package depends on repository package" or "many packages
 write the same field".
 
+### Type hierarchy and implementations
+
+User asks about inheritance, extension points, SPI usage, or who implements an
+interface.
+
+```bash
+anatomist hierarchy <type> --index <db>
+anatomist implementors-of <interface-or-base-type> --index <db>
+```
+
+Use `hierarchy` for parent chains and `implementors-of` for concrete or direct
+implementation candidates. Treat this as type-structure evidence; runtime
+selection still depends on wiring, profiles, factories, and configuration.
+
 ### User-defined semantic search
 
 User supplies a domain term, naming convention, or annotation.
@@ -160,6 +174,30 @@ anatomist search <Annotation> --by-annotation --index <db>
 
 Make the rule explicit: "Under the user-provided `*Settlement*` rule, these are
 matches." Do not upgrade matches into business facts.
+
+### Project docs as evidence
+
+User asks for analysis that may depend on README, design docs, runbooks, ADRs,
+or business prose.
+
+```bash
+anatomist index-docs <docs-or-project-root> --index <db>
+anatomist context <type-or-method> --enrich --with-docs --index <db>
+```
+
+Use indexed docs as supporting evidence only. Prefer code facts for behavior and
+say when a conclusion comes from prose rather than source.
+
+### Long-running incremental work
+
+User is iterating on code and wants the index to stay fresh during a session.
+
+```bash
+anatomist watch <project-root> --auto-index --output <db>
+```
+
+Use `watch` for local development loops. Do not leave watch processes running
+unobserved; stop them when the task no longer needs live incremental indexing.
 
 ### Code slice for one chain
 
