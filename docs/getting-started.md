@@ -11,10 +11,69 @@ curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh
 This downloads the native binary to `~/.local/bin/anatomist`. Custom install path:
 
 ```bash
-ANATOMIST_INSTALL_DIR=/usr/local/bin curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh
+curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
+  ANATOMIST_INSTALL_DIR=/usr/local/bin sh
 ```
 
 After install, ensure `~/.local/bin` is in your PATH (the script will remind you if not).
+
+The installer also downloads `anatomist/SKILL.md` and installs it for common agent clients:
+
+| Client | Skill path |
+|--------|------------|
+| Qoder | `~/.qoder/skills/anatomist/SKILL.md` |
+| Codex | `${CODEX_HOME:-~/.codex}/skills/anatomist/SKILL.md` |
+| Claude | `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/anatomist/SKILL.md` |
+
+Install only selected clients:
+
+```bash
+curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
+  ANATOMIST_SKILL_CLIENTS="codex claude" sh
+```
+
+Skip skill install:
+
+```bash
+curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
+  ANATOMIST_INSTALL_SKILL=0 sh
+```
+
+## Manual skill install
+
+The skill is published next to `install.sh` under `anatomist/SKILL.md`.
+
+Download only:
+
+```bash
+curl -fsSL http://6.12.3.250:8100/dist-bin/anatomist/SKILL.md -o SKILL.md
+```
+
+Install for Codex manually:
+
+```bash
+mkdir -p ~/.codex/skills/anatomist
+curl -fsSL http://6.12.3.250:8100/dist-bin/anatomist/SKILL.md \
+  -o ~/.codex/skills/anatomist/SKILL.md
+```
+
+If you use a custom mirror, use the same base as `ANATOMIST_MIRROR`:
+
+```bash
+ANATOMIST_MIRROR=http://your-mirror/dist-bin
+mkdir -p ~/.codex/skills/anatomist
+curl -fsSL "$ANATOMIST_MIRROR/anatomist/SKILL.md" \
+  -o ~/.codex/skills/anatomist/SKILL.md
+```
+
+The skill file must keep Codex-compatible YAML frontmatter:
+
+```yaml
+---
+name: anatomist
+description: Use when analyzing Java code structure with anatomist.
+---
+```
 
 ## Build from source
 

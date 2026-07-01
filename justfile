@@ -16,6 +16,8 @@ FIXTURE    := ROOT + "/fixtures/mini-spring-shop"
 SOURCES    := FIXTURE + "/api/src/main/java:" + FIXTURE + "/domain/src/main/java:" + FIXTURE + "/service/src/main/java"
 SMOKE_DB   := "/tmp/anatomist-smoke.db"
 NATIVE_BIN := ROOT + "/target/anatomist"
+INSTALL_SCRIPT := ROOT + "/install.sh"
+SKILL_FILE := ROOT + "/SKILL.md"
 INSTALL_DIR := env_var_or_default("ANATOMIST_INSTALL_DIR", env_var("HOME") + "/.local/bin")
 UPLOAD_BASE := env_var_or_default("ANATOMIST_UPLOAD_BASE", "http://6.12.3.250:8100/upload")
 DIST_BASE   := env_var_or_default("ANATOMIST_DIST_BASE", "http://6.12.3.250:8100/dist-bin")
@@ -53,8 +55,44 @@ native:
     file {{NATIVE_BIN}}
     ls -lh {{NATIVE_BIN}}
 
+# Upload static files served from the same dist-bin mirror as install.sh.
+upload-dist-files:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for asset in "{{INSTALL_SCRIPT}}:install.sh" "{{SKILL_FILE}}:anatomist/SKILL.md"; do
+      src="${asset%%:*}"
+      name="${asset##*:}"
+      test -f "$src"
+      echo "Uploading $src"
+      echo "  mode: {{UPLOAD_MODE}}"
+      echo "  PUT:  {{UPLOAD_BASE}}/${name}"
+      echo "  POST: {{UPLOAD_BASE}} (field={{UPLOAD_FIELD}}, filename=${name})"
+      echo "  GET: {{DIST_BASE}}/${name}"
+      case "{{UPLOAD_MODE}}" in
+        put)
+          curl --noproxy '*' \
+              --retry 3 --retry-all-errors \
+              --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+              -fT "$src" "{{UPLOAD_BASE}}/${name}"
+          ;;
+        post|multipart)
+          curl --noproxy '*' \
+              --retry 3 --retry-all-errors \
+              --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+              -F "{{UPLOAD_FIELD}}=@${src};filename=${name}" "{{UPLOAD_BASE}}"
+          ;;
+        *)
+          echo "ERROR: unsupported ANATOMIST_UPLOAD_MODE={{UPLOAD_MODE}} (use put or post)"
+          exit 2
+          ;;
+      esac
+      echo
+      curl --noproxy '*' -fsSI "{{DIST_BASE}}/${name}" | sed -n '1,8p'
+      echo
+    done
+
 # Build native, then upload it to the nginx dist-bin mirror.
-upload-native: native
+upload-native: native upload-dist-files
     #!/usr/bin/env bash
     set -euo pipefail
     test -x "{{NATIVE_BIN}}"
@@ -90,7 +128,7 @@ native-linux-amd64:
     ./docker/build-linux-amd64.sh
 
 # Build the Linux amd64 native binary, then upload it to the nginx dist-bin mirror.
-upload-linux-amd64: native-linux-amd64
+upload-linux-amd64: native-linux-amd64 upload-dist-files
     #!/usr/bin/env bash
     set -euo pipefail
     test -x "{{NATIVE_BIN}}"

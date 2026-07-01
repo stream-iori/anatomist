@@ -80,7 +80,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 | [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
 | [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |
 | [AGENTS.md](AGENTS.md) | Contributor and Agent collaboration guide |
-| [anatomist-skill.md](anatomist-skill.md) | Agent skill definition (when/how to call anatomist) |
+| [SKILL.md](SKILL.md) | Codex skill definition (when/how to call anatomist) |
 | [todo.md](todo.md) | Future work |
 
 ---
