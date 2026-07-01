@@ -36,6 +36,9 @@ public class ProjectScanner {
         if (root == null || !Files.isDirectory(root)) {
             return Collections.emptyList();
         }
+        if (containsExcludedDir(root.normalize())) {
+            return Collections.emptyList();
+        }
         List<Path> out = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(root)) {
             stream.filter(p -> notInExcludedDir(root.relativize(p)))
@@ -84,9 +87,13 @@ public class ProjectScanner {
     }
 
     private boolean notInExcludedDir(Path path) {
+        return !containsExcludedDir(path);
+    }
+
+    private boolean containsExcludedDir(Path path) {
         for (Path part : path) {
-            if (excludedDirs.contains(part.toString())) return false;
+            if (excludedDirs.contains(part.toString())) return true;
         }
-        return true;
+        return false;
     }
 }

@@ -60,12 +60,11 @@ class ProjectScannerTest {
     }
 
     @Test
-    void scan_allowsExplicitGeneratedSourceRootUnderTarget(@TempDir Path tmp) throws Exception {
+    void scan_skipsExplicitGeneratedSourceRootUnderTarget(@TempDir Path tmp) throws Exception {
         Path generated = Files.createDirectories(tmp.resolve("module/target/generated-sources/annotations"));
         Files.writeString(generated.resolve("Generated.java"), "class Generated {}");
 
         List<Path> files = new ProjectScanner().scan(generated);
-        assertEquals(1, files.size(), "explicit generated root should be scanned; got " + files);
-        assertEquals("Generated.java", files.get(0).getFileName().toString());
+        assertTrue(files.isEmpty(), "target generated sources must not be scanned; got " + files);
     }
 }
