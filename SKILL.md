@@ -1,275 +1,164 @@
 ---
 name: anatomist
-description: Use when analyzing Java code structure with anatomist: indexing projects and docs, watching incremental changes, searching symbols, tracing callees/callers/call paths, reverse-tracing repositories/DAOs, checking type hierarchy/implementors, inspecting Spring wiring, and producing source-backed evidence for Agent answers.
+description: Use when analyzing Java code structure with anatomist from an IntelliJ IDEA-style workflow: indexing Java projects/docs, finding entries, inspecting local context, tracing forward callees/call paths, reverse-tracing callers/repositories/DAOs, checking type hierarchy/subtypes/implementors, inspecting field composition/access, mapping package architecture, inspecting Spring wiring/XML, watching incremental changes, and producing source-backed static evidence for Agent answers.
 ---
 
 # anatomist
 
-Use this skill when the user asks about Java code structure, dependencies,
-call chains, impact, framework wiring, or code facts that are cheaper to query
-from an index than to rediscover by reading files.
+Use anatomist like an indexed, Agent-friendly companion to IDEA actions:
+Find Usages, Call Hierarchy, Type Hierarchy, Go to Implementation, dependency
+analysis, and source-backed navigation.
 
-Do not treat this skill as a workflow script. It gives boundary rules and
-few-shot examples. Always discover the installed CLI contract with `--help`
-before choosing commands for the current task.
-
-## Discovery first
-
-Start from facts about the local tool, not memory:
+Always discover the local CLI contract first:
 
 ```bash
 anatomist doctor --format json
 anatomist <command> --help
 ```
 
-Use `doctor` for available commands, schema version, capabilities, and whether
-an index exists. Use command help for flags and output behavior. This document
-is intentionally not a complete command reference.
-
-If no usable index exists, build one:
+If no usable index exists:
 
 ```bash
 anatomist index <project-root> --format json
 ```
 
-Index notes:
+Index rules:
 
-| Case | Hint |
+| Case | Action |
 |---|---|
-| Multi-module Maven | Default source discovery should find module `src/main/java` roots. |
-| Spring annotations matter | Avoid `--no-classpath`; let classpath detection resolve external annotations. |
-| Spring XML matters | Add `--spring-xml` so XML bean wiring becomes `WIRES` facts. |
-| Re-indexing | Prefer `--incremental` when updating an existing index. |
-| Clean rebuild | Use `--recreate` when stale DB/doc data is more dangerous than rebuild cost. |
-| DB path | Default is `~/.anatomist/<repo-name>/index.db`; all query commands accept `--index`. |
+| Multi-module Maven | Let default discovery find module `src/main/java` roots. |
+| Spring annotations matter | Avoid `--no-classpath` when possible. |
+| Spring XML matters | Add `--spring-xml` so XML beans become `WIRES` facts. |
+| Re-index current work | Prefer `--incremental` against the same DB. |
+| Stale or risky DB | Use `--recreate`. |
+| Need exact snapshot | Inspect `project_meta` for `source_root`, `indexed_at`, `source_git_commit`, `source_git_dirty`. |
 
-## Boundary
-
-anatomist returns code facts. It does not decide business meaning.
-
-| Item | Treat as |
-|---|---|
-| `ROUTE`, `HANDLES`, `CALLS`, `REFERENCES`, `INJECTS`, `WIRES` | Code facts |
-| Names like `*Controller`, `*Service`, `*Job`, `*Listener` | User/Agent search rules |
-| Annotation searches | Code facts under an explicit annotation rule |
-| "business entry", "domain boundary", "core workflow", "smell" | Agent hypothesis, not anatomist output |
-| `survey-baseline` | Aggregate structural baseline only |
-
-Never say anatomist "found the business entry/domain". Say it found technical
-signals and state the inference separately.
-
-## Evidence levels
-
-Use these labels in answers that mix code facts with interpretation:
-
-| Level | Meaning | Example phrasing |
-|---|---|---|
-| Fact | Direct index result | "`route:POST /orders` HANDLES `OrderController#create`." |
-| Strong signal | Multiple facts point the same way | "This route calls order validation and persistence methods." |
-| Weak signal | Naming or annotation pattern only | "`*Job` matched this class; that is only a naming signal." |
-| Hypothesis | Business/architecture interpretation | "Likely order submission entry, needs confirmation." |
-
-When giving business or architecture analysis, include file/line, node id, or
-relation evidence wherever possible.
-
-Use `--source-window` when the answer needs file/line proof and the graph result
-already narrowed the scope. It keeps the workflow source-backed without forcing
-the Agent to open every candidate file.
-
-| Situation | Prefer |
-|---|---|
-| "Show the call path and evidence" | `call-path ... --source-window=2` |
-| "What does this method call until DB?" | `callees-of ... --depth N --source-window=3` |
-| "Who will be affected? give code evidence" | `callers-of ... --depth N --source-window=3` |
-| Huge graph, first pass only | omit `--source-window`; page/filter first |
-| Need exact branch/commit/staleness | inspect `project_meta` keys: `source_root`, `source_git_commit`, `source_git_dirty`, `indexed_at` |
-
-## Few-shot patterns
-
-These are examples, not fixed flows. Adapt them after checking `--help`.
-
-### Technical entry facts
-
-User asks: "Where can requests enter this app?"
-
-```bash
-anatomist search --name '*' --kind ROUTE --index <db>
-anatomist context <controller-or-handler-owner> --index <db>
-```
-
-Use the returned `ROUTE` nodes and `HANDLES` framework facts as evidence. If
-you infer a business entry from them, label that inference as a hypothesis.
-
-### Known method behavior
-
-User gives a method/class and asks what it does.
-
-```bash
-anatomist context <type-or-method> --index <db>
-anatomist callees-of <method> --depth <n> --index <db>
-```
-
-If the chain stops at a template/executor or callback container, check help for
-callback traversal and consider `--through-callbacks`.
-
-When reporting behavior back to a human, rerun the narrowed call query with
-source snippets:
-
-```bash
-anatomist callees-of <method> --depth <n> --source-window=3 --index <db>
-```
-
-### Impact analysis
-
-User asks what breaks if a type/method changes.
-
-```bash
-anatomist used-by <type> --index <db>
-anatomist callers-of <method> --depth <n> --index <db>
-anatomist field-access <field> --index <db>
-```
-
-Separate "direct users" from "recursive callers". If results are paged, continue
-with `next_queries` rather than assuming the first page is complete.
-Use `callers-of ... --source-window=3` for final impact reports where the user
-expects concrete caller lines.
-
-### Architecture or smell evidence
-
-User asks about layering, coupling, or suspicious dependencies.
-
-```bash
-anatomist overview --deps-only --index <db>
-anatomist deps-of <type-or-package-anchor> --index <db>
-anatomist used-by <type-or-package-anchor> --index <db>
-```
-
-Do not label a dependency as a smell unless you state the rule being applied,
-for example "controller package depends on repository package" or "many packages
-write the same field".
-
-### Type hierarchy and implementations
-
-User asks about inheritance, extension points, SPI usage, or who implements an
-interface.
-
-```bash
-anatomist hierarchy <type> --index <db>
-anatomist implementors-of <interface-or-base-type> --index <db>
-```
-
-Use `hierarchy` for parent chains and `implementors-of` for concrete or direct
-implementation candidates. Treat this as type-structure evidence; runtime
-selection still depends on wiring, profiles, factories, and configuration.
-
-### User-defined semantic search
-
-User supplies a domain term, naming convention, or annotation.
-
-```bash
-anatomist search <term> --index <db>
-anatomist search --name '<glob>' --kind <KIND> --index <db>
-anatomist search <Annotation> --by-annotation --index <db>
-```
-
-Make the rule explicit: "Under the user-provided `*Settlement*` rule, these are
-matches." Do not upgrade matches into business facts.
-
-### Project docs as evidence
-
-User asks for analysis that may depend on README, design docs, runbooks, ADRs,
-or business prose.
-
-```bash
-anatomist index-docs <docs-or-project-root> --index <db>
-anatomist context <type-or-method> --enrich --with-docs --index <db>
-```
-
-Use indexed docs as supporting evidence only. Prefer code facts for behavior and
-say when a conclusion comes from prose rather than source.
-
-### Long-running incremental work
-
-User is iterating on code and wants the index to stay fresh during a session.
-
-```bash
-anatomist watch <project-root> --auto-index --output <db>
-```
-
-Use `watch` for local development loops. Do not leave watch processes running
-unobserved; stop them when the task no longer needs live incremental indexing.
-
-### Code slice for one chain
-
-User wants a readable slice of a path.
-
-```bash
-anatomist call-path <from-method> <to-method> --depth <n> --source-window=2 --index <db>
-```
-
-Use this for "from Facade/message handler to DB" or "why does this endpoint
-reach this DAO" questions. The graph gives the path; `source_window` gives
-small file/line snippets for each hop. Read full source only when the snippet
-is not enough to understand conditions, literals, or surrounding business logic.
-
-### DB-oriented tracing
-
-User asks whether an entry reaches DB, or asks for reverse DB impact.
-
-```bash
-anatomist search --name '*DAO' --kind INTERFACE --index <db>
-anatomist callees-of <facade-or-handler-method> --depth 8 --through-callbacks --source-window=2 --index <db>
-anatomist callers-of <dao-method> --depth 8 --through-callbacks --source-window=2 --index <db>
-```
-
-Scenario rules:
-
-| Scenario | What to say |
-|---|---|
-| Entry -> DAO path found | Present the chain as code fact; include snippets only for decisive hops. |
-| DAO reverse callers found | Separate direct repository/service callers from higher-level facade/message entries. |
-| Path crosses callback/template | Use `--through-callbacks` and mention `via` when present. |
-| No path found | Say no static path found in this index; do not claim runtime impossibility. |
-
-### Reproducibility check
-
-Before trusting a DB built earlier, inspect snapshot metadata:
+Snapshot check:
 
 ```bash
 sqlite3 <db> "select key,value from project_meta where key in ('source_root','indexed_at','source_git_commit','source_git_dirty');"
 ```
 
 If `source_git_dirty=true`, say the index came from a dirty worktree. If
-`source_root` no longer exists, `--source-window` cannot attach snippets.
+`source_root` moved, `--source-window` snippets may be absent.
+
+## IDEA task routing
+
+Route by the human task, not by command names. These categories are MECE for
+normal IDEA-style code exploration: discover, inspect local context, trace
+forward, trace reverse, inspect type relations, inspect field relations, map
+architecture, inspect framework wiring, and verify evidence freshness.
+
+| IDEA task | User wording | First commands | Answer boundary |
+|---|---|---|---|
+| Entry discovery | "Where can requests/messages enter?" | `search --name '*' --kind ROUTE`; `search <Annotation> --by-annotation`; `context <owner>` | Routes, handlers, and annotations are technical entry facts, not business-entry proof. |
+| Local context | "What is in this class/method?" | `context <type-or-method>`; add `--with-callees=N` when useful | Summarize members, annotations, and nearby calls; read source for literals and branches. |
+| Forward trace | "What does this call next / until DB?" | `callees-of <method> --depth N`; `call-path <from> <to> --depth N` | Static path means possible code path, not runtime certainty. |
+| Reverse impact | "Who uses/calls this repo/type/method?" | `callers-of <method> --depth N`; `used-by <type>` | Separate direct callers from higher-level facade/message entries. |
+| Type relation | "This extends what / who implements it?" | `hierarchy <type>`; `implementors-of <type>`; `implementors-of <type> --recursive` | `hierarchy` is upward only; child/subtype expansion uses `implementors-of`. |
+| Field relation | "Who holds Foo / who reads this field?" | `used-by <Foo>` filtered to `context=field_type`; `field-access <Owner>#<field>` | Composition and READS/WRITES are different facts. |
+| Architecture map | "How do packages/layers depend?" | `overview --deps-only`; `deps-of <anchor>`; `used-by <anchor>` | State the architecture rule before calling something a smell. |
+| Framework wiring | "How is Spring wired?" | `deps-of` / `used-by`, inspect `INJECTS`, `WIRES`, `DEFINED_BY` | Completeness depends on classpath and `--spring-xml`. |
+| Evidence hygiene | "Is this index current / keep it fresh?" | `doctor --format json`; query `project_meta`; `watch <root> --auto-index --output <db>` | Report index freshness and stop watch processes when no longer needed. |
+
+## Task details
+
+### Entry discovery
+
+Use route nodes and handler facts as code evidence. If you infer a business
+entry, label it as a hypothesis:
+
+```bash
+anatomist search --name '*' --kind ROUTE --index <db>
+anatomist context <controller-or-handler-owner> --index <db>
+```
+
+### Forward and reverse tracing
+
+Prefer source windows only after narrowing the graph:
+
+```bash
+anatomist callees-of <entry-method> --depth 8 --through-callbacks --source-window=2 --index <db>
+anatomist callers-of <repo-method> --depth 8 --through-callbacks --source-window=2 --index <db>
+anatomist call-path <from-method> <to-method> --depth 8 --source-window=2 --index <db>
+```
+
+If a path crosses a lambda, anonymous class, template, or callback body, use
+`--through-callbacks` when available and mention `via` when present.
+
+### Type relation
+
+Do not use `hierarchy` to answer "who are the subclasses?"
+
+```text
+hierarchy Foo
+  Foo -> parent -> grandparent
+  Foo -> directly implemented interfaces
+
+implementors-of Foo --recursive
+  Foo <- direct child <- transitive child
+```
+
+### Field relation
+
+Use different evidence for ownership and access:
+
+| Question | Command | Evidence |
+|---|---|---|
+| "Which classes compose/hold `Foo`?" | `used-by Foo` then filter | `REFERENCES` with `context=field_type`; source is a FIELD node such as `Bar#foo`. |
+| "Who reads/writes `Bar#foo`?" | `field-access Bar#foo --mode all` | `READS` / `WRITES` from methods or lambdas to the field. |
+
+Filter example:
+
+```bash
+anatomist used-by com.example.Foo --index <db> \
+  | jq '.results[] | select(.relation=="REFERENCES" and .context=="field_type")'
+```
+
+### Docs and naming rules
+
+When user-provided terms, conventions, or docs matter:
+
+```bash
+anatomist search <term> --index <db>
+anatomist search --name '<glob>' --kind <KIND> --index <db>
+anatomist search <Annotation> --by-annotation --index <db>
+anatomist index-docs <root> --index <db>
+anatomist context <node> --enrich --with-docs --index <db>
+```
+
+Say "under the user-provided `*Settlement*` rule, these matched." Treat docs as
+supporting evidence, not source behavior.
+
+## Evidence interpretation
+
+anatomist returns static code facts. It does not decide business meaning.
+
+| Level | Meaning | Use in answers |
+|---|---|---|
+| Fact | Direct index result | "`OrderController#create` HANDLES `POST /orders`." |
+| Strong signal | Multiple facts align | "The route calls validation and persistence methods." |
+| Weak signal | Naming or annotation convention only | "`*Job` matched this class; this is only a naming signal." |
+| Hypothesis | Business or architecture interpretation | "Likely order submission entry; needs confirmation." |
+
+Report node ids, relation names, file/line, or `source_window` snippets when
+possible. Page large results with `stats.truncated`, `next_offset`, and
+`next_queries`.
 
 ## Anti-patterns
 
 | Do not | Do instead |
 |---|---|
-| "anatomist says this is the business entry" | "anatomist found route/handler facts; business-entry is a hypothesis." |
-| Use a fixed command sequence for every task | Inspect `doctor` and `<command> --help`, then choose commands. |
-| Treat `search <term>` total as exact simple-name count | Check `stats.label_matches` or use `search --name '<glob>'`. |
-| Ignore pagination | Use `stats.truncated`, `next_offset`, and `next_queries`. |
-| Trust naming patterns as semantics | Mark naming matches as weak signals. |
-| Stop at `template.execute` / lambda wrapper | Consider callback traversal if supported by help. |
-| Paste long source files into the answer | Use `--source-window` snippets and cite file/line. |
-| Assume the DB matches current source | Check `project_meta.indexed_at` and `source_git_dirty` when precision matters. |
-| Use `survey-baseline` for candidates | Use it only for aggregate structural baseline. |
+| Say "anatomist found the business entry" | Say it found route/handler facts; business entry is an inference. |
+| Use one fixed command sequence for every task | Route by the IDEA task and inspect command help. |
+| Use `hierarchy` for child/subclass expansion | Use `implementors-of`, with `--recursive` for full closure. |
+| Mix field composition with field access | Use `used-by + context=field_type` for composition, `field-access` for READS/WRITES. |
+| Stop at `template.execute` or callback container | Try callback traversal if supported. |
+| Trust naming matches as semantics | Mark them as weak signals. |
+| Paste long source files | Use source windows and cite exact file/line. |
+| Assume the DB matches current source | Check `project_meta` when precision matters. |
+| Treat no static path as no runtime path | Mention static-analysis limits. |
 
-## Contracts and gotchas
-
-| Topic | Note |
-|---|---|
-| JSON shape | Query output generally has `query`, `results`, `stats`, and often `budget`. |
-| Depth | Recursive call depth is capped; check command help for current limit. |
-| External edges | External targets may have FQN text but no internal node id. |
-| Source windows | `--source-window[=N]` derives snippets from `project_meta.source_root`; snippets may be absent if source moved. |
-| Git metadata | `project_meta` records commit/branch/dirty when the source root is inside a Git worktree. |
-| `--no-classpath` | Suppresses many external annotation resolutions. |
-| Locking | Query commands use read locks; index commands use write locks. |
-| Incremental | Uses file hashing and dependency realignment; large changes may degrade to full. |
-| Runtime behavior | Reflection, profiles, AOP, generated code, and config-driven dispatch may be incomplete in static facts. |
-
-Fallback to reading source when the question depends on literals, config files,
-runtime conditions, prose documentation, or exact code bodies. Use anatomist
-first to narrow the file set.
+Runtime behavior can be incomplete for reflection, profiles, AOP, generated
+code, dynamic dispatch, and configuration-driven routing. Fallback to source,
+config, logs, docs, or runtime evidence when the question depends on those.

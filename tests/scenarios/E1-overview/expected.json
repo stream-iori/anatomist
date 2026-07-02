@@ -11,7 +11,7 @@
       "DEFINED_BY" : 6,
       "HANDLES" : 2,
       "IMPLEMENTS" : 1,
-      "INHERITS" : 1,
+      "INHERITS" : 2,
       "INJECTS" : 5,
       "OVERRIDES" : 4,
       "READS" : 23,
@@ -22,7 +22,7 @@
     "kind_counts" : {
       "ANONYMOUS_CLASS" : 1,
       "BEAN" : 6,
-      "CLASS" : 13,
+      "CLASS" : 14,
       "ENUM" : 1,
       "ENUM_CONSTANT" : 6,
       "FIELD" : 20,
@@ -160,7 +160,7 @@
     }, {
       "methods" : 6,
       "name" : "com.example.shop.repository",
-      "types" : 2
+      "types" : 3
     }, {
       "methods" : 9,
       "name" : "com.example.shop.service",
@@ -171,6 +171,6 @@
     "methods" : 47,
     "package_deps" : 20,
     "packages" : 8,
-    "types" : 16
+    "types" : 17
   }
 }

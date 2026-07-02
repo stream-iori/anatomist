@@ -7,7 +7,7 @@
 | 模块 | 内容 | 覆盖的 anatomist 测试点 |
 |------|------|---------------------|
 | `domain` | Order/OrderItem/OrderStatus(enum)/CreateOrderRequest/OrderResult/OrderCreatedEvent | nodes.module 字段、ENUM/ENUM_CONSTANT、JavaBean 字段 |
-| `service` | BaseService/OrderService/OrderValidator/PriceCalculator/OrderRepository/InMemoryOrderRepository/OrderEventPublisher | INHERITS、OVERRIDES、IMPLEMENTS、CALLS(INSTANCE/STATIC/INTERFACE)、READS/WRITES、Lambda、匿名类、方法重载、@Service/@Transactional/@Autowired |
+| `service` | BaseService/OrderService/OrderValidator/PriceCalculator/OrderRepository/InMemoryOrderRepository/AuditedOrderRepository/OrderEventPublisher | INHERITS、OVERRIDES、IMPLEMENTS、递归实现类、CALLS(INSTANCE/STATIC/INTERFACE)、READS/WRITES、Lambda、匿名类、方法重载、@Service/@Transactional/@Autowired |
 | `api` | ShopApplication/OrderController + JUnit 5 自测 | @RestController、@PostMapping、@PathVariable、@RequestBody、跨模块依赖 |
 
 ## OrderService.createOrder 调用链(D3/D4 金标准)
@@ -25,6 +25,16 @@ OrderController.create
     → OrderCreatedEvent.<init>                  [CONSTRUCTOR]
     → OrderEventPublisher.publish               [INSTANCE]
 ```
+
+## Repository 类型链
+
+```
+OrderRepository
+  ├─ InMemoryOrderRepository        [direct IMPLEMENTS]
+  │   └─ AuditedOrderRepository     [recursive INHERITS]
+```
+
+该链路用于覆盖 `implementors-of OrderRepository --recursive`。
 
 ## 构建 / 测试
 
