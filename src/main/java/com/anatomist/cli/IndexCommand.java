@@ -249,8 +249,10 @@ public class IndexCommand implements Callable<Integer> {
                         System.out.println("  New files:     " + summary.newFiles);
                         System.out.println("  Deleted files: " + summary.deletedFiles);
                         System.out.println("  Realigned deps:" + summary.realignedDependents);
-                        System.out.println("  New nodes:     " + summary.newNodes);
-                        System.out.println("  New edges:     " + summary.newEdges);
+                        System.out.println("  Deleted nodes: " + summary.deletedNodes);
+                        System.out.println("  Deleted edges: " + summary.deletedEdges);
+                        System.out.println("  Written nodes: " + summary.writtenNodes);
+                        System.out.println("  Written edges: " + summary.writtenEdges);
                         System.out.println("  Output:        " + dbPath);
                         System.out.println("  File cache:    " + after.size() + " entries");
                         System.out.println("Done in " + elapsed + "ms");
@@ -374,8 +376,10 @@ public class IndexCommand implements Callable<Integer> {
         stats.put("new_files", summary.newFiles);
         stats.put("deleted_files", summary.deletedFiles);
         stats.put("realigned_dependents", summary.realignedDependents);
-        stats.put("new_nodes", summary.newNodes);
-        stats.put("new_edges", summary.newEdges);
+        stats.put("deleted_nodes", summary.deletedNodes);
+        stats.put("deleted_edges", summary.deletedEdges);
+        stats.put("written_nodes", summary.writtenNodes);
+        stats.put("written_edges", summary.writtenEdges);
         stats.put("file_cache_entries", fileCacheSize);
         stats.put("elapsed_ms", elapsedMs);
 

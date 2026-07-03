@@ -1,6 +1,7 @@
 package com.anatomist.incremental;
 
 import com.anatomist.cli.IndexCommand;
+import com.anatomist.json.Json;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.store.FileCacheService;
 import com.anatomist.store.SqliteStore;
@@ -8,7 +9,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -16,7 +20,10 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -68,6 +75,33 @@ class IncrementalIndexerIT {
         return cmd.call();
     }
 
+    private String runIncrementalOutput(Path project, Path db, String... extraArgs) {
+        String projectSource = String.join(File.pathSeparator,
+                project.resolve("api/src/main/java").toString(),
+                project.resolve("domain/src/main/java").toString(),
+                project.resolve("service/src/main/java").toString());
+
+        IndexCommand cmd = new IndexCommand();
+        java.util.ArrayList<String> args = new java.util.ArrayList<>(List.of(
+                project.toString(),
+                "--project-source", projectSource,
+                "--no-classpath",
+                "--output", db.toString(),
+                "--incremental"));
+        args.addAll(List.of(extraArgs));
+        new CommandLine(cmd).parseArgs(args.toArray(String[]::new));
+
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+        PrintStream original = System.out;
+        try {
+            System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
+            assertEquals(0, cmd.call());
+        } finally {
+            System.setOut(original);
+        }
+        return stdout.toString(StandardCharsets.UTF_8);
+    }
+
     @Test
     void testIncrementalModifyFile(@TempDir Path tmp) throws Exception {
         Path project = setupFixtureCopy(tmp);
@@ -80,7 +114,13 @@ class IncrementalIndexerIT {
         String original = Files.readString(osvc);
         Files.writeString(osvc, original + "\n// touched\n");
 
-        assertEquals(0, runIncremental(project, db));
+        String stdout = runIncrementalOutput(project, db);
+        assertPositive(stdout, "Deleted nodes:");
+        assertPositive(stdout, "Deleted edges:");
+        assertPositive(stdout, "Written nodes:");
+        assertPositive(stdout, "Written edges:");
+        assertFalse(stdout.contains("New nodes:"), stdout);
+        assertFalse(stdout.contains("New edges:"), stdout);
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
@@ -104,7 +144,14 @@ class IncrementalIndexerIT {
         Path newFile = project.resolve("service/src/main/java/com/example/shop/service/NewSvc.java");
         Files.writeString(newFile, "package com.example.shop.service; public class NewSvc {}");
 
-        assertEquals(0, runIncremental(project, db));
+        String stdout = runIncrementalOutput(project, db);
+        assertEquals(0, metric(stdout, "Deleted nodes:"));
+        // Generated wiring edges are globally replaced during each incremental pass.
+        // Adding a file can therefore report deleted edges even when no source nodes
+        // were removed.
+        metric(stdout, "Deleted edges:");
+        assertPositive(stdout, "Written nodes:");
+        assertFalse(stdout.contains("New nodes:"), stdout);
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
@@ -129,7 +176,10 @@ class IncrementalIndexerIT {
         }
 
         Files.delete(removable);
-        assertEquals(0, runIncremental(project, db));
+        String stdout = runIncrementalOutput(project, db);
+        assertPositive(stdout, "Deleted nodes:");
+        assertEquals(0, metric(stdout, "Written nodes:"));
+        assertFalse(stdout.contains("New nodes:"), stdout);
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
@@ -214,6 +264,27 @@ class IncrementalIndexerIT {
     }
 
     @Test
+    void incrementalJsonReportsDeletedAndWrittenRowsOnly(@TempDir Path tmp) throws Exception {
+        Path project = setupFixtureCopy(tmp);
+        Path db = tmp.resolve("index.db");
+        assertEquals(0, runFullIndex(project, db));
+
+        Path osvc = project.resolve("service/src/main/java/com/example/shop/service/OrderService.java");
+        Files.writeString(osvc, Files.readString(osvc) + "\n// json touched\n");
+
+        String stdout = runIncrementalOutput(project, db, "--format", "json");
+        assertFalse(stdout.contains("\"new_nodes\""), stdout);
+        assertFalse(stdout.contains("\"new_edges\""), stdout);
+
+        Map<?, ?> json = (Map<?, ?>) Json.parseTree(stdout);
+        Map<?, ?> stats = (Map<?, ?>) json.get("stats");
+        assertTrue(((Number) stats.get("deleted_nodes")).intValue() > 0, stdout);
+        assertTrue(((Number) stats.get("deleted_edges")).intValue() > 0, stdout);
+        assertTrue(((Number) stats.get("written_nodes")).intValue() > 0, stdout);
+        assertTrue(((Number) stats.get("written_edges")).intValue() > 0, stdout);
+    }
+
+    @Test
     void incrementalIndexesNewSpringBean(@TempDir Path tmp) throws Exception {
         Path project = setupFixtureCopy(tmp);
         Path db = tmp.resolve("index.db");
@@ -291,6 +362,17 @@ class IncrementalIndexerIT {
             assertTrue(rs.next());
             return rs.getInt(1);
         }
+    }
+
+    private static void assertPositive(String stdout, String label) {
+        assertTrue(metric(stdout, label) > 0, "Expected positive " + label + " in:\n" + stdout);
+    }
+
+    private static int metric(String stdout, String label) {
+        Pattern pattern = Pattern.compile(Pattern.quote(label) + "\\s*(\\d+)");
+        Matcher matcher = pattern.matcher(stdout);
+        assertTrue(matcher.find(), "Missing metric " + label + " in:\n" + stdout);
+        return Integer.parseInt(matcher.group(1));
     }
 
     private static void copyDir(Path src, Path dst) throws Exception {

@@ -32,7 +32,7 @@ public class DoctorCommand implements Callable<Integer> {
         Map<String, Object> out = new java.util.LinkedHashMap<>();
         out.put("command", "doctor");
         out.put("status", "ok");
-        out.put("version", "anatomist 0.1.0");
+        out.put("version", BuildVersion.display());
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("default_index_path", defaultPath.toString());
         out.put("index_path", db.toString());
@@ -61,7 +61,7 @@ public class DoctorCommand implements Callable<Integer> {
         if ("json".equalsIgnoreCase(format)) {
             System.out.println(Json.writePretty(out));
         } else {
-            System.out.println("anatomist 0.1.0");
+            System.out.println(BuildVersion.display());
             System.out.println("Index: " + db + (exists ? " (exists)" : " (missing)"));
             System.out.println("Schema: " + FileCacheService.CURRENT_SCHEMA_VERSION);
         }

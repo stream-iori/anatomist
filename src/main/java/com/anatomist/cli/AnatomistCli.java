@@ -7,7 +7,7 @@ import picocli.CommandLine.HelpCommand;
 @Command(
         name = "anatomist",
         mixinStandardHelpOptions = true,
-        version = "anatomist 0.1.0",
+        versionProvider = BuildVersionProvider.class,
         description = "Java code intelligence tool — indexes source into SQLite for structural/semantic queries.",
         header = {
                 "",

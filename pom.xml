@@ -6,7 +6,7 @@
 
     <groupId>com.antcodes.anatomist</groupId>
     <artifactId>anatomist</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>${revision}${changelist}</version>
     <packaging>jar</packaging>
 
     <name>anatomist</name>
@@ -15,6 +15,8 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
+        <revision>0.2.0</revision>
+        <changelist>-SNAPSHOT</changelist>
 
         <javaparser.version>3.28.1</javaparser.version>
         <sqlite.version>3.47.0.0</sqlite.version>
@@ -74,7 +76,31 @@
 
     <build>
         <finalName>anatomist</finalName>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>anatomist-version.properties</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>anatomist-version.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <configuration>
+                    <propertiesEncoding>${project.build.sourceEncoding}</propertiesEncoding>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

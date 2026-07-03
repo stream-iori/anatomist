@@ -91,7 +91,32 @@ Monitor source tree, report or auto-index changes.
 
 ```bash
 anatomist watch <project-path> [--auto-index] [--debounce-ms 500]
+anatomist watch <project-path> --auto-index --output <db> \
+  --project-source <paths> [--spring-xml] [--no-classpath|--classpath <jars>]
 ```
+
+Use `watch` to keep an existing index fresh while editing. It is a file-change
+watcher, not a runtime tracer.
+
+| Case | Behavior |
+|---|---|
+| No `--auto-index` | Print `CREATE` / `MODIFY` / `DELETE` events only. |
+| Source change with `--auto-index` | Run `index --incremental` against the same DB. |
+| Build-file change (`pom.xml`, Gradle settings) | Run a full re-index because source roots/classpath may have changed. |
+| Incremental cannot be trusted | `index --incremental` degrades to full, for example empty cache, schema mismatch, or too-large realign closure. |
+
+For complex projects, pass the same indexing shape used for the initial index:
+
+| Initial index flag | Matching watch flag |
+|---|---|
+| `--output <db>` | Always reuse the same `--output <db>`. |
+| `--project-source <paths>` | Reuse it for multi-module or non-standard source roots. |
+| `--spring-xml` | Reuse it when Spring XML `<beans>` should stay indexed as `WIRES` facts. |
+| `--no-classpath` / `--classpath <jars>` | Reuse the same classpath policy so type resolution stays comparable. |
+| `--java-version <N>` | Reuse it when the project is not detected correctly. |
+
+`watch` keeps static anatomist facts current. It does not prove that a route,
+branch, callback, bean profile, or runtime path actually executed.
 
 ## Query Phase
 

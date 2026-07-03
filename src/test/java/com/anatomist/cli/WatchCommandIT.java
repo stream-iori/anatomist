@@ -115,6 +115,10 @@ class WatchCommandIT {
                 "stdout should reflect change event; got:\n" + stdout);
         assertTrue(stdout.contains("Indexed") || stdout.contains("incremental"),
                 "stdout should reflect incremental index result; got:\n" + stdout);
+        assertTrue(stdout.contains("Written nodes:"),
+                "stdout should report written graph rows; got:\n" + stdout);
+        assertFalse(stdout.contains("New nodes:"),
+                "stdout should not use misleading New nodes label; got:\n" + stdout);
     }
 
     @Test

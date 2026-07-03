@@ -36,6 +36,9 @@ else
 fi
 
 echo "==> Running mvn -Pnative -DskipTests package inside the builder"
+if [[ -n "${ANATOMIST_MAVEN_ARGS:-}" ]]; then
+    echo "==> Extra Maven args: ${ANATOMIST_MAVEN_ARGS}"
+fi
 # Maven cache: use a project-local cache so we don't fight with host ~/.m2 paths
 # (host settings.xml may pin a macOS-only <localRepository>). The cache survives
 # across runs at .m2-cache/.
@@ -44,8 +47,9 @@ docker run --rm --platform linux/amd64 \
     -v "$ROOT:/workspace" \
     -v "$ROOT/.m2-cache:/home/anatomist/.m2" \
     -w /workspace \
+    -e ANATOMIST_MAVEN_ARGS="${ANATOMIST_MAVEN_ARGS:-}" \
     "$IMAGE_TAG" \
-    bash -c "mvn -Pnative -DskipTests package && file target/anatomist && ls -la target/anatomist"
+    bash -c "mvn -Pnative -DskipTests package \${ANATOMIST_MAVEN_ARGS} && file target/anatomist && ls -la target/anatomist"
 
 echo
 echo "==> Artifact:"

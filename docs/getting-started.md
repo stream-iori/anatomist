@@ -136,6 +136,22 @@ Key flags:
 - `--no-classpath` — skip Maven dependency resolution (faster, loses external type info)
 - `--output` — SQLite database path (default: `.anatomist/index.db`)
 - `--incremental` — only re-parse changed files
+- `--spring-xml` — include Spring XML `<beans>` wiring facts
+
+To keep the index fresh while editing, use `watch --auto-index` with the same
+indexing shape as the initial command:
+
+```bash
+anatomist watch fixtures/mini-spring-shop \
+    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
+    --no-classpath \
+    --output /tmp/shop.db \
+    --auto-index
+```
+
+For Spring XML projects, add `--spring-xml` to both `index` and `watch`.
+`watch` keeps the static index current; it does not prove a runtime path
+actually executed.
 
 ## Query the index
 

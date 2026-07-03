@@ -37,16 +37,20 @@ jobs:
           cache: maven
 
       - name: Build shaded jar
-        run: mvn -q -DskipTests package
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          mvn -q -DskipTests -Drevision="${version}" -Dchangelist= package
 
       - name: Stage assets
         run: |
           set -euo pipefail
+          version="${RELEASE_TAG#v}"
           mkdir -p release-assets
           cp target/anatomist.jar release-assets/anatomist.jar
           cp install.sh release-assets/install.sh
           cp SKILL.md release-assets/SKILL.md
-          java -jar release-assets/anatomist.jar --version
+          test "$(java -jar release-assets/anatomist.jar --version)" = "anatomist ${version}"
 
       - name: Upload jar/static assets
         uses: actions/upload-artifact@v7
@@ -79,17 +83,21 @@ jobs:
           cache: maven
 
       - name: Build native binary
-        run: mvn -Pnative -DskipTests package
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          mvn -Pnative -DskipTests -Drevision="${version}" -Dchangelist= package
 
       - name: Stage macOS binary
         run: |
           set -euo pipefail
+          version="${RELEASE_TAG#v}"
           mkdir -p release-assets
           cp target/anatomist release-assets/anatomist-darwin-aarch64
           xattr -cr release-assets/anatomist-darwin-aarch64 2>/dev/null || true
           codesign --force --sign - release-assets/anatomist-darwin-aarch64 2>/dev/null || true
           file release-assets/anatomist-darwin-aarch64
-          release-assets/anatomist-darwin-aarch64 --version
+          test "$(release-assets/anatomist-darwin-aarch64 --version)" = "anatomist ${version}"
 
       - name: Upload macOS asset
         uses: actions/upload-artifact@v7
@@ -112,15 +120,19 @@ jobs:
       - name: Build native binary in CentOS 7 container
         env:
           ANATOMIST_LINUX_BASE_IMAGE: docker.io/library/centos:centos7.9.2009
-        run: ./docker/build-linux-amd64.sh
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          ANATOMIST_MAVEN_ARGS="-Drevision=${version} -Dchangelist=" ./docker/build-linux-amd64.sh
 
       - name: Stage Linux binary
         run: |
           set -euo pipefail
+          version="${RELEASE_TAG#v}"
           mkdir -p release-assets
           cp target/anatomist release-assets/anatomist-linux-amd64
           file release-assets/anatomist-linux-amd64
-          release-assets/anatomist-linux-amd64 --version
+          test "$(release-assets/anatomist-linux-amd64 --version)" = "anatomist ${version}"
 
       - name: Upload Linux asset
         uses: actions/upload-artifact@v7

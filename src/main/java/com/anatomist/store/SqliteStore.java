@@ -124,6 +124,11 @@ public class SqliteStore implements IndexWriter {
     public Set<String> dependentsOf(List<String> seed) { return reader.dependentsOf(seed); }
     public Set<String> allNodeIds() { return reader.allNodeIds(); }
     public Map<String, FileCacheService.SourceFileStats> sourceFileStats() { return reader.sourceFileStats(); }
+    public FileCacheService.SourceFileStats countRowsDeletedBySourceFiles(List<String> sourceFiles) {
+        return reader.countRowsDeletedBySourceFiles(sourceFiles);
+    }
+    public FileCacheService.SourceFileStats countSpringBeanGraphRows() { return reader.countSpringBeanGraphRows(); }
+    public int countGeneratedWiringEdges() { return reader.countGeneratedWiringEdges(); }
     public List<Edge> readWiringSourceEdges() { return reader.readWiringSourceEdges(); }
     public Map<String, Long> queryKindCounts() { return reader.queryKindCounts(); }
     public Map<String, Long> queryRelationCounts() { return reader.queryRelationCounts(); }

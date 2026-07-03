@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -123,6 +124,53 @@ public class DataReader {
         return out;
     }
 
+    public FileCacheService.SourceFileStats countRowsDeletedBySourceFiles(List<String> sourceFiles) {
+        if (sourceFiles == null || sourceFiles.isEmpty()) {
+            return new FileCacheService.SourceFileStats(0, 0);
+        }
+        String placeholders = String.join(",", Collections.nCopies(sourceFiles.size(), "?"));
+        String nodeSql = "SELECT COUNT(*) FROM nodes WHERE source_file IN (" + placeholders + ")";
+        String edgeSql = "SELECT COUNT(DISTINCT e.id) FROM edges e "
+                + "WHERE e.source_id IN (SELECT id FROM nodes WHERE source_file IN (" + placeholders + ")) "
+                + "OR e.target_id IN (SELECT id FROM nodes WHERE source_file IN (" + placeholders + "))";
+        try {
+            int nodes = countWithBindings(nodeSql, sourceFiles);
+            List<String> edgeBindings = new ArrayList<>(sourceFiles);
+            edgeBindings.addAll(sourceFiles);
+            int edges = countWithBindings(edgeSql, edgeBindings);
+            return new FileCacheService.SourceFileStats(nodes, edges);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to count graph rows by source_file", e);
+        }
+    }
+
+    public FileCacheService.SourceFileStats countSpringBeanGraphRows() {
+        String beanPredicate = "kind='" + GraphConstants.Kind.BEAN + "' AND source_file LIKE '%.xml'";
+        String nodeSql = "SELECT COUNT(*) FROM nodes WHERE " + beanPredicate;
+        String edgeSql = "SELECT COUNT(DISTINCT e.id) FROM edges e "
+                + "WHERE e.relation='" + GraphConstants.Relation.WIRES + "' "
+                + "OR e.source_id IN (SELECT id FROM nodes WHERE " + beanPredicate + ") "
+                + "OR e.target_id IN (SELECT id FROM nodes WHERE " + beanPredicate + ")";
+        try {
+            return new FileCacheService.SourceFileStats(count(nodeSql), count(edgeSql));
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to count Spring bean graph rows", e);
+        }
+    }
+
+    public int countGeneratedWiringEdges() {
+        String sql = "SELECT COUNT(*) FROM edges WHERE metadata LIKE ? OR metadata LIKE ?";
+        try (PreparedStatement ps = conn().prepareStatement(sql)) {
+            ps.setString(1, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"%");
+            ps.setString(2, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\"%");
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to count generated wiring edges", e);
+        }
+    }
+
     public List<Edge> readWiringSourceEdges() {
         Connection c = conn();
         try {
@@ -199,6 +247,24 @@ public class DataReader {
             return rs.next() ? rs.getLong(1) : 0;
         } catch (SQLException e) {
             throw new RuntimeException("Failed to query semantic annotation count", e);
+        }
+    }
+
+    private int count(String sql) throws SQLException {
+        try (Statement st = conn().createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            return rs.next() ? rs.getInt(1) : 0;
+        }
+    }
+
+    private int countWithBindings(String sql, List<String> bindings) throws SQLException {
+        try (PreparedStatement ps = conn().prepareStatement(sql)) {
+            for (int i = 0; i < bindings.size(); i++) {
+                ps.setString(i + 1, bindings.get(i));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
         }
     }
 

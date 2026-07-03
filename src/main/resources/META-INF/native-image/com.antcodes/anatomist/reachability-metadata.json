@@ -8,6 +8,15 @@
       "type": "com.anatomist.cli.AnatomistCli"
     },
     {
+      "type": "com.anatomist.cli.BuildVersionProvider",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "com.anatomist.cli.AnnotateCommand"
     },
     {

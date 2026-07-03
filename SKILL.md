@@ -30,6 +30,7 @@ Index rules:
 | Spring annotations matter | Avoid `--no-classpath` when possible. |
 | Spring XML matters | Add `--spring-xml` so XML beans become `WIRES` facts. |
 | Re-index current work | Prefer `--incremental` against the same DB. |
+| Keep index fresh while editing | Use `watch --auto-index` with the same `--output`, `--project-source`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
 | Stale or risky DB | Use `--recreate`. |
 | Need exact snapshot | Inspect `project_meta` for `source_root`, `indexed_at`, `source_git_commit`, `source_git_dirty`. |
 
@@ -59,7 +60,7 @@ architecture, inspect framework wiring, and verify evidence freshness.
 | Field relation | "Who holds Foo / who reads this field?" | `used-by <Foo>` filtered to `context=field_type`; `field-access <Owner>#<field>` | Composition and READS/WRITES are different facts. |
 | Architecture map | "How do packages/layers depend?" | `overview --deps-only`; `deps-of <anchor>`; `used-by <anchor>` | State the architecture rule before calling something a smell. |
 | Framework wiring | "How is Spring wired?" | `deps-of` / `used-by`, inspect `INJECTS`, `WIRES`, `DEFINED_BY` | Completeness depends on classpath and `--spring-xml`. |
-| Evidence hygiene | "Is this index current / keep it fresh?" | `doctor --format json`; query `project_meta`; `watch <root> --auto-index --output <db>` | Report index freshness and stop watch processes when no longer needed. |
+| Evidence hygiene | "Is this index current / keep it fresh?" | `doctor --format json`; query `project_meta`; `watch <root> --auto-index --output <db>` plus the original index flags | Report index freshness; watch keeps static facts fresh, not runtime execution proof; stop watch processes when no longer needed. |
 
 ## Task details
 
@@ -129,6 +130,35 @@ anatomist context <node> --enrich --with-docs --index <db>
 
 Say "under the user-provided `*Settlement*` rule, these matched." Treat docs as
 supporting evidence, not source behavior.
+
+### Evidence freshness and watch
+
+Use `watch` only when the task benefits from a live static index during editing
+or code generation. Do not start it for a one-off query.
+
+```bash
+anatomist watch <root> --auto-index --output <db> \
+  --project-source <same-as-index> \
+  [--spring-xml] [--no-classpath|--classpath <same-as-index>] \
+  [--java-version <same-as-index>]
+```
+
+Rules:
+
+| Case | Action |
+|---|---|
+| Initial index used `--project-source` | Pass the same value to `watch`; otherwise multi-module or custom roots can drift. |
+| Initial index used `--spring-xml` | Pass `--spring-xml` to `watch`; otherwise XML bean edits will not stay in `WIRES` evidence. |
+| Initial index used `--no-classpath` or `--classpath` | Reuse the same classpath policy so unresolved/type-resolution behavior stays comparable. |
+| Build file changed | Expect `watch --auto-index` to trigger a full re-index, because source roots or classpath may have changed. |
+| User asks "did this run online?" | `watch` is not enough; ask for logs, traces, metrics, or runtime evidence. |
+
+Explain the boundary as:
+
+```text
+watch keeps the anatomist static index current.
+It does not prove that a route, branch, callback, profile, or runtime path executed.
+```
 
 ## Evidence interpretation
 

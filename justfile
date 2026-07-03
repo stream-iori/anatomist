@@ -383,21 +383,90 @@ bench-startup: index-fixture jar
 
 # ─────────────────────────────────────────── release ──────────────────────────────────────────
 
-# Cut a release: build native, copy to release-dist/, commit, tag, bump to next SNAPSHOT.
-# Usage: just release        (uses version from pom.xml, e.g. 0.1.0-SNAPSHOT -> v0.1.0)
-#        just release 0.2.0  (override version explicitly)
-release VERSION="":
+# Print the Maven project version after CI-friendly version interpolation.
+version:
+    mvn -q help:evaluate -Dexpression=project.version -DforceStdout
+
+# Build a release-version macOS native binary without changing pom.xml.
+release-native VERSION:
     #!/usr/bin/env bash
-    set -euo pipefail
+    set -eo pipefail
     export SDKMAN_DIR="${HOME}/.sdkman"
     source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
     sdk use java 25.0.3-graal || true
+    set -u
+
+    REL_VERSION="{{VERSION}}"
+    if ! echo "$REL_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        echo "ERROR: Invalid version '$REL_VERSION'. Must be semver (e.g. 0.1.0)"
+        exit 1
+    fi
+
+    mvn -Pnative -DskipTests -Drevision="${REL_VERSION}" -Dchangelist= package
+    {{NATIVE_BIN}} --version | grep -Fx "anatomist ${REL_VERSION}"
+    echo
+    file {{NATIVE_BIN}}
+    ls -lh {{NATIVE_BIN}}
+
+# Separate from `release` and GitHub Release publishing; run only when the internal mirror should update.
+# Manually upload a release-version macOS native binary + static files to the internal dist-bin mirror.
+release-upload VERSION:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    REL_VERSION="{{VERSION}}"
+    if ! echo "$REL_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        echo "ERROR: Invalid version '$REL_VERSION'. Must be semver (e.g. 0.1.0)"
+        exit 1
+    fi
+
+    just release-native "$REL_VERSION"
+    just upload-dist-files
+
+    test -x "{{NATIVE_BIN}}"
+    echo "Uploading {{NATIVE_BIN}}"
+    echo "  version: ${REL_VERSION}"
+    echo "  mode: {{UPLOAD_MODE}}"
+    echo "  PUT:  {{UPLOAD_BASE}}/{{DIST_NAME}}"
+    echo "  POST: {{UPLOAD_BASE}} (field={{UPLOAD_FIELD}}, filename={{DIST_NAME}})"
+    echo "  GET: {{DIST_BASE}}/{{DIST_NAME}}"
+    case "{{UPLOAD_MODE}}" in
+      put)
+        curl --noproxy '*' \
+            --retry 3 --retry-all-errors \
+            --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+            -fT "{{NATIVE_BIN}}" "{{UPLOAD_BASE}}/{{DIST_NAME}}"
+        ;;
+      post|multipart)
+        curl --noproxy '*' \
+            --retry 3 --retry-all-errors \
+            --connect-timeout 10 --speed-time 30 --speed-limit 1024 \
+            -F "{{UPLOAD_FIELD}}=@{{NATIVE_BIN}};filename={{DIST_NAME}}" "{{UPLOAD_BASE}}"
+        ;;
+      *)
+        echo "ERROR: unsupported ANATOMIST_UPLOAD_MODE={{UPLOAD_MODE}} (use put or post)"
+        exit 2
+        ;;
+    esac
+    echo
+    curl --noproxy '*' -fsSI "{{DIST_BASE}}/{{DIST_NAME}}" | sed -n '1,8p'
+
+# Cut a git release tag, then bump <revision> to the next SNAPSHOT line.
+# Usage: just release        (uses <revision>, e.g. 0.1.0 -> v0.1.0)
+#        just release 0.2.0  (override version explicitly)
+release VERSION="":
+    #!/usr/bin/env bash
+    set -eo pipefail
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
+    set -u
 
     # Determine release version
     if [[ -n "{{VERSION}}" ]]; then
         REL_VERSION="{{VERSION}}"
     else
-        REL_VERSION=$(grep '<version>' pom.xml | head -1 | sed 's/.*<version>//;s/<\/version>.*//' | sed 's/-SNAPSHOT//')
+        REL_VERSION=$(grep '<revision>' pom.xml | head -1 | sed 's/.*<revision>//;s/<\/revision>.*//')
     fi
 
     # Validate semver format
@@ -408,13 +477,15 @@ release VERSION="":
 
     echo "=== Releasing v${REL_VERSION} ==="
 
-    # Update pom.xml to release version
-    sed -i '' "0,/<version>.*<\/version>/s|<version>.*</version>|<version>${REL_VERSION}</version>|" pom.xml
-    echo "  pom.xml -> ${REL_VERSION}"
+    # Record the release revision in the tagged commit. The default changelist
+    # stays -SNAPSHOT; release builds pass -Dchangelist= explicitly.
+    sed -i '' "0,/<revision>.*<\/revision>/s|<revision>.*</revision>|<revision>${REL_VERSION}</revision>|" pom.xml
+    echo "  pom.xml revision -> ${REL_VERSION}"
 
-    # Build native
+    # Build release-version native.
     echo "  Building native binary..."
-    mvn -Pnative -DskipTests package -q
+    mvn -Pnative -DskipTests -Drevision="${REL_VERSION}" -Dchangelist= package -q
+    {{NATIVE_BIN}} --version | grep -Fx "anatomist ${REL_VERSION}"
 
     # Copy to release-dist
     mkdir -p release-dist
@@ -430,10 +501,11 @@ release VERSION="":
     # Bump to next SNAPSHOT
     IFS='.' read -r MAJOR MINOR PATCH <<< "$REL_VERSION"
     NEXT_VERSION="${MAJOR}.$((MINOR + 1)).0-SNAPSHOT"
-    sed -i '' "0,/<version>.*<\/version>/s|<version>.*</version>|<version>${NEXT_VERSION}</version>|" pom.xml
+    NEXT_REVISION="${MAJOR}.$((MINOR + 1)).0"
+    sed -i '' "0,/<revision>.*<\/revision>/s|<revision>.*</revision>|<revision>${NEXT_REVISION}</revision>|" pom.xml
     git add pom.xml
     git commit -m "chore: bump to ${NEXT_VERSION}"
-    echo "  pom.xml -> ${NEXT_VERSION}"
+    echo "  pom.xml revision -> ${NEXT_REVISION} (${NEXT_VERSION})"
     echo "=== Done. Run 'git push && git push --tags' to publish ==="
 
 # ─────────────────────────────────────────── clean ────────────────────────────────────────────

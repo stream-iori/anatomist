@@ -80,8 +80,10 @@ public class IncrementalIndexer {
         public int changedFiles;
         public int newFiles;
         public int deletedFiles;
-        public int newNodes;
-        public int newEdges;
+        public int deletedNodes;
+        public int deletedEdges;
+        public int writtenNodes;
+        public int writtenEdges;
         public int realignedDependents;
         public boolean degradedToFull;
         public String degradationReason;
@@ -143,6 +145,9 @@ public class IncrementalIndexer {
 
         store.inTransaction(c -> {
             if (!toDelete.isEmpty()) {
+                FileCacheService.SourceFileStats deleted = store.countRowsDeletedBySourceFiles(new ArrayList<>(toDelete));
+                s.deletedNodes += deleted.nodeCount();
+                s.deletedEdges += deleted.edgeCount();
                 store.deleteBySourceFiles(new ArrayList<>(toDelete));
             }
 
@@ -188,6 +193,9 @@ public class IncrementalIndexer {
             ExtractionResult beanResult = new ExtractionResult();
             List<Path> rebuiltXml = new ArrayList<>();
             if (springXml && touchesSpringXml(toReparse, toDelete)) {
+                FileCacheService.SourceFileStats deleted = store.countSpringBeanGraphRows();
+                s.deletedNodes += deleted.nodeCount();
+                s.deletedEdges += deleted.edgeCount();
                 store.deleteSpringBeanGraph();
                 rebuiltXml = new ProjectScanner().scanSpringXml(projectRoot);
                 if (!rebuiltXml.isEmpty()) {
@@ -210,6 +218,7 @@ public class IncrementalIndexer {
             }
 
             List<Edge> generatedWiring = new WiringResolver().resolve(store.readWiringSourceEdges());
+            s.deletedEdges += store.countGeneratedWiringEdges();
             store.replaceGeneratedWiringEdgesInCurrentTransaction(generatedWiring);
 
             // Count nodes/edges per source file in this batch (Java + bean rebuild)
@@ -232,8 +241,8 @@ public class IncrementalIndexer {
                     new ArrayList<>(cacheTargets), diskHashes, perFile, now);
             if (!entries.isEmpty()) store.updateFileCache(entries);
 
-            s.newNodes = result.nodes.size() + beanResult.nodes.size();
-            s.newEdges = result.edges.size() + beanResult.edges.size();
+            s.writtenNodes = result.nodes.size() + beanResult.nodes.size();
+            s.writtenEdges = result.edges.size() + beanResult.edges.size() + generatedWiring.size();
 
             // Dependents were reparsed in this same pass and are now aligned, so the
             // re-derived file_dependencies reflects the new state with nothing stale.
