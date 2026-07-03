@@ -46,6 +46,9 @@
       "type": "com.anatomist.cli.CallersOfCommand"
     },
     {
+      "type": "com.anatomist.cli.BranchesOfCommand"
+    },
+    {
       "type": "com.anatomist.cli.ContextCommand"
     },
     {

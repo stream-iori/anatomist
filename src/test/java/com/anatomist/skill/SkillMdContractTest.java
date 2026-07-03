@@ -29,6 +29,7 @@ class SkillMdContractTest {
                 "Entry discovery",
                 "Local context",
                 "Forward trace",
+                "Branch/control-flow slice",
                 "Reverse impact",
                 "Type relation",
                 "Field relation",
@@ -43,6 +44,8 @@ class SkillMdContractTest {
                 "implementors-of <type> --recursive",
                 "context=field_type",
                 "field-access",
+                "branches-of",
+                "--in-branch",
                 "project_meta",
                 "source-window",
                 "through-callbacks")) {

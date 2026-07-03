@@ -1,6 +1,7 @@
 package com.anatomist.json;
 
 import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.query.BranchSlice;
 import com.anatomist.query.DtoCodecs;
 import com.anatomist.query.ContextResult;
 import com.anatomist.query.DocSnippet;
@@ -165,6 +166,30 @@ class DtoCodecsTest {
         assertTrue(got.contains("\"results\""), got);
         assertTrue(got.contains("\"stats\""), got);
         assertTrue(got.contains("\"total\" : 1"), got);
+    }
+
+    @Test
+    void branchSlice_usesSnakeCaseAndNestedEdges() {
+        BranchSlice b = new BranchSlice();
+        b.owner = "com.x.A#m()";
+        b.ownerLabel = "m";
+        b.context = "if-then@L12";
+        b.branchKind = "if-then";
+        b.branchLine = 12;
+        EdgeRow call = new EdgeRow();
+        call.source = b.owner;
+        call.target = "com.x.B#run()";
+        call.relation = "CALLS";
+        b.calls.add(call);
+
+        String got = Json.writePretty(b);
+
+        assertTrue(got.contains("\"owner_label\" : \"m\""), got);
+        assertTrue(got.contains("\"branch_kind\" : \"if-then\""), got);
+        assertTrue(got.contains("\"branch_line\" : 12"), got);
+        assertTrue(got.contains("\"calls\" : [ {"), got);
+        assertTrue(got.contains("\"reads\" : [ ]"), got);
+        assertTrue(got.contains("\"writes\" : [ ]"), got);
     }
 
     @Test

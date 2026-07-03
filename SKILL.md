@@ -55,6 +55,7 @@ architecture, inspect framework wiring, and verify evidence freshness.
 | Entry discovery | "Where can requests/messages enter?" | `search --name '*' --kind ROUTE`; `search <Annotation> --by-annotation`; `context <owner>` | Routes, handlers, and annotations are technical entry facts, not business-entry proof. |
 | Local context | "What is in this class/method?" | `context <type-or-method>`; add `--with-callees=N` when useful | Summarize members, annotations, and nearby calls; read source for literals and branches. |
 | Forward trace | "What does this call next / until DB?" | `callees-of <method> --depth N`; `call-path <from> <to> --depth N` | Static path means possible code path, not runtime certainty. |
+| Branch/control-flow slice | "What happens inside this if/else/branch?" | `branches-of <method> --source-window=3`; `callees-of <method> --in-branch --source-window=3`; `field-access <Owner>#<field> --in-branch` | Branch filters use static edge context; they locate branch-contained calls/accesses, not full condition semantics or runtime execution proof. |
 | Reverse impact | "Who uses/calls this repo/type/method?" | `callers-of <method> --depth N`; `used-by <type>` | Separate direct callers from higher-level facade/message entries. |
 | Type relation | "This extends what / who implements it?" | `hierarchy <type>`; `implementors-of <type>`; `implementors-of <type> --recursive` | `hierarchy` is upward only; child/subtype expansion uses `implementors-of`. |
 | Field relation | "Who holds Foo / who reads this field?" | `used-by <Foo>` filtered to `context=field_type`; `field-access <Owner>#<field>` | Composition and READS/WRITES are different facts. |
@@ -86,6 +87,38 @@ anatomist call-path <from-method> <to-method> --depth 8 --source-window=2 --inde
 
 If a path crosses a lambda, anonymous class, template, or callback body, use
 `--through-callbacks` when available and mention `via` when present.
+
+### Branch and control-flow slices
+
+When the user asks about if/else, branch-only behavior, conditional writes, or
+business rules hidden inside branches, combine graph narrowing with source
+windows:
+
+```bash
+anatomist branches-of <method> --depth 3 --source-window=3 --index <db>
+anatomist callees-of <method> --depth 3 --in-branch --source-window=3 --index <db>
+anatomist callers-of <method> --depth 3 --in-branch --source-window=3 --index <db>
+anatomist field-access <Owner>#<field> --mode all --in-branch --index <db>
+anatomist deps-of <type> --in-branch --index <db>
+anatomist used-by <type> --in-branch --index <db>
+```
+
+Use `--in-loop` for loop-contained calls/accesses. Read the returned
+`context` value, such as `if-then@L42`, `if-else@L42`, `case@L50`, or
+`ternary-then@L60`, and cite `source_window` when explaining the rule.
+
+Boundary:
+
+| Fact | Meaning |
+|---|---|
+| `--in-branch` result | The CALLS/READS/WRITES edge is physically inside a branch-like AST block. |
+| `context=if-then@L42` | The edge is inside the then branch of the `if` at line 42. |
+| `branches-of` result | Existing branch-contained CALLS/READS/WRITES grouped by owner method and context. |
+| Source window | Evidence for the condition and surrounding code; the Agent must read it. |
+| Missing result | No indexed edge matched the branch filter; it does not prove no runtime branch exists. |
+
+Do not claim anatomist has built a complete CFG. Current branch support is edge
+filtering by lightweight control context, not a branch/condition graph.
 
 ### Type relation
 
@@ -183,6 +216,7 @@ possible. Page large results with `stats.truncated`, `next_offset`, and
 | Use one fixed command sequence for every task | Route by the IDEA task and inspect command help. |
 | Use `hierarchy` for child/subclass expansion | Use `implementors-of`, with `--recursive` for full closure. |
 | Mix field composition with field access | Use `used-by + context=field_type` for composition, `field-access` for READS/WRITES. |
+| Treat `--in-branch` as full business-rule extraction | Use it to narrow branch-contained edges, then read source windows for conditions. |
 | Stop at `template.execute` or callback container | Try callback traversal if supported. |
 | Trust naming matches as semantics | Mark them as weak signals. |
 | Paste long source files | Use source windows and cite exact file/line. |

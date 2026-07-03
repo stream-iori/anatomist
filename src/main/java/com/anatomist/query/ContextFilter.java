@@ -32,6 +32,10 @@ public final class ContextFilter {
         return out;
     }
 
+    public static boolean isBranchContext(String context) {
+        return context != null && matches(context, false, true);
+    }
+
     private static boolean matches(String context, boolean inLoop, boolean inBranch) {
         for (String seg : context.split(">")) {
             int at = seg.indexOf('@');

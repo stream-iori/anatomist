@@ -43,6 +43,7 @@ public final class DtoCodecs {
         JsonCodecRegistry.register(EnrichResult.class, ENRICH);
         JsonCodecRegistry.register(QueryEnvelope.class, QUERY_ENVELOPE);
         JsonCodecRegistry.register(SemanticAnnotation.class, SEMANTIC_ANNOTATION);
+        JsonCodecRegistry.register(BranchSlice.class, BRANCH_SLICE);
         JsonCodecRegistry.register(PackageStat.class, PACKAGE_STAT);
         JsonCodecRegistry.register(ClassEdge.class, CLASS_EDGE);
         JsonCodecRegistry.register(BlockResult.class, BLOCK_RESULT);
@@ -210,6 +211,24 @@ public final class DtoCodecs {
             return m;
         }
         @Override public QueryEnvelope fromTree(Object tree) { throw new UnsupportedOperationException(); }
+    };
+
+    private static final JsonCodec<BranchSlice> BRANCH_SLICE = new JsonCodec<>() {
+        @Override public Object toTree(BranchSlice b) {
+            Map<String, Object> m = obj();
+            put(m, "owner", b.owner);
+            put(m, "owner_label", b.ownerLabel);
+            put(m, "context", b.context);
+            put(m, "branch_kind", b.branchKind);
+            put(m, "branch_line", b.branchLine);
+            put(m, "source_file", b.sourceFile);
+            put(m, "source_window", b.sourceWindow);
+            put(m, "calls", b.calls);
+            put(m, "reads", b.reads);
+            put(m, "writes", b.writes);
+            return m;
+        }
+        @Override public BranchSlice fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };
 
     private static final JsonCodec<PackageStat> PACKAGE_STAT = new JsonCodec<>() {

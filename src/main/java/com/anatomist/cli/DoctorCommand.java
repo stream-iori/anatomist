@@ -39,12 +39,13 @@ public class DoctorCommand implements Callable<Integer> {
         out.put("index_exists", exists);
         out.put("commands", List.of(
                 "index", "index-docs", "watch", "search", "context", "callees-of",
-                "callers-of", "hierarchy", "implementors-of", "deps-of", "used-by",
+                "callers-of", "branches-of", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline", "export",
                 "annotate", "doctor"));
         out.put("capabilities", List.of(
                 "json-query-output", "index-json-summary",
-                "spring-beans", "spring-mvc-routes", "spring-xml"));
+                "spring-beans", "spring-mvc-routes", "spring-xml",
+                "branch-context-slices"));
 
         if (exists) {
             try (SqliteStore store = new SqliteStore(db)) {

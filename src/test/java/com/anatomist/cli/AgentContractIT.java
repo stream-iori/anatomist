@@ -22,7 +22,7 @@ class AgentContractIT {
     void everySubcommand_acceptsHelp() {
         String[] commands = {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
-                "callers-of", "hierarchy", "implementors-of", "deps-of", "used-by",
+                "callers-of", "branches-of", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline", "export",
                 "annotate", "doctor"
         };
@@ -45,6 +45,8 @@ class AgentContractIT {
         assertEquals(Boolean.TRUE, json.get("index_exists"));
         assertTrue(((List<?>) json.get("commands")).contains("search"));
         assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
+        assertTrue(((List<?>) json.get("commands")).contains("branches-of"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
     }

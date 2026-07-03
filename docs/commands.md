@@ -197,6 +197,18 @@ anatomist call-path <from-fqn> <to-fqn> [--depth N] [--through-callbacks] [--sou
 - `--through-callbacks`: allow the shortest-path BFS to traverse calls made inside anonymous-class / lambda callback bodies. Callback hops keep the outer method as `source` and record the physical body in `via`.
 - `--source-window[=N]`: attach source snippets to each hop. Use it when explaining a concrete end-to-end path.
 
+### `branches-of`
+Group branch-contained `CALLS` / `READS` / `WRITES` for a method.
+
+```bash
+anatomist branches-of <method-fqn> [--depth N] [--through-callbacks] [--source-window[=N]] --index <db>
+anatomist branches-of <method-fqn> --depth 3 --source-window=3 --index <db>
+```
+
+- Reuses existing `edge.context` facts such as `if-then@L42` and `if-else@L42`; it does not build a full CFG.
+- `--source-window[=N]`: attach source snippets around the branch line so Agents can read the condition.
+- `--depth`: include downstream methods reached by the existing `callees-of` traversal.
+
 ### `hierarchy`
 Inheritance chain + interfaces for a type.
 
@@ -305,10 +317,11 @@ Use this progressive path instead of asking for everything at once:
 | 5. Type drill-down | `anatomist context <type> --members-limit 50 --index <db>` |
 | 6. Flow drill-down | `anatomist callees-of <method> --depth 3 --limit 50 --index <db>` |
 | 7. Source-backed proof | `anatomist callees-of <method> --depth 2 --limit 20 --source-window=3 --index <db>` |
+| 8. Branch slice | `anatomist branches-of <method> --depth 3 --source-window=3 --index <db>` |
 
 ## Context Filters
 
-`deps-of`, `used-by`, `field-access` support:
+`callees-of`, `callers-of`, `deps-of`, `used-by`, `field-access` support:
 
 | Flag | Description |
 |------|-------------|

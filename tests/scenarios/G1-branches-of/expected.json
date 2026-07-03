@@ -1,0 +1,70 @@
+{
+  "budget" : {
+    "emitted" : 1,
+    "mode" : "branch_slices",
+    "total" : 1,
+    "truncated" : false
+  },
+  "query" : "branches-of com.example.shop.repository.InMemoryOrderRepository#save --depth 1",
+  "results" : [ {
+    "branch_kind" : "if-then",
+    "branch_line" : 19,
+    "calls" : [ {
+      "call_kind" : "INSTANCE",
+      "confidence" : "EXTRACTED",
+      "context" : "if-then@L19",
+      "depth" : 1,
+      "is_external" : false,
+      "relation" : "CALLS",
+      "source" : "com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+      "source_label" : "save",
+      "source_location" : "L20",
+      "target" : "com.example.shop.domain.entity.Order#setId(java.lang.String)",
+      "target_label" : "setId",
+      "target_qualified_name" : "com.example.shop.domain.entity.Order#setId"
+    }, {
+      "call_kind" : "INSTANCE",
+      "confidence" : "EXTRACTED",
+      "context" : "if-then@L19",
+      "depth" : 1,
+      "external_target_fqn" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()",
+      "is_external" : true,
+      "relation" : "CALLS",
+      "source" : "com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+      "source_label" : "save",
+      "source_location" : "L20"
+    } ],
+    "context" : "if-then@L19",
+    "owner" : "com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+    "owner_label" : "save",
+    "reads" : [ {
+      "confidence" : "EXTRACTED",
+      "context" : "if-then@L19",
+      "depth" : 1,
+      "is_external" : false,
+      "relation" : "READS",
+      "source" : "com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+      "source_label" : "save",
+      "source_location" : "L20",
+      "target" : "com.example.shop.repository.InMemoryOrderRepository#seq",
+      "target_label" : "seq",
+      "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#seq"
+    } ],
+    "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+    "source_window" : {
+      "end_line" : 20,
+      "line" : 19,
+      "path" : "${PROJECT}/fixtures/mini-spring-shop/service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+      "snippet" : "18 |     public Order save(Order order) {\n19 |         if (order.getId() == null) {\n20 |             order.setId(\"ord-\" + seq.incrementAndGet());",
+      "start_line" : 18
+    },
+    "writes" : [ ]
+  } ],
+  "stats" : {
+    "limit" : 50,
+    "max_depth" : 1,
+    "offset" : 0,
+    "total" : 1,
+    "truncated" : false
+  }
+}

@@ -37,6 +37,12 @@ public class SourceWindowService {
         }
     }
 
+    public SourceWindow window(String sourceFile, int line, int contextLines) {
+        Optional<Path> root = readSourceRoot();
+        if (root.isEmpty() || line <= 0) return null;
+        return window(root.get(), sourceFile, "L" + line, contextLines);
+    }
+
     public SourceWindow window(Path sourceRoot, String sourceFile, String sourceLocation, int contextLines) {
         if (sourceRoot == null || sourceFile == null || sourceFile.isBlank()) return null;
         int line = parseLine(sourceLocation);

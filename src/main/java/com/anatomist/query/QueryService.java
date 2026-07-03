@@ -34,6 +34,7 @@ public class QueryService implements AutoCloseable {
     private final OverviewService overview;
     private final EnrichmentService enrichment;
     private final SourceWindowService sourceWindows;
+    private final BranchSliceService branchSlices;
 
     public Connection connection() { return conn; }
 
@@ -53,6 +54,7 @@ public class QueryService implements AutoCloseable {
         this.overview = new OverviewService(conn);
         this.enrichment = new EnrichmentService(conn, resolver, typeContext, overview);
         this.sourceWindows = new SourceWindowService(conn);
+        this.branchSlices = new BranchSliceService(conn, resolver, callGraph, sourceWindows);
     }
 
     @Override
@@ -150,6 +152,13 @@ public class QueryService implements AutoCloseable {
 
     public void attachSourceWindows(List<EdgeRow> rows, int contextLines) {
         sourceWindows.attachToEdges(rows, contextLines);
+    }
+
+    public List<BranchSlice> branchesOf(String methodRef,
+                                        int depth,
+                                        boolean throughCallbacks,
+                                        Integer sourceWindowLines) {
+        return branchSlices.branchesOf(methodRef, depth, throughCallbacks, sourceWindowLines);
     }
 
     // ── Dependencies ────────────────────────────────────────────────────

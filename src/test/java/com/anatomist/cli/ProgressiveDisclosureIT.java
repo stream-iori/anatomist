@@ -154,6 +154,28 @@ class ProgressiveDisclosureIT {
     }
 
     @Test
+    void branchesOfJson_groupsBranchEdgesAndSourceWindow(@TempDir Path tmp) throws Exception {
+        Path db = buildFixtureIndex(tmp);
+
+        RunResult r = runCli("branches-of", "InMemoryOrderRepository#save",
+                "--source-window", "1",
+                "--index", db.toString());
+
+        assertEquals(0, r.exitCode, r.stderr);
+        Map<?, ?> json = asObject(r.stdout);
+        List<?> results = (List<?>) json.get("results");
+        assertFalse(results.isEmpty(), r.stdout);
+        Map<?, ?> branch = (Map<?, ?>) results.get(0);
+        assertEquals("if-then", branch.get("branch_kind"));
+        assertNotNull(branch.get("branch_line"));
+        assertTrue(((String) branch.get("context")).contains("if-then"));
+        assertFalse(((List<?>) branch.get("calls")).isEmpty(), r.stdout);
+        Map<?, ?> window = (Map<?, ?>) branch.get("source_window");
+        assertNotNull(window, "branch source_window should be attached: " + r.stdout);
+        assertTrue(((String) window.get("snippet")).contains("if (order.getId() == null)"));
+    }
+
+    @Test
     void contextJson_reportsAmbiguousTargetInsteadOfPickingFirst(@TempDir Path tmp) throws Exception {
         Path project = tmp.resolve("ambiguous");
         Path src = project.resolve("src/main/java");
@@ -202,6 +224,11 @@ class ProgressiveDisclosureIT {
         assertEquals(0, callees.exitCode, callees.stderr);
         assertTrue(callees.stdout.contains("--filter"));
         assertTrue(callees.stdout.contains("--source-window"));
+
+        RunResult branches = runCli("branches-of", "--help");
+        assertEquals(0, branches.exitCode, branches.stderr);
+        assertTrue(branches.stdout.contains("--source-window"));
+        assertTrue(branches.stdout.contains("--through-callbacks"));
     }
 
     private static Path buildFixtureIndex(Path tmp) throws Exception {
