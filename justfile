@@ -479,7 +479,7 @@ release VERSION="":
 
     # Record the release revision in the tagged commit. The default changelist
     # stays -SNAPSHOT; release builds pass -Dchangelist= explicitly.
-    sed -i '' "0,/<revision>.*<\/revision>/s|<revision>.*</revision>|<revision>${REL_VERSION}</revision>|" pom.xml
+    perl -0pi -e "s|<revision>.*?</revision>|<revision>${REL_VERSION}</revision>|s" pom.xml
     echo "  pom.xml revision -> ${REL_VERSION}"
 
     # Build release-version native.
@@ -502,7 +502,7 @@ release VERSION="":
     IFS='.' read -r MAJOR MINOR PATCH <<< "$REL_VERSION"
     NEXT_VERSION="${MAJOR}.$((MINOR + 1)).0-SNAPSHOT"
     NEXT_REVISION="${MAJOR}.$((MINOR + 1)).0"
-    sed -i '' "0,/<revision>.*<\/revision>/s|<revision>.*</revision>|<revision>${NEXT_REVISION}</revision>|" pom.xml
+    perl -0pi -e "s|<revision>.*?</revision>|<revision>${NEXT_REVISION}</revision>|s" pom.xml
     git add pom.xml
     git commit -m "chore: bump to ${NEXT_VERSION}"
     echo "  pom.xml revision -> ${NEXT_REVISION} (${NEXT_VERSION})"
