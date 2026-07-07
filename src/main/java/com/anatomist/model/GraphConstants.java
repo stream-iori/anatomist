@@ -44,12 +44,22 @@ public final class GraphConstants {
         public static final String METHOD_REF = "METHOD_REF";
         public static final String RECORD = "RECORD";
         public static final String ROUTE = "ROUTE";
+        public static final String XML_CONSTRUCTOR_ARG = "XML_CONSTRUCTOR_ARG";
+        public static final String XML_ENTRY = "XML_ENTRY";
+        public static final String XML_IDREF = "XML_IDREF";
+        public static final String XML_LIST = "XML_LIST";
+        public static final String XML_MAP = "XML_MAP";
+        public static final String XML_NULL = "XML_NULL";
+        public static final String XML_PROPERTY = "XML_PROPERTY";
+        public static final String XML_REF = "XML_REF";
+        public static final String XML_VALUE = "XML_VALUE";
 
         private Kind() {}
     }
 
     public static final class Relation {
         public static final String CALLS = "CALLS";
+        public static final String CONFIGURES = "CONFIGURES";
         public static final String CONTAINS = "CONTAINS";
         public static final String DEFINED_BY = "DEFINED_BY";
         public static final String HANDLES = "HANDLES";
@@ -61,6 +71,8 @@ public final class GraphConstants {
         public static final String REFERENCES = "REFERENCES";
         public static final String WIRES = "WIRES";
         public static final String WRITES = "WRITES";
+        public static final String XML_CONTAINS = "XML_CONTAINS";
+        public static final String XML_REFERS_TO = "XML_REFERS_TO";
 
         private Relation() {}
     }

@@ -28,7 +28,7 @@ Index rules:
 |---|---|
 | Multi-module Maven | Let default discovery find module `src/main/java` roots. |
 | Spring annotations matter | Avoid `--no-classpath` when possible. |
-| Spring XML matters | Add `--spring-xml` so XML beans become `WIRES` facts. |
+| Spring XML matters | Add `--spring-xml` so XML beans and property/map/list/ref config trees become facts. |
 | Re-index current work | Prefer `--incremental` against the same DB. |
 | Keep index fresh while editing | Use `watch --auto-index` with the same `--output`, `--project-source`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
 | Stale or risky DB | Use `--recreate`. |
@@ -60,7 +60,7 @@ architecture, inspect framework wiring, and verify evidence freshness.
 | Type relation | "This extends what / who implements it?" | `hierarchy <type>`; `implementors-of <type>`; `implementors-of <type> --recursive` | `hierarchy` is upward only; child/subtype expansion uses `implementors-of`. |
 | Field relation | "Who holds Foo / who reads this field?" | `used-by <Foo>` filtered to `context=field_type`; `field-access <Owner>#<field>` | Composition and READS/WRITES are different facts. |
 | Architecture map | "How do packages/layers depend?" | `overview --deps-only`; `deps-of <anchor>`; `used-by <anchor>` | State the architecture rule before calling something a smell. |
-| Framework wiring | "How is Spring wired?" | `deps-of` / `used-by`, inspect `INJECTS`, `WIRES`, `DEFINED_BY` | Completeness depends on classpath and `--spring-xml`. |
+| Framework wiring | "How is Spring wired?" | `bean-config <bean> --property <name>` for XML map/list trees; `deps-of` / `used-by` for `INJECTS`, `WIRES`, `DEFINED_BY` | Completeness depends on classpath and `--spring-xml`. |
 | Evidence hygiene | "Is this index current / keep it fresh?" | `doctor --format json`; query `project_meta`; `watch <root> --auto-index --output <db>` plus the original index flags | Report index freshness; watch keeps static facts fresh, not runtime execution proof; stop watch processes when no longer needed. |
 
 ## Task details
@@ -164,6 +164,20 @@ anatomist context <node> --enrich --with-docs --index <db>
 Say "under the user-provided `*Settlement*` rule, these matched." Treat docs as
 supporting evidence, not source behavior.
 
+### Spring XML config trees
+
+When Spring XML contains business structure in `property`, `constructor-arg`,
+`map`, `list`, `entry`, `ref`, `value`, `null`, or `idref`, query it directly:
+
+```bash
+anatomist bean-config FilterRegistry --property filters --index <db>
+anatomist bean-config FilterRegistry --property filters --format json --index <db>
+```
+
+Use this for ordered filter chains such as `flowType -> stage -> filters`.
+`WIRES` is still useful for class dependency impact, but it does not preserve
+map keys, list order, or nesting.
+
 ### Evidence freshness and watch
 
 Use `watch` only when the task benefits from a live static index during editing
@@ -181,7 +195,7 @@ Rules:
 | Case | Action |
 |---|---|
 | Initial index used `--project-source` | Pass the same value to `watch`; otherwise multi-module or custom roots can drift. |
-| Initial index used `--spring-xml` | Pass `--spring-xml` to `watch`; otherwise XML bean edits will not stay in `WIRES` evidence. |
+| Initial index used `--spring-xml` | Pass `--spring-xml` to `watch`; otherwise XML bean edits will not stay in `WIRES` evidence or XML config trees. |
 | Initial index used `--no-classpath` or `--classpath` | Reuse the same classpath policy so unresolved/type-resolution behavior stays comparable. |
 | Build file changed | Expect `watch --auto-index` to trigger a full re-index, because source roots or classpath may have changed. |
 | User asks "did this run online?" | `watch` is not enough; ask for logs, traces, metrics, or runtime evidence. |

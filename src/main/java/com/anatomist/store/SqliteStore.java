@@ -123,6 +123,7 @@ public class SqliteStore implements IndexWriter {
     public Optional<String> readProjectMeta(String key) { return reader.readProjectMeta(key); }
     public Set<String> dependentsOf(List<String> seed) { return reader.dependentsOf(seed); }
     public Set<String> allNodeIds() { return reader.allNodeIds(); }
+    public Map<String, String> readBeanClassTargets() { return reader.readBeanClassTargets(); }
     public Map<String, FileCacheService.SourceFileStats> sourceFileStats() { return reader.sourceFileStats(); }
     public FileCacheService.SourceFileStats countRowsDeletedBySourceFiles(List<String> sourceFiles) {
         return reader.countRowsDeletedBySourceFiles(sourceFiles);

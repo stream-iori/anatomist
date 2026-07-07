@@ -22,7 +22,7 @@ class AgentContractIT {
     void everySubcommand_acceptsHelp() {
         String[] commands = {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
-                "callers-of", "branches-of", "hierarchy", "implementors-of", "deps-of", "used-by",
+                "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline", "export",
                 "annotate", "doctor"
         };
@@ -46,9 +46,34 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("commands")).contains("search"));
         assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
         assertTrue(((List<?>) json.get("commands")).contains("branches-of"));
+        assertTrue(((List<?>) json.get("commands")).contains("bean-config"));
         assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
+    }
+
+    @Test
+    void beanConfigJson_reportsSpringXmlConfigTree(@TempDir Path tmp) throws Exception {
+        Path db = buildFixtureIndex(tmp, true);
+
+        RunResult r = runCli("bean-config", "orderService",
+                "--property", "eventPublisher",
+                "--format", "json",
+                "--index", db.toString());
+        assertEquals(0, r.exitCode, r.stderr);
+        Map<?, ?> json = asObject(r.stdout);
+        List<?> results = (List<?>) json.get("results");
+        assertFalse(results.isEmpty());
+        Map<?, ?> bean = (Map<?, ?>) results.get(0);
+        List<?> children = (List<?>) bean.get("children");
+        assertEquals(1, children.size());
+        Map<?, ?> property = (Map<?, ?>) children.get(0);
+        assertEquals("property", property.get("xmlKind"));
+        assertEquals("eventPublisher", property.get("name"));
+        List<?> refs = (List<?>) property.get("children");
+        assertEquals("ref", ((Map<?, ?>) refs.get(0)).get("xmlKind"));
+        assertEquals("orderEventPublisher", ((Map<?, ?>) refs.get(0)).get("bean"));
     }
 
     @Test

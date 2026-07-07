@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test;
 
 import java.io.StringReader;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -30,7 +29,7 @@ class SpringBeanParserTest {
         SpringBeanParser.ParsedBean b = beans.get(0);
         assertEquals("orderSvc", b.name());
         assertEquals("com.example.OrderService", b.className());
-        assertTrue(b.refs().isEmpty());
+        assertTrue(b.children().isEmpty());
     }
 
     @Test
@@ -46,7 +45,7 @@ class SpringBeanParserTest {
     }
 
     @Test
-    void harvestsPropertyAndConstructorArgRefs() {
+    void parsesPropertyAndConstructorArgRefs() {
         List<SpringBeanParser.ParsedBean> beans = parse(
                 "<beans xmlns='http://www.springframework.org/schema/beans'>"
                         + "<bean id='svc' class='com.example.OrderService'>"
@@ -58,20 +57,56 @@ class SpringBeanParserTest {
                         + "</beans>");
         SpringBeanParser.ParsedBean svc = beans.stream()
                 .filter(b -> b.name().equals("svc")).findFirst().orElseThrow();
-        assertEquals(List.of("orderRepo", "clock"),
-                svc.refs().stream().sorted(java.util.Comparator.comparingInt(
-                        r -> r.equals("orderRepo") ? 0 : 1)).collect(Collectors.toList()));
+        assertEquals(2, svc.children().size());
+        assertEquals("property", svc.children().get(0).kind);
+        assertEquals("repo", svc.children().get(0).name);
+        assertEquals("ref", svc.children().get(0).children.get(0).kind);
+        assertEquals("orderRepo", svc.children().get(0).children.get(0).bean);
+        assertEquals("constructor-arg", svc.children().get(1).kind);
+        assertEquals(0, svc.children().get(1).index);
+        assertEquals("clock", svc.children().get(1).children.get(0).bean);
     }
 
     @Test
-    void harvestsRefAttributeOnPropertyValue() {
+    void parsesNestedMapListRefsWithKeyAndOrder() {
         List<SpringBeanParser.ParsedBean> beans = parse(
                 "<beans xmlns='http://www.springframework.org/schema/beans'>"
                         + "<bean id='a' class='com.example.A'>"
-                        + "  <property name='b'><ref bean='bBean'/></property>"
+                        + "  <property name='filters'>"
+                        + "    <map><entry key='DEFAULT'><list>"
+                        + "      <ref bean='first'/><ref bean='second'/>"
+                        + "    </list></entry></map>"
+                        + "  </property>"
                         + "</bean>"
                         + "</beans>");
-        assertEquals(List.of("bBean"), beans.get(0).refs());
+        SpringBeanParser.XmlConfigNode property = beans.get(0).children().get(0);
+        SpringBeanParser.XmlConfigNode map = property.children.get(0);
+        SpringBeanParser.XmlConfigNode entry = map.children.get(0);
+        SpringBeanParser.XmlConfigNode list = entry.children.get(0);
+        assertEquals("filters", property.name);
+        assertEquals("map", map.kind);
+        assertEquals("DEFAULT", entry.key);
+        assertEquals("list", list.kind);
+        assertEquals("first", list.children.get(0).bean);
+        assertEquals(0, list.children.get(0).index);
+        assertEquals("second", list.children.get(1).bean);
+        assertEquals(1, list.children.get(1).index);
+    }
+
+    @Test
+    void parsesValueNullAndIdref() {
+        List<SpringBeanParser.ParsedBean> beans = parse(
+                "<beans xmlns='http://www.springframework.org/schema/beans'>"
+                        + "<bean id='a' class='com.example.A'>"
+                        + "  <property name='name'><value>alpha</value></property>"
+                        + "  <property name='empty'><null/></property>"
+                        + "  <constructor-arg><idref bean='other'/></constructor-arg>"
+                        + "</bean>"
+                        + "</beans>");
+        assertEquals("alpha", beans.get(0).children().get(0).children.get(0).value);
+        assertEquals("null", beans.get(0).children().get(1).children.get(0).kind);
+        assertEquals("idref", beans.get(0).children().get(2).children.get(0).kind);
+        assertEquals("other", beans.get(0).children().get(2).children.get(0).bean);
     }
 
     @Test

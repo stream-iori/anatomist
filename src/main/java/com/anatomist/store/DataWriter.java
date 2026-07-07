@@ -43,8 +43,10 @@ public class DataWriter {
     private static final String SQL_DELETE_GENERATED_WIRING_EDGES =
             "DELETE FROM edges WHERE metadata LIKE '%\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"%'"
                     + " OR metadata LIKE '%\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\"%'";
-    private static final String SQL_DELETE_XML_BEANS =
-            "DELETE FROM nodes WHERE kind='" + GraphConstants.Kind.BEAN + "' AND source_file LIKE '%.xml'";
+    private static final String SQL_DELETE_XML_BEAN_GRAPH =
+            "DELETE FROM nodes WHERE source_file LIKE '%.xml' AND ("
+                    + "kind='" + GraphConstants.Kind.BEAN + "'"
+                    + " OR kind LIKE 'XML_%')";
     private static final String SQL_DELETE_FILE_DEPENDENCIES =
             "DELETE FROM file_dependencies";
     private static final String SQL_DERIVE_FILE_DEPENDENCIES = """
@@ -281,7 +283,7 @@ public class DataWriter {
         }
         try (Statement st = c.createStatement()) {
             st.execute(SQL_DELETE_WIRING_EDGES);
-            st.execute(SQL_DELETE_XML_BEANS);
+            st.execute(SQL_DELETE_XML_BEAN_GRAPH);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete spring bean graph", e);
         }

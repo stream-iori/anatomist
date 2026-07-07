@@ -31,6 +31,9 @@ From scenario requirements, only store what Agent actually queries.
 | **INJECTS** | `@Autowired` / `@Resource` / `@Inject` | owner class → injected type | Dependency analysis with DI facts |
 | **HANDLES** | Spring MVC mapping annotations | ROUTE → controller method | "Which HTTP endpoint enters this method?" |
 | **WIRES** | Spring XML bean refs | owner class → referenced class | XML wiring impact analysis |
+| **CONFIGURES** | Spring XML `<property>` / `<constructor-arg>` | BEAN → XML config node | XML config tree roots |
+| **XML_CONTAINS** | Spring XML map/list/entry/ref nesting | XML config node → XML config node | Preserve map keys, list order, nesting |
+| **XML_REFERS_TO** | Spring XML `<ref>` / `<idref>` | XML_REF/XML_IDREF → BEAN | Resolve configured bean references |
 
 ### Not Stored
 
@@ -53,6 +56,7 @@ ANONYMOUS_CLASS:        parentMethodID + $anon@L<line>               → com.exa
 LAMBDA:                 parentMethodID + $lambda@L<line>C<col>       → com.example.OrderService#checkout(...)$lambda@L42C18
 BEAN:                   bean:<springBeanName>                         → bean:orderService
 ROUTE:                  route:<HTTP_METHOD> <path>                    → route:POST /api/orders
+XML_*:                  parent XML id + segment + source location      → bean:registry@beans.xml/property:filters@L10C5I0
 ```
 
 ### Key Decisions
@@ -155,7 +159,7 @@ ROUTE:                  route:<HTTP_METHOD> <path>                    → route:
 | `source_id` | TEXT FK→nodes.id | Caller/child/container |
 | `target_id` | TEXT FK→nodes.id | Callee/parent/contained; **internal only**, NULL for external |
 | `external_target_fqn` | TEXT | External dep FQN (e.g. `java.util.List#add`); NULL for internal |
-| `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES |
+| `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO |
 | `call_kind` | TEXT | CALLS only: INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE |
 | `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for query-time dispatch bridges |
 | `context` | TEXT | CALLS/READS/WRITES: lightweight control path such as `for@L4>if-then@L5`; REFERENCES: field_type/parameter_type/return_type/generic_arg |

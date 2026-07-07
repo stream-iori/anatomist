@@ -8,11 +8,10 @@ import com.anatomist.core.GraphPostProcessor;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.ProjectScanner;
-import com.anatomist.core.SpringBeanParser;
 import com.anatomist.core.WiringResolver;
 import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
-import com.anatomist.extract.XmlBeanExtractor;
+import com.anatomist.framework.spring.SpringXmlAnalyzer;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
@@ -200,18 +199,8 @@ public class IncrementalIndexer {
                 rebuiltXml = new ProjectScanner().scanSpringXml(projectRoot);
                 if (!rebuiltXml.isEmpty()) {
                     Set<String> knownIds = store.allNodeIds();
-                    XmlBeanExtractor xmlExtractor = new XmlBeanExtractor("MAIN");
-                    SpringBeanParser beanParser = new SpringBeanParser();
-                    for (Path xml : rebuiltXml) {
-                        Path abs = xml.toAbsolutePath().normalize();
-                        String rel;
-                        try {
-                            rel = projectRoot.relativize(abs).toString();
-                        } catch (IllegalArgumentException ex) {
-                            rel = abs.toString();
-                        }
-                        xmlExtractor.extract(beanParser.parse(xml), knownIds, rel, beanResult);
-                    }
+                    SpringXmlAnalyzer.extractXmlBeans(projectRoot, rebuiltXml, knownIds,
+                            SpringXmlAnalyzer.fromBeanClassMap(store.readBeanClassTargets()), beanResult);
                     new GraphPostProcessor().process(beanResult, knownIds);
                     store.writeInCurrentTransaction(beanResult);
                 }

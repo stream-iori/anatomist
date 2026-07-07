@@ -22,7 +22,7 @@ anatomist index <project-path> [options]
 | `--exclude <dirs>` | Comma-separated directories to skip | none |
 | `--include-tests` | Also index test sources | false |
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
-| `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts. Spring annotation Bean/MVC facts are indexed by default. | false |
+| `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts and XML property/map/list/ref config trees. Spring annotation Bean/MVC facts are indexed by default. | false |
 | `--format json` | Emit a stable Agent summary: `command`, `status`, `schema_version`, `index_path`, `stats`, `warnings`, `errors` | text |
 
 Example:
@@ -111,7 +111,7 @@ For complex projects, pass the same indexing shape used for the initial index:
 |---|---|
 | `--output <db>` | Always reuse the same `--output <db>`. |
 | `--project-source <paths>` | Reuse it for multi-module or non-standard source roots. |
-| `--spring-xml` | Reuse it when Spring XML `<beans>` should stay indexed as `WIRES` facts. |
+| `--spring-xml` | Reuse it when Spring XML `<beans>` should stay indexed as `WIRES` facts and XML config trees. |
 | `--no-classpath` / `--classpath <jars>` | Reuse the same classpath policy so type resolution stays comparable. |
 | `--java-version <N>` | Reuse it when the project is not detected correctly. |
 
@@ -148,6 +148,18 @@ anatomist context <fqn> --members-limit 50 --members-offset 50 --index <db>
 - `--format markdown`: 200-line budgeted output
 - `--members-limit` / `--members-offset`: page class members for large classes
 - `--methods-only` / `--fields-only`: narrow member paging by kind
+
+### `bean-config`
+Show structured Spring XML bean config trees.
+
+```bash
+anatomist bean-config FilterRegistry --property filters --index <db>
+anatomist bean-config FilterRegistry --property filters --format json --index <db>
+```
+
+Use this when XML `map` / `list` structure carries behavior such as ordered
+filter chains. `WIRES` only shows class dependency impact; `bean-config`
+preserves keys, order, and nesting.
 
 ### `callees-of`
 Outgoing call chain from a method.

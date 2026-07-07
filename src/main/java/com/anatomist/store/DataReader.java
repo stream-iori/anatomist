@@ -98,6 +98,30 @@ public class DataReader {
         return out;
     }
 
+    public Map<String, String> readBeanClassTargets() {
+        Map<String, String> out = new HashMap<>();
+        String sql = """
+                SELECT e.source_id, COALESCE(e.target_id, e.external_target_fqn)
+                FROM edges e
+                JOIN nodes n ON n.id=e.source_id
+                WHERE e.relation=? AND n.kind=?
+                """;
+        Connection c = conn();
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, GraphConstants.Relation.DEFINED_BY);
+            ps.setString(2, GraphConstants.Kind.BEAN);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String target = rs.getString(2);
+                    if (target != null) out.put(rs.getString(1), target);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read bean class targets", e);
+        }
+        return out;
+    }
+
     public Map<String, FileCacheService.SourceFileStats> sourceFileStats() {
         Map<String, FileCacheService.SourceFileStats> out = new LinkedHashMap<>();
         try (Statement st = conn().createStatement();

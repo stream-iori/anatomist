@@ -1,12 +1,15 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.SpringBeanParser.ParsedBean;
+import com.anatomist.core.SpringBeanParser;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
 import org.junit.jupiter.api.Test;
 
+import java.io.StringReader;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -23,6 +26,10 @@ class XmlBeanExtractorTest {
 
     private static final String XML = "service/src/main/resources/applicationContext.xml";
 
+    private static List<ParsedBean> parse(String xml) {
+        return new SpringBeanParser().parse(new StringReader(xml));
+    }
+
     private static Edge edge(ExtractionResult r, String relation, String src) {
         return r.edges.stream()
                 .filter(e -> e.relation.equals(relation) && src.equals(e.sourceId))
@@ -32,7 +39,7 @@ class XmlBeanExtractorTest {
 
     @Test
     void emitsBeanNodeWithStableId() {
-        ParsedBean b = new ParsedBean("orderSvc", "com.example.OrderService", 4, List.of());
+        ParsedBean b = parse("<beans><bean id='orderSvc' class='com.example.OrderService'/></beans>").get(0);
         ExtractionResult r = new ExtractionResult();
         new XmlBeanExtractor().extract(List.of(b),
                 Set.of("com.example.OrderService"), XML, r);
@@ -42,12 +49,12 @@ class XmlBeanExtractorTest {
         assertEquals("BEAN", n.kind);
         assertEquals("orderSvc", n.label);
         assertEquals(XML, n.sourceFile);
-        assertEquals("L4", n.sourceLocation);
+        assertEquals("L1", n.sourceLocation);
     }
 
     @Test
     void definedByInternalWhenClassKnown() {
-        ParsedBean b = new ParsedBean("svc", "com.example.OrderService", 1, List.of());
+        ParsedBean b = parse("<beans><bean id='svc' class='com.example.OrderService'/></beans>").get(0);
         ExtractionResult r = new ExtractionResult();
         new XmlBeanExtractor().extract(List.of(b),
                 Set.of("com.example.OrderService"), XML, r);
@@ -60,7 +67,7 @@ class XmlBeanExtractorTest {
 
     @Test
     void definedByExternalWhenClassUnknown() {
-        ParsedBean b = new ParsedBean("ds", "org.apache.commons.dbcp.BasicDataSource", 1, List.of());
+        ParsedBean b = parse("<beans><bean id='ds' class='org.apache.commons.dbcp.BasicDataSource'/></beans>").get(0);
         ExtractionResult r = new ExtractionResult();
         new XmlBeanExtractor().extract(List.of(b), Set.of(), XML, r);
 
@@ -72,10 +79,12 @@ class XmlBeanExtractorTest {
 
     @Test
     void wiresClassToClassInternal() {
-        ParsedBean svc = new ParsedBean("svc", "com.example.OrderService", 1, List.of("repo"));
-        ParsedBean repo = new ParsedBean("repo", "com.example.RepoImpl", 2, List.of());
+        List<ParsedBean> beans = parse("<beans>"
+                + "<bean id='svc' class='com.example.OrderService'><property name='repo' ref='repo'/></bean>"
+                + "<bean id='repo' class='com.example.RepoImpl'/>"
+                + "</beans>");
         ExtractionResult r = new ExtractionResult();
-        new XmlBeanExtractor().extract(List.of(svc, repo),
+        new XmlBeanExtractor().extract(beans,
                 Set.of("com.example.OrderService", "com.example.RepoImpl"), XML, r);
 
         Edge w = edge(r, "WIRES", "com.example.OrderService");
@@ -85,10 +94,12 @@ class XmlBeanExtractorTest {
 
     @Test
     void wiresExternalWhenTargetClassUnknown() {
-        ParsedBean svc = new ParsedBean("svc", "com.example.OrderService", 1, List.of("ds"));
-        ParsedBean ds = new ParsedBean("ds", "org.third.DataSource", 2, List.of());
+        List<ParsedBean> beans = parse("<beans>"
+                + "<bean id='svc' class='com.example.OrderService'><property name='ds' ref='ds'/></bean>"
+                + "<bean id='ds' class='org.third.DataSource'/>"
+                + "</beans>");
         ExtractionResult r = new ExtractionResult();
-        new XmlBeanExtractor().extract(List.of(svc, ds),
+        new XmlBeanExtractor().extract(beans,
                 Set.of("com.example.OrderService"), XML, r);
 
         Edge w = edge(r, "WIRES", "com.example.OrderService");
@@ -99,10 +110,12 @@ class XmlBeanExtractorTest {
     @Test
     void noWiresWhenOwnerClassUnknown() {
         // Owner bean's class is third-party → no internal CLASS source node to anchor WIRES.
-        ParsedBean svc = new ParsedBean("svc", "org.third.Svc", 1, List.of("repo"));
-        ParsedBean repo = new ParsedBean("repo", "com.example.RepoImpl", 2, List.of());
+        List<ParsedBean> beans = parse("<beans>"
+                + "<bean id='svc' class='org.third.Svc'><property name='repo' ref='repo'/></bean>"
+                + "<bean id='repo' class='com.example.RepoImpl'/>"
+                + "</beans>");
         ExtractionResult r = new ExtractionResult();
-        new XmlBeanExtractor().extract(List.of(svc, repo),
+        new XmlBeanExtractor().extract(beans,
                 Set.of("com.example.RepoImpl"), XML, r);
 
         assertTrue(r.edges.stream().noneMatch(e -> "WIRES".equals(e.relation)),
@@ -112,7 +125,8 @@ class XmlBeanExtractorTest {
     @Test
     void noWiresWhenRefBeanUnresolvable() {
         // ref points to a bean name not declared anywhere → cannot map to a class.
-        ParsedBean svc = new ParsedBean("svc", "com.example.OrderService", 1, List.of("ghost"));
+        ParsedBean svc = parse("<beans><bean id='svc' class='com.example.OrderService'>"
+                + "<property name='ghost' ref='ghost'/></bean></beans>").get(0);
         ExtractionResult r = new ExtractionResult();
         new XmlBeanExtractor().extract(List.of(svc),
                 Set.of("com.example.OrderService"), XML, r);
@@ -120,5 +134,59 @@ class XmlBeanExtractorTest {
         assertTrue(r.edges.stream().noneMatch(e -> "WIRES".equals(e.relation)));
         // DEFINED_BY still emitted for the bean itself.
         assertTrue(r.edges.stream().anyMatch(e -> "DEFINED_BY".equals(e.relation)));
+    }
+
+    @Test
+    void resolvesRefToBeanFromAnotherXmlFile() {
+        ParsedBean svc = parse("<beans><bean id='svc' class='com.example.OrderService'>"
+                + "<property name='repo' ref='repo'/></bean></beans>").get(0);
+        String repoXml = "repo/src/main/resources/repo.xml";
+        String repoBeanId = XmlBeanExtractor.beanNodeId("repo", repoXml);
+
+        ExtractionResult r = new ExtractionResult();
+        new XmlBeanExtractor().extractWithResolvedBeans(List.of(svc),
+                Set.of("com.example.OrderService", "com.example.RepoImpl", repoBeanId),
+                Map.of("bean:repo", new XmlBeanExtractor.BeanRefTarget(repoBeanId, "com.example.RepoImpl")),
+                XML, r);
+
+        Edge ref = r.edges.stream().filter(e -> "XML_REFERS_TO".equals(e.relation)).findFirst().orElseThrow();
+        assertFalse(ref.isExternal);
+        assertEquals(repoBeanId, ref.targetId);
+
+        Edge w = edge(r, "WIRES", "com.example.OrderService");
+        assertFalse(w.isExternal);
+        assertEquals("com.example.RepoImpl", w.targetId);
+    }
+
+    @Test
+    void emitsStructuredXmlConfigGraphWithoutLegacyRefsMetadata() {
+        List<ParsedBean> beans = parse("<beans>"
+                + "<bean id='registry' class='com.example.FilterRegistry'>"
+                + "  <property name='filters'><map><entry key='DEFAULT'><list>"
+                + "    <ref bean='pre'/><value>x</value><null/>"
+                + "  </list></entry></map></property>"
+                + "</bean>"
+                + "<bean id='pre' class='com.example.PreFilter'/>"
+                + "</beans>");
+        ExtractionResult r = new ExtractionResult();
+        new XmlBeanExtractor().extract(beans,
+                Set.of("com.example.FilterRegistry", "com.example.PreFilter"), XML, r);
+
+        Node bean = r.nodes.stream().filter(n -> "BEAN".equals(n.kind)
+                && n.label.equals("registry")).findFirst().orElseThrow();
+        assertFalse(bean.metadata.contains("\"refs\""), bean.metadata);
+        assertTrue(r.nodes.stream().anyMatch(n -> "XML_PROPERTY".equals(n.kind)
+                && n.metadata.contains("\"name\":\"filters\"")), "property missing: " + r.nodes);
+        assertTrue(r.nodes.stream().anyMatch(n -> "XML_ENTRY".equals(n.kind)
+                && n.metadata.contains("\"key\":\"DEFAULT\"")), "entry missing: " + r.nodes);
+        assertTrue(r.nodes.stream().anyMatch(n -> "XML_REF".equals(n.kind)
+                && n.metadata.contains("\"bean\":\"pre\"")), "ref missing: " + r.nodes);
+        assertTrue(r.nodes.stream().anyMatch(n -> "XML_VALUE".equals(n.kind)
+                && n.metadata.contains("\"value\":\"x\"")), "value missing: " + r.nodes);
+        assertTrue(r.nodes.stream().anyMatch(n -> "XML_NULL".equals(n.kind)), "null missing: " + r.nodes);
+        assertTrue(r.edges.stream().anyMatch(e -> "CONFIGURES".equals(e.relation)));
+        assertTrue(r.edges.stream().anyMatch(e -> "XML_CONTAINS".equals(e.relation)));
+        assertTrue(r.edges.stream().anyMatch(e -> "XML_REFERS_TO".equals(e.relation)
+                && e.targetId != null && e.targetId.startsWith("bean:pre@")));
     }
 }
