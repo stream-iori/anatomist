@@ -14,12 +14,10 @@ import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumConstantDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 
@@ -32,9 +30,11 @@ import java.util.Optional;
 public class TypeExtractor implements Extractor {
 
     private final ExtractionContext ctx;
+    private final AstEnclosing enclosing;
 
     public TypeExtractor(ExtractionContext ctx) {
         this.ctx = ctx;
+        this.enclosing = new AstEnclosing(ctx.idGenerator());
     }
 
     @Override
@@ -107,16 +107,8 @@ public class TypeExtractor implements Extractor {
         // qualifiedName is the enclosing context + "$N". For ID stability we
         // append "$anon@L<line>" to the enclosing method's id, mirroring the
         // existing Phase 1 rule (DESIGN.md §Node ID 生成规则).
-        Optional<MethodDeclaration> enclosing = expr.findAncestor(MethodDeclaration.class);
-        if (enclosing.isEmpty()) return; // initializer/field/lambda — Phase 1 skip
-        ResolvedMethodDeclaration enclosingMethod;
-        try {
-            enclosingMethod = enclosing.get().resolve();
-        } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
-            return;
-        }
-        String parentMethodId = ctx.idGenerator().forMethod(enclosingMethod);
+        String parentMethodId = enclosing.ownerIdOf(expr);
+        if (parentMethodId == null) return; // initializer/field with unresolved owner — Phase 1 skip
         int line = lineOf(expr);
         String id = parentMethodId + "$anon@L" + line;
 
@@ -134,7 +126,10 @@ public class TypeExtractor implements Extractor {
         n.label = "$anon";
         n.kind = GraphConstants.Kind.ANONYMOUS_CLASS;
         n.qualifiedName = id;
-        n.pkg = enclosingMethod.declaringType().getPackageName();
+        n.pkg = expr.findCompilationUnit()
+                .flatMap(CompilationUnit::getPackageDeclaration)
+                .map(p -> p.getNameAsString())
+                .orElse(null);
         n.sourceFile = sourceFile;
         n.sourceLocation = "L" + line;
         n.module = ctx.module();

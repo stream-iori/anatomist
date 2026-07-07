@@ -81,6 +81,31 @@ class TypeExtractorTest {
         assertEquals("pkg.Point", rec.id);
     }
 
+    @Test
+    void visit_anonymousClassInsideUnresolvedAnonymousMethod_doesNotAbort() {
+        CompilationUnit cu = JavaParserTestSupport.parse("""
+                package pkg;
+                public class A {
+                  void outer() {
+                    new MissingCallback() {
+                      public void done() {
+                        new TypeReference<String>() {};
+                      }
+                    };
+                  }
+                }
+                """);
+        ExtractionResult r = new ExtractionResult();
+
+        assertDoesNotThrow(() -> new TypeExtractor(ctx).extract(cu, r));
+
+        assertTrue(r.nodes.stream().anyMatch(n ->
+                        "ANONYMOUS_CLASS".equals(n.kind)
+                                && n.id.startsWith("pkg.A#outer()$anon@L")
+                                && n.id.contains("#done()$anon@L")),
+                "nested anonymous class should use fallback method owner; got " + r.nodes);
+    }
+
     private static Node byId(ExtractionResult r, String id) {
         return r.nodes.stream().filter(n -> n.id.equals(id)).findFirst()
                 .orElseThrow(() -> new AssertionError("no node with id " + id + "; got " + r.nodes));

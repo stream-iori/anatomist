@@ -210,6 +210,41 @@ class MethodExtractorTest {
     }
 
     @Test
+    void visit_nestedAnonymousMethodInsideUnresolvedAnonymousMethod_emitsStableFallbackMethodNode() {
+        CompilationUnit cu = JavaParserTestSupport.parse("""
+                package pkg;
+                public class A {
+                  void outer() {
+                    new MissingCallback() {
+                      public void done() {
+                        new InnerCallback() {
+                          public void call() {}
+                        };
+                      }
+                    };
+                  }
+                }
+                """);
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        String nestedMethod = r.nodes.stream()
+                .filter(n -> "METHOD".equals(n.kind))
+                .map(n -> n.id)
+                .filter(id -> id.startsWith("pkg.A#outer()$anon@L"))
+                .filter(id -> id.contains("#done()$anon@L"))
+                .filter(id -> id.endsWith("#call()"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("nested fallback anonymous method missing; got " + r.nodes));
+        String nestedClass = nestedMethod.substring(0, nestedMethod.indexOf("#call()"));
+        assertTrue(r.edges.stream().anyMatch(e ->
+                        "CONTAINS".equals(e.relation)
+                                && nestedClass.equals(e.sourceId)
+                                && nestedMethod.equals(e.targetId)),
+                "nested fallback anonymous class must CONTAIN its method; got " + r.edges);
+    }
+
+    @Test
     void visit_nestedLambda_emitsDistinctIds() {
         CompilationUnit cu = JavaParserTestSupport.parse(
                 "package pkg; import java.util.function.Function;"

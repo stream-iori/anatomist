@@ -166,16 +166,7 @@ public class MethodExtractor implements Extractor {
         Optional<ObjectCreationExpr> anon = decl.findAncestor(ObjectCreationExpr.class)
                 .filter(o -> o.getAnonymousClassBody().isPresent());
         if (anon.isEmpty()) return null;
-        int line = anon.get().getBegin().map(p -> p.line).orElse(0);
-
-        Optional<MethodDeclaration> outer = anon.get().findAncestor(MethodDeclaration.class);
-        if (outer.isEmpty()) return null;
-        try {
-            return ctx.idGenerator().forMethod(outer.get().resolve()) + "$anon@L" + line;
-        } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e);
-            return null;
-        }
+        return enclosing.anonymousClassId(anon.get());
     }
 
     private void emitConstructor(ConstructorDeclaration decl, String sourceFile, ExtractionResult result) {

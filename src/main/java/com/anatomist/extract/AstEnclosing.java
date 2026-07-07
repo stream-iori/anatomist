@@ -64,6 +64,14 @@ final class AstEnclosing {
         return NodeIdGenerator.forMethodRef(parent, line, col);
     }
 
+    String anonymousClassId(ObjectCreationExpr expr) {
+        if (expr == null || expr.getAnonymousClassBody().isEmpty()) return null;
+        String parent = ownerIdOf(expr);
+        if (parent == null) return null;
+        int line = expr.getBegin().map(p -> p.line).orElse(0);
+        return parent + "$anon@L" + line;
+    }
+
     private String tryMethodId(MethodDeclaration md) {
         try { return gen.forMethod(md.resolve()); }
         catch (RuntimeException e) { return anonymousMethodFallbackId(md); }
@@ -83,13 +91,9 @@ final class AstEnclosing {
         Optional<ObjectCreationExpr> anon = md.findAncestor(ObjectCreationExpr.class)
                 .filter(o -> o.getAnonymousClassBody().isPresent());
         if (anon.isEmpty()) return null;
-        Optional<MethodDeclaration> outer = anon.get().findAncestor(MethodDeclaration.class);
-        if (outer.isEmpty()) return null;
-        String outerId;
-        try { outerId = gen.forMethod(outer.get().resolve()); }
-        catch (RuntimeException e) { return null; }
-        int line = anon.get().getBegin().map(p -> p.line).orElse(0);
-        return outerId + "$anon@L" + line + "#" + md.getNameAsString()
+        String classId = anonymousClassId(anon.get());
+        if (classId == null) return null;
+        return classId + "#" + md.getNameAsString()
                 + "(" + astSignature(md) + ")";
     }
 
