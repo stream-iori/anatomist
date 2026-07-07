@@ -492,9 +492,14 @@ release VERSION="":
     cp {{NATIVE_BIN}} release-dist/anatomist-darwin-aarch64
     echo "  Copied to release-dist/anatomist-darwin-aarch64"
 
-    # Commit and tag
-    git add pom.xml release-dist/anatomist-darwin-aarch64
-    git commit -m "release: v${REL_VERSION}"
+    # Commit and tag. Keep release-dist as a local artifact only; Git hosting
+    # rejects native binaries and CI/GitHub Releases should publish them.
+    git add pom.xml
+    if git diff --cached --quiet; then
+        git commit --allow-empty -m "release: v${REL_VERSION}"
+    else
+        git commit -m "release: v${REL_VERSION}"
+    fi
     git tag "v${REL_VERSION}"
     echo "  Tagged v${REL_VERSION}"
 
