@@ -159,15 +159,12 @@ public class IncrementalIndexer {
                 ExtractorPipeline pipeline = new ExtractorPipeline(
                         ctx, AnalyzerRegistry.javaAstAnalyzers(analysisContext));
 
-                Set<Path> targetAbs = new HashSet<>();
-                for (String rel : toReparse) {
-                    targetAbs.add(projectRoot.resolve(rel).toAbsolutePath().normalize());
-                }
-
-                parserFactory.parseAll((filePath, cu) -> {
-                    if (filePath == null) return;
-                    Path abs = filePath.toAbsolutePath().normalize();
-                    if (!targetAbs.contains(abs)) return;
+                List<Path> targetJavaFiles = targetJavaFiles(toReparse);
+                for (var cu : parserFactory.parseFiles(targetJavaFiles)) {
+                    Path abs = cu.getStorage()
+                            .map(storage -> storage.getPath().toAbsolutePath().normalize())
+                            .orElse(null);
+                    if (abs == null) continue;
                     String relative;
                     try {
                         relative = projectRoot.relativize(abs).toString();
@@ -176,7 +173,7 @@ public class IncrementalIndexer {
                     }
                     cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
                     pipeline.extractAll(cu, result);
-                });
+                }
 
                 Set<String> knownIds = store.allNodeIds();
                 new GraphPostProcessor().process(result, knownIds);
@@ -244,6 +241,16 @@ public class IncrementalIndexer {
         for (String f : reparse) if (f.endsWith(".xml")) return true;
         for (String f : delete) if (f.endsWith(".xml")) return true;
         return false;
+    }
+
+    private List<Path> targetJavaFiles(Set<String> toReparse) {
+        List<Path> out = new ArrayList<>();
+        for (String rel : toReparse) {
+            if (rel.endsWith(".java")) {
+                out.add(projectRoot.resolve(rel).toAbsolutePath().normalize());
+            }
+        }
+        return out;
     }
 
 }

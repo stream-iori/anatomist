@@ -1,10 +1,12 @@
 package com.anatomist.incremental;
 
 import com.anatomist.cli.IndexCommand;
+import com.anatomist.core.JavaParserFactory;
 import com.anatomist.json.Json;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.store.FileCacheService;
 import com.anatomist.store.SqliteStore;
+import com.github.javaparser.ast.CompilationUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -20,8 +22,10 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -131,6 +135,55 @@ class IncrementalIndexerIT {
                 Map<String, FileCacheEntry> cache = store.readFileCache();
                 assertTrue(cache.size() > 0, "file_cache should be populated");
             }
+        }
+    }
+
+    @Test
+    void incrementalParsesOnlyRealignJavaFiles(@TempDir Path tmp) throws Exception {
+        Path project = tmp.resolve("proj");
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path a = pkg.resolve("A.java");
+        Path b = pkg.resolve("B.java");
+        Files.writeString(b, "package p; public class B { public void foo(){} }");
+        Files.writeString(a, "package p; public class A { void run(){ new B().foo(); } }");
+        Path db = tmp.resolve("index.db");
+
+        IndexCommand full = new IndexCommand();
+        new CommandLine(full).parseArgs(
+                project.toString(),
+                "--project-source", src.toString(),
+                "--no-classpath",
+                "--output", db.toString());
+        assertEquals(0, full.call());
+
+        Files.writeString(b, "package p; public class B { public void foo(){} /* touched */ }");
+        FileCacheService fcs = new FileCacheService();
+        List<Path> sourceFiles = List.of(a, b);
+        Map<String, String> diskHashes = fcs.computeFileHashes(project, sourceFiles);
+
+        CountingJavaParserFactory factory = new CountingJavaParserFactory(8, List.of(src));
+        IncrementalIndexer.Summary summary;
+        try (SqliteStore store = new SqliteStore(db)) {
+            FileCacheService.Changes changes = fcs.detectChanges(diskHashes, store.readFileCache());
+            IncrementalIndexer indexer = new IncrementalIndexer(
+                    project, List.of(src), factory, store, 8, 200);
+            summary = indexer.indexIncremental(changes.changed, changes.added, changes.deleted, diskHashes);
+        }
+
+        assertFalse(summary.degradedToFull);
+        assertEquals(0, factory.parseAllCalls, "incremental Java reparse must not parse every source root");
+        assertEquals(1, factory.parseFilesCalls);
+        assertEquals(List.of(
+                b.toAbsolutePath().normalize(),
+                a.toAbsolutePath().normalize()
+        ), factory.parsedFiles, "changed file and realigned dependent should be parsed");
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='CALLS' AND is_external=0 "
+                            + "AND source_id='p.A#run()' AND target_id='p.B#foo()'"));
         }
     }
 
@@ -373,6 +426,29 @@ class IncrementalIndexerIT {
         Matcher matcher = pattern.matcher(stdout);
         assertTrue(matcher.find(), "Missing metric " + label + " in:\n" + stdout);
         return Integer.parseInt(matcher.group(1));
+    }
+
+    private static final class CountingJavaParserFactory extends JavaParserFactory {
+        int parseAllCalls;
+        int parseFilesCalls;
+        final List<Path> parsedFiles = new ArrayList<>();
+
+        CountingJavaParserFactory(int javaVersion, List<Path> sourcePaths) {
+            super(javaVersion, List.of(), sourcePaths, true);
+        }
+
+        @Override
+        public void parseAll(BiConsumer<Path, CompilationUnit> consumer) {
+            parseAllCalls++;
+            throw new AssertionError("incremental reparse should use parseFiles");
+        }
+
+        @Override
+        public List<CompilationUnit> parseFiles(List<Path> files) {
+            parseFilesCalls++;
+            parsedFiles.addAll(files);
+            return super.parseFiles(files);
+        }
     }
 
     private static void copyDir(Path src, Path dst) throws Exception {
