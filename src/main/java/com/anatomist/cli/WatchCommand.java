@@ -245,6 +245,7 @@ public class WatchCommand implements Callable<Integer> {
                 if (projectSource != null) {
                     args.add("--project-source"); args.add(projectSource);
                 }
+                if (includeTests) args.add("--include-tests");
                 if (noClasspath) args.add("--no-classpath");
                 if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
                 args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
@@ -263,6 +264,7 @@ public class WatchCommand implements Callable<Integer> {
             if (projectSource != null) {
                 args.add("--project-source"); args.add(projectSource);
             }
+            if (includeTests) args.add("--include-tests");
             if (noClasspath) args.add("--no-classpath");
             if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
             args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));

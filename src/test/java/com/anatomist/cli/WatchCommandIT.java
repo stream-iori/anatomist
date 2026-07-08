@@ -1,44 +1,39 @@
 package com.anatomist.cli;
 
+import com.anatomist.test.CliTestSupport;
+import com.anatomist.test.CliTestSupport.RunResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class WatchCommandIT {
 
     private Path setupFixtureCopy(Path tmp) throws Exception {
-        Path repoRoot = Path.of(System.getProperty("user.dir"));
-        Path src = repoRoot.resolve("fixtures/mini-spring-shop");
-        Path dst = tmp.resolve("project");
-        copyDir(src, dst);
-        return dst;
+        return CliTestSupport.copyMiniSpringFixture(tmp);
     }
 
-    private String runWatchAndMutate(Path project, Path db, String[] extraArgs, Runnable mutation) throws Exception {
-        String projectSource = String.join(File.pathSeparator,
-                project.resolve("api/src/main/java").toString(),
-                project.resolve("domain/src/main/java").toString(),
-                project.resolve("service/src/main/java").toString());
-
-        ByteArrayOutputStream stdoutCap = new ByteArrayOutputStream();
-        PrintStream original = System.out;
-
+    private RunResult runWatchAndMutate(Path project,
+                                        Path db,
+                                        boolean includeProjectSource,
+                                        CliTestSupport.ThrowingRunnable mutation,
+                                        String... extraArgs) throws Exception {
         WatchCommand cmd = new WatchCommand();
-        java.util.List<String> args = new java.util.ArrayList<>();
+        List<String> args = new ArrayList<>();
         args.add(project.toString());
-        args.add("--project-source"); args.add(projectSource);
+        if (includeProjectSource) {
+            args.add("--project-source");
+            args.add(CliTestSupport.miniSpringProjectSource(project));
+        }
         args.add("--no-classpath");
         args.add("--output"); args.add(db.toString());
         args.add("--debounce-ms"); args.add("200");
@@ -47,49 +42,56 @@ class WatchCommandIT {
         new CommandLine(cmd).parseArgs(args.toArray(new String[0]));
 
         AtomicInteger rc = new AtomicInteger(-1);
-        Thread t;
-        try {
-            System.setOut(new PrintStream(stdoutCap, true, StandardCharsets.UTF_8));
-            t = new Thread(() -> rc.set(cmd.call()));
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        RunResult result = CliTestSupport.capture(() -> {
+            Thread t = new Thread(() -> {
+                try {
+                    rc.set(cmd.call());
+                } catch (Throwable t1) {
+                    failure.set(t1);
+                }
+            });
             t.start();
-            // Give the watcher time to register listeners
             Thread.sleep(600);
             mutation.run();
             t.join(15000);
-        } finally {
-            System.setOut(original);
-        }
-        return stdoutCap.toString(StandardCharsets.UTF_8);
+            assertFalse(t.isAlive(), "watch command did not exit after mutation");
+            if (failure.get() != null) {
+                throw new AssertionError("watch command failed", failure.get());
+            }
+            return rc.get();
+        });
+        assertEquals(0, result.exitCode(),
+                "watch failed\nstdout:\n" + result.stdout() + "\nstderr:\n" + result.stderr());
+        return result;
     }
 
-    private int runFullIndex(Path project, Path db) {
-        String projectSource = String.join(File.pathSeparator,
-                project.resolve("api/src/main/java").toString(),
-                project.resolve("domain/src/main/java").toString(),
-                project.resolve("service/src/main/java").toString());
-        IndexCommand cmd = new IndexCommand();
-        new CommandLine(cmd).parseArgs(
-                project.toString(),
-                "--project-source", projectSource,
+    private void assertMiniSpringIndexOk(Path project, Path db) throws Exception {
+        CliTestSupport.assertIndexOk(project,
+                "--project-source", CliTestSupport.miniSpringProjectSource(project),
                 "--no-classpath",
-                "--output", db.toString()
-        );
-        return cmd.call();
+                "--output", db.toString());
+    }
+
+    private void assertIndexWithTestsOk(Path project, Path db) throws Exception {
+        CliTestSupport.assertIndexOk(project,
+                "--include-tests",
+                "--no-classpath",
+                "--output", db.toString());
     }
 
     @Test
     void testWatchDetectsModification(@TempDir Path tmp) throws Exception {
         Path project = setupFixtureCopy(tmp);
         Path db = tmp.resolve("index.db");
-        assertEquals(0, runFullIndex(project, db));
+        assertMiniSpringIndexOk(project, db);
 
         Path osvc = project.resolve("service/src/main/java/com/example/shop/service/OrderService.java");
-        String stdout = runWatchAndMutate(project, db, new String[]{}, () -> {
-            try {
-                String orig = Files.readString(osvc);
-                Files.writeString(osvc, orig + "\n// touched\n");
-            } catch (Exception e) { throw new RuntimeException(e); }
+        RunResult result = runWatchAndMutate(project, db, true, () -> {
+            String orig = Files.readString(osvc);
+            Files.writeString(osvc, orig + "\n// touched\n");
         });
+        String stdout = result.stdout();
 
         assertTrue(stdout.contains("[MODIFY]"),
                 "stdout should contain [MODIFY] line; got:\n" + stdout);
@@ -101,15 +103,14 @@ class WatchCommandIT {
     void testWatchAutoIndex(@TempDir Path tmp) throws Exception {
         Path project = setupFixtureCopy(tmp);
         Path db = tmp.resolve("index.db");
-        assertEquals(0, runFullIndex(project, db));
+        assertMiniSpringIndexOk(project, db);
 
         Path osvc = project.resolve("service/src/main/java/com/example/shop/service/OrderService.java");
-        String stdout = runWatchAndMutate(project, db, new String[]{"--auto-index"}, () -> {
-            try {
-                String orig = Files.readString(osvc);
-                Files.writeString(osvc, orig + "\n// touched\n");
-            } catch (Exception e) { throw new RuntimeException(e); }
-        });
+        RunResult result = runWatchAndMutate(project, db, true, () -> {
+            String orig = Files.readString(osvc);
+            Files.writeString(osvc, orig + "\n// touched\n");
+        }, "--auto-index");
+        String stdout = result.stdout();
 
         assertTrue(stdout.contains("[MODIFY]") || stdout.contains("Incremental"),
                 "stdout should reflect change event; got:\n" + stdout);
@@ -122,21 +123,40 @@ class WatchCommandIT {
     }
 
     @Test
+    void watchAutoIndexPassesIncludeTests(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, true);
+        Path testFile = project.resolve("src/test/java/p/ATest.java");
+        Path db = tmp.resolve("index.db");
+        assertIndexWithTestsOk(project, db);
+
+        RunResult result = runWatchAndMutate(project, db, false, () -> Files.writeString(testFile,
+                "package p; class ATest { void before() {} void after() {} }\n",
+                StandardCharsets.UTF_8), "--include-tests", "--auto-index");
+        String stdout = result.stdout();
+
+        assertTrue(stdout.contains("[MODIFY]"), "stdout should contain modify event; got:\n" + stdout);
+        assertTrue(stdout.contains("ATest.java"), "stdout should reference test source; got:\n" + stdout);
+        assertTrue(stdout.contains("Changed files: 1"),
+                "watch should pass --include-tests through to index; got:\n" + stdout);
+        assertTrue(stdout.contains("Written nodes:"),
+                "stdout should include incremental write counts; got:\n" + stdout);
+    }
+
+    @Test
     void testWatchPomChangeTriggersFullReindex(@TempDir Path tmp) throws Exception {
         Path project = setupFixtureCopy(tmp);
         Path db = tmp.resolve("index.db");
-        assertEquals(0, runFullIndex(project, db));
+        assertMiniSpringIndexOk(project, db);
 
         Path pom = project.resolve("pom.xml");
         if (!Files.exists(pom)) {
             Files.writeString(pom, "<project/>");
         }
-        String stdout = runWatchAndMutate(project, db, new String[]{"--auto-index", "--extensions", ".java,.xml"}, () -> {
-            try {
-                String orig = Files.readString(pom);
-                Files.writeString(pom, orig + "\n<!-- touched -->\n");
-            } catch (Exception e) { throw new RuntimeException(e); }
-        });
+        RunResult result = runWatchAndMutate(project, db, true, () -> {
+            String orig = Files.readString(pom);
+            Files.writeString(pom, orig + "\n<!-- touched -->\n");
+        }, "--auto-index", "--extensions", ".java,.xml");
+        String stdout = result.stdout();
 
         assertTrue(stdout.contains("full re-index") || stdout.contains("Full re-index")
                 || stdout.contains("Indexed"),
@@ -147,37 +167,18 @@ class WatchCommandIT {
     void testWatchExtensionsFilter(@TempDir Path tmp) throws Exception {
         Path project = setupFixtureCopy(tmp);
         Path db = tmp.resolve("index.db");
-        assertEquals(0, runFullIndex(project, db));
+        assertMiniSpringIndexOk(project, db);
 
         Path xml = project.resolve("service/src/main/java/com/example/shop/service/dummy.xml");
         Files.writeString(xml, "<a/>");
 
-        String stdout = runWatchAndMutate(project, db, new String[]{"--extensions", ".java"}, () -> {
-            try {
-                Files.writeString(xml, "<a/><b/>");
-            } catch (Exception e) { throw new RuntimeException(e); }
-        });
+        RunResult result = runWatchAndMutate(project, db, true,
+                () -> Files.writeString(xml, "<a/><b/>"),
+                "--extensions", ".java");
+        String stdout = result.stdout();
 
         assertFalse(stdout.contains("dummy.xml"),
                 "with --extensions .java, dummy.xml events should be filtered; got:\n" + stdout);
     }
 
-    private static void copyDir(Path src, Path dst) throws Exception {
-        try (Stream<Path> stream = Files.walk(src)) {
-            stream.forEach(p -> {
-                try {
-                    Path rel = src.relativize(p);
-                    Path target = dst.resolve(rel.toString());
-                    if (Files.isDirectory(p)) {
-                        Files.createDirectories(target);
-                    } else {
-                        Files.createDirectories(target.getParent());
-                        Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
-                    }
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        }
-    }
 }

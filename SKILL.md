@@ -30,7 +30,7 @@ Index rules:
 | Spring annotations matter | Avoid `--no-classpath` when possible. |
 | Spring XML matters | Add `--spring-xml` so XML beans and property/map/list/ref config trees become facts. |
 | Re-index current work | Prefer `--incremental` against the same DB. |
-| Keep index fresh while editing | Use `watch --auto-index` with the same `--output`, `--project-source`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
+| Keep index fresh while editing | Use `watch --auto-index` with the same `--output`, `--project-source`, `--include-tests`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
 | Stale or risky DB | Use `--recreate`. |
 | Need exact snapshot | Inspect `project_meta` for `source_root`, `indexed_at`, `source_git_commit`, `source_git_dirty`. |
 
@@ -186,7 +186,7 @@ or code generation. Do not start it for a one-off query.
 ```bash
 anatomist watch <root> --auto-index --output <db> \
   --project-source <same-as-index> \
-  [--spring-xml] [--no-classpath|--classpath <same-as-index>] \
+  [--include-tests] [--spring-xml] [--no-classpath|--classpath <same-as-index>] \
   [--java-version <same-as-index>]
 ```
 
@@ -195,8 +195,11 @@ Rules:
 | Case | Action |
 |---|---|
 | Initial index used `--project-source` | Pass the same value to `watch`; otherwise multi-module or custom roots can drift. |
+| Initial index used `--include-tests` | Pass `--include-tests` to `watch`; otherwise test-source edits may be reported by the watcher but ignored by the index. |
 | Initial index used `--spring-xml` | Pass `--spring-xml` to `watch`; otherwise XML bean edits will not stay in `WIRES` evidence or XML config trees. |
 | Initial index used `--no-classpath` or `--classpath` | Reuse the same classpath policy so unresolved/type-resolution behavior stays comparable. |
+| Watch reports an edit but index says `Changed files: 0` | The changed file is outside the indexed source roots/cache; refresh watch flags before trusting the event as indexed evidence. |
+| No files changed in the index cache | `index --incremental` returns quickly and does not re-run Maven classpath detection. |
 | Build file changed | Expect `watch --auto-index` to trigger a full re-index, because source roots or classpath may have changed. |
 | User asks "did this run online?" | `watch` is not enough; ask for logs, traces, metrics, or runtime evidence. |
 

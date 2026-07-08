@@ -150,12 +150,6 @@ public class IndexCommand implements Callable<Integer> {
                 return 1;
             }
 
-            boolean willDetectClasspath = !noClasspath && (classpath == null || classpath.isEmpty());
-            if (willDetectClasspath) {
-                System.err.println("Detecting classpath via Maven (this can take a while)...");
-            }
-            List<Path> classpathEntries = resolveClasspath(cd, projectRoot);
-
             Set<String> extraExcludes = exclude == null || exclude.isEmpty()
                     ? Collections.emptySet()
                     : new HashSet<>(Arrays.asList(exclude.split(",")));
@@ -165,16 +159,6 @@ public class IndexCommand implements Callable<Integer> {
                 System.err.println("ERROR: no .java files found under " + sourcePaths);
                 return 1;
             }
-
-            int jv;
-            if (javaVersion != null) {
-                jv = javaVersion;
-            } else {
-                jv = cd.detectJavaVersion(projectRoot).orElse(8);
-            }
-            System.err.println("Parsing with Java " + jv);
-            JavaParserFactory factory = new JavaParserFactory(
-                    jv, classpathEntries, sourcePaths, vmClasspath);
 
             Path dbPath = output == null
                     ? DefaultIndexPath.forIndexWrite(projectRoot)
@@ -191,8 +175,9 @@ public class IndexCommand implements Callable<Integer> {
                 }
                 if (schemaIncompatible) {
                     System.err.println("INFO: incremental degraded to full (schema_version mismatch)");
-                    return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                            jv, factory, dbPath, classpath, started, config, true);
+                    IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, true);
                 }
 
                 try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
@@ -211,8 +196,9 @@ public class IndexCommand implements Callable<Integer> {
                                 ? "file_cache empty"
                                 : "schema_version mismatch";
                         System.err.println("INFO: incremental degraded to full (" + reason + ")");
-                        return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                                jv, factory, dbPath, classpath, started, config, false);
+                        IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
+                        return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                                runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false);
                     }
                     FileCacheService fcs = new FileCacheService();
                     List<Path> hashTargets = sourceFiles;
@@ -225,9 +211,18 @@ public class IndexCommand implements Callable<Integer> {
                     }
                     java.util.Map<String, String> diskHashes = fcs.computeFileHashes(projectRoot, hashTargets);
                     FileCacheService.Changes ch = fcs.detectChanges(diskHashes, cache);
+                    if (ch.isEmpty()) {
+                        IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
+                        long elapsed = System.currentTimeMillis() - started;
+                        emitIncrementalSummary(projectRoot, dbPath, sourceFiles.size(),
+                                summary, cache.size(), elapsed);
+                        return 0;
+                    }
+
+                    IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
 
                     IncrementalIndexer ii = new IncrementalIndexer(
-                            projectRoot, sourcePaths, factory, store, jv,
+                            projectRoot, sourcePaths, runtime.factory(), store, runtime.javaVersion(),
                             maxRealignFiles, springXml, config);
                     IncrementalIndexer.Summary summary = ii.indexIncremental(
                             ch.changed, ch.added, ch.deleted, diskHashes);
@@ -235,34 +230,20 @@ public class IndexCommand implements Callable<Integer> {
                     if (summary.degradedToFull) {
                         System.err.println("INFO: incremental degraded to full ("
                                 + summary.degradationReason + ")");
-                        return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                                jv, factory, dbPath, classpath, started, config, false);
+                        return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                                runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false);
                     }
 
                     long elapsed = System.currentTimeMillis() - started;
                     java.util.Map<String, FileCacheEntry> after = store.readFileCache();
-                    if ("json".equalsIgnoreCase(format)) {
-                        emitIncrementalJson(projectRoot, dbPath, sourceFiles.size(), summary, after.size(), elapsed);
-                    } else {
-                        System.out.println("Indexed " + projectRoot + " (incremental)");
-                        System.out.println("  Changed files: " + summary.changedFiles);
-                        System.out.println("  New files:     " + summary.newFiles);
-                        System.out.println("  Deleted files: " + summary.deletedFiles);
-                        System.out.println("  Realigned deps:" + summary.realignedDependents);
-                        System.out.println("  Deleted nodes: " + summary.deletedNodes);
-                        System.out.println("  Deleted edges: " + summary.deletedEdges);
-                        System.out.println("  Written nodes: " + summary.writtenNodes);
-                        System.out.println("  Written edges: " + summary.writtenEdges);
-                        System.out.println("  Output:        " + dbPath);
-                        System.out.println("  File cache:    " + after.size() + " entries");
-                        System.out.println("Done in " + elapsed + "ms");
-                    }
+                    emitIncrementalSummary(projectRoot, dbPath, sourceFiles.size(), summary, after.size(), elapsed);
                     return 0;
                 }
             }
 
-            return runFullIndex(projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                    jv, factory, dbPath, classpath, started, config, recreate);
+            IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
+            return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                    runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, recreate);
         } catch (Exception e) {
             System.err.println("ERROR: index failed: " + e.getMessage());
             e.printStackTrace(System.err);
@@ -330,6 +311,47 @@ public class IndexCommand implements Callable<Integer> {
         Files.deleteIfExists(dbPath.resolveSibling(dbPath.getFileName() + "-journal"));
         Files.deleteIfExists(dbPath);
     }
+
+    private void emitIncrementalSummary(Path projectRoot,
+                                        Path dbPath,
+                                        int sourceFileCount,
+                                        IncrementalIndexer.Summary summary,
+                                        int fileCacheSize,
+                                        long elapsed) {
+        if ("json".equalsIgnoreCase(format)) {
+            emitIncrementalJson(projectRoot, dbPath, sourceFileCount, summary, fileCacheSize, elapsed);
+        } else {
+            System.out.println("Indexed " + projectRoot + " (incremental)");
+            System.out.println("  Changed files: " + summary.changedFiles);
+            System.out.println("  New files:     " + summary.newFiles);
+            System.out.println("  Deleted files: " + summary.deletedFiles);
+            System.out.println("  Realigned deps:" + summary.realignedDependents);
+            System.out.println("  Deleted nodes: " + summary.deletedNodes);
+            System.out.println("  Deleted edges: " + summary.deletedEdges);
+            System.out.println("  Written nodes: " + summary.writtenNodes);
+            System.out.println("  Written edges: " + summary.writtenEdges);
+            System.out.println("  Output:        " + dbPath);
+            System.out.println("  File cache:    " + fileCacheSize + " entries");
+            System.out.println("Done in " + elapsed + "ms");
+        }
+    }
+
+    private IndexRuntime resolveRuntime(ClasspathDetector cd, Path projectRoot, List<Path> sourcePaths) {
+        boolean willDetectClasspath = !noClasspath && (classpath == null || classpath.isEmpty());
+        if (willDetectClasspath) {
+            System.err.println("Detecting classpath via Maven (this can take a while)...");
+        }
+        List<Path> classpathEntries = resolveClasspath(cd, projectRoot);
+        int jv = javaVersion != null
+                ? javaVersion
+                : cd.detectJavaVersion(projectRoot).orElse(8);
+        System.err.println("Parsing with Java " + jv);
+        JavaParserFactory factory = new JavaParserFactory(
+                jv, classpathEntries, sourcePaths, vmClasspath);
+        return new IndexRuntime(classpathEntries, jv, factory);
+    }
+
+    private record IndexRuntime(List<Path> classpathEntries, int javaVersion, JavaParserFactory factory) {}
 
     private void emitIndexJson(com.anatomist.core.IndexResult result,
                                com.anatomist.core.IndexConfig cfg) {

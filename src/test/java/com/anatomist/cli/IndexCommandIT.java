@@ -1,13 +1,12 @@
 package com.anatomist.cli;
 
+import com.anatomist.test.CliTestSupport;
+import com.anatomist.test.CliTestSupport.RunResult;
 import com.anatomist.store.IndexSchema;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,17 +30,13 @@ class IndexCommandIT {
 
     @Test
     void recreateDeletesExistingDatabaseAndSidecarsBeforeIndex(@TempDir Path tmp) throws Exception {
-        Path project = tmp.resolve("proj");
-        Path sourceRoot = project.resolve("src/main/java/p");
-        Files.createDirectories(sourceRoot);
-        Files.writeString(sourceRoot.resolve("A.java"),
-                "package p; class A { void run() {} }\n", StandardCharsets.UTF_8);
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
         Files.writeString(project.resolve("README.md"),
                 "# Stale doc\n\nold\n", StandardCharsets.UTF_8);
 
         Path db = tmp.resolve("index.db");
-        assertEquals(0, new CommandLine(new IndexCommand()).execute(
-                project.toString(), "--no-classpath", "--output", db.toString(), "--format", "json"));
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--output", db.toString(), "--format", "json");
         assertEquals(0, new CommandLine(new IndexDocsCommand()).execute(
                 project.toString(), "--index", db.toString()));
 
@@ -57,9 +52,8 @@ class IndexCommandIT {
         Files.write(wal, staleWal);
         Files.write(shm, staleShm);
 
-        assertEquals(0, new CommandLine(new IndexCommand()).execute(
-                project.toString(), "--no-classpath", "--output", db.toString(),
-                "--recreate", "--format", "json"));
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--output", db.toString(), "--recreate", "--format", "json");
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
@@ -80,37 +74,14 @@ class IndexCommandIT {
 
     @Test
     void indexesMiniSpringShop_typesMethodsContains(@TempDir Path tmp) throws Exception {
-        Path repoRoot = Path.of(System.getProperty("user.dir"));
-        Path fixture = repoRoot.resolve("fixtures/mini-spring-shop");
-        assertTrue(Files.isDirectory(fixture), "fixture missing: " + fixture);
-
+        Path fixture = CliTestSupport.miniSpringFixture();
         Path db = tmp.resolve("index.db");
-
-        String projectSource = String.join(File.pathSeparator,
-                fixture.resolve("api/src/main/java").toString(),
-                fixture.resolve("domain/src/main/java").toString(),
-                fixture.resolve("service/src/main/java").toString());
-
-        IndexCommand cmd = new IndexCommand();
-        new CommandLine(cmd).parseArgs(
-                fixture.toString(),
-                "--project-source", projectSource,
+        RunResult result = CliTestSupport.runIndex(fixture,
+                "--project-source", CliTestSupport.miniSpringProjectSource(fixture),
                 "--no-classpath",
-                "--output", db.toString()
-        );
-
-        ByteArrayOutputStream stdoutCapture = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-        int rc;
-        try {
-            System.setOut(new PrintStream(stdoutCapture, true, StandardCharsets.UTF_8));
-            rc = cmd.call();
-        } finally {
-            System.setOut(originalOut);
-        }
-        String stdout = stdoutCapture.toString(StandardCharsets.UTF_8);
-        System.out.print(stdout);
-        assertEquals(0, rc, "index should exit 0");
+                "--output", db.toString());
+        assertEquals(0, result.exitCode(), "index should exit 0; stderr:\n" + result.stderr());
+        String stdout = result.stdout();
 
         assertTrue(Files.exists(db), "db not produced: " + db);
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
@@ -180,32 +151,25 @@ class IndexCommandIT {
 
     @Test
     void incrementalRecreatesIncompatibleSchema(@TempDir Path tmp) throws Exception {
-        Path repoRoot = Path.of(System.getProperty("user.dir"));
-        Path fixture = repoRoot.resolve("fixtures/mini-spring-shop");
-        assertTrue(Files.isDirectory(fixture), "fixture missing: " + fixture);
-        String projectSource = String.join(File.pathSeparator,
-                fixture.resolve("api/src/main/java").toString(),
-                fixture.resolve("domain/src/main/java").toString(),
-                fixture.resolve("service/src/main/java").toString());
+        Path fixture = CliTestSupport.miniSpringFixture();
+        String projectSource = CliTestSupport.miniSpringProjectSource(fixture);
         Path db = tmp.resolve("index.db");
 
-        assertEquals(0, new CommandLine(new IndexCommand()).execute(
-                fixture.toString(),
+        CliTestSupport.assertIndexOk(fixture,
                 "--project-source", projectSource,
                 "--no-classpath",
-                "--output", db.toString()));
+                "--output", db.toString());
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             st.execute("PRAGMA user_version = 1");
         }
 
-        assertEquals(0, new CommandLine(new IndexCommand()).execute(
-                fixture.toString(),
+        CliTestSupport.assertIndexOk(fixture,
                 "--project-source", projectSource,
                 "--no-classpath",
                 "--incremental",
-                "--output", db.toString()));
+                "--output", db.toString());
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
@@ -215,6 +179,25 @@ class IndexCommandIT {
             assertTrue(scalar(st, "SELECT count(*) FROM nodes WHERE kind='ROUTE'") > 0,
                     "recreated index should contain framework analyzer output");
         }
+    }
+
+    @Test
+    void incrementalNoChangeSkipsMavenClasspathDetection(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("index.db");
+
+        CliTestSupport.assertIndexOk(project, "--no-classpath", "--output", db.toString());
+        RunResult result = CliTestSupport.runIndex(project, "--incremental", "--output", db.toString());
+
+        assertEquals(0, result.exitCode());
+        String out = result.stdout();
+        String err = result.stderr();
+        assertTrue(out.contains("Changed files: 0"), out);
+        assertTrue(out.contains("Written nodes: 0"), out);
+        assertFalse(err.contains("Detecting classpath via Maven"),
+                "no-op incremental should return before Maven classpath detection; stderr:\n" + err);
+        assertFalse(err.contains("Parsing with Java"),
+                "no-op incremental should not initialize JavaParser; stderr:\n" + err);
     }
 
     private static int scalar(Statement st, String sql) throws Exception {
@@ -231,38 +214,18 @@ class IndexCommandIT {
         }
     }
 
-    private static int indexWithArgs(Path fixture, Path db, String projectSource, boolean springXml) {
-        IndexCommand cmd = new IndexCommand();
-        java.util.List<String> args = new java.util.ArrayList<>(java.util.List.of(
-                fixture.toString(),
-                "--project-source", projectSource,
-                "--no-classpath",
-                "--output", db.toString()));
-        if (springXml) args.add("--spring-xml");
-        new CommandLine(cmd).parseArgs(args.toArray(new String[0]));
-        ByteArrayOutputStream cap = new ByteArrayOutputStream();
-        PrintStream orig = System.out;
-        try {
-            System.setOut(new PrintStream(cap, true, StandardCharsets.UTF_8));
-            return cmd.call();
-        } finally {
-            System.setOut(orig);
-        }
-    }
-
     @Test
     void springXmlEmitsBeansWiresAndDefinedBy(@TempDir Path tmp) throws Exception {
-        Path repoRoot = Path.of(System.getProperty("user.dir"));
-        Path fixture = repoRoot.resolve("fixtures/mini-spring-shop");
-        assertTrue(Files.isDirectory(fixture));
-        String projectSource = String.join(File.pathSeparator,
-                fixture.resolve("api/src/main/java").toString(),
-                fixture.resolve("domain/src/main/java").toString(),
-                fixture.resolve("service/src/main/java").toString());
+        Path fixture = CliTestSupport.miniSpringFixture();
+        String projectSource = CliTestSupport.miniSpringProjectSource(fixture);
 
         // With --spring-xml: BEAN nodes + DEFINED_BY + internal WIRES appear.
         Path withDb = tmp.resolve("with.db");
-        assertEquals(0, indexWithArgs(fixture, withDb, projectSource, true));
+        CliTestSupport.assertIndexOk(fixture,
+                "--project-source", projectSource,
+                "--no-classpath",
+                "--output", withDb.toString(),
+                "--spring-xml");
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + withDb);
              Statement st = c.createStatement()) {
             int beans = scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'");
@@ -306,7 +269,10 @@ class IndexCommandIT {
         // Without the flag: annotation-driven Spring Boot concepts remain, XML
         // bean nodes stay off. Annotation DI may still emit WIRES.
         Path withoutDb = tmp.resolve("without.db");
-        assertEquals(0, indexWithArgs(fixture, withoutDb, projectSource, false));
+        CliTestSupport.assertIndexOk(fixture,
+                "--project-source", projectSource,
+                "--no-classpath",
+                "--output", withoutDb.toString());
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + withoutDb);
              Statement st = c.createStatement()) {
             assertTrue(scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN'") >= 6,
