@@ -200,6 +200,7 @@ Rules:
 | Initial index used `--no-classpath` or `--classpath` | Reuse the same classpath policy so unresolved/type-resolution behavior stays comparable. |
 | Watch reports an edit but index says `Changed files: 0` | The changed file is outside the indexed source roots/cache; refresh watch flags before trusting the event as indexed evidence. |
 | No files changed in the index cache | `index --incremental` returns quickly and does not re-run Maven classpath detection. |
+| Java/test source changed and the prior full index used Maven classpath detection | `index --incremental` / `watch --auto-index` reuses cached classpath metadata instead of re-running Maven. |
 | Build file changed | Expect `watch --auto-index` to trigger a full re-index, because source roots or classpath may have changed. |
 | User asks "did this run online?" | `watch` is not enough; ask for logs, traces, metrics, or runtime evidence. |
 

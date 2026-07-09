@@ -27,6 +27,15 @@ class WatchCommandIT {
                                         boolean includeProjectSource,
                                         CliTestSupport.ThrowingRunnable mutation,
                                         String... extraArgs) throws Exception {
+        return runWatchAndMutate(project, db, includeProjectSource, true, mutation, extraArgs);
+    }
+
+    private RunResult runWatchAndMutate(Path project,
+                                        Path db,
+                                        boolean includeProjectSource,
+                                        boolean noClasspath,
+                                        CliTestSupport.ThrowingRunnable mutation,
+                                        String... extraArgs) throws Exception {
         WatchCommand cmd = new WatchCommand();
         List<String> args = new ArrayList<>();
         args.add(project.toString());
@@ -34,7 +43,7 @@ class WatchCommandIT {
             args.add("--project-source");
             args.add(CliTestSupport.miniSpringProjectSource(project));
         }
-        args.add("--no-classpath");
+        if (noClasspath) args.add("--no-classpath");
         args.add("--output"); args.add(db.toString());
         args.add("--debounce-ms"); args.add("200");
         args.add("--idle-timeout-ms"); args.add("3000");
@@ -140,6 +149,50 @@ class WatchCommandIT {
                 "watch should pass --include-tests through to index; got:\n" + stdout);
         assertTrue(stdout.contains("Written nodes:"),
                 "stdout should include incremental write counts; got:\n" + stdout);
+    }
+
+    @Test
+    void watchAutoIndexReusesCachedMavenClasspath(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, true);
+        Path testFile = project.resolve("src/test/java/p/ATest.java");
+        Path db = tmp.resolve("index.db");
+        CliTestSupport.assertIndexOk(project,
+                "--include-tests",
+                "--java-version", "17",
+                "--output", db.toString());
+
+        RunResult result = runWatchAndMutate(project, db, false, false,
+                () -> Files.writeString(testFile,
+                        "package p; class ATest { void before() {} void after() {} }\n",
+                        StandardCharsets.UTF_8),
+                "--include-tests", "--auto-index");
+
+        assertTrue(result.stdout().contains("Changed files: 1"),
+                "watch should incrementally index changed test source; got:\n" + result.stdout());
+        assertFalse(result.stderr().contains("Detecting classpath via Maven"),
+                "watch incremental should reuse cached Maven classpath; stderr:\n" + result.stderr());
+        assertTrue(result.stderr().contains("Parsing with Java 17"),
+                "watch incremental should reuse cached java_version; stderr:\n" + result.stderr());
+    }
+
+    @Test
+    void watchPomChangeStillRedetectsMavenClasspath(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("index.db");
+        CliTestSupport.assertIndexOk(project,
+                "--java-version", "17",
+                "--output", db.toString());
+
+        Path pom = project.resolve("pom.xml");
+        RunResult result = runWatchAndMutate(project, db, false, false, () -> {
+            String orig = Files.readString(pom);
+            Files.writeString(pom, orig + "\n<!-- touched -->\n");
+        }, "--auto-index", "--extensions", ".java,.xml");
+
+        assertTrue(result.stdout().contains("Full re-index"),
+                "pom.xml change should trigger full re-index; got:\n" + result.stdout());
+        assertTrue(result.stderr().contains("Detecting classpath via Maven"),
+                "build file changes should refresh Maven classpath; stderr:\n" + result.stderr());
     }
 
     @Test

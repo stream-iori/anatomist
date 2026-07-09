@@ -219,7 +219,7 @@ public class IndexCommand implements Callable<Integer> {
                         return 0;
                     }
 
-                    IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
+                    IndexRuntime runtime = resolveIncrementalRuntime(cd, projectRoot, sourcePaths, store);
 
                     IncrementalIndexer ii = new IncrementalIndexer(
                             projectRoot, sourcePaths, runtime.factory(), store, runtime.javaVersion(),
@@ -236,6 +236,7 @@ public class IndexCommand implements Callable<Integer> {
 
                     long elapsed = System.currentTimeMillis() - started;
                     java.util.Map<String, FileCacheEntry> after = store.readFileCache();
+                    writeRuntimeMetadata(store, projectRoot, sourcePaths, runtime);
                     emitIncrementalSummary(projectRoot, dbPath, sourceFiles.size(), summary, after.size(), elapsed);
                     return 0;
                 }
@@ -264,7 +265,7 @@ public class IndexCommand implements Callable<Integer> {
                                  boolean recreateDb) throws Exception {
         com.anatomist.core.IndexConfig cfg = new com.anatomist.core.IndexConfig(
                 projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                jv, springXml, config, dbPath, classpathOverride, debug);
+                jv, springXml, config, dbPath, classpathOverride, noClasspath, debug);
         com.anatomist.core.IndexOrchestrator orchestrator =
                 new com.anatomist.core.IndexOrchestrator(cfg, factory);
 
@@ -348,10 +349,88 @@ public class IndexCommand implements Callable<Integer> {
         System.err.println("Parsing with Java " + jv);
         JavaParserFactory factory = new JavaParserFactory(
                 jv, classpathEntries, sourcePaths, vmClasspath);
-        return new IndexRuntime(classpathEntries, jv, factory);
+        return new IndexRuntime(classpathEntries, jv, factory, classpathMode());
     }
 
-    private record IndexRuntime(List<Path> classpathEntries, int javaVersion, JavaParserFactory factory) {}
+    private IndexRuntime resolveIncrementalRuntime(ClasspathDetector cd,
+                                                   Path projectRoot,
+                                                   List<Path> sourcePaths,
+                                                   SqliteStore store) {
+        IndexRuntime cached = cachedDetectedRuntime(projectRoot, sourcePaths, store);
+        if (cached != null) {
+            System.err.println("Parsing with Java " + cached.javaVersion());
+            return cached;
+        }
+        return resolveRuntime(cd, projectRoot, sourcePaths);
+    }
+
+    private IndexRuntime cachedDetectedRuntime(Path projectRoot, List<Path> sourcePaths, SqliteStore store) {
+        if (noClasspath || (classpath != null && !classpath.isEmpty())) return null;
+        if (!"detected".equals(store.readProjectMeta("classpath_mode").orElse(null))) return null;
+        String expectedRoot = projectRoot.toAbsolutePath().normalize().toString();
+        if (!expectedRoot.equals(store.readProjectMeta("source_root").orElse(null))) return null;
+        String expectedSourcePaths = joinPaths(sourcePaths);
+        if (!expectedSourcePaths.equals(store.readProjectMeta("source_paths").orElse(null))) return null;
+        int cachedJavaVersion;
+        try {
+            cachedJavaVersion = Integer.parseInt(store.readProjectMeta("java_version").orElse(""));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+        List<Path> cachedClasspath = parsePathList(store.readProjectMeta("classpath_entries").orElse(""));
+        JavaParserFactory factory = new JavaParserFactory(
+                cachedJavaVersion, cachedClasspath, sourcePaths, vmClasspath);
+        return new IndexRuntime(cachedClasspath, cachedJavaVersion, factory, "detected");
+    }
+
+    private void writeRuntimeMetadata(SqliteStore store,
+                                      Path projectRoot,
+                                      List<Path> sourcePaths,
+                                      IndexRuntime runtime) {
+        store.upsertProjectMeta("source_root", projectRoot.toAbsolutePath().normalize().toString());
+        store.upsertProjectMeta("source_paths", joinPaths(sourcePaths));
+        store.upsertProjectMeta("java_version", String.valueOf(runtime.javaVersion()));
+        store.upsertProjectMeta("classpath_mode", runtime.classpathMode());
+        store.upsertProjectMeta("classpath_entries", joinPaths(runtime.classpathEntries()));
+        store.upsertProjectMeta("classpath_override", classpath == null ? "" : classpath);
+        store.upsertProjectMeta("classpath_hash",
+                FileCacheService.sha256OfString(classpathFingerprint(runtime.classpathEntries(), classpath)));
+    }
+
+    private String classpathMode() {
+        if (noClasspath) return "none";
+        if (classpath != null && !classpath.isBlank()) return "explicit";
+        return "detected";
+    }
+
+    private static String joinPaths(List<Path> paths) {
+        if (paths == null || paths.isEmpty()) return "";
+        return String.join(File.pathSeparator, paths.stream()
+                .map(p -> p.toAbsolutePath().normalize().toString())
+                .toList());
+    }
+
+    private static List<Path> parsePathList(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        return Arrays.stream(value.split(java.util.regex.Pattern.quote(File.pathSeparator)))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(Path::of)
+                .toList();
+    }
+
+    private static String classpathFingerprint(List<Path> classpathEntries, String override) {
+        if (override != null && !override.isEmpty()) return override;
+        if (classpathEntries == null || classpathEntries.isEmpty()) return "";
+        List<String> sorted = classpathEntries.stream()
+                .map(Path::toString).sorted().collect(Collectors.toList());
+        return String.join(File.pathSeparator, sorted);
+    }
+
+    private record IndexRuntime(List<Path> classpathEntries,
+                                int javaVersion,
+                                JavaParserFactory factory,
+                                String classpathMode) {}
 
     private void emitIndexJson(com.anatomist.core.IndexResult result,
                                com.anatomist.core.IndexConfig cfg) {

@@ -200,6 +200,70 @@ class IndexCommandIT {
                 "no-op incremental should not initialize JavaParser; stderr:\n" + err);
     }
 
+    @Test
+    void incrementalChangedFileReusesCachedMavenClasspath(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("index.db");
+
+        CliTestSupport.assertIndexOk(project,
+                "--java-version", "17",
+                "--output", db.toString());
+
+        Path source = project.resolve("src/main/java/p/A.java");
+        Files.writeString(source,
+                "package p; class A { void run() {} void after() {} }\n",
+                StandardCharsets.UTF_8);
+
+        RunResult result = CliTestSupport.runIndex(project, "--incremental", "--output", db.toString());
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        assertTrue(result.stdout().contains("Changed files: 1"), result.stdout());
+        assertFalse(result.stderr().contains("Detecting classpath via Maven"),
+                "changed-file incremental should reuse cached Maven classpath; stderr:\n" + result.stderr());
+        assertTrue(result.stderr().contains("Parsing with Java 17"),
+                "incremental should reuse cached java_version; stderr:\n" + result.stderr());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals("detected", scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='classpath_mode'"));
+            assertNotNull(scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='classpath_entries'"));
+        }
+    }
+
+    @Test
+    void incrementalBackfillsClasspathMetadataForOldIndex(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("index.db");
+
+        CliTestSupport.assertIndexOk(project,
+                "--java-version", "17",
+                "--output", db.toString());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            st.execute("DELETE FROM project_meta WHERE key IN "
+                    + "('classpath_mode','classpath_entries','classpath_override')");
+        }
+
+        Path source = project.resolve("src/main/java/p/A.java");
+        Files.writeString(source,
+                "package p; class A { void run() {} void after() {} }\n",
+                StandardCharsets.UTF_8);
+
+        RunResult result = CliTestSupport.runIndex(project, "--incremental", "--output", db.toString());
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        assertTrue(result.stderr().contains("Detecting classpath via Maven"),
+                "old metadata should fall back once to Maven detection; stderr:\n" + result.stderr());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals("detected", scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='classpath_mode'"));
+            assertNotNull(scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='classpath_entries'"));
+        }
+    }
+
     private static int scalar(Statement st, String sql) throws Exception {
         try (ResultSet rs = st.executeQuery(sql)) {
             assertTrue(rs.next());

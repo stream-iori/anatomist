@@ -22,6 +22,9 @@ final class ProjectMetadata {
         put(store, "rebound_external_edges", String.valueOf(rebound));
         put(store, "wiring_resolved_edges", String.valueOf(wired));
         put(store, "java_version", String.valueOf(cfg.javaVersion()));
+        put(store, "classpath_mode", classpathMode(cfg));
+        put(store, "classpath_entries", joinPaths(cfg.classpathEntries()));
+        put(store, "classpath_override", cfg.classpathOverride() == null ? "" : cfg.classpathOverride());
         put(store, "classpath_hash",
                 FileCacheService.sha256OfString(IndexOrchestrator.classpathFingerprint(
                         cfg.classpathEntries(), cfg.classpathOverride())));
@@ -39,6 +42,12 @@ final class ProjectMetadata {
 
     private static void put(SqliteStore store, String key, String value) {
         if (value != null) store.upsertProjectMeta(key, value);
+    }
+
+    private static String classpathMode(IndexConfig cfg) {
+        if (cfg.noClasspath()) return "none";
+        if (cfg.classpathOverride() != null && !cfg.classpathOverride().isBlank()) return "explicit";
+        return "detected";
     }
 
     private static String joinPaths(List<Path> paths) {

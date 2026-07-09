@@ -15,5 +15,6 @@ public record IndexConfig(
         ProjectConfig config,
         Path dbPath,
         String classpathOverride,
+        boolean noClasspath,
         boolean debug
 ) {}
