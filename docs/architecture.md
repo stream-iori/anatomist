@@ -3,20 +3,21 @@
 ## Package layout under `src/main/java/com/anatomist/`
 
 - `model/` — Plain data: `Node`, `Edge`, `Annotation`, `ExtractionResult`
-- `core/` — Index-phase plumbing: `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, `NodeIdGenerator`, `ExtractionContext`, `SpringBeanParser`, `JavadocSummary`
-- `extract/` — `Extractor` interface + 8 implementations (`TypeExtractor`, `MethodExtractor`, `FieldExtractor`, `AnnotationExtractor`, `CallGraphExtractor`, `HierarchyExtractor`, `ReferenceExtractor`, `FieldAccessExtractor`). All store javadoc as summary only. Plus `XmlBeanExtractor` (post-Java pass for Spring XML beans).
+- `core/` — Index application boundary and plumbing: `IndexRequest`, `IndexApplicationService`, `IndexOutcome`, `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, identity/health services, and extraction context.
+- `extract/` — `Extractor` implementations. `CallGraphExtractor` handles traversal/emission while `CallOverloadResolver` owns shared AST/SymbolSolver overload ranking. Plus `XmlBeanExtractor` for Spring XML beans.
 - `framework/` — Internal analyzer SPI for framework/middleware concepts. `JavaAstAnalyzer` handles AST-backed concepts, `ProjectAnalyzer` handles project resources. `AnalyzerRegistry` wires built-ins.
 - `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
 - `store/` — `SqliteStore` (schema + atomic batched write)
 - `semantic/` — Post-index annotations from direct code evidence: `SemanticPostProcessor` writes Javadoc summaries only; it does not infer architecture roles or business categories from names/annotations.
 - `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `CallGraphService`, `BranchSliceService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs: `QueryEnvelope`, `NodeRow`, `EdgeRow`, `BranchSlice`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `CallChainSlicer` groups call chains into class/package blocks. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
 - `export/` — `ExportHtmlWriter`: self-contained HTML with SVG force-directed renderer
-- `cli/` — picocli commands (18 subcommands)
+- `cli/` — picocli adapters; `IndexOutput` owns the full/incremental text and JSON contract instead of mixing rendering into `IndexCommand`.
 
 ## Index-phase data flow
 
 ```
-IndexCommand
+IndexCommand (picocli adapter)
+  → IndexRequest → IndexApplicationService → IndexOutcome
   → ClasspathDetector.{detectSourcePaths, detect}
   → ProjectScanner.scan(sourcePaths)
   → JavaParserFactory.parseAll(consumer)
@@ -33,8 +34,11 @@ IndexCommand
           SpringMvcAnalyzer       → ROUTE / HANDLES
   → ProjectAnalyzer pass:
           SpringXmlAnalyzer       → BEAN / DEFINED_BY / WIRES (--spring-xml only)
-  → SemanticPostProcessor.process(result) → semantic_annotations
+  → ExtractorPipeline provenance → source_file on Java facts
+  → GraphIdentityRewriter        → module::scope::symbol_id storage keys
+  → GraphPostProcessor           → bind/prune graph facts
   → SqliteStore.initSchema + write(result) (single transaction)
+  → IndexHealthService           → persisted index_diagnostics
 ```
 
 ## Framework Analyzer Model
@@ -50,7 +54,11 @@ Built-ins are registered in `AnalyzerRegistry`. Keep shared relations generic (`
 
 ## Critical invariants
 
-- **Node ID preserves original case.** `com.example.Order` ≠ `com.example.order`.
+- **Storage identity is `module::scope::symbol_id`.** Logical `symbol_id` still preserves original case.
+- **Callable identity is AST-aware.** If SymbolSolver cannot render a parameter, normalized AST type text keeps overloads distinct.
+- **Record members are first-class.** Explicit methods, compact/canonical constructors, component fields, and accessors receive normal graph nodes.
+- **Candidate uniqueness is based on storage keys.** Repeated extraction of the same key is not module ambiguity; distinct module/scope keys remain ambiguous.
+- **Query scope defaults to MAIN.** Cross-scope lookup must be explicit with `--scope`.
 - **Method ID uses erased FQN signature.** `pkg.A#foo(java.lang.String,java.util.List)` — NOT generic args.
 - **`edges` CHECK constraint:** `is_external=0 ⇒ target_id NOT NULL & external_target_fqn NULL` and vice versa.
 - **Symbol resolution failure → skip the entity.** Catch `RuntimeException`, call `ctx.incrementUnresolved()`.
@@ -65,7 +73,7 @@ Built-ins are registered in `AnalyzerRegistry`. Keep shared relations generic (`
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Tables: `nodes`, `edges`, `annotations`, `node_names` (FTS5), `documents`, `doc_content` (FTS5), `semantic_annotations`, `file_cache`, `project_meta`, `file_dependencies`.
+Tables: `nodes`, `edges`, `annotations`, `node_names` (FTS5), `documents`, `doc_content` (FTS5), `semantic_annotations`, `file_cache`, `project_meta`, `file_dependencies`, `index_diagnostics`.
 
 ## Fixtures
 

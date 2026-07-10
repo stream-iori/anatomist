@@ -15,6 +15,7 @@ anatomist index <project-path> [options]
 |------|-------------|---------|
 | `--output <path>` | SQLite output path | `.anatomist/index.db` |
 | `--project-source <paths>` | Colon-separated source roots (relative to project) | auto-detect |
+| `--source-root <module>@<scope>=<path>` | Explicit module/scope identity; repeat for each root. Mutually exclusive with `--project-source` | inferred |
 | `--classpath <jars>` | Colon-separated jar paths | auto-detect via Maven |
 | `--no-classpath` | Skip classpath detection entirely | false |
 | `--vm-classpath` | Use JVM's own classloading for JDK types | true |
@@ -24,6 +25,7 @@ anatomist index <project-path> [options]
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
 | `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts and XML property/map/list/ref config trees. Spring annotation Bean/MVC facts are indexed by default. | false |
 | `--format json` | Emit a stable Agent summary: `command`, `status`, `schema_version`, `index_path`, `stats`, `warnings`, `errors` | text |
+| `--strict-health` | Return exit code 3 when the completed index is degraded/unhealthy | false |
 
 Example:
 
@@ -38,6 +40,7 @@ keys for Agents are:
 |-----|---------|
 | `source_root` | Absolute project root used to resolve `source_window` snippets |
 | `source_paths` | Source roots included in this index |
+| `source_layout` / `source_layout_hash` | Canonical module/scope/root mapping and its incremental compatibility fingerprint |
 | `indexed_at` | Index timestamp |
 | `source_git_commit` | Git commit of the indexed source tree, when available |
 | `source_git_branch` | Git branch, when available |
@@ -62,6 +65,10 @@ JSON includes:
 | `index_exists` | Whether the target DB exists |
 | `commands` | Supported subcommands for Agent self-discovery |
 | `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
+| `health` / `diagnostics` | Persisted index health shared with `index` and `survey-baseline` |
+
+Add `--strict-health` to return exit code 3 for a schema mismatch or persisted
+degraded/unhealthy report. Without it, reporting succeeds with exit code 0.
 
 ### `survey-baseline`
 Return a structural first-pass baseline for large repositories.
@@ -104,6 +111,8 @@ watcher, not a runtime tracer.
 | Source change with `--auto-index` | Run `index --incremental` against the same DB. |
 | Build-file change (`pom.xml`, Gradle settings) | Run a full re-index because source roots/classpath may have changed. |
 | Incremental cannot be trusted | `index --incremental` degrades to full, for example empty cache, schema mismatch, or too-large realign closure. |
+| Auto-index fails | Retain all pending paths and retry them with the next event; idle/iteration shutdown returns non-zero while pending work remains. |
+| `--fail-fast` | Exit immediately on the first failed auto-index attempt. |
 
 For complex projects, pass the same indexing shape used for the initial index:
 
@@ -114,11 +123,17 @@ For complex projects, pass the same indexing shape used for the initial index:
 | `--spring-xml` | Reuse it when Spring XML `<beans>` should stay indexed as `WIRES` facts and XML config trees. |
 | `--no-classpath` / `--classpath <jars>` | Reuse the same classpath policy so type resolution stays comparable. |
 | `--java-version <N>` | Reuse it when the project is not detected correctly. |
+| `--source-root ...` | Reuse every explicit module/scope mapping. |
+| `--strict-health` | Treat a degraded index result as an auto-index failure. |
 
 `watch` keeps static anatomist facts current. It does not prove that a route,
 branch, callback, bean profile, or runtime path actually executed.
 
 ## Query Phase
+
+All node-oriented query commands accept `--module <name>` and
+`--scope MAIN|TEST|GENERATED|ALL`. The default is `scope=MAIN`; use `ALL` only
+when duplicate symbols across scopes are intentional.
 
 ### `search`
 Find nodes by name (FTS5), precise simple-name, or annotation.

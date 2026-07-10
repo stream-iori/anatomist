@@ -66,7 +66,7 @@ git submodule 锁版本，vendored 到 `fixtures/external/`，**不联网即跑�
 2. **关键类存在** — `org.apache.commons.lang3.StringUtils` / `ObjectUtils` / `ArrayUtils` 都能在 nodes 表精确找到
 3. **查询层联通** — `QueryService.search(...)` 在 `StringUtils` / `ObjectUtils` / `ArrayUtils` / `Validate` 任一上返回非空
 
-**Dropped-edges 基线**：commons-lang 3.12.0 当前会触发 `Pruned dangling = 188`（CLAUDE.md §Fixture 已记录）。这个数字应**单调下降**——任何 extractor 修复都会带它一起降低；如果它涨了，说明回归了或上游 fixture 升了。
+**Dropped-edges 基线**：commons-lang 3.12.0 当前会触发 `Pruned dangling = 188`。这个数字应**单调下降**——任何 extractor 修复都会带它一起降低；如果它涨了，说明回归了或上游 fixture 升了。
 
 **跳过语义**：每个 @Test 顶部调 `requireSubmodule()` → `assumeTrue(...)`，submodule 未 checkout 时 Surefire 报 `Tests run: 3, Skipped: 3`（不是误导性的 `Tests run: 0`），并在 stderr 打一行接入提示。
 
@@ -163,4 +163,4 @@ jobs:
 | Phase 3 | Skill 文件与 CLI 契约 e2e（脚本驱动 CLI） | golden-file 套件已部分承担（CLI → JSON 契约锁定） |
 | Phase 4 | Fixture C 接入 + 性能基线 trend + 增量回归 | ✅ Fixture C = commons-lang 3.12.0；增量见 `IncrementalIndexerIT` / `WatchCommandIT`；性能 trend 未接入 |
 
-**触发约定**：所有 `*IT` 走 Surefire 默认 include 模式之外（与 unit `*Test` 区分），必须显式 `mvn test -Dtest=<ClassName>` 触发。CLAUDE.md §Commands 列了高频组合。
+**触发约定**：所有 `*IT` 走 Surefire 默认 include 模式之外（与 unit `*Test` 区分），必须显式 `mvn test -Dtest=<ClassName>` 触发。

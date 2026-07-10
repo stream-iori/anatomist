@@ -43,12 +43,33 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node ID Generation Rules
+## Node Identity (schema v5)
 
-ID **preserves original case**, based on FQN with minimal syntax separators.
+Every node stores both a logical symbol and a globally unique storage key:
+
+```text
+symbol_id = extractor-level Java/config identity
+id        = <module>::<scope>::<symbol_id>
+```
+
+`module` defaults to `.` for a single-root project. `scope` is `MAIN`, `TEST`,
+or `GENERATED`. Query commands default to `MAIN`.
+
+```text
+service::MAIN::com.example.OrderService
+service::TEST::com.example.OrderService
+```
+
+The two rows above intentionally share `symbol_id` but cannot collide in the
+primary key. A schema v4 database is rejected/recreated; there is no migration
+or compatibility read path.
+
+### Symbol ID Generation Rules
+
+`symbol_id` preserves original case and uses minimal syntax separators.
 
 ```
-CLASS/INTERFACE/ENUM:   FQN as-is                                    → com.example.OrderService
+CLASS/INTERFACE/ENUM/RECORD: FQN as-is                               → com.example.OrderService
 METHOD:                 classFQN + # + name + (erased-signature)     → com.example.OrderService#checkout(java.lang.String,java.util.List)
 FIELD:                  classFQN + # + fieldName (no parens = field)  → com.example.OrderService#orderRepo
 ENUM_CONSTANT:          enumFQN + # + constantName                   → com.example.OrderStatus#PENDING
@@ -63,11 +84,14 @@ XML_*:                  parent XML id + segment + source location      → bean:
 
 | Decision | Reason |
 |----------|--------|
+| Storage key includes module + scope | Main/test/generated and multi-module duplicate FQNs remain distinct |
 | Preserve case | `com.example.Order` (class) vs `com.example.order` (subpackage) must not collide |
 | Method uses full erased signature | Overload disambiguation; derived from `erasure().describe()` |
+| AST-aware parameter fallback | Unresolved parameter types use normalized source/import information instead of collapsing overloads to `<unresolved>` |
+| Fact provenance | Java AST edges and annotations carry the originating `source_file`; synthetic edges inherit it from their source node |
 | `#` separates class from member | Java doc convention; no parens = field, with parens = method |
 | Lambda/anon use source location (`@L42C18`) | Ordinal would drift on file edits; position is stable |
-| Charset | Only `[A-Za-z0-9._#$()@,]` — SQL/CLI/Mermaid friendly |
+| Module escaping | `%`, `:` are escaped before joining with `::` |
 
 ### ID Character Semantics
 
@@ -193,6 +217,18 @@ belong on every node or edge.
 | `java_version` | Java parser language level | Debug parser behavior |
 | `classpath_hash` | Fingerprint of classpath input | Detect changed resolution environment |
 | `index_version` | File-cache/schema version | Incremental compatibility |
+| `source_layout` / `source_layout_hash` | Module/scope/root identity mapping | Force full indexing when identity inputs change |
+
+## Index Diagnostics
+
+`index_diagnostics` persists bounded, machine-readable health findings. The
+same rows drive `index`, `doctor`, and `survey-baseline` health output.
+
+| Severity | Default exit | With `--strict-health` |
+|---|---:|---:|
+| healthy / no rows | 0 | 0 |
+| warning (`DEGRADED`) | 0 | 3 |
+| error (`UNHEALTHY`) | 0 | 3 |
 
 `source_window` is not stored as a table. It is derived at query time from:
 

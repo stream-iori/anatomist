@@ -23,13 +23,12 @@ The installer also downloads `anatomist/SKILL.md` and installs it for common age
 |--------|------------|
 | Qoder | `~/.qoder/skills/anatomist/SKILL.md` |
 | Codex | `${CODEX_HOME:-~/.codex}/skills/anatomist/SKILL.md` |
-| Claude | `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/anatomist/SKILL.md` |
 
 Install only selected clients:
 
 ```bash
 curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_SKILL_CLIENTS="codex claude" sh
+  ANATOMIST_SKILL_CLIENTS="codex" sh
 ```
 
 Skip skill install:
