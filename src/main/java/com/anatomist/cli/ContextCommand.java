@@ -58,6 +58,9 @@ public class ContextCommand implements Callable<Integer> {
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
+    @Option(names = "--module", description = "Restrict symbol resolution to one module.") String module;
+    @Option(names = "--scope", description = "MAIN | TEST | GENERATED | ALL.", defaultValue = "MAIN") String scope;
+
     @Override
     public Integer call() {
         if (target != null && pkg != null) {
@@ -79,6 +82,7 @@ public class ContextCommand implements Callable<Integer> {
 
     private int callContext(Path db) {
         try (QueryService q = new QueryService(db)) {
+            q.selectNodes(module, scope);
             List<NodeRow> candidates = q.resolveNodeRows(target);
             if (candidates.size() > 1) {
                 QueryEnvelope env = new QueryEnvelope(buildQueryString(), candidates);
@@ -88,7 +92,9 @@ public class ContextCommand implements Callable<Integer> {
                 env.stats.put("candidates", candidates.size());
                 env.stats.put("reason", "target_resolves_to_multiple_nodes");
                 env.nextQueries = candidates.stream()
-                        .map(n -> "anatomist context " + n.qualifiedName + " --index " + db)
+                        .map(n -> "anatomist context " + n.id
+                                + " --scope " + scope + " "
+                                + Disclosure.renderCommand(List.of("--index", db.toString())))
                         .toList();
                 JsonFormatter.emit(System.out, env);
                 return 2;
@@ -131,7 +137,8 @@ public class ContextCommand implements Callable<Integer> {
                     int nextOffset = safeOffset + membersLimit;
                     env.stats.put("members_next_offset", nextOffset);
                     env.nextQueries = List.of(buildQueryString().replaceAll(" --members-offset \\d+", "")
-                            + " --members-offset " + nextOffset);
+                            + " --members-offset " + nextOffset + " "
+                            + Disclosure.renderCommand(List.of("--index", db.toString())));
                 }
                 Disclosure.putBudget(env, "members", r.members.size(), membersTotal);
             }
@@ -142,6 +149,7 @@ public class ContextCommand implements Callable<Integer> {
 
     private int callEnrich(Path db) {
         try (QueryService q = new QueryService(db)) {
+            q.selectNodes(module, scope);
             int depth = withCallees != null ? withCallees : 1;
             EnrichResult r = pkg != null
                     ? q.enrichPackage(pkg, withDocs)
@@ -175,6 +183,8 @@ public class ContextCommand implements Callable<Integer> {
         if (methodsOnly) sb.append(" --methods-only");
         if (fieldsOnly) sb.append(" --fields-only");
         if (withDocs) sb.append(" --with-docs");
+        if (module != null && !module.isBlank()) sb.append(" --module ").append(module);
+        if (scope != null && !scope.isBlank()) sb.append(" --scope ").append(scope);
         return sb.toString();
     }
 }

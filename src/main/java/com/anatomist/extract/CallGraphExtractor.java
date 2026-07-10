@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 public class CallGraphExtractor implements Extractor {
@@ -70,8 +69,12 @@ public class CallGraphExtractor implements Extractor {
             @Override
             public void visit(ObjectCreationExpr n, Void arg) {
                 if (n.getAnonymousClassBody().isPresent()) {
-                    // Construction of the anonymous class itself; the call
-                    // links to the supertype constructor.
+                    // JavaParser resolves this to a synthetic anonymous-class
+                    // constructor that has no METHOD node. The anonymous body
+                    // is represented by ANONYMOUS_CLASS + CONTAINS facts; do
+                    // not emit a guaranteed-dangling constructor call.
+                    super.visit(n, arg);
+                    return;
                 }
                 ResolvedConstructorDeclaration target;
                 try { target = n.resolve(); }
@@ -104,7 +107,7 @@ public class CallGraphExtractor implements Extractor {
             if (target instanceof ResolvedMethodDeclaration m) {
                 e.targetId = methodTargetId(m);
             } else if (target instanceof ResolvedConstructorDeclaration c) {
-                e.targetId = ctx.idGenerator().forConstructor(c);
+                e.targetId = CallableIdFactory.forConstructor(ctx.idGenerator(), c);
             } else {
                 return;
             }
@@ -179,28 +182,7 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private String methodTargetId(ResolvedMethodDeclaration method) {
-        String id = ctx.idGenerator().forMethod(method);
-        if (!id.contains("<unresolved>") && !id.contains("(null") && !id.contains(",null")) return id;
-
-        Optional<com.github.javaparser.ast.Node> ast;
-        try { ast = method.toAst(); }
-        catch (RuntimeException e) { return id; }
-        if (ast.isEmpty() || !(ast.get() instanceof MethodDeclaration decl)) return id;
-        Optional<TypeDeclaration> typeOpt = decl.findAncestor(TypeDeclaration.class);
-        if (typeOpt.isEmpty()) return id;
-        String typeId;
-        try { typeId = ctx.idGenerator().forType(method.declaringType()); }
-        catch (RuntimeException e) {
-            Optional<CompilationUnit> cuOpt = decl.findCompilationUnit();
-            String pkg = cuOpt.flatMap(CompilationUnit::getPackageDeclaration)
-                    .map(p -> p.getNameAsString() + ".")
-                    .orElse("");
-            typeId = pkg + typeOpt.get().getNameAsString();
-        }
-        String params = decl.getParameters().stream()
-                .map(p -> AstTypeNames.of(p.getType(), p))
-                .collect(Collectors.joining(","));
-        return typeId + "#" + decl.getNameAsString() + "(" + params + ")";
+        return CallableIdFactory.forMethod(ctx.idGenerator(), method);
     }
 
     private void emitFallback(MethodCallExpr call, ExtractionResult result) {
@@ -246,22 +228,7 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private List<MethodDeclaration> bestAstCandidates(List<MethodDeclaration> candidates, MethodCallExpr call) {
-        List<String> argTypes = call.getArguments().stream()
-                .map(AstTypeNames::ofExpression)
-                .collect(Collectors.toList());
-        int best = Integer.MAX_VALUE;
-        List<MethodDeclaration> bestCandidates = new ArrayList<>();
-        for (MethodDeclaration candidate : candidates) {
-            int score = overloadScore(candidate, argTypes);
-            if (score < best) {
-                best = score;
-                bestCandidates.clear();
-                bestCandidates.add(candidate);
-            } else if (score == best) {
-                bestCandidates.add(candidate);
-            }
-        }
-        return best == Integer.MAX_VALUE ? List.of() : bestCandidates;
+        return CallOverloadResolver.bestAst(candidates, call);
     }
 
     private void emitLocalAstCandidates(MethodCallExpr call, String enclosingId,
@@ -293,7 +260,7 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private String methodId(MethodDeclaration method) {
-        try { return ctx.idGenerator().forMethod(method.resolve()); }
+        try { return CallableIdFactory.forMethod(ctx.idGenerator(), method); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); }
 
         Optional<TypeDeclaration> typeOpt = method.findAncestor(TypeDeclaration.class);
@@ -388,22 +355,7 @@ public class CallGraphExtractor implements Extractor {
                 .filter(m -> m.getParameters().size() == call.getArguments().size())
                 .toList();
         if (candidates.size() <= 1) return candidates;
-        List<String> argTypes = call.getArguments().stream()
-                .map(AstTypeNames::ofExpression)
-                .collect(Collectors.toList());
-        int best = Integer.MAX_VALUE;
-        List<MethodDeclaration> bestCandidates = new ArrayList<>();
-        for (MethodDeclaration candidate : candidates) {
-            int score = overloadScore(candidate, argTypes);
-            if (score < best) {
-                best = score;
-                bestCandidates.clear();
-                bestCandidates.add(candidate);
-            } else if (score == best) {
-                bestCandidates.add(candidate);
-            }
-        }
-        return best == Integer.MAX_VALUE ? List.of() : bestCandidates;
+        return CallOverloadResolver.bestAst(candidates, call);
     }
 
     private List<MethodDeclaration> resolveByLexicalAstOverload(ResolvedReferenceTypeDeclaration decl, MethodCallExpr call) {
@@ -439,34 +391,7 @@ public class CallGraphExtractor implements Extractor {
                 .filter(m -> m.getParameters().size() == call.getArguments().size())
                 .toList();
         if (candidates.size() <= 1) return candidates;
-        List<String> argTypes = call.getArguments().stream()
-                .map(AstTypeNames::ofExpression)
-                .collect(Collectors.toList());
-        int best = Integer.MAX_VALUE;
-        List<MethodDeclaration> bestCandidates = new ArrayList<>();
-        for (MethodDeclaration candidate : candidates) {
-            int score = overloadScore(candidate, argTypes);
-            if (score < best) {
-                best = score;
-                bestCandidates.clear();
-                bestCandidates.add(candidate);
-            } else if (score == best) {
-                bestCandidates.add(candidate);
-            }
-        }
-        return best == Integer.MAX_VALUE ? List.of() : bestCandidates;
-    }
-
-    private int overloadScore(MethodDeclaration method, List<String> argTypes) {
-        if (method.getParameters().size() != argTypes.size()) return Integer.MAX_VALUE;
-        int score = 0;
-        for (int i = 0; i < argTypes.size(); i++) {
-            String param = AstTypeNames.of(method.getParameter(i).getType(), method.getParameter(i));
-            int s = typeMatchScore(argTypes.get(i), param);
-            if (s == Integer.MAX_VALUE) return s;
-            score += s;
-        }
-        return score;
+        return CallOverloadResolver.bestAst(candidates, call);
     }
 
     private void emitAstCandidates(MethodCallExpr call, ResolvedReferenceTypeDeclaration owner,
@@ -552,65 +477,7 @@ public class CallGraphExtractor implements Extractor {
             return candidates;
         }
 
-        List<String> argTypes = call.getArguments().stream()
-                .map(AstTypeNames::ofExpression)
-                .collect(Collectors.toList());
-        int best = Integer.MAX_VALUE;
-        List<ResolvedMethodDeclaration> bestCandidates = new ArrayList<>();
-        for (ResolvedMethodDeclaration candidate : candidates) {
-            int score = overloadScore(candidate, argTypes);
-            if (score < best) {
-                best = score;
-                bestCandidates.clear();
-                bestCandidates.add(candidate);
-            } else if (score == best) {
-                bestCandidates.add(candidate);
-            }
-        }
-        return best == Integer.MAX_VALUE ? List.of() : bestCandidates;
-    }
-
-    private int overloadScore(ResolvedMethodDeclaration method, List<String> argTypes) {
-        if (method.getNumberOfParams() != argTypes.size()) return Integer.MAX_VALUE;
-        int score = 0;
-        for (int i = 0; i < argTypes.size(); i++) {
-            String arg = argTypes.get(i);
-            String param;
-            try { param = NodeIdGenerator.erasedTypeDescribe(method.getParam(i).getType()); }
-            catch (RuntimeException e) { param = "<unresolved>"; }
-            int s = typeMatchScore(arg, param);
-            if (s == Integer.MAX_VALUE) return s;
-            score += s;
-        }
-        return score;
-    }
-
-    private static int typeMatchScore(String arg, String param) {
-        if (!AstTypeNames.resolved(arg) || !AstTypeNames.resolved(param)) return 8;
-        if (arg.equals(param)) return 0;
-        if ("<null>".equals(arg)) return isPrimitive(param) ? Integer.MAX_VALUE : 4;
-        if (boxed(arg).equals(boxed(param))) return 1;
-        if (isPrimitive(arg) != isPrimitive(param)) return Integer.MAX_VALUE;
-        if ("java.lang.Object".equals(param)) return 6;
-        return Integer.MAX_VALUE;
-    }
-
-    private static String boxed(String type) {
-        return switch (type) {
-            case "boolean" -> "java.lang.Boolean";
-            case "byte" -> "java.lang.Byte";
-            case "char" -> "java.lang.Character";
-            case "double" -> "java.lang.Double";
-            case "float" -> "java.lang.Float";
-            case "int" -> "java.lang.Integer";
-            case "long" -> "java.lang.Long";
-            case "short" -> "java.lang.Short";
-            default -> type;
-        };
-    }
-
-    private static boolean isPrimitive(String type) {
-        return Set.of("boolean", "byte", "char", "double", "float", "int", "long", "short", "void").contains(type);
+        return CallOverloadResolver.bestResolved(candidates, call);
     }
 
     private void emitStaticNameFallback(MethodCallExpr call, String enclosingId,

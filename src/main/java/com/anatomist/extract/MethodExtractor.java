@@ -11,8 +11,8 @@ import com.anatomist.model.Node;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.CompactConstructorDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
-import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
@@ -45,12 +45,7 @@ public class MethodExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = unit.containsData(TypeExtractor.SourceFileKey.KEY)
-                ? unit.getData(TypeExtractor.SourceFileKey.KEY)
-                : null;
-        if (sourceFile == null) {
-            sourceFile = unit.getStorage().map(s -> s.getPath().toString()).orElse(null);
-        }
+        String sourceFile = SourceFiles.of(unit);
         final String sf = sourceFile;
 
         new VoidVisitorAdapter<Void>() {
@@ -67,14 +62,8 @@ public class MethodExtractor implements Extractor {
             }
 
             @Override
-            public void visit(ObjectCreationExpr n, Void arg) {
-                n.getAnonymousClassBody().ifPresent(body -> {
-                    for (BodyDeclaration<?> member : body) {
-                        if (member instanceof MethodDeclaration md) {
-                            emitAnonymousMethodFallback(md, sf, result);
-                        }
-                    }
-                });
+            public void visit(CompactConstructorDeclaration n, Void arg) {
+                emitCompactConstructor(n, sf, result);
                 super.visit(n, arg);
             }
 
@@ -108,10 +97,14 @@ public class MethodExtractor implements Extractor {
         try {
             declType = r.declaringType();
             if (skipDeclaringType(declType)) return;
-            methodId = ctx.idGenerator().forMethod(r);
-            classId = ctx.idGenerator().forType(declType);
+            methodId = CallableIdFactory.forMethod(ctx.idGenerator(), r);
+            String stableAnonymousOwner = anonymousClassId(decl);
+            classId = stableAnonymousOwner != null
+                    ? stableAnonymousOwner
+                    : ctx.idGenerator().forType(declType);
         } catch (RuntimeException e) {
             ctx.incrementUnresolved();
+            emitAnonymousMethodFallback(decl, sourceFile, result);
             return;
         }
 
@@ -138,8 +131,7 @@ public class MethodExtractor implements Extractor {
         String classId = anonymousClassId(decl);
         if (classId == null) return;
 
-        String methodId = classId + "#" + decl.getNameAsString()
-                + "(" + astSignature(decl) + ")";
+        String methodId = CallableIdFactory.forAnonymousMethod(classId, decl);
 
         Node n = new Node();
         n.id = methodId;
@@ -183,7 +175,7 @@ public class MethodExtractor implements Extractor {
         try {
             declType = r.declaringType();
             if (skipDeclaringType(declType)) return;
-            methodId = ctx.idGenerator().forConstructor(r);
+            methodId = CallableIdFactory.forConstructor(ctx.idGenerator(), r);
             classId = ctx.idGenerator().forType(declType);
         } catch (RuntimeException e) {
             ctx.incrementUnresolved();
@@ -205,6 +197,58 @@ public class MethodExtractor implements Extractor {
         n.metadata = methodMetadata(decl, r, true);
         result.nodes.add(n);
 
+        result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
+    }
+
+    private void emitCompactConstructor(CompactConstructorDeclaration decl,
+                                        String sourceFile,
+                                        ExtractionResult result) {
+        String methodId;
+        String classId;
+        String name;
+        String pkg;
+        try {
+            var record = decl.findAncestor(com.github.javaparser.ast.body.RecordDeclaration.class)
+                    .orElseThrow();
+            name = record.getNameAsString();
+            try {
+                var resolved = record.resolve();
+                classId = ctx.idGenerator().forType(resolved);
+                pkg = resolved.getPackageName();
+            } catch (RuntimeException ignored) {
+                String packagePrefix = record.findCompilationUnit()
+                        .flatMap(CompilationUnit::getPackageDeclaration)
+                        .map(p -> p.getNameAsString() + ".").orElse("");
+                classId = packagePrefix + name;
+                pkg = packagePrefix.isEmpty() ? "" : packagePrefix.substring(0, packagePrefix.length() - 1);
+            }
+            methodId = CallableIdFactory.forCompactConstructor(ctx.idGenerator(), decl);
+        } catch (RuntimeException e) {
+            ctx.incrementUnresolved(e);
+            return;
+        }
+
+        Node n = new Node();
+        n.id = methodId;
+        n.label = name;
+        n.kind = GraphConstants.Kind.METHOD;
+        n.qualifiedName = classId + "#" + name;
+        n.pkg = pkg;
+        n.sourceFile = sourceFile;
+        n.sourceLocation = "L" + lineOf(decl);
+        n.module = ctx.module();
+        n.scope = ctx.scope();
+        n.javadoc = com.anatomist.core.JavadocSummary.extract(
+                decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("returnType", null);
+        metadata.put("isStatic", false);
+        metadata.put("isAbstract", false);
+        metadata.put("isConstructor", true);
+        metadata.put("isCompactConstructor", true);
+        metadata.put("isAccessor", false);
+        n.metadata = Json.writeCompact(metadata);
+        result.nodes.add(n);
         result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
     }
 
@@ -309,7 +353,7 @@ public class MethodExtractor implements Extractor {
             try {
                 ResolvedTypeDeclaration decl = target.declaringType();
                 if (ctx.isProjectInternal(decl)) {
-                    call.targetId = ctx.idGenerator().forMethod(target);
+                    call.targetId = CallableIdFactory.forMethod(ctx.idGenerator(), target);
                     call.isExternal = false;
                 } else {
                     call.externalTargetFqn = NodeIdGenerator.externalMethodFqn(target);
@@ -337,7 +381,7 @@ public class MethodExtractor implements Extractor {
         // — those are emitted by TypeExtractor, keep them. Reject things that
         // are neither class/interface/enum/annotation at all.
         return !(declType.isClass() || declType.isInterface()
-                || declType.isEnum() || declType.isAnnotation());
+                || declType.isEnum() || declType.isRecord() || declType.isAnnotation());
     }
 
     private static Edge containsEdge(String classId, String methodId,
@@ -375,15 +419,6 @@ public class MethodExtractor implements Extractor {
             return true;
         }
         return false;
-    }
-
-    private static String astSignature(MethodDeclaration decl) {
-        return decl.getParameters().stream()
-                .map(p -> {
-                    try { return erasedTypeDescribe(p.getType().resolve()); }
-            catch (RuntimeException e) { return AstTypeNames.of(p.getType(), p); }
-                })
-                .collect(java.util.stream.Collectors.joining(","));
     }
 
     private static int lineOf(com.github.javaparser.ast.Node n) {

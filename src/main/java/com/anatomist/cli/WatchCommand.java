@@ -45,6 +45,10 @@ public class WatchCommand implements Callable<Integer> {
             description = "Override project source roots (path-separator delimited).")
     String projectSource;
 
+    @Option(names = "--source-root",
+            description = "Explicit source identity: <module>@<MAIN|TEST|GENERATED>=<path>. Repeatable.")
+    List<String> sourceRootSpecs = new ArrayList<>();
+
     @Option(names = "--include-tests",
             description = "Also watch/index src/test/java (test-only modules included). "
                     + "Off by default. Ignored when --project-source is given.")
@@ -98,6 +102,14 @@ public class WatchCommand implements Callable<Integer> {
             description = "Also watch + index Spring bean XML (<beans>) configs. Off by default.")
     boolean springXml;
 
+    @Option(names = "--fail-fast",
+            description = "Exit immediately when auto-index fails instead of retaining pending changes.")
+    boolean failFast;
+
+    @Option(names = "--strict-health",
+            description = "Treat DEGRADED or UNHEALTHY index results as auto-index failures.")
+    boolean strictHealth;
+
     @Option(names = "--max-iterations",
             description = "Stop after N debounce cycles (for testing).",
             defaultValue = "0", hidden = true)
@@ -118,6 +130,10 @@ public class WatchCommand implements Callable<Integer> {
             return 1;
         }
         Path projectRoot = projectPath.toAbsolutePath().normalize();
+        if (projectSource != null && !projectSource.isBlank() && !sourceRootSpecs.isEmpty()) {
+            System.err.println("ERROR: --project-source and --source-root are mutually exclusive");
+            return 2;
+        }
         ClasspathDetector cd = new ClasspathDetector();
 
         List<Path> sourcePaths = resolveSourcePaths(cd, projectRoot);
@@ -160,6 +176,8 @@ public class WatchCommand implements Callable<Integer> {
             // Buffered changes since the last flush.
             Map<String, String> buffered = new HashMap<>(); // relPath -> event kind
             boolean buildFileTouched = false;
+            Map<String, String> pending = new HashMap<>();
+            boolean pendingFullReindex = false;
             int iterations = 0;
 
             while (!Thread.currentThread().isInterrupted()) {
@@ -203,12 +221,28 @@ public class WatchCommand implements Callable<Integer> {
 
                 // Flush after debounce
                 if (!buffered.isEmpty() && now - lastEventAt >= debounceMs) {
-                    flush(projectRoot, sourcePaths, classpath, noClasspath, vmClasspath, javaVersion,
-                            dbPath, buffered, buildFileTouched, autoIndex);
+                    Map<String, String> attempt = new HashMap<>(pending);
+                    attempt.putAll(buffered);
+                    boolean forceFull = pendingFullReindex || buildFileTouched;
+                    boolean succeeded = flush(projectRoot, sourcePaths, classpath, noClasspath,
+                            vmClasspath, javaVersion, dbPath, attempt, forceFull, autoIndex);
+                    if (succeeded) {
+                        pending.clear();
+                        pendingFullReindex = false;
+                    } else {
+                        pending.clear();
+                        pending.putAll(attempt);
+                        pendingFullReindex = forceFull;
+                        System.err.println("ERROR: auto-index failed; retaining "
+                                + pending.size() + " pending change(s)");
+                        if (failFast) return 1;
+                    }
                     buffered.clear();
                     buildFileTouched = false;
                     iterations++;
-                    if (maxIterations > 0 && iterations >= maxIterations) break;
+                    if (maxIterations > 0 && iterations >= maxIterations) {
+                        return pending.isEmpty() ? 0 : 1;
+                    }
                 }
 
                 if (idleTimeoutMs > 0 && buffered.isEmpty()
@@ -216,6 +250,7 @@ public class WatchCommand implements Callable<Integer> {
                     break;
                 }
             }
+            if (!pending.isEmpty()) return 1;
         } catch (ClosedWatchServiceCompat | IOException e) {
             System.err.println("ERROR: watch failed: " + e.getMessage());
             return 1;
@@ -225,15 +260,15 @@ public class WatchCommand implements Callable<Integer> {
         return 0;
     }
 
-    private void flush(Path projectRoot, List<Path> sourcePaths, String classpathOverride,
-                       boolean noClasspath, boolean vmClasspath, Integer jvOverride,
-                       Path dbPath, Map<String, String> buffered, boolean buildFileTouched,
-                       boolean autoIndex) {
+    private boolean flush(Path projectRoot, List<Path> sourcePaths, String classpathOverride,
+                          boolean noClasspath, boolean vmClasspath, Integer jvOverride,
+                          Path dbPath, Map<String, String> buffered, boolean buildFileTouched,
+                          boolean autoIndex) {
         // Print events
         for (Map.Entry<String, String> e : buffered.entrySet()) {
             System.out.println("[" + e.getValue() + "] " + e.getKey());
         }
-        if (!autoIndex) return;
+        if (!autoIndex) return true;
 
         try {
             if (buildFileTouched) {
@@ -245,6 +280,7 @@ public class WatchCommand implements Callable<Integer> {
                 if (projectSource != null) {
                     args.add("--project-source"); args.add(projectSource);
                 }
+                for (String spec : sourceRootSpecs) { args.add("--source-root"); args.add(spec); }
                 if (includeTests) args.add("--include-tests");
                 if (noClasspath) args.add("--no-classpath");
                 if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
@@ -252,10 +288,10 @@ public class WatchCommand implements Callable<Integer> {
                 if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
                 args.add("--output"); args.add(dbPath.toString());
                 if (springXml) args.add("--spring-xml");
+                if (strictHealth) args.add("--strict-health");
                 args.add("--full");
                 new CommandLine(ic).parseArgs(args.toArray(new String[0]));
-                ic.call();
-                return;
+                return ic.call() == 0;
             }
             // Incremental
             IndexCommand ic = new IndexCommand();
@@ -264,6 +300,7 @@ public class WatchCommand implements Callable<Integer> {
             if (projectSource != null) {
                 args.add("--project-source"); args.add(projectSource);
             }
+            for (String spec : sourceRootSpecs) { args.add("--source-root"); args.add(spec); }
             if (includeTests) args.add("--include-tests");
             if (noClasspath) args.add("--no-classpath");
             if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
@@ -272,11 +309,13 @@ public class WatchCommand implements Callable<Integer> {
             args.add("--output"); args.add(dbPath.toString());
             args.add("--incremental");
             if (springXml) args.add("--spring-xml");
+            if (strictHealth) args.add("--strict-health");
             args.add("--max-realign-files"); args.add(String.valueOf(maxRealignFiles));
             new CommandLine(ic).parseArgs(args.toArray(new String[0]));
-            ic.call();
+            return ic.call() == 0;
         } catch (Exception ex) {
             System.err.println("WARN: auto-index failed: " + ex.getMessage());
+            return false;
         }
     }
 
@@ -303,6 +342,16 @@ public class WatchCommand implements Callable<Integer> {
     }
 
     List<Path> resolveSourcePaths(ClasspathDetector cd, Path projectRoot) {
+        if (!sourceRootSpecs.isEmpty()) {
+            List<Path> out = new ArrayList<>();
+            for (String spec : sourceRootSpecs) {
+                int eq = spec.indexOf('=');
+                if (eq < 0 || eq == spec.length() - 1) continue;
+                Path path = Path.of(spec.substring(eq + 1));
+                out.add(path.isAbsolute() ? path : projectRoot.resolve(path));
+            }
+            return out;
+        }
         if (projectSource != null && !projectSource.isEmpty()) {
             List<Path> out = new ArrayList<>();
             for (String p : projectSource.split(File.pathSeparator)) {

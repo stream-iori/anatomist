@@ -63,8 +63,11 @@ public class SearchCommand extends QueryCommand {
         Disclosure.putPaging(env, total, limit, offset);
         Disclosure.putBudget(env, "rows", results.size(), total);
         if ((Boolean) env.stats.get("truncated")) {
-            env.nextQueries = List.of(buildQueryString().replaceAll(" --offset \\d+", "")
+            List<String> continuation = new java.util.ArrayList<>();
+            continuation.add(buildQueryString().replaceAll(" --offset \\d+", "")
                     + " --offset " + env.stats.get("next_offset"));
+            env.nextQueries = List.of(continuation.get(0) + " "
+                    + Disclosure.renderCommand(List.of("--index", IndexPath.resolve(index).toString())));
         }
         // FTS hits can match the package path rather than the class name; surface how many
         // results actually match the simple name so the Agent isn't misled by an inflated total.
@@ -87,6 +90,8 @@ public class SearchCommand extends QueryCommand {
         if (count) sb.append(" --count");
         if (limit != 20) sb.append(" --limit ").append(limit);
         if (offset != 0) sb.append(" --offset ").append(offset);
+        if (module != null && !module.isBlank()) sb.append(" --module ").append(module);
+        if (scope != null && !scope.isBlank()) sb.append(" --scope ").append(scope);
         return sb.toString();
     }
 }

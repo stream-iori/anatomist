@@ -17,6 +17,11 @@ final class ProjectMetadata {
     static void write(SqliteStore store, IndexConfig cfg, int dropped, int rebound, int wired) {
         put(store, "source_root", cfg.projectRoot().toAbsolutePath().normalize().toString());
         put(store, "source_paths", joinPaths(cfg.sourcePaths()));
+        String sourceLayout = cfg.sourceRoots() == null ? "" : cfg.sourceRoots().stream()
+                .map(r -> r.module() + "@" + r.scope() + "=" + r.path().toAbsolutePath().normalize())
+                .sorted().collect(java.util.stream.Collectors.joining("\n"));
+        put(store, "source_layout", sourceLayout);
+        put(store, "source_layout_hash", FileCacheService.sha256OfString(sourceLayout));
         put(store, "indexed_at", Instant.now().toString());
         put(store, "dropped_dangling_edges", String.valueOf(dropped));
         put(store, "rebound_external_edges", String.valueOf(rebound));

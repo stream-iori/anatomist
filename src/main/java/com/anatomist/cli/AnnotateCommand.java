@@ -57,6 +57,13 @@ public class AnnotateCommand implements Callable<Integer> {
     @Option(names = "--format", description = "Output format: text | json.", defaultValue = "text")
     String format;
 
+    @Option(names = "--module", description = "Select a module when symbol_id is not globally unique.")
+    String module;
+
+    @Option(names = "--scope", description = "Select MAIN | TEST | GENERATED (default MAIN).",
+            defaultValue = "MAIN")
+    String scope;
+
     @Override
     public Integer call() throws Exception {
         Path db = IndexPath.resolve(index);
@@ -94,7 +101,11 @@ public class AnnotateCommand implements Callable<Integer> {
 
         try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(db);
              SqliteStore store = new SqliteStore(db)) {
-            warnOnMissingNodes(store, batch);
+            String resolutionError = resolveStorageIds(store, batch, module, scope);
+            if (resolutionError != null) {
+                System.err.println("ERROR: " + resolutionError);
+                return 1;
+            }
             store.upsertSemanticAnnotations(batch);
         }
         System.out.println("Annotated " + batch.size() + " node(s).");
@@ -128,18 +139,42 @@ public class AnnotateCommand implements Callable<Integer> {
         return list == null ? new ArrayList<>() : list;
     }
 
-    private static void warnOnMissingNodes(SqliteStore store, List<SemanticAnnotation> batch) throws Exception {
+    private static String resolveStorageIds(SqliteStore store, List<SemanticAnnotation> batch,
+                                            String module, String scope) throws Exception {
+        String selectedScope = scope == null ? "MAIN" : scope.toUpperCase(java.util.Locale.ROOT);
+        if (!Set.of("MAIN", "TEST", "GENERATED").contains(selectedScope)) {
+            return "scope must be MAIN, TEST, or GENERATED: " + scope;
+        }
         Connection c = store.connection();
-        try (PreparedStatement ps = c.prepareStatement("SELECT 1 FROM nodes WHERE id = ?")) {
+        String sql = "SELECT id FROM nodes WHERE symbol_id=? AND scope=?"
+                + (module == null || module.isBlank() ? "" : " AND module=?")
+                + " ORDER BY id";
+        try (PreparedStatement exact = c.prepareStatement("SELECT id FROM nodes WHERE id=?");
+             PreparedStatement symbolic = c.prepareStatement(sql)) {
             for (SemanticAnnotation sa : batch) {
-                ps.setString(1, sa.nodeId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        System.err.println("WARN: node not found, annotation created with dangling node_id: "
-                                + sa.nodeId);
+                String requested = sa.nodeId;
+                exact.setString(1, requested);
+                try (ResultSet rs = exact.executeQuery()) {
+                    if (rs.next()) {
+                        sa.nodeId = rs.getString(1);
+                        continue;
                     }
                 }
+                symbolic.setString(1, requested);
+                symbolic.setString(2, selectedScope);
+                if (module != null && !module.isBlank()) symbolic.setString(3, module);
+                List<String> matches = new ArrayList<>();
+                try (ResultSet rs = symbolic.executeQuery()) {
+                    while (rs.next()) matches.add(rs.getString(1));
+                }
+                if (matches.isEmpty()) return "node not found: " + requested;
+                if (matches.size() > 1) {
+                    return "ambiguous node '" + requested + "'; specify --module (matches: "
+                            + String.join(", ", matches) + ")";
+                }
+                sa.nodeId = matches.get(0);
             }
         }
+        return null;
     }
 }

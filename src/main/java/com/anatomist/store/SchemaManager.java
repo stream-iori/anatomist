@@ -68,6 +68,7 @@ public class SchemaManager {
             st.execute("DELETE FROM nodes");
             st.execute("DELETE FROM file_cache");
             st.execute("DELETE FROM file_dependencies");
+            st.execute("DELETE FROM index_diagnostics");
             st.execute("DELETE FROM project_meta");
         } catch (SQLException e) {
             throw new RuntimeException("Failed to clear all data", e);

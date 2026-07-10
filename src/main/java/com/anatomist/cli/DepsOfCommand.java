@@ -23,6 +23,8 @@ public class DepsOfCommand implements Callable<Integer> {
     String type;
 
     @Option(names = "--index") Path index;
+    @Option(names = "--module") String module;
+    @Option(names = "--scope", defaultValue = "MAIN") String scope;
 
     @Option(names = "--limit", description = "Max results per page (default 50).") int limit = 50;
     @Option(names = "--offset", description = "Skip N results (for pagination).") int offset = 0;
@@ -38,26 +40,26 @@ public class DepsOfCommand implements Callable<Integer> {
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
-            if (inLoop || inBranch) {
-                List<EdgeRow> rows = ContextFilter.apply(q.depsOf(type), inLoop, inBranch);
-                QueryEnvelope env = new QueryEnvelope("deps-of " + type, rows);
-                JsonFormatter.emit(System.out, env);
-            } else {
-                PagedResult<EdgeRow> paged = q.depsOfPaged(type, limit, offset, filter);
-                QueryEnvelope env = new QueryEnvelope("deps-of " + type, paged.items());
-                env.stats.put("total", paged.total());
-                env.stats.put("offset", paged.offset());
-                env.stats.put("truncated", paged.truncated());
-                if (paged.truncated()) {
-                    env.stats.put("limit", limit > 0 ? limit : 50);
-                    int nextOffset = paged.offset() + (limit > 0 ? limit : 50);
-                    env.stats.put("next_offset", nextOffset);
-                    env.nextQueries = List.of("deps-of " + type + " --limit "
-                            + (limit > 0 ? limit : 50) + " --offset " + nextOffset);
-                    Disclosure.putBudget(env, "edges", paged.items().size(), paged.total());
-                }
-                JsonFormatter.emit(System.out, env);
+            q.selectNodes(module, scope);
+            PagedResult<EdgeRow> paged = Disclosure.filterAndPage(
+                    q.depsOf(type), inLoop, inBranch, filter, limit, offset);
+            List<String> base = new java.util.ArrayList<>(List.of("deps-of", type));
+            Disclosure.addFlag(base, inLoop, "--in-loop");
+            Disclosure.addFlag(base, inBranch, "--in-branch");
+            Disclosure.addOption(base, "--filter", filter);
+            Disclosure.addOption(base, "--module", module);
+            Disclosure.addOption(base, "--scope", scope);
+            QueryEnvelope env = new QueryEnvelope(Disclosure.renderCommand(base), paged.items());
+            Disclosure.putPaging(env, paged.total(), limit, paged.offset());
+            Disclosure.putBudget(env, "edges", paged.items().size(), paged.total());
+            if (paged.truncated()) {
+                List<String> next = new java.util.ArrayList<>(base);
+                Disclosure.addOption(next, "--index", db);
+                Disclosure.addOption(next, "--limit", limit > 0 ? limit : 50);
+                Disclosure.addOption(next, "--offset", env.stats.get("next_offset"));
+                env.nextQueries = List.of(Disclosure.renderCommand(next));
             }
+            JsonFormatter.emit(System.out, env);
             return 0;
         }
     }

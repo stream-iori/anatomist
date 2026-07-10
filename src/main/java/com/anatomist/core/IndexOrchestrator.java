@@ -50,26 +50,26 @@ public class IndexOrchestrator {
                 ctx, AnalyzerRegistry.javaAstAnalyzers(analysisContext));
 
         ExtractionResult result = new ExtractionResult();
-        result.setNodeFlusher(store::writeNodes);
 
         Progress progress = new Progress(cfg.sourceFiles().size());
         factory.parseAll((filePath, cu) -> {
             String relative = filePath == null ? null : relativize(cfg.projectRoot(), filePath);
             if (relative != null) cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
             pipeline.extractAll(cu, result);
-            result.flushNodesIfNeeded();
             progress.tick();
         });
         progress.done();
 
-        result.flushRemainingNodes();
-
         for (var analyzer : AnalyzerRegistry.projectAnalyzers()) {
             if (analyzer.enabled(analysisContext)) {
                 analyzer.analyze(analysisContext, result);
-                result.flushRemainingNodes();
             }
         }
+
+        SourceIdentityResolver identityResolver = cfg.sourceRoots() == null || cfg.sourceRoots().isEmpty()
+                ? new SourceIdentityResolver(cfg.projectRoot(), cfg.sourcePaths())
+                : SourceIdentityResolver.fromRoots(cfg.projectRoot(), cfg.sourceRoots());
+        GraphIdentityRewriter.rewrite(result, identityResolver, Set.of());
 
         int wired = new WiringResolver().apply(result);
         if (wired > 0) {
@@ -90,6 +90,7 @@ public class IndexOrchestrator {
                     + "(extractor gaps) for " + cfg.projectRoot());
         }
 
+        store.writeNodes(result.nodes);
         store.writeEdgesBatched(result.edges, ExtractionResult.FLUSH_THRESHOLD);
         store.writeAnnotationsBatched(result.annotations, result.semanticAnnotations,
                 ExtractionResult.FLUSH_THRESHOLD);
@@ -115,7 +116,7 @@ public class IndexOrchestrator {
                 ? toSamplesMap(ctx, projectPackagesOf(result))
                 : null;
 
-        return new IndexResult(
+        IndexResult indexResult = new IndexResult(
                 store.queryKindCounts(),
                 store.queryRelationCounts(),
                 store.queryAnnotationCount(),
@@ -128,6 +129,8 @@ public class IndexOrchestrator {
                 unresolvedSamples,
                 ctx.samplingEnabled()
         );
+        store.replaceIndexDiagnostics(IndexHealthService.fromResult(indexResult).diagnostics());
+        return indexResult;
     }
 
     @SuppressWarnings("unchecked")

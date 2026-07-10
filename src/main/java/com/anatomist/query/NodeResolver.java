@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.anatomist.query.QueryInfra.bind;
 import static com.anatomist.query.QueryInfra.bindStrings;
@@ -30,10 +31,36 @@ final class NodeResolver {
 
     private final Connection conn;
     private final Map<String, NodeRow> nodeCache = new HashMap<>();
+    private String module;
+    private String scope = "MAIN";
 
     NodeResolver(Connection conn) {
         this.conn = conn;
     }
+
+    void select(String module, String scope) {
+        this.module = module == null || module.isBlank() ? null : module;
+        this.scope = scope == null || scope.isBlank() ? "MAIN" : scope.toUpperCase();
+        if (!Set.of("MAIN", "TEST", "GENERATED", "ALL").contains(this.scope)) {
+            throw new IllegalArgumentException("scope must be MAIN, TEST, GENERATED, or ALL: " + scope);
+        }
+    }
+
+    private String selectorClause() {
+        return selectorClause(null);
+    }
+
+    String selectorClause(String alias) {
+        String prefix = alias == null || alias.isBlank() ? "" : alias + ".";
+        StringBuilder sql = new StringBuilder();
+        if (!"ALL".equals(scope)) sql.append(" AND ").append(prefix).append("scope='")
+                .append(quote(scope)).append("'");
+        if (module != null) sql.append(" AND ").append(prefix).append("module='")
+                .append(quote(module)).append("'");
+        return sql.toString();
+    }
+
+    private static String quote(String value) { return value.replace("'", "''"); }
 
     /** Resolve a free-form input to one or more type node IDs.
      *  Accepts FQN (`com.x.Foo`) or short label (`Foo`). */
@@ -45,7 +72,11 @@ final class NodeResolver {
         if (hash >= 0) t = t.substring(0, hash);
 
         // Try exact qualified_name first.
-        String sql = "SELECT id FROM nodes WHERE qualified_name = ? AND kind IN ("
+        if (com.anatomist.core.NodeKeyFactory.isKey(t)) {
+            List<String> exact = runStringColumn("SELECT id FROM nodes WHERE id=?", List.of(t));
+            if (!exact.isEmpty()) return exact;
+        }
+        String sql = "SELECT id FROM nodes WHERE qualified_name = ?" + selectorClause() + " AND kind IN ("
                 + qmarks(GraphConstants.TYPE_KINDS.size()) + ")";
         List<Object> args = new ArrayList<>();
         args.add(t);
@@ -54,7 +85,7 @@ final class NodeResolver {
         if (!ids.isEmpty()) return ids;
 
         // Else label match
-        sql = "SELECT id FROM nodes WHERE label = ? AND kind IN ("
+        sql = "SELECT id FROM nodes WHERE label = ?" + selectorClause() + " AND kind IN ("
                 + qmarks(GraphConstants.TYPE_KINDS.size()) + ") ORDER BY qualified_name";
         args.clear();
         args.add(t);
@@ -71,8 +102,9 @@ final class NodeResolver {
         // Exact id (with parens)?
         if (input.contains("(") && input.endsWith(")")) {
             List<String> exact = runStringColumn(
-                    "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") AND id = ?",
-                    List.of(input));
+                    "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS)
+                            + ")" + selectorClause() + " AND (id = ? OR symbol_id = ?)",
+                    List.of(input, input));
             if (!exact.isEmpty()) return exact;
         }
 
@@ -89,12 +121,12 @@ final class NodeResolver {
                 String q = typePart + "#" + mname;
                 return runStringColumn(
                         "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
-                      + "  AND qualified_name = ? ORDER BY id", List.of(q));
+                      + selectorClause() + " AND qualified_name = ? ORDER BY id", List.of(q));
             } else {
                 // short class name
                 return runStringColumn(
                         "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
-                      + "  AND qualified_name LIKE ? ORDER BY id",
+                      + selectorClause() + " AND qualified_name LIKE ? ORDER BY id",
                         List.of("%." + typePart + "#" + mname));
             }
         }
@@ -107,19 +139,20 @@ final class NodeResolver {
             if (typePart.contains(".")) {
                 return runStringColumn(
                         "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
-                      + "  AND qualified_name = ? ORDER BY id",
+                      + selectorClause() + " AND qualified_name = ? ORDER BY id",
                         List.of(typePart + "#" + mname));
             } else {
                 return runStringColumn(
                         "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
-                      + "  AND qualified_name LIKE ? ORDER BY id",
+                      + selectorClause() + " AND qualified_name LIKE ? ORDER BY id",
                         List.of("%." + typePart + "#" + mname));
             }
         }
 
         // bare method name
         return runStringColumn(
-                "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") AND label = ? "
+                "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ")"
+              + selectorClause() + " AND label = ? "
               + " ORDER BY qualified_name", List.of(input));
     }
 
@@ -130,8 +163,9 @@ final class NodeResolver {
         // pkg.Class#field — exact id (FIELD id = <classFqn>#<name>, no parens)
         if (input.contains("#")) {
             return runStringColumn(
-                    "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD + "' AND id = ? ORDER BY id",
-                    List.of(input));
+                    "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD
+                            + "'" + selectorClause() + " AND (id = ? OR symbol_id = ?) ORDER BY id",
+                    List.of(input, input));
         }
         // Class.field — split at last dot; if typePart is qualified, exact match
         int dot = input.lastIndexOf('.');
@@ -140,16 +174,19 @@ final class NodeResolver {
             String fname = input.substring(dot + 1);
             if (typePart.contains(".")) {
                 return runStringColumn(
-                        "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD + "' AND id = ? ORDER BY id",
+                        "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD
+                                + "'" + selectorClause() + " AND symbol_id = ? ORDER BY id",
                         List.of(typePart + "#" + fname));
             }
             return runStringColumn(
-                    "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD + "' AND id LIKE ? ORDER BY id",
+                    "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD
+                            + "'" + selectorClause() + " AND symbol_id LIKE ? ORDER BY id",
                     List.of("%." + typePart + "#" + fname));
         }
         // bare name — by label
         return runStringColumn(
-                "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD + "' AND label = ? ORDER BY qualified_name",
+                "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD
+                        + "'" + selectorClause() + " AND label = ? ORDER BY qualified_name",
                 List.of(input));
     }
 

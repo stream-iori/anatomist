@@ -1,5 +1,6 @@
 package com.anatomist.store;
 
+import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Document;
 import com.anatomist.model.Edge;
@@ -61,8 +62,8 @@ public class DataWriter {
             """;
     private static final String SQL_INSERT_NODE =
             "INSERT OR REPLACE INTO nodes"
-                    + "(id,label,kind,qualified_name,package,source_file,source_location,module,scope,javadoc,metadata)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?)";
+                    + "(id,symbol_id,label,kind,qualified_name,package,source_file,source_location,module,scope,javadoc,metadata)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_EDGE =
             "INSERT INTO edges"
                     + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,context,is_external,source_file,source_location,metadata)"
@@ -346,6 +347,35 @@ public class DataWriter {
         }
     }
 
+    public void replaceIndexDiagnostics(List<IndexDiagnostic> diagnostics) {
+        inTransaction(c -> {
+            try (Statement st = c.createStatement()) {
+                st.execute("DELETE FROM index_diagnostics");
+            }
+            if (diagnostics == null || diagnostics.isEmpty()) return;
+            String sql = "INSERT INTO index_diagnostics(severity,code,phase,source_file,module,scope,symbol,occurrence_count,sample)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?)";
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                int emitted = 0;
+                for (IndexDiagnostic d : diagnostics) {
+                    if (emitted++ >= 5000) break;
+                    ps.setString(1, d.severity());
+                    ps.setString(2, d.code());
+                    ps.setString(3, d.phase());
+                    setNullableString(ps, 4, d.sourceFile());
+                    setNullableString(ps, 5, d.module());
+                    setNullableString(ps, 6, d.scope());
+                    setNullableString(ps, 7, d.symbol());
+                    ps.setLong(8, d.count());
+                    setNullableString(ps, 9, d.sample() == null ? null
+                            : d.sample().substring(0, Math.min(500, d.sample().length())));
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        });
+    }
+
     // ── Package-private insert methods (used by SqliteStore.write()) ──
 
     static void insertNodes(Connection c, List<Node> nodes) throws SQLException {
@@ -353,16 +383,17 @@ public class DataWriter {
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_NODE)) {
             for (Node n : nodes) {
                 ps.setString(1, n.id);
-                ps.setString(2, n.label);
-                ps.setString(3, n.kind);
-                ps.setString(4, n.qualifiedName);
-                ps.setString(5, n.pkg);
-                ps.setString(6, n.sourceFile == null ? "" : n.sourceFile);
-                ps.setString(7, n.sourceLocation);
-                ps.setString(8, n.module);
-                ps.setString(9, n.scope == null ? GraphConstants.Scope.MAIN : n.scope);
-                ps.setString(10, n.javadoc);
-                ps.setString(11, n.metadata);
+                ps.setString(2, n.symbolId == null ? n.id : n.symbolId);
+                ps.setString(3, n.label);
+                ps.setString(4, n.kind);
+                ps.setString(5, n.qualifiedName);
+                ps.setString(6, n.pkg);
+                ps.setString(7, n.sourceFile == null ? "" : n.sourceFile);
+                ps.setString(8, n.sourceLocation);
+                ps.setString(9, n.module == null ? "." : n.module);
+                ps.setString(10, n.scope == null ? GraphConstants.Scope.MAIN : n.scope);
+                ps.setString(11, n.javadoc);
+                ps.setString(12, n.metadata);
                 ps.addBatch();
             }
             ps.executeBatch();

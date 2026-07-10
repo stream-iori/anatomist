@@ -3,19 +3,22 @@
 
 CREATE TABLE nodes (
     id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL,
     label TEXT NOT NULL,
     kind TEXT NOT NULL,
     qualified_name TEXT NOT NULL,
     package TEXT,
     source_file TEXT NOT NULL,
     source_location TEXT,
-    module TEXT,
-    scope TEXT NOT NULL DEFAULT 'MAIN',
+    module TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('MAIN','TEST','GENERATED')),
     javadoc TEXT,
     metadata TEXT
 );
 
 CREATE INDEX idx_nodes_kind ON nodes(kind);
+CREATE INDEX idx_nodes_symbol_id ON nodes(symbol_id);
+CREATE INDEX idx_nodes_symbol_identity ON nodes(symbol_id,module,scope,kind);
 CREATE INDEX idx_nodes_qualified_name ON nodes(qualified_name);
 CREATE INDEX idx_nodes_package ON nodes(package);
 CREATE INDEX idx_nodes_source_file ON nodes(source_file);
@@ -163,6 +166,23 @@ CREATE TABLE project_meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE index_diagnostics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    severity TEXT NOT NULL CHECK (severity IN ('info','warning','error')),
+    code TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    source_file TEXT,
+    module TEXT,
+    scope TEXT,
+    symbol TEXT,
+    occurrence_count INTEGER NOT NULL,
+    sample TEXT
+);
+
+CREATE INDEX idx_diagnostics_severity ON index_diagnostics(severity);
+CREATE INDEX idx_diagnostics_code ON index_diagnostics(code);
+CREATE INDEX idx_diagnostics_source_file ON index_diagnostics(source_file);
 
 CREATE TABLE file_dependencies (
     source_file TEXT NOT NULL,

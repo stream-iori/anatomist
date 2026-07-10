@@ -23,6 +23,9 @@ public class DoctorCommand implements Callable<Integer> {
     @Option(names = "--index", description = "Path to index.db. Defaults to ~/.anatomist/<repo>/index.db.")
     Path index;
 
+    @Option(names = "--strict-health", description = "Return exit code 3 unless index health is healthy.")
+    boolean strictHealth;
+
     @Override
     public Integer call() {
         Path defaultPath = DefaultIndexPath.forQueryRead(Path.of("").toAbsolutePath());
@@ -49,10 +52,24 @@ public class DoctorCommand implements Callable<Integer> {
 
         if (exists) {
             try (SqliteStore store = new SqliteStore(db)) {
-                store.readProjectMeta("schema_version").ifPresent(v -> out.put("index_schema_version", v));
-                store.readProjectMeta("java_version").ifPresent(v -> out.put("java_version", v));
-                out.put("node_kinds", store.queryKindCounts());
-                out.put("relations", store.queryRelationCounts());
+                out.put("index_schema_version", store.schemaVersion());
+                if (!store.schemaCompatible()) {
+                    out.put("status", "degraded");
+                    out.put("health", "unhealthy");
+                    out.put("errors", List.of(Map.of("code", "SCHEMA_MISMATCH",
+                            "required", FileCacheService.CURRENT_SCHEMA_VERSION,
+                            "actual", store.schemaVersion())));
+                } else {
+                    store.readProjectMeta("java_version").ifPresent(v -> out.put("java_version", v));
+                    out.put("node_kinds", store.queryKindCounts());
+                    out.put("relations", store.queryRelationCounts());
+                    com.anatomist.core.IndexHealthReport health =
+                            com.anatomist.core.IndexHealthService.read(store);
+                    out.put("health", health.status().name().toLowerCase());
+                    out.put("diagnostics", health.toMaps());
+                    out.put("warnings", health.warnings());
+                    out.put("errors", health.errors());
+                }
             } catch (RuntimeException ex) {
                 out.put("status", "degraded");
                 out.put("warning", ex.getMessage());
@@ -66,6 +83,8 @@ public class DoctorCommand implements Callable<Integer> {
             System.out.println("Index: " + db + (exists ? " (exists)" : " (missing)"));
             System.out.println("Schema: " + FileCacheService.CURRENT_SCHEMA_VERSION);
         }
-        return 0;
+        boolean unhealthy = !"ok".equals(out.get("status"))
+                || (out.containsKey("health") && !"healthy".equals(out.get("health")));
+        return strictHealth && unhealthy ? 3 : 0;
     }
 }

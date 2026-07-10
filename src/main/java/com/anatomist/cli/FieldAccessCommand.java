@@ -28,6 +28,8 @@ public class FieldAccessCommand implements Callable<Integer> {
 
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
+    @Option(names = "--module") String module;
+    @Option(names = "--scope", defaultValue = "MAIN") String scope;
 
     @Option(names = "--limit", description = "Max results per page (default 50).") int limit = 50;
     @Option(names = "--offset", description = "Skip N results (for pagination).") int offset = 0;
@@ -43,36 +45,35 @@ public class FieldAccessCommand implements Callable<Integer> {
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
-            if (inLoop || inBranch) {
-                List<EdgeRow> rows;
-                switch (mode.toLowerCase()) {
-                    case "reads": rows = q.fieldReaders(field); break;
-                    case "writes": rows = q.fieldWriters(field); break;
-                    default:
-                        rows = new ArrayList<>(q.fieldReaders(field));
-                        rows.addAll(q.fieldWriters(field));
-                        break;
-                }
-                rows = ContextFilter.apply(rows, inLoop, inBranch);
-                JsonFormatter.emit(System.out,
-                        new QueryEnvelope("field-access " + field + " --mode " + mode, rows));
-            } else {
-                PagedResult<EdgeRow> paged = q.fieldAccessPaged(field, mode, limit, offset, filter);
-                QueryEnvelope env = new QueryEnvelope("field-access " + field + " --mode " + mode, paged.items());
-                env.stats.put("total", paged.total());
-                env.stats.put("offset", paged.offset());
-                env.stats.put("truncated", paged.truncated());
-                if (paged.truncated()) {
-                    env.stats.put("limit", limit > 0 ? limit : 50);
-                    int nextOffset = paged.offset() + (limit > 0 ? limit : 50);
-                    env.stats.put("next_offset", nextOffset);
-                    env.nextQueries = List.of("field-access " + field + " --mode " + mode
-                            + " --limit " + (limit > 0 ? limit : 50)
-                            + " --offset " + nextOffset);
-                    Disclosure.putBudget(env, "edges", paged.items().size(), paged.total());
-                }
-                JsonFormatter.emit(System.out, env);
+            q.selectNodes(module, scope);
+            List<EdgeRow> rows;
+            switch (mode.toLowerCase()) {
+                case "reads": rows = q.fieldReaders(field); break;
+                case "writes": rows = q.fieldWriters(field); break;
+                default:
+                    rows = new ArrayList<>(q.fieldReaders(field));
+                    rows.addAll(q.fieldWriters(field));
+                    break;
             }
+            PagedResult<EdgeRow> paged = Disclosure.filterAndPage(
+                    rows, inLoop, inBranch, filter, limit, offset);
+            List<String> base = new ArrayList<>(List.of("field-access", field, "--mode", mode));
+            Disclosure.addFlag(base, inLoop, "--in-loop");
+            Disclosure.addFlag(base, inBranch, "--in-branch");
+            Disclosure.addOption(base, "--filter", filter);
+            Disclosure.addOption(base, "--module", module);
+            Disclosure.addOption(base, "--scope", scope);
+            QueryEnvelope env = new QueryEnvelope(Disclosure.renderCommand(base), paged.items());
+            Disclosure.putPaging(env, paged.total(), limit, paged.offset());
+            Disclosure.putBudget(env, "edges", paged.items().size(), paged.total());
+            if (paged.truncated()) {
+                List<String> next = new ArrayList<>(base);
+                Disclosure.addOption(next, "--index", db);
+                Disclosure.addOption(next, "--limit", limit > 0 ? limit : 50);
+                Disclosure.addOption(next, "--offset", env.stats.get("next_offset"));
+                env.nextQueries = List.of(Disclosure.renderCommand(next));
+            }
+            JsonFormatter.emit(System.out, env);
             return 0;
         }
     }

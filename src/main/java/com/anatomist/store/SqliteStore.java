@@ -1,5 +1,6 @@
 package com.anatomist.store;
 
+import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Document;
 import com.anatomist.model.Edge;
@@ -109,6 +110,7 @@ public class SqliteStore implements IndexWriter {
     public void clearFileDependencies() { writer.clearFileDependencies(); }
     public void deriveFileDependencies() { writer.deriveFileDependencies(); }
     public void refreshFileDependencies() { writer.refreshFileDependencies(); }
+    public void replaceIndexDiagnostics(List<IndexDiagnostic> diagnostics) { writer.replaceIndexDiagnostics(diagnostics); }
 
     @FunctionalInterface
     public interface TxWork {
@@ -135,4 +137,5 @@ public class SqliteStore implements IndexWriter {
     public Map<String, Long> queryRelationCounts() { return reader.queryRelationCounts(); }
     public long queryAnnotationCount() { return reader.queryAnnotationCount(); }
     public long querySemanticAnnotationCount() { return reader.querySemanticAnnotationCount(); }
+    public List<IndexDiagnostic> readIndexDiagnostics() { return reader.readIndexDiagnostics(); }
 }

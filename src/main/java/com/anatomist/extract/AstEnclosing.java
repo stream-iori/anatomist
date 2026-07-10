@@ -3,6 +3,7 @@ package com.anatomist.extract;
 import com.anatomist.core.NodeIdGenerator;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.CompactConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
@@ -39,6 +40,7 @@ final class AstEnclosing {
             if (cur instanceof MethodReferenceExpr mr) return methodRefId(mr);
             if (cur instanceof MethodDeclaration md) return tryMethodId(md);
             if (cur instanceof ConstructorDeclaration cd) return tryConstructorId(cd);
+            if (cur instanceof CompactConstructorDeclaration cd) return tryCompactConstructorId(cd);
             if (cur instanceof FieldDeclaration fd) return fieldFallbackId(fd);
             if (cur instanceof TypeDeclaration<?> td) return tryTypeId(td);
             p = cur.getParentNode();
@@ -73,12 +75,17 @@ final class AstEnclosing {
     }
 
     private String tryMethodId(MethodDeclaration md) {
-        try { return gen.forMethod(md.resolve()); }
+        try { return CallableIdFactory.forMethod(gen, md); }
         catch (RuntimeException e) { return anonymousMethodFallbackId(md); }
     }
 
     private String tryConstructorId(ConstructorDeclaration cd) {
-        try { return gen.forConstructor(cd.resolve()); }
+        try { return CallableIdFactory.forConstructor(gen, cd); }
+        catch (RuntimeException e) { return null; }
+    }
+
+    private String tryCompactConstructorId(CompactConstructorDeclaration cd) {
+        try { return CallableIdFactory.forCompactConstructor(gen, cd); }
         catch (RuntimeException e) { return null; }
     }
 
@@ -93,17 +100,7 @@ final class AstEnclosing {
         if (anon.isEmpty()) return null;
         String classId = anonymousClassId(anon.get());
         if (classId == null) return null;
-        return classId + "#" + md.getNameAsString()
-                + "(" + astSignature(md) + ")";
-    }
-
-    private static String astSignature(MethodDeclaration md) {
-        return md.getParameters().stream()
-                .map(p -> {
-                    try { return NodeIdGenerator.erasedTypeDescribe(p.getType().resolve()); }
-                    catch (RuntimeException e) { return "<unresolved>"; }
-                })
-                .collect(java.util.stream.Collectors.joining(","));
+        return CallableIdFactory.forAnonymousMethod(classId, md);
     }
 
     /**

@@ -32,6 +32,7 @@ public final class EdgeTargetBinder {
         for (Node n : result.nodes) {
             if (n.id != null) known.add(n.id);
         }
+        Map<String, String> uniqueBySymbol = uniqueTargetsBySymbol(known);
         Map<String, String> uniqueByArity = uniqueMethodTargetsByArity(known);
         if (known.isEmpty()) return 0;
         int changed = 0;
@@ -39,7 +40,10 @@ public final class EdgeTargetBinder {
             if (!e.isExternal || e.externalTargetFqn == null) continue;
             String target = known.contains(e.externalTargetFqn)
                     ? e.externalTargetFqn
-                    : uniqueByArity.get(methodArityKey(e.externalTargetFqn));
+                    : uniqueBySymbol.get(e.externalTargetFqn);
+            if (target == null) {
+                target = uniqueByArity.get(methodArityKey(e.externalTargetFqn));
+            }
             if (target == null) continue;
             e.targetId = target;
             e.externalTargetFqn = null;
@@ -49,11 +53,26 @@ public final class EdgeTargetBinder {
         return changed;
     }
 
+    private static Map<String, String> uniqueTargetsBySymbol(Set<String> known) {
+        Map<String, String> out = new HashMap<>();
+        Set<String> ambiguous = new HashSet<>();
+        for (String id : known) {
+            String symbol = NodeKeyFactory.symbolId(id);
+            if (ambiguous.contains(symbol)) continue;
+            String previous = out.putIfAbsent(symbol, id);
+            if (previous != null && !previous.equals(id)) {
+                out.remove(symbol);
+                ambiguous.add(symbol);
+            }
+        }
+        return out;
+    }
+
     private static Map<String, String> uniqueMethodTargetsByArity(Set<String> known) {
         Map<String, String> out = new HashMap<>();
         Set<String> ambiguous = new HashSet<>();
         for (String id : known) {
-            String key = methodArityKey(id);
+            String key = methodArityKey(NodeKeyFactory.symbolId(id));
             if (key == null) continue;
             if (ambiguous.contains(key)) continue;
             String previous = out.putIfAbsent(key, id);

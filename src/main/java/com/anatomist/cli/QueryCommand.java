@@ -11,11 +11,15 @@ import java.util.concurrent.Callable;
 public abstract class QueryCommand implements Callable<Integer> {
 
     @Option(names = "--index") Path index;
+    @Option(names = "--module", description = "Restrict symbol resolution to one module.") String module;
+    @Option(names = "--scope", description = "Source scope: MAIN | TEST | GENERATED | ALL (default MAIN).",
+            defaultValue = "MAIN") String scope;
 
     @Override
     public final Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
+            q.selectNodes(module, scope);
             QueryEnvelope env = execute(q);
             JsonFormatter.emit(System.out, env);
             return 0;

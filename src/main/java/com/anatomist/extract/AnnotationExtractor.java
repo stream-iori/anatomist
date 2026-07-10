@@ -9,6 +9,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.CompactConstructorDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -77,6 +78,12 @@ public class AnnotationExtractor implements Extractor {
             }
 
             @Override
+            public void visit(CompactConstructorDeclaration n, Void arg) {
+                emitCompactConstructorAnnotations(n, result);
+                super.visit(n, arg);
+            }
+
+            @Override
             public void visit(FieldDeclaration n, Void arg) {
                 emitFieldAnnotations(n, result);
                 super.visit(n, arg);
@@ -97,7 +104,7 @@ public class AnnotationExtractor implements Extractor {
 
     private void emitMethodAnnotations(MethodDeclaration decl, ExtractionResult result) {
         String nodeId;
-        try { nodeId = ctx.idGenerator().forMethod(decl.resolve()); }
+        try { nodeId = CallableIdFactory.forMethod(ctx.idGenerator(), decl); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
@@ -107,12 +114,22 @@ public class AnnotationExtractor implements Extractor {
 
     private void emitConstructorAnnotations(ConstructorDeclaration decl, ExtractionResult result) {
         String nodeId;
-        try { nodeId = ctx.idGenerator().forConstructor(decl.resolve()); }
+        try { nodeId = CallableIdFactory.forConstructor(ctx.idGenerator(), decl); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
         }
         emitParameterAnnotations(decl.getParameters(), nodeId, result);
+    }
+
+    private void emitCompactConstructorAnnotations(CompactConstructorDeclaration decl,
+                                                   ExtractionResult result) {
+        String nodeId;
+        try { nodeId = CallableIdFactory.forCompactConstructor(ctx.idGenerator(), decl); }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        for (AnnotationExpr ann : decl.getAnnotations()) {
+            collectOne(nodeId, ann, null, result);
+        }
     }
 
     private void emitParameterAnnotations(List<Parameter> params, String methodNodeId,
@@ -157,6 +174,7 @@ public class AnnotationExtractor implements Extractor {
         a.nodeId = nodeId;
         a.annotationFqn = fqn;
         a.attributes = attributesJson(ann, extra);
+        a.sourceFile = ann.findCompilationUnit().map(SourceFiles::of).orElse(null);
         result.annotations.add(a);
     }
 

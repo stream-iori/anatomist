@@ -16,5 +16,6 @@ public record IndexConfig(
         Path dbPath,
         String classpathOverride,
         boolean noClasspath,
-        boolean debug
+        boolean debug,
+        List<SourceRoot> sourceRoots
 ) {}

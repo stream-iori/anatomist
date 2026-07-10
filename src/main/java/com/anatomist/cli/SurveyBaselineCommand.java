@@ -5,6 +5,7 @@ import com.anatomist.query.DtoCodecs;
 import com.anatomist.json.Json;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.QueryService;
+import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -29,6 +30,9 @@ public class SurveyBaselineCommand implements Callable<Integer> {
     @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
     Path index;
 
+    @Option(names = "--strict-health", description = "Return exit code 3 unless index health is healthy.")
+    boolean strictHealth;
+
     @Override
     public Integer call() {
         Path db = IndexPath.resolve(index);
@@ -47,8 +51,15 @@ public class SurveyBaselineCommand implements Callable<Integer> {
                     "mode", "structural_summary",
                     "packages", overview.packages.size(),
                     "package_deps", overview.packageDeps.size()));
-            out.put("warnings", List.of());
-            out.put("errors", List.of());
+            com.anatomist.core.IndexHealthReport health;
+            try (SqliteStore store = new SqliteStore(db)) {
+                health =
+                        com.anatomist.core.IndexHealthService.read(store);
+                out.put("health", health.status().name().toLowerCase());
+                out.put("diagnostics", health.toMaps());
+                out.put("warnings", health.warnings());
+                out.put("errors", health.errors());
+            }
             out.put("next_queries", List.of(
                     "anatomist overview --format json --index " + db,
                     "anatomist overview --deps-only --limit 50 --index " + db,
@@ -63,7 +74,8 @@ public class SurveyBaselineCommand implements Callable<Integer> {
                         + " methods=" + stats.get("methods")
                         + " package_deps=" + stats.get("package_deps"));
             }
-            return 0;
+            return strictHealth
+                    && health.status() != com.anatomist.core.IndexHealthReport.Status.HEALTHY ? 3 : 0;
         }
     }
 }

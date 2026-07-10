@@ -65,16 +65,28 @@ public class CallersOfCommand extends QueryCommand {
         if (sourceWindow != null) {
             q.attachSourceWindows(page, Math.max(0, sourceWindow));
         }
-        String query = "callers-of " + method + " --depth " + depth
-                + (throughCallbacks ? " --through-callbacks" : "");
+        List<String> queryArgs = new java.util.ArrayList<>(List.of(
+                "callers-of", method, "--depth", String.valueOf(depth)));
+        Disclosure.addFlag(queryArgs, throughCallbacks, "--through-callbacks");
+        Disclosure.addFlag(queryArgs, inLoop, "--in-loop");
+        Disclosure.addFlag(queryArgs, inBranch, "--in-branch");
+        Disclosure.addOption(queryArgs, "--filter", filter);
+        Disclosure.addOption(queryArgs, "--source-window", sourceWindow);
+        Disclosure.addOption(queryArgs, "--blocks", blocks);
+        Disclosure.addOption(queryArgs, "--module", module);
+        Disclosure.addOption(queryArgs, "--scope", scope);
+        String query = Disclosure.renderCommand(queryArgs);
         QueryEnvelope env = new QueryEnvelope(query, page);
         int maxDepth = rows.stream().mapToInt(r -> r.depth == null ? 0 : r.depth).max().orElse(0);
         env.stats.put("max_depth", maxDepth);
         Disclosure.putPaging(env, total, limit > 0 ? limit : Math.max(total, 1), offset);
         Disclosure.putBudget(env, "edges", page.size(), total);
         if ((Boolean) env.stats.get("truncated")) {
-            env.nextQueries = List.of(query + " --limit " + env.stats.get("limit")
-                    + " --offset " + env.stats.get("next_offset"));
+            List<String> next = new java.util.ArrayList<>(queryArgs);
+            Disclosure.addOption(next, "--index", IndexPath.resolve(index));
+            Disclosure.addOption(next, "--limit", env.stats.get("limit"));
+            Disclosure.addOption(next, "--offset", env.stats.get("next_offset"));
+            env.nextQueries = List.of(Disclosure.renderCommand(next));
         }
         if (blocks != null) {
             CallChainSlicer slicer = new CallChainSlicer(q.connection());

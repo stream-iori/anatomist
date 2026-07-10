@@ -7,6 +7,8 @@ import com.anatomist.model.Node;
 import com.anatomist.semantic.SemanticPostProcessor;
 
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 public class GraphPostProcessor {
@@ -21,10 +23,30 @@ public class GraphPostProcessor {
         if (result == null) return new Summary(0, 0);
         Set<String> known = new HashSet<>();
         if (survivingNodeIds != null) known.addAll(survivingNodeIds);
+        backfillFactOrigins(result);
         int rebound = EdgeTargetBinder.bindExternalTargets(result, known);
         int dropped = pruneDanglingInternalEdges(result, known);
         new SemanticPostProcessor().process(result);
         return new Summary(rebound, dropped);
+    }
+
+    private static void backfillFactOrigins(ExtractionResult result) {
+        Map<String, String> sourceFiles = new HashMap<>();
+        for (Node node : result.nodes) {
+            if (node.id != null && node.sourceFile != null) {
+                sourceFiles.putIfAbsent(node.id, node.sourceFile);
+            }
+        }
+        for (Edge edge : result.edges) {
+            if (edge.sourceFile == null && edge.sourceId != null) {
+                edge.sourceFile = sourceFiles.get(edge.sourceId);
+            }
+        }
+        for (var annotation : result.annotations) {
+            if (annotation.sourceFile == null && annotation.nodeId != null) {
+                annotation.sourceFile = sourceFiles.get(annotation.nodeId);
+            }
+        }
     }
 
     private static int pruneDanglingInternalEdges(ExtractionResult r, Set<String> survivingNodeIds) {

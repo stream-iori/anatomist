@@ -163,11 +163,11 @@ public class HierarchyExtractor implements Extractor {
 
     private Edge overrideEdge(ResolvedMethodDeclaration sub, ResolvedMethodDeclaration sup) {
         Edge e = new Edge();
-        e.sourceId = ctx.idGenerator().forMethod(sub);
+        e.sourceId = CallableIdFactory.forMethod(ctx.idGenerator(), sub);
         e.relation = GraphConstants.Relation.OVERRIDES;
         e.confidence = GraphConstants.Confidence.EXTRACTED;
         if (ctx.isProjectInternal(sup.declaringType())) {
-            e.targetId = ctx.idGenerator().forMethod(sup);
+            e.targetId = CallableIdFactory.forMethod(ctx.idGenerator(), sup);
             e.isExternal = false;
         } else {
             e.externalTargetFqn = NodeIdGenerator.externalMethodFqn(sup);
@@ -232,7 +232,7 @@ public class HierarchyExtractor implements Extractor {
     }
 
     private String methodIdFallback(MethodDeclaration method, String sourceType) {
-        try { return ctx.idGenerator().forMethod(method.resolve()); }
+        try { return CallableIdFactory.forMethod(ctx.idGenerator(), method); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); }
         return sourceType + "#" + method.getNameAsString()
                 + "(" + methodSignatureKey(method) + ")";

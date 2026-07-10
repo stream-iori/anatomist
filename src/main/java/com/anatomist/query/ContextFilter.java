@@ -37,12 +37,14 @@ public final class ContextFilter {
     }
 
     private static boolean matches(String context, boolean inLoop, boolean inBranch) {
+        boolean loopMatched = !inLoop;
+        boolean branchMatched = !inBranch;
         for (String seg : context.split(">")) {
             int at = seg.indexOf('@');
             String kind = at >= 0 ? seg.substring(0, at) : seg;
-            if (inLoop && LOOP_KINDS.contains(kind)) return true;
-            if (inBranch && BRANCH_KINDS.contains(kind)) return true;
+            if (inLoop && LOOP_KINDS.contains(kind)) loopMatched = true;
+            if (inBranch && BRANCH_KINDS.contains(kind)) branchMatched = true;
         }
-        return false;
+        return loopMatched && branchMatched;
     }
 }

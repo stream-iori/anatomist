@@ -67,12 +67,14 @@ public final class DtoCodecs {
         @Override public Object toTree(NodeRow n) {
             Map<String, Object> m = obj();
             put(m, "id", n.id);
+            put(m, "symbol_id", n.symbolId);
             put(m, "label", n.label);
             put(m, "kind", n.kind);
             put(m, "qualified_name", n.qualifiedName);
             put(m, "source_file", n.sourceFile);
             put(m, "source_location", n.sourceLocation);
             put(m, "module", n.module);
+            put(m, "scope", n.scope);
             putNullable(m, "javadoc", n.javadoc);
             return m;
         }
@@ -84,9 +86,15 @@ public final class DtoCodecs {
             Map<String, Object> m = obj();
             put(m, "source", e.source);
             put(m, "source_label", e.sourceLabel);
+            put(m, "source_symbol_id", e.sourceSymbolId);
+            put(m, "source_module", e.sourceModule);
+            put(m, "source_scope", e.sourceScope);
             put(m, "target", e.target);
             put(m, "target_label", e.targetLabel);
             put(m, "target_qualified_name", e.targetQualifiedName);
+            put(m, "target_symbol_id", e.targetSymbolId);
+            put(m, "target_module", e.targetModule);
+            put(m, "target_scope", e.targetScope);
             put(m, "external_target_fqn", e.externalTargetFqn);
             put(m, "relation", e.relation);
             put(m, "call_kind", e.callKind);

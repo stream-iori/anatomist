@@ -3,28 +3,12 @@ package com.anatomist.cli;
 import com.anatomist.config.ConfigLoader;
 import com.anatomist.config.ProjectConfig;
 import com.anatomist.core.ClasspathDetector;
-import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserFactory;
-import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.ProjectScanner;
-import com.anatomist.core.SpringBeanParser;
 import com.anatomist.core.logging.AnatomistLog;
-import com.anatomist.extract.AnnotationExtractor;
-import com.anatomist.extract.CallGraphExtractor;
-import com.anatomist.extract.FieldAccessExtractor;
-import com.anatomist.extract.FieldExtractor;
-import com.anatomist.extract.HierarchyExtractor;
-import com.anatomist.extract.MethodExtractor;
-import com.anatomist.extract.ReferenceExtractor;
-import com.anatomist.extract.TypeExtractor;
-import com.anatomist.extract.XmlBeanExtractor;
 import com.anatomist.store.FileCacheService;
-import com.anatomist.json.Json;
 import com.anatomist.incremental.IncrementalIndexer;
-import com.anatomist.model.GraphConstants;
-import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
-import com.anatomist.semantic.SemanticPostProcessor;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -70,6 +54,10 @@ public class IndexCommand implements Callable<Integer> {
                     + "projects have every module's src/main/java auto-discovered. "
                     + "Relative roots resolve against the project path argument.")
     String projectSource;
+
+    @Option(names = "--source-root",
+            description = "Explicit source identity: <module>@<MAIN|TEST|GENERATED>=<path>. Repeatable.")
+    List<String> sourceRootSpecs = new ArrayList<>();
 
     @Option(names = "--include-tests",
             description = "Also index src/test/java (test-only modules included). "
@@ -123,133 +111,157 @@ public class IndexCommand implements Callable<Integer> {
     @Option(names = "--format", description = "Output format: text | json.", defaultValue = "text")
     String format;
 
+    @Option(names = "--strict-health",
+            description = "Return exit code 3 when the completed index health is not HEALTHY.")
+    boolean strictHealth;
+
     @Override
     public Integer call() {
+        com.anatomist.core.IndexOutcome outcome = new com.anatomist.core.IndexApplicationService().execute(
+                new com.anatomist.core.IndexRequest(projectPath, projectSource, sourceRootSpecs),
+                this::execute);
+        if (outcome.error() != null) {
+            System.err.println("ERROR: " + outcome.error());
+            if (outcome.cause() != null) outcome.cause().printStackTrace(System.err);
+        }
+        return outcome.exitCode();
+    }
+
+    private int execute(Path projectRoot) throws Exception {
         long started = System.currentTimeMillis();
-        try {
-            if (projectPath == null || !Files.isDirectory(projectPath)) {
-                System.err.println("ERROR: project path does not exist or is not a directory: " + projectPath);
-                return 1;
-            }
-            Path projectRoot = projectPath.toAbsolutePath().normalize();
+        ProjectConfig config = ConfigLoader.load(projectRoot);
+        if (externalExclude != null && !externalExclude.isBlank()) {
+            config.addExternalExcludePatterns(Arrays.asList(externalExclude.split(",")));
+        }
 
-            ProjectConfig config = ConfigLoader.load(projectRoot);
-            if (externalExclude != null && !externalExclude.isBlank()) {
-                config.addExternalExcludePatterns(Arrays.asList(externalExclude.split(",")));
-            }
+        Path home = DefaultIndexPath.resolveHome(
+                System.getenv(DefaultIndexPath.ENV_HOME), System.getProperty("user.home"));
+        AnatomistLog.configure(home.resolve(DefaultIndexPath.repoNameOf(projectRoot)), home, debug);
 
-            Path home = DefaultIndexPath.resolveHome(
-                    System.getenv(DefaultIndexPath.ENV_HOME), System.getProperty("user.home"));
-            AnatomistLog.configure(home.resolve(DefaultIndexPath.repoNameOf(projectRoot)), home, debug);
+        ClasspathDetector cd = new ClasspathDetector();
 
-            ClasspathDetector cd = new ClasspathDetector();
-
-            List<Path> sourcePaths = resolveSourcePaths(cd, projectRoot);
-            if (sourcePaths.isEmpty()) {
-                System.err.println("ERROR: no source paths resolved for " + projectRoot);
-                return 1;
-            }
-
-            Set<String> extraExcludes = exclude == null || exclude.isEmpty()
-                    ? Collections.emptySet()
-                    : new HashSet<>(Arrays.asList(exclude.split(",")));
-            ProjectScanner scanner = new ProjectScanner(extraExcludes);
-            List<Path> sourceFiles = scanner.scan(sourcePaths);
-            if (sourceFiles.isEmpty()) {
-                System.err.println("ERROR: no .java files found under " + sourcePaths);
-                return 1;
-            }
-
-            Path dbPath = output == null
-                    ? DefaultIndexPath.forIndexWrite(projectRoot)
-                    : output.toAbsolutePath().normalize();
-            Files.createDirectories(dbPath.getParent());
-
-            boolean useIncremental = incremental && !full && !recreate && Files.exists(dbPath);
-
-            if (useIncremental) {
-                boolean schemaIncompatible;
-                try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
-                     SqliteStore store = new SqliteStore(dbPath)) {
-                    schemaIncompatible = store.schemaExists() && !store.schemaCompatible();
-                }
-                if (schemaIncompatible) {
-                    System.err.println("INFO: incremental degraded to full (schema_version mismatch)");
-                    IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
-                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
-                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, true);
-                }
-
-                try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
-                     SqliteStore store = new SqliteStore(dbPath)) {
-                    java.util.Map<String, FileCacheEntry> cache;
-                    try {
-                        cache = store.readFileCache();
-                    } catch (RuntimeException ex) {
-                        // Schema missing — fall back to full
-                        cache = java.util.Collections.emptyMap();
-                    }
-                    boolean schemaMismatch = !cache.isEmpty() && cache.values().stream()
-                            .anyMatch(e -> e.schemaVersion() != FileCacheService.CURRENT_SCHEMA_VERSION);
-                    if (cache.isEmpty() || schemaMismatch) {
-                        String reason = cache.isEmpty()
-                                ? "file_cache empty"
-                                : "schema_version mismatch";
-                        System.err.println("INFO: incremental degraded to full (" + reason + ")");
-                        IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
-                        return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
-                                runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false);
-                    }
-                    FileCacheService fcs = new FileCacheService();
-                    List<Path> hashTargets = sourceFiles;
-                    if (springXml) {
-                        List<Path> xmlFiles = scanner.scanSpringXml(projectRoot);
-                        if (!xmlFiles.isEmpty()) {
-                            hashTargets = new ArrayList<>(sourceFiles);
-                            hashTargets.addAll(xmlFiles);
-                        }
-                    }
-                    java.util.Map<String, String> diskHashes = fcs.computeFileHashes(projectRoot, hashTargets);
-                    FileCacheService.Changes ch = fcs.detectChanges(diskHashes, cache);
-                    if (ch.isEmpty()) {
-                        IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
-                        long elapsed = System.currentTimeMillis() - started;
-                        emitIncrementalSummary(projectRoot, dbPath, sourceFiles.size(),
-                                summary, cache.size(), elapsed);
-                        return 0;
-                    }
-
-                    IndexRuntime runtime = resolveIncrementalRuntime(cd, projectRoot, sourcePaths, store);
-
-                    IncrementalIndexer ii = new IncrementalIndexer(
-                            projectRoot, sourcePaths, runtime.factory(), store, runtime.javaVersion(),
-                            maxRealignFiles, springXml, config);
-                    IncrementalIndexer.Summary summary = ii.indexIncremental(
-                            ch.changed, ch.added, ch.deleted, diskHashes);
-
-                    if (summary.degradedToFull) {
-                        System.err.println("INFO: incremental degraded to full ("
-                                + summary.degradationReason + ")");
-                        return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
-                                runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false);
-                    }
-
-                    long elapsed = System.currentTimeMillis() - started;
-                    java.util.Map<String, FileCacheEntry> after = store.readFileCache();
-                    writeRuntimeMetadata(store, projectRoot, sourcePaths, runtime);
-                    emitIncrementalSummary(projectRoot, dbPath, sourceFiles.size(), summary, after.size(), elapsed);
-                    return 0;
-                }
-            }
-
-            IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
-            return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
-                    runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, recreate);
-        } catch (Exception e) {
-            System.err.println("ERROR: index failed: " + e.getMessage());
-            e.printStackTrace(System.err);
+        List<Path> sourcePaths = resolveSourcePaths(cd, projectRoot);
+        if (sourcePaths.isEmpty()) {
+            System.err.println("ERROR: no source paths resolved for " + projectRoot);
             return 1;
         }
+
+        Set<String> extraExcludes = exclude == null || exclude.isEmpty()
+                ? Collections.emptySet()
+                : new HashSet<>(Arrays.asList(exclude.split(",")));
+        ProjectScanner scanner = new ProjectScanner(extraExcludes);
+        List<Path> sourceFiles = scanner.scan(sourcePaths);
+        if (sourceFiles.isEmpty()) {
+            System.err.println("ERROR: no .java files found under " + sourcePaths);
+            return 1;
+        }
+
+        Path dbPath = output == null
+                ? DefaultIndexPath.forIndexWrite(projectRoot)
+                : output.toAbsolutePath().normalize();
+        Files.createDirectories(dbPath.getParent());
+
+        boolean useIncremental = incremental && !full && !recreate && Files.exists(dbPath);
+
+        if (useIncremental) {
+            boolean schemaIncompatible;
+            try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
+                 SqliteStore store = new SqliteStore(dbPath)) {
+                schemaIncompatible = store.schemaExists() && !store.schemaCompatible();
+            }
+            if (schemaIncompatible) {
+                System.err.println("INFO: incremental degraded to full (schema_version mismatch)");
+                IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
+                return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                        runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, true);
+            }
+
+            try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
+                 SqliteStore store = new SqliteStore(dbPath)) {
+                java.util.Map<String, FileCacheEntry> cache;
+                try {
+                    cache = store.readFileCache();
+                } catch (RuntimeException ex) {
+                    // Schema missing — fall back to full
+                    cache = java.util.Collections.emptyMap();
+                }
+                boolean schemaMismatch = !cache.isEmpty() && cache.values().stream()
+                        .anyMatch(e -> e.schemaVersion() != FileCacheService.CURRENT_SCHEMA_VERSION);
+                if (cache.isEmpty() || schemaMismatch) {
+                    String reason = cache.isEmpty()
+                            ? "file_cache empty"
+                            : "schema_version mismatch";
+                    System.err.println("INFO: incremental degraded to full (" + reason + ")");
+                    IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false);
+                }
+                String expectedLayoutHash = sourceLayoutHash(projectRoot, sourcePaths);
+                if (!expectedLayoutHash.equals(store.readProjectMeta("source_layout_hash").orElse(""))) {
+                    System.err.println("INFO: incremental degraded to full (source layout changed)");
+                    IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false);
+                }
+                FileCacheService fcs = new FileCacheService();
+                List<Path> hashTargets = sourceFiles;
+                if (springXml) {
+                    List<Path> xmlFiles = scanner.scanSpringXml(projectRoot);
+                    if (!xmlFiles.isEmpty()) {
+                        hashTargets = new ArrayList<>(sourceFiles);
+                        hashTargets.addAll(xmlFiles);
+                    }
+                }
+                java.util.Map<String, String> diskHashes = fcs.computeFileHashes(projectRoot, hashTargets);
+                FileCacheService.Changes ch = fcs.detectChanges(diskHashes, cache);
+                if (ch.isEmpty()) {
+                    IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
+                    for (com.anatomist.core.IndexDiagnostic diagnostic : store.readIndexDiagnostics()) {
+                        if ("UNRESOLVED_SYMBOLS".equals(diagnostic.code())) {
+                            summary.unresolvedSymbols += diagnostic.count();
+                        } else if ("DANGLING_FACTS_DROPPED".equals(diagnostic.code())) {
+                            summary.droppedDanglingFacts += (int) diagnostic.count();
+                        }
+                    }
+                    long elapsed = System.currentTimeMillis() - started;
+                        IndexOutput.emitIncremental(format, projectRoot, dbPath, sourceFiles.size(),
+                                summary, cache.size(), elapsed);
+                    if (strictHealth && com.anatomist.core.IndexHealthService
+                            .fromCounts(summary.unresolvedSymbols, summary.droppedDanglingFacts).status()
+                            != com.anatomist.core.IndexHealthReport.Status.HEALTHY) return 3;
+                    return 0;
+                }
+
+                IndexRuntime runtime = resolveIncrementalRuntime(cd, projectRoot, sourcePaths, store);
+
+                IncrementalIndexer ii = new IncrementalIndexer(
+                        projectRoot, sourcePaths, runtime.factory(), store, runtime.javaVersion(),
+                        maxRealignFiles, springXml, config, resolveSourceRoots(projectRoot, sourcePaths));
+                IncrementalIndexer.Summary summary = ii.indexIncremental(
+                        ch.changed, ch.added, ch.deleted, diskHashes);
+
+                if (summary.degradedToFull) {
+                    System.err.println("INFO: incremental degraded to full ("
+                            + summary.degradationReason + ")");
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false);
+                }
+
+                long elapsed = System.currentTimeMillis() - started;
+                java.util.Map<String, FileCacheEntry> after = store.readFileCache();
+                writeRuntimeMetadata(store, projectRoot, sourcePaths, runtime);
+                    IndexOutput.emitIncremental(format, projectRoot, dbPath, sourceFiles.size(),
+                            summary, after.size(), elapsed);
+                if (strictHealth && com.anatomist.core.IndexHealthService
+                        .fromCounts(summary.unresolvedSymbols, summary.droppedDanglingFacts).status()
+                        != com.anatomist.core.IndexHealthReport.Status.HEALTHY) return 3;
+                return 0;
+            }
+        }
+
+        IndexRuntime runtime = resolveRuntime(cd, projectRoot, sourcePaths);
+        return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(), sourceFiles,
+                runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, recreate);
     }
 
     private Integer runFullIndex(Path projectRoot,
@@ -265,7 +277,8 @@ public class IndexCommand implements Callable<Integer> {
                                  boolean recreateDb) throws Exception {
         com.anatomist.core.IndexConfig cfg = new com.anatomist.core.IndexConfig(
                 projectRoot, sourcePaths, classpathEntries, sourceFiles,
-                jv, springXml, config, dbPath, classpathOverride, noClasspath, debug);
+                jv, springXml, config, dbPath, classpathOverride, noClasspath, debug,
+                resolveSourceRoots(projectRoot, sourcePaths));
         com.anatomist.core.IndexOrchestrator orchestrator =
                 new com.anatomist.core.IndexOrchestrator(cfg, factory);
 
@@ -285,7 +298,7 @@ public class IndexCommand implements Callable<Integer> {
             try (SqliteStore store = new SqliteStore(dbPath)) {
                 com.anatomist.core.IndexResult result = orchestrator.run(store);
                 if ("json".equalsIgnoreCase(format)) {
-                    emitIndexJson(result, cfg);
+                    IndexOutput.emitFullJson(result, cfg);
                 } else {
                     com.anatomist.core.IndexStatsPrinter.print(result, cfg, System.out);
                 }
@@ -301,6 +314,10 @@ public class IndexCommand implements Callable<Integer> {
                     com.anatomist.core.UnresolvedReporter.print(
                             System.out, sampleData, projectPackages, unresolvedCount);
                 }
+                if (strictHealth && com.anatomist.core.IndexHealthService.fromResult(result).status()
+                        != com.anatomist.core.IndexHealthReport.Status.HEALTHY) {
+                    return 3;
+                }
             }
         }
         return 0;
@@ -311,30 +328,6 @@ public class IndexCommand implements Callable<Integer> {
         Files.deleteIfExists(dbPath.resolveSibling(dbPath.getFileName() + "-shm"));
         Files.deleteIfExists(dbPath.resolveSibling(dbPath.getFileName() + "-journal"));
         Files.deleteIfExists(dbPath);
-    }
-
-    private void emitIncrementalSummary(Path projectRoot,
-                                        Path dbPath,
-                                        int sourceFileCount,
-                                        IncrementalIndexer.Summary summary,
-                                        int fileCacheSize,
-                                        long elapsed) {
-        if ("json".equalsIgnoreCase(format)) {
-            emitIncrementalJson(projectRoot, dbPath, sourceFileCount, summary, fileCacheSize, elapsed);
-        } else {
-            System.out.println("Indexed " + projectRoot + " (incremental)");
-            System.out.println("  Changed files: " + summary.changedFiles);
-            System.out.println("  New files:     " + summary.newFiles);
-            System.out.println("  Deleted files: " + summary.deletedFiles);
-            System.out.println("  Realigned deps:" + summary.realignedDependents);
-            System.out.println("  Deleted nodes: " + summary.deletedNodes);
-            System.out.println("  Deleted edges: " + summary.deletedEdges);
-            System.out.println("  Written nodes: " + summary.writtenNodes);
-            System.out.println("  Written edges: " + summary.writtenEdges);
-            System.out.println("  Output:        " + dbPath);
-            System.out.println("  File cache:    " + fileCacheSize + " entries");
-            System.out.println("Done in " + elapsed + "ms");
-        }
     }
 
     private IndexRuntime resolveRuntime(ClasspathDetector cd, Path projectRoot, List<Path> sourcePaths) {
@@ -427,77 +420,23 @@ public class IndexCommand implements Callable<Integer> {
         return String.join(File.pathSeparator, sorted);
     }
 
+    private String sourceLayoutHash(Path projectRoot, List<Path> sourcePaths) {
+        String value = resolveSourceRoots(projectRoot, sourcePaths).stream()
+                .map(r -> r.module() + "@" + r.scope() + "=" + r.path().toAbsolutePath().normalize())
+                .sorted().collect(java.util.stream.Collectors.joining("\n"));
+        return FileCacheService.sha256OfString(value);
+    }
+
     private record IndexRuntime(List<Path> classpathEntries,
                                 int javaVersion,
                                 JavaParserFactory factory,
                                 String classpathMode) {}
 
-    private void emitIndexJson(com.anatomist.core.IndexResult result,
-                               com.anatomist.core.IndexConfig cfg) {
-        java.util.Map<String, Object> stats = new java.util.LinkedHashMap<>();
-        java.util.Map<String, Long> kinds = result.kindCounts();
-        java.util.Map<String, Long> relations = result.relationCounts();
-        long types = kinds.entrySet().stream()
-                .filter(e -> GraphConstants.INDEX_SUMMARY_TYPE_KINDS.contains(e.getKey()))
-                .mapToLong(java.util.Map.Entry::getValue)
-                .sum();
-        stats.put("source_files", cfg.sourceFiles().size());
-        stats.put("types", types);
-        stats.put("classes", kinds.getOrDefault(GraphConstants.Kind.CLASS, 0L));
-        stats.put("methods", kinds.getOrDefault(GraphConstants.Kind.METHOD, 0L));
-        stats.put("fields", kinds.getOrDefault(GraphConstants.Kind.FIELD, 0L));
-        stats.put("beans", kinds.getOrDefault(GraphConstants.Kind.BEAN, 0L));
-        stats.put("unresolved", result.unresolvedCount());
-        stats.put("dropped_dangling_edges", result.droppedDanglingEdges());
-        stats.put("file_cache_entries", result.fileCacheSize());
-        stats.put("elapsed_ms", result.elapsedMs());
-
-        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
-        out.put("command", "index");
-        out.put("status", "ok");
-        out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
-        out.put("index_path", cfg.dbPath().toString());
-        out.put("stats", stats);
-        out.put("node_kinds", kinds);
-        out.put("relations", relations);
-        out.put("warnings", java.util.List.of());
-        out.put("errors", java.util.List.of());
-        System.out.println(Json.writePretty(out));
-    }
-
-    private void emitIncrementalJson(Path projectRoot,
-                                     Path dbPath,
-                                     int sourceFileCount,
-                                     IncrementalIndexer.Summary summary,
-                                     int fileCacheSize,
-                                     long elapsedMs) {
-        java.util.Map<String, Object> stats = new java.util.LinkedHashMap<>();
-        stats.put("source_files", sourceFileCount);
-        stats.put("changed_files", summary.changedFiles);
-        stats.put("new_files", summary.newFiles);
-        stats.put("deleted_files", summary.deletedFiles);
-        stats.put("realigned_dependents", summary.realignedDependents);
-        stats.put("deleted_nodes", summary.deletedNodes);
-        stats.put("deleted_edges", summary.deletedEdges);
-        stats.put("written_nodes", summary.writtenNodes);
-        stats.put("written_edges", summary.writtenEdges);
-        stats.put("file_cache_entries", fileCacheSize);
-        stats.put("elapsed_ms", elapsedMs);
-
-        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
-        out.put("command", "index");
-        out.put("status", "ok");
-        out.put("mode", "incremental");
-        out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
-        out.put("project_root", projectRoot.toString());
-        out.put("index_path", dbPath.toString());
-        out.put("stats", stats);
-        out.put("warnings", java.util.List.of());
-        out.put("errors", java.util.List.of());
-        System.out.println(Json.writePretty(out));
-    }
-
     List<Path> resolveSourcePaths(ClasspathDetector cd, Path projectRoot) {
+        if (!sourceRootSpecs.isEmpty()) {
+            return resolveSourceRoots(projectRoot, List.of()).stream()
+                    .map(com.anatomist.core.SourceRoot::path).toList();
+        }
         if (projectSource != null && !projectSource.isEmpty()) {
             List<Path> out = new ArrayList<>();
             for (String p : projectSource.split(File.pathSeparator)) {
@@ -510,6 +449,33 @@ public class IndexCommand implements Callable<Integer> {
             return out;
         }
         return cd.detectSourcePaths(projectRoot, includeTests);
+    }
+
+    List<com.anatomist.core.SourceRoot> resolveSourceRoots(Path projectRoot, List<Path> sourcePaths) {
+        if (sourceRootSpecs.isEmpty()) {
+            return com.anatomist.core.SourceIdentityResolver.inferRoots(projectRoot, sourcePaths);
+        }
+        List<com.anatomist.core.SourceRoot> roots = new ArrayList<>();
+        for (String spec : sourceRootSpecs) {
+            int at = spec.indexOf('@');
+            int eq = spec.indexOf('=', at + 1);
+            if (at <= 0 || eq <= at + 1 || eq == spec.length() - 1) {
+                throw new IllegalArgumentException("invalid --source-root '" + spec
+                        + "' (expected module@scope=path)");
+            }
+            String module = spec.substring(0, at);
+            com.anatomist.core.SourceScope scope;
+            try {
+                scope = com.anatomist.core.SourceScope.valueOf(
+                        spec.substring(at + 1, eq).toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException ex) {
+                throw new IllegalArgumentException("invalid source scope in --source-root: " + spec);
+            }
+            Path path = Path.of(spec.substring(eq + 1));
+            if (!path.isAbsolute()) path = projectRoot.resolve(path);
+            roots.add(new com.anatomist.core.SourceRoot(path, module, scope));
+        }
+        return roots;
     }
 
     List<Path> resolveClasspath(ClasspathDetector cd, Path projectRoot) {

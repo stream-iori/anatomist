@@ -82,7 +82,7 @@ public final class BeanConfigService {
                 List<Map<String, Object>> rows = new ArrayList<>();
                 while (rs.next()) {
                     Map<String, Object> row = nodeMap(rs);
-                    if (property != null && parentId.startsWith("bean:")
+                    if (property != null
                             && !property.equals(String.valueOf(row.get("name")))) {
                         continue;
                     }

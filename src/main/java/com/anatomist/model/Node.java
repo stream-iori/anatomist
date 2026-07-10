@@ -2,6 +2,7 @@ package com.anatomist.model;
 
 public class Node {
     public String id;
+    public String symbolId;
     public String label;
     public String kind;
     public String qualifiedName;

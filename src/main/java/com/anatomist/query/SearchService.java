@@ -35,6 +35,7 @@ public class SearchService {
                 .append("WHERE node_names MATCH ? ");
         List<Object> args = new ArrayList<>();
         args.add(ftsExpr);
+        sql.append(resolver.selectorClause("n")).append(' ');
         if (kind != null && !kind.isEmpty()) {
             sql.append("AND n.kind = ? ");
             args.add(kind);
@@ -57,6 +58,7 @@ public class SearchService {
         String like = "%" + annotationTerm.replace("@", "") + "%";
         List<Object> args = new ArrayList<>();
         args.add(like);
+        sql.append(resolver.selectorClause("n")).append(' ');
         if (kind != null && !kind.isEmpty()) {
             sql.append("AND n.kind = ? ");
             args.add(kind);
@@ -78,6 +80,7 @@ public class SearchService {
                 .append(" FROM nodes n WHERE n.label LIKE ? ");
         List<Object> args = new ArrayList<>();
         args.add(globToLike(glob));
+        sql.append(resolver.selectorClause("n")).append(' ');
         if (kind != null && !kind.isEmpty()) { sql.append("AND n.kind = ? "); args.add(kind); }
         sql.append("ORDER BY n.qualified_name LIMIT ? OFFSET ?");
         args.add(limit > 0 ? limit : 50);
@@ -90,6 +93,7 @@ public class SearchService {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM nodes n WHERE n.label LIKE ? ");
         List<Object> args = new ArrayList<>();
         args.add(globToLike(glob));
+        sql.append(resolver.selectorClause("n")).append(' ');
         if (kind != null && !kind.isEmpty()) { sql.append("AND n.kind = ? "); args.add(kind); }
         return runScalarInt(conn, sql.toString(), args);
     }
@@ -104,6 +108,7 @@ public class SearchService {
               + "WHERE node_names MATCH ? ");
         List<Object> args = new ArrayList<>();
         args.add(ftsExpr);
+        sql.append(resolver.selectorClause("n")).append(' ');
         if (kind != null && !kind.isEmpty()) { sql.append("AND n.kind = ? "); args.add(kind); }
         return runScalarInt(conn, sql.toString(), args);
     }
@@ -115,6 +120,7 @@ public class SearchService {
                 .append("WHERE a.annotation_fqn LIKE ? ");
         List<Object> args = new ArrayList<>();
         args.add("%" + annotationTerm.replace("@", "") + "%");
+        sql.append(resolver.selectorClause("n")).append(' ');
         if (kind != null && !kind.isEmpty()) { sql.append("AND n.kind = ? "); args.add(kind); }
         return runScalarInt(conn, sql.toString(), args);
     }

@@ -6,9 +6,15 @@ package com.anatomist.query;
 public class EdgeRow {
     public String source;
     public String sourceLabel;
+    public String sourceSymbolId;
+    public String sourceModule;
+    public String sourceScope;
     public String target;
     public String targetLabel;
     public String targetQualifiedName;
+    public String targetSymbolId;
+    public String targetModule;
+    public String targetScope;
     public String externalTargetFqn;
     public String relation;
     public String callKind;

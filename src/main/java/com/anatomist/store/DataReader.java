@@ -1,5 +1,6 @@
 package com.anatomist.store;
 
+import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Edge;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.GraphConstants;
@@ -271,6 +272,22 @@ public class DataReader {
             return rs.next() ? rs.getLong(1) : 0;
         } catch (SQLException e) {
             throw new RuntimeException("Failed to query semantic annotation count", e);
+        }
+    }
+
+    public List<IndexDiagnostic> readIndexDiagnostics() {
+        List<IndexDiagnostic> out = new ArrayList<>();
+        String sql = "SELECT severity,code,phase,source_file,module,scope,symbol,occurrence_count,sample "
+                + "FROM index_diagnostics ORDER BY CASE severity WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, code";
+        try (Statement st = conn().createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                out.add(new IndexDiagnostic(rs.getString(1), rs.getString(2), rs.getString(3),
+                        rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7),
+                        rs.getLong(8), rs.getString(9)));
+            }
+            return out;
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read index diagnostics", e);
         }
     }
 

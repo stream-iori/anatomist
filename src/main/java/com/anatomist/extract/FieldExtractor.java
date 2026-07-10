@@ -9,7 +9,9 @@ import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.EnumConstantDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
@@ -34,7 +36,7 @@ public class FieldExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = sourceFileOf(unit);
+        String sourceFile = SourceFiles.of(unit);
 
         new VoidVisitorAdapter<Void>() {
             @Override
@@ -92,14 +94,19 @@ public class FieldExtractor implements Extractor {
 
             result.edges.add(containsEdge(classId, fieldId, sourceFile, n.sourceLocation));
 
+            if (!hasExplicitAccessor(decl, name)) {
+                emitRecordAccessor(rt, classId, name, typeDesc, sourceFile, n.sourceLocation, result);
+            }
+
             if (ctorParams.length() > 0) ctorParams.append(',');
             ctorParams.append(typeDesc);
         }
 
+        if (hasDeclaredCanonicalConstructor(decl)) return;
+
         // Synthetic canonical constructor — record components imply
-        // <RecordName>(<types...>) but JavaParser produces no
-        // ConstructorDeclaration AST, so CallGraphExtractor would otherwise
-        // emit dangling edges to this id.
+        // <RecordName>(<types...>) when no explicit/compact canonical
+        // constructor is present.
         String simple = rt.getName();
         String ctorId = rt.getQualifiedName() + "#" + simple + "(" + ctorParams + ")";
         Node ctor = new Node();
@@ -119,6 +126,58 @@ public class FieldExtractor implements Extractor {
         ctor.metadata = Json.writeCompact(cmeta);
         result.nodes.add(ctor);
         result.edges.add(containsEdge(classId, ctorId, sourceFile, ctor.sourceLocation));
+    }
+
+    private void emitRecordAccessor(ResolvedReferenceTypeDeclaration record,
+                                    String classId,
+                                    String name,
+                                    String returnType,
+                                    String sourceFile,
+                                    String sourceLocation,
+                                    ExtractionResult result) {
+        String methodId = record.getQualifiedName() + "#" + name + "()";
+        Node accessor = new Node();
+        accessor.id = methodId;
+        accessor.label = name;
+        accessor.kind = GraphConstants.Kind.METHOD;
+        accessor.qualifiedName = record.getQualifiedName() + "#" + name;
+        accessor.pkg = record.getPackageName();
+        accessor.sourceFile = sourceFile;
+        accessor.sourceLocation = sourceLocation;
+        accessor.module = ctx.module();
+        accessor.scope = ctx.scope();
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("returnType", returnType);
+        metadata.put("parameters", java.util.List.of());
+        metadata.put("isStatic", false);
+        metadata.put("isAbstract", false);
+        metadata.put("isConstructor", false);
+        metadata.put("isAccessor", true);
+        metadata.put("isSynthetic", true);
+        metadata.put("isRecordComponentAccessor", true);
+        accessor.metadata = Json.writeCompact(metadata);
+        result.nodes.add(accessor);
+        result.edges.add(containsEdge(classId, methodId, sourceFile, sourceLocation));
+    }
+
+    private static boolean hasExplicitAccessor(RecordDeclaration declaration, String name) {
+        return declaration.getMethodsByName(name).stream()
+                .anyMatch(method -> method.getParameters().isEmpty());
+    }
+
+    private static boolean hasDeclaredCanonicalConstructor(RecordDeclaration declaration) {
+        if (!declaration.getCompactConstructors().isEmpty()) return true;
+        java.util.List<String> recordParams = declaration.getParameters().stream()
+                .map(p -> AstTypeNames.of(p.getType(), p))
+                .toList();
+        for (ConstructorDeclaration constructor : declaration.getConstructors()) {
+            if (constructor.getParameters().size() != recordParams.size()) continue;
+            java.util.List<String> constructorParams = constructor.getParameters().stream()
+                    .map(p -> AstTypeNames.of(p.getType(), p))
+                    .toList();
+            if (recordParams.equals(constructorParams)) return true;
+        }
+        return false;
     }
 
     private void emitField(FieldDeclaration decl, VariableDeclarator var,
@@ -208,7 +267,7 @@ public class FieldExtractor implements Extractor {
         // Local classes still have no CLASS node, so skip their fields to
         // avoid orphan CONTAINS edges (same rationale as MethodExtractor).
         return !(declType.isClass() || declType.isInterface()
-                || declType.isEnum() || declType.isAnnotation());
+                || declType.isEnum() || declType.isRecord() || declType.isAnnotation());
     }
 
     private static Edge containsEdge(String classId, String fieldId,
@@ -226,13 +285,6 @@ public class FieldExtractor implements Extractor {
 
     private static int lineOf(com.github.javaparser.ast.Node n) {
         return n.getBegin().map(p -> p.line).orElse(0);
-    }
-
-    private static String sourceFileOf(CompilationUnit unit) {
-        if (unit.containsData(TypeExtractor.SourceFileKey.KEY)) {
-            return unit.getData(TypeExtractor.SourceFileKey.KEY);
-        }
-        return unit.getStorage().map(s -> s.getPath().toString()).orElse(null);
     }
 
     private static String fieldMetadata(FieldDeclaration decl, VariableDeclarator var) {

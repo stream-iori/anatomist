@@ -1,6 +1,7 @@
 package com.anatomist.query;
 
 import com.anatomist.store.IndexLock;
+import com.anatomist.store.IndexSchema;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -38,10 +39,24 @@ public class QueryService implements AutoCloseable {
 
     public Connection connection() { return conn; }
 
+    public void selectNodes(String module, String scope) {
+        resolver.select(module, scope);
+    }
+
     public QueryService(Path dbPath) {
         this.lock = IndexLock.forRead(dbPath);
         try {
             this.conn = DriverManager.getConnection("jdbc:sqlite:" + dbPath.toAbsolutePath());
+            try (java.sql.Statement st = conn.createStatement();
+                 java.sql.ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+                int actual = rs.next() ? rs.getInt(1) : 0;
+                if (actual != IndexSchema.VERSION) {
+                    conn.close();
+                    lock.close();
+                    throw new IllegalStateException("SCHEMA_MISMATCH: index schema " + actual
+                            + ", required " + IndexSchema.VERSION + "; re-index required");
+                }
+            }
         } catch (SQLException e) {
             lock.close();
             throw new RuntimeException("Failed to open index db: " + dbPath, e);
@@ -51,7 +66,7 @@ public class QueryService implements AutoCloseable {
         this.search = new SearchService(conn, resolver);
         this.typeContext = new TypeContextService(conn, resolver, callGraph);
         this.dependency = new DependencyService(conn, resolver);
-        this.overview = new OverviewService(conn);
+        this.overview = new OverviewService(conn, resolver);
         this.enrichment = new EnrichmentService(conn, resolver, typeContext, overview);
         this.sourceWindows = new SourceWindowService(conn);
         this.branchSlices = new BranchSliceService(conn, resolver, callGraph, sourceWindows);
@@ -216,7 +231,8 @@ public class QueryService implements AutoCloseable {
     }
 
     public List<SemanticAnnotationRow> readSemanticAnnotations(String nodeId) {
-        return enrichment.readSemanticAnnotations(nodeId);
+        NodeRow node = resolver.resolveNodeRow(nodeId);
+        return enrichment.readSemanticAnnotations(node == null ? nodeId : node.id);
     }
 
     public List<DocSnippet> searchRelatedDocs(String label, String qualifiedName) {

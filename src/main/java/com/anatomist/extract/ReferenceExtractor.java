@@ -56,7 +56,7 @@ public class ReferenceExtractor implements Extractor {
             @Override
             public void visit(MethodDeclaration n, Void arg) {
                 String methodId;
-                try { methodId = ctx.idGenerator().forMethod(n.resolve()); }
+                try { methodId = CallableIdFactory.forMethod(ctx.idGenerator(), n); }
                 catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
 
                 // Return type

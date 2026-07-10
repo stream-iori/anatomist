@@ -7,7 +7,11 @@ import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.GraphPostProcessor;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.NodeIdGenerator;
+import com.anatomist.core.NodeKeyFactory;
+import com.anatomist.core.GraphIdentityRewriter;
 import com.anatomist.core.ProjectScanner;
+import com.anatomist.core.SourceIdentityResolver;
+import com.anatomist.core.SourceRoot;
 import com.anatomist.core.WiringResolver;
 import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
@@ -37,6 +41,7 @@ public class IncrementalIndexer {
     private final int maxRealignFiles;
     private final boolean springXml;
     private final ProjectConfig projectConfig;
+    private final List<SourceRoot> sourceRoots;
 
     public IncrementalIndexer(Path projectRoot,
                               List<Path> sourcePaths,
@@ -65,6 +70,19 @@ public class IncrementalIndexer {
                               int maxRealignFiles,
                               boolean springXml,
                               ProjectConfig projectConfig) {
+        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
+                springXml, projectConfig, SourceIdentityResolver.inferRoots(projectRoot, sourcePaths));
+    }
+
+    public IncrementalIndexer(Path projectRoot,
+                              List<Path> sourcePaths,
+                              JavaParserFactory parserFactory,
+                              SqliteStore store,
+                              int javaVersion,
+                              int maxRealignFiles,
+                              boolean springXml,
+                              ProjectConfig projectConfig,
+                              List<SourceRoot> sourceRoots) {
         this.projectRoot = projectRoot;
         this.sourcePaths = sourcePaths;
         this.parserFactory = parserFactory;
@@ -73,6 +91,7 @@ public class IncrementalIndexer {
         this.maxRealignFiles = maxRealignFiles;
         this.springXml = springXml;
         this.projectConfig = projectConfig != null ? projectConfig : new ProjectConfig();
+        this.sourceRoots = sourceRoots == null ? List.of() : List.copyOf(sourceRoots);
     }
 
     public static final class Summary {
@@ -84,6 +103,8 @@ public class IncrementalIndexer {
         public int writtenNodes;
         public int writtenEdges;
         public int realignedDependents;
+        public long unresolvedSymbols;
+        public int droppedDanglingFacts;
         public boolean degradedToFull;
         public String degradationReason;
     }
@@ -176,7 +197,13 @@ public class IncrementalIndexer {
                 }
 
                 Set<String> knownIds = store.allNodeIds();
-                new GraphPostProcessor().process(result, knownIds);
+                GraphIdentityRewriter.rewrite(result,
+                        sourceRoots.isEmpty()
+                                ? new SourceIdentityResolver(projectRoot, sourcePaths)
+                                : SourceIdentityResolver.fromRoots(projectRoot, sourceRoots), knownIds);
+                GraphPostProcessor.Summary post = new GraphPostProcessor().process(result, knownIds);
+                s.droppedDanglingFacts += post.droppedDanglingFacts();
+                s.unresolvedSymbols += ctx.unresolvedCount();
                 store.writeInCurrentTransaction(result);
             }
 
@@ -195,10 +222,16 @@ public class IncrementalIndexer {
                 store.deleteSpringBeanGraph();
                 rebuiltXml = new ProjectScanner().scanSpringXml(projectRoot);
                 if (!rebuiltXml.isEmpty()) {
-                    Set<String> knownIds = store.allNodeIds();
-                    SpringXmlAnalyzer.extractXmlBeans(projectRoot, rebuiltXml, knownIds,
+                    Set<String> storageIds = store.allNodeIds();
+                    Set<String> extractionIds = new HashSet<>(storageIds);
+                    storageIds.stream().map(NodeKeyFactory::symbolId).forEach(extractionIds::add);
+                    SpringXmlAnalyzer.extractXmlBeans(projectRoot, rebuiltXml, extractionIds,
                             SpringXmlAnalyzer.fromBeanClassMap(store.readBeanClassTargets()), beanResult);
-                    new GraphPostProcessor().process(beanResult, knownIds);
+                    GraphIdentityRewriter.rewrite(beanResult,
+                            sourceRoots.isEmpty()
+                                    ? new SourceIdentityResolver(projectRoot, sourcePaths)
+                                    : SourceIdentityResolver.fromRoots(projectRoot, sourceRoots), storageIds);
+                    new GraphPostProcessor().process(beanResult, storageIds);
                     store.writeInCurrentTransaction(beanResult);
                 }
             }
@@ -234,6 +267,8 @@ public class IncrementalIndexer {
             // re-derived file_dependencies reflects the new state with nothing stale.
             store.refreshFileDependencies();
         });
+        store.replaceIndexDiagnostics(com.anatomist.core.IndexHealthService
+                .fromCounts(s.unresolvedSymbols, s.droppedDanglingFacts).diagnostics());
         return s;
     }
 

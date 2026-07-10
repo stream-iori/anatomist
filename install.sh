@@ -5,7 +5,7 @@ REPO_BASE="${ANATOMIST_MIRROR:-http://6.12.3.250:8100/dist-bin}"
 INSTALL_DIR="${ANATOMIST_INSTALL_DIR:-$HOME/.local/bin}"
 SKILL_URL="${REPO_BASE}/anatomist/SKILL.md"
 SKILL_INSTALL="${ANATOMIST_INSTALL_SKILL:-1}"
-SKILL_CLIENTS="${ANATOMIST_SKILL_CLIENTS:-qoder codex claude}"
+SKILL_CLIENTS="${ANATOMIST_SKILL_CLIENTS:-qoder codex}"
 
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -46,9 +46,6 @@ install_skill_for_client() {
             ;;
         codex)
             skill_dir="${CODEX_HOME:-${HOME}/.codex}/skills/anatomist"
-            ;;
-        claude)
-            skill_dir="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/skills/anatomist"
             ;;
         "")
             return 0

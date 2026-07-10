@@ -40,7 +40,7 @@ public class TypeExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
-        String sourceFile = sourceFileOf(unit);
+        String sourceFile = SourceFiles.of(unit);
 
         new VoidVisitorAdapter<Void>() {
             @Override
@@ -160,14 +160,6 @@ public class TypeExtractor implements Extractor {
 
     private static int lineOf(com.github.javaparser.ast.Node n) {
         return n.getBegin().map(p -> p.line).orElse(0);
-    }
-
-    private static String sourceFileOf(CompilationUnit unit) {
-        if (unit.containsData(SourceFileKey.KEY)) {
-            Object prop = unit.getData(SourceFileKey.KEY);
-            if (prop instanceof String s) return s;
-        }
-        return unit.getStorage().map(s -> s.getPath().toString()).orElse(null);
     }
 
     private static String metadataJson(TypeDeclaration<?> decl, ResolvedReferenceTypeDeclaration rt) {

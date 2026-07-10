@@ -13,9 +13,11 @@ import static com.anatomist.query.QueryInfra.*;
 public class OverviewService {
 
     private final Connection conn;
+    private final NodeResolver resolver;
 
-    public OverviewService(Connection conn) {
+    public OverviewService(Connection conn, NodeResolver resolver) {
         this.conn = conn;
+        this.resolver = resolver;
     }
 
     public OverviewResult overview() {
@@ -34,6 +36,7 @@ public class OverviewService {
                 + " JOIN nodes src ON e.source_id = src.id "
                 + " JOIN nodes tgt ON e.target_id = tgt.id "
                 + " WHERE e.is_external = 0 "
+                + resolver.selectorClause("src") + resolver.selectorClause("tgt")
                 + "   AND src.package IS NOT NULL AND tgt.package IS NOT NULL "
                 + "   AND src.package <> tgt.package "
                 + "   AND e.relation IN (" + sqlIn(GraphConstants.PACKAGE_DEPENDENCY_RELATIONS) + ") "
@@ -59,7 +62,7 @@ public class OverviewService {
     public List<ClassEdge> classDepsInternal(int maxEdges) {
         String sql =
                 "WITH RECURSIVE owner(node_id, cur_id, cur_kind) AS ("
-              + "  SELECT id, id, kind FROM nodes "
+              + "  SELECT id, id, kind FROM nodes n WHERE 1=1 " + resolver.selectorClause("n")
               + "  UNION ALL "
               + "  SELECT o.node_id, c.source_id, p.kind "
               + "  FROM owner o "
@@ -104,15 +107,18 @@ public class OverviewService {
     }
 
     private void countByKind(OverviewResult ov) {
-        queryList(conn, "SELECT kind, COUNT(*) FROM nodes GROUP BY kind ORDER BY kind", rs -> {
+        queryList(conn, "SELECT kind, COUNT(*) FROM nodes n WHERE 1=1 "
+                + resolver.selectorClause("n") + " GROUP BY kind ORDER BY kind", rs -> {
             ov.kindCounts.put(rs.getString(1), rs.getLong(2));
             return null;
         });
     }
 
     private void countEdgesByExternal(OverviewResult ov) {
-        queryList(conn, "SELECT relation, is_external, COUNT(*) FROM edges "
-                + "GROUP BY relation, is_external ORDER BY relation", rs -> {
+        queryList(conn, "SELECT e.relation, e.is_external, COUNT(*) FROM edges e "
+                + "JOIN nodes src ON e.source_id=src.id WHERE 1=1 "
+                + resolver.selectorClause("src")
+                + " GROUP BY e.relation, e.is_external ORDER BY e.relation", rs -> {
             String rel = rs.getString(1);
             long count = rs.getLong(3);
             if (rs.getInt(2) == 1) ov.externalEdgeCounts.merge(rel, count, Long::sum);
@@ -124,7 +130,8 @@ public class OverviewService {
     private void tallyPackages(OverviewResult ov) {
         Map<String, PackageStat> byPkg = new LinkedHashMap<>();
         queryList(conn, "SELECT package, kind, COUNT(*) FROM nodes "
-                + "WHERE package IS NOT NULL GROUP BY package, kind ORDER BY package", rs -> {
+                + "n WHERE package IS NOT NULL " + resolver.selectorClause("n")
+                + " GROUP BY package, kind ORDER BY package", rs -> {
             String pkg = rs.getString(1);
             String kind = rs.getString(2);
             long count = rs.getLong(3);

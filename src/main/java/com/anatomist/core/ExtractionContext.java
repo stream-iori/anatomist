@@ -6,6 +6,7 @@ import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParse
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserClassDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserEnumDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserInterfaceDeclaration;
+import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserRecordDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
@@ -135,6 +136,7 @@ public class ExtractionContext {
         return decl instanceof JavaParserClassDeclaration
                 || decl instanceof JavaParserInterfaceDeclaration
                 || decl instanceof JavaParserEnumDeclaration
+                || decl instanceof JavaParserRecordDeclaration
                 || decl instanceof JavaParserAnnotationDeclaration
                 || decl instanceof JavaParserAnonymousClassDeclaration;
     }

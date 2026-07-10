@@ -85,6 +85,7 @@ public final class MarkdownFormatter {
         if (n.sourceFile != null) sb.append("| source_file | `").append(n.sourceFile).append("` |\n");
         if (n.sourceLocation != null) sb.append("| source_location | ").append(n.sourceLocation).append(" |\n");
         if (n.module != null) sb.append("| module | ").append(n.module).append(" |\n");
+        if (n.scope != null) sb.append("| scope | ").append(n.scope).append(" |\n");
         if (n.javadoc != null) sb.append("| javadoc | ").append(n.javadoc).append(" |\n");
         sb.append('\n');
 
