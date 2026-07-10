@@ -145,7 +145,8 @@ class GoldenFileIT {
 
     /** Re-emit JSON with sorted map keys and project-root scrubbed. */
     private String normalize(String raw) {
-        String scrubbed = raw.replace(repoRoot.toString(), "${PROJECT}");
+        String scrubbed = raw.replace(repoRoot.toString(), "${PROJECT}")
+                .replace(dbPath.toString(), "${INDEX}");
         return Json.writeCanonical(Json.parseTree(scrubbed));
     }
 

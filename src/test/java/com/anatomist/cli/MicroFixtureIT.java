@@ -61,7 +61,7 @@ class MicroFixtureIT {
     @Test
     void lambdaInStream_emitsLambdaNode() throws Exception {
         assertTrue(scalar("SELECT count(*) FROM nodes WHERE kind='LAMBDA' "
-                + "  AND id LIKE 'micro.LambdaInStream%'") >= 1);
+                + "  AND symbol_id LIKE 'micro.LambdaInStream%'") >= 1);
     }
 
     // ── Anonymous class ───────────────────────────────────────────────
@@ -82,11 +82,11 @@ class MicroFixtureIT {
         assertEquals(3, n, "expected 3 overload IDs for describe");
 
         // Their IDs differ only in (int) | (java.lang.String) | (java.util.List)
-        assertEquals(1, scalar("SELECT count(*) FROM nodes WHERE id="
+        assertEquals(1, scalar("SELECT count(*) FROM nodes WHERE symbol_id="
                 + "'micro.OverloadedMethods#describe(int)'"));
-        assertEquals(1, scalar("SELECT count(*) FROM nodes WHERE id="
+        assertEquals(1, scalar("SELECT count(*) FROM nodes WHERE symbol_id="
                 + "'micro.OverloadedMethods#describe(java.lang.String)'"));
-        assertEquals(1, scalar("SELECT count(*) FROM nodes WHERE id="
+        assertEquals(1, scalar("SELECT count(*) FROM nodes WHERE symbol_id="
                 + "'micro.OverloadedMethods#describe(java.util.List)'"));
     }
 
@@ -94,12 +94,12 @@ class MicroFixtureIT {
 
     @Test
     void staticVsInstance_callKindBranches() throws Exception {
-        int statik = scalar("SELECT count(*) FROM edges "
-                + " WHERE source_id='micro.StaticVsInstance#demo()' "
-                + "   AND call_kind='STATIC'");
-        int instance = scalar("SELECT count(*) FROM edges "
-                + " WHERE source_id='micro.StaticVsInstance#demo()' "
-                + "   AND call_kind='INSTANCE'");
+        int statik = scalar("SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                + " WHERE s.symbol_id='micro.StaticVsInstance#demo()' "
+                + "   AND e.call_kind='STATIC'");
+        int instance = scalar("SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                + " WHERE s.symbol_id='micro.StaticVsInstance#demo()' "
+                + "   AND e.call_kind='INSTANCE'");
         assertTrue(statik >= 1,   "expected ≥1 STATIC call; got " + statik);
         assertTrue(instance >= 1, "expected ≥1 INSTANCE call; got " + instance);
     }
@@ -109,7 +109,7 @@ class MicroFixtureIT {
     @Test
     void genericRepository_emitsReferencesToTypeArg() throws Exception {
         assertEquals(1, scalar("SELECT count(*) FROM nodes "
-                + " WHERE id='micro.GenericRepository' AND kind='CLASS'"));
+                + " WHERE symbol_id='micro.GenericRepository' AND kind='CLASS'"));
     }
 
     // ── FieldReadWrite — READS + WRITES on the counter field ──────────
@@ -118,12 +118,12 @@ class MicroFixtureIT {
     void fieldReadWrite_emitsReadsAndWrites() throws Exception {
         // counter = counter + 1   →  1 WRITE (LHS) + 1 READ (RHS)
         // return counter          →  1 READ
-        int writes = scalar("SELECT count(*) FROM edges "
-                + " WHERE relation='WRITES' "
-                + "   AND target_id='micro.FieldReadWrite#counter'");
-        int reads = scalar("SELECT count(*) FROM edges "
-                + " WHERE relation='READS' "
-                + "   AND target_id='micro.FieldReadWrite#counter'");
+        int writes = scalar("SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target_id "
+                + " WHERE e.relation='WRITES' "
+                + "   AND t.symbol_id='micro.FieldReadWrite#counter'");
+        int reads = scalar("SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target_id "
+                + " WHERE e.relation='READS' "
+                + "   AND t.symbol_id='micro.FieldReadWrite#counter'");
         assertTrue(writes >= 1, "expected ≥1 WRITES; got " + writes
                 + dumpEdges("micro.FieldReadWrite%"));
         assertTrue(reads >= 2, "expected ≥2 READS (RHS of assign + return); got " + reads
@@ -136,7 +136,7 @@ class MicroFixtureIT {
              PreparedStatement ps = c.prepareStatement(
                      "SELECT relation, source_id, target_id, external_target_fqn, source_location "
                    + " FROM edges WHERE source_id LIKE ? ORDER BY relation, source_location")) {
-            ps.setString(1, sourcePrefix);
+            ps.setString(1, "%::MAIN::" + sourcePrefix);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     sb.append("\n  ").append(rs.getString(1))
@@ -155,7 +155,7 @@ class MicroFixtureIT {
     @Test
     void enumWithMethods_emitsEnumAndConstants() throws Exception {
         assertEquals(1, scalar("SELECT count(*) FROM nodes "
-                + " WHERE id='micro.EnumWithMethods' AND kind='ENUM'"));
+                + " WHERE symbol_id='micro.EnumWithMethods' AND kind='ENUM'"));
         int constants = scalar("SELECT count(*) FROM nodes "
                 + " WHERE kind='ENUM_CONSTANT' "
                 + "   AND qualified_name LIKE 'micro.EnumWithMethods%'");
@@ -167,12 +167,13 @@ class MicroFixtureIT {
     @Test
     void interfaceDefaultMethod_belongsToInterfaceNode() throws Exception {
         assertEquals(1, scalar("SELECT count(*) FROM nodes "
-                + " WHERE id='micro.InterfaceDefaultMethod' AND kind='INTERFACE'"));
+                + " WHERE symbol_id='micro.InterfaceDefaultMethod' AND kind='INTERFACE'"));
         // greeting() should exist as a METHOD whose CONTAINS parent is the interface
-        assertTrue(scalar("SELECT count(*) FROM edges "
-                + " WHERE relation='CONTAINS' "
-                + "   AND source_id='micro.InterfaceDefaultMethod' "
-                + "   AND target_id='micro.InterfaceDefaultMethod#greeting()'") >= 1);
+        assertTrue(scalar("SELECT count(*) FROM edges e "
+                + " JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                + " WHERE e.relation='CONTAINS' "
+                + "   AND s.symbol_id='micro.InterfaceDefaultMethod' "
+                + "   AND t.symbol_id='micro.InterfaceDefaultMethod#greeting()'") >= 1);
     }
 
     // ── JDK 8 boundary — negative assertions ──────────────────────────
@@ -182,7 +183,7 @@ class MicroFixtureIT {
         // None of the micro fixtures declare a record; if any RECORD node
         // appears it means the parser fell back to a higher language level.
         assertEquals(0, scalar("SELECT count(*) FROM nodes WHERE kind='RECORD' "
-                + " AND id LIKE 'micro.%'"));
+                + " AND symbol_id LIKE 'micro.%'"));
     }
 
     @Test

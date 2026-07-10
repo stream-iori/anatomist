@@ -98,12 +98,13 @@ class IncrementalSpringXmlIT {
             assertEquals(3, xmlBeanCount(st),
                     "one bean removed");
             assertEquals(0, scalar(st,
-                    "SELECT count(*) FROM nodes WHERE id LIKE 'bean:orderEventPublisher@%'"),
+                    "SELECT count(*) FROM nodes WHERE symbol_id LIKE 'bean:orderEventPublisher@%'"),
                     "removed bean node gone");
             int wires = scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='WIRES' "
-                            + "AND source_id='com.example.shop.service.OrderService' "
-                            + "AND source_file LIKE '%.xml'");
+                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                            + "WHERE e.relation='WIRES' "
+                            + "AND s.symbol_id='com.example.shop.service.OrderService' "
+                            + "AND e.source_file LIKE '%.xml'");
             assertEquals(2, wires, "OrderService XML now wires only 2 collaborators");
         }
     }
@@ -129,9 +130,10 @@ class IncrementalSpringXmlIT {
             assertEquals(4, xmlBeanCount(st),
                     "bean graph preserved across java edit");
             int wires = scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='WIRES' AND is_external=0 "
-                            + "AND source_id='com.example.shop.service.OrderService' "
-                            + "AND source_file LIKE '%.xml'");
+                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                            + "WHERE e.relation='WIRES' AND e.is_external=0 "
+                            + "AND s.symbol_id='com.example.shop.service.OrderService' "
+                            + "AND e.source_file LIKE '%.xml'");
             assertEquals(3, wires, "XML WIRES reconnected to rewritten OrderService");
         }
     }

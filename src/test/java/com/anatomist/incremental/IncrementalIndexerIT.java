@@ -137,8 +137,10 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='CALLS' AND is_external=0 "
-                            + "AND source_id='p.A#run()' AND target_id='p.B#foo()'"));
+                    "SELECT count(*) FROM edges e "
+                            + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                            + "WHERE e.relation='CALLS' AND e.is_external=0 "
+                            + "AND s.symbol_id='p.A#run()' AND t.symbol_id='p.B#foo()'"));
         }
     }
 
@@ -262,12 +264,14 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM nodes WHERE id='route:GET /api/orders/ping' "
+                    "SELECT count(*) FROM nodes WHERE symbol_id='route:GET /api/orders/ping' "
                             + "AND kind='ROUTE'"));
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='HANDLES' "
-                            + "AND source_id='route:GET /api/orders/ping' "
-                            + "AND target_id='com.example.shop.controller.OrderController#ping()'"));
+                    "SELECT count(*) FROM edges e "
+                            + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                            + "WHERE e.relation='HANDLES' "
+                            + "AND s.symbol_id='route:GET /api/orders/ping' "
+                            + "AND t.symbol_id='com.example.shop.controller.OrderController#ping()'"));
         }
     }
 
@@ -311,12 +315,14 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM nodes WHERE id='bean:newAnnotatedService' "
+                    "SELECT count(*) FROM nodes WHERE symbol_id='bean:newAnnotatedService' "
                             + "AND kind='BEAN'"));
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='DEFINED_BY' "
-                            + "AND source_id='bean:newAnnotatedService' "
-                            + "AND target_id='com.example.shop.service.NewAnnotatedService'"));
+                    "SELECT count(*) FROM edges e "
+                            + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                            + "WHERE e.relation='DEFINED_BY' "
+                            + "AND s.symbol_id='bean:newAnnotatedService' "
+                            + "AND t.symbol_id='com.example.shop.service.NewAnnotatedService'"));
         }
     }
 
@@ -345,23 +351,29 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='WIRES' "
-                            + "AND source_id='com.example.shop.service.OrderService' "
-                            + "AND target_id='com.example.shop.repository.SecondaryOrderRepository' "
-                            + "AND metadata LIKE '%\"via\":\"injection\"%'"));
+                    "SELECT count(*) FROM edges e "
+                            + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                            + "WHERE e.relation='WIRES' "
+                            + "AND s.symbol_id='com.example.shop.service.OrderService' "
+                            + "AND t.symbol_id='com.example.shop.repository.SecondaryOrderRepository' "
+                            + "AND e.metadata LIKE '%\"via\":\"injection\"%'"));
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='CALLS' "
-                            + "AND source_id='com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' "
-                            + "AND target_id='com.example.shop.repository.SecondaryOrderRepository#save(com.example.shop.domain.entity.Order)' "
-                            + "AND metadata LIKE '%\"via\":\"injected-call\"%'"));
+                    "SELECT count(*) FROM edges e "
+                            + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                            + "WHERE e.relation='CALLS' "
+                            + "AND s.symbol_id='com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' "
+                            + "AND t.symbol_id='com.example.shop.repository.SecondaryOrderRepository#save(com.example.shop.domain.entity.Order)' "
+                            + "AND e.metadata LIKE '%\"via\":\"injected-call\"%'"));
             assertEquals(2, scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='WIRES' "
-                            + "AND source_id='com.example.shop.service.OrderService' "
-                            + "AND target_id IN ("
+                    "SELECT count(*) FROM edges e "
+                            + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                            + "WHERE e.relation='WIRES' "
+                            + "AND s.symbol_id='com.example.shop.service.OrderService' "
+                            + "AND t.symbol_id IN ("
                             + "'com.example.shop.repository.InMemoryOrderRepository',"
                             + "'com.example.shop.repository.SecondaryOrderRepository') "
-                            + "AND confidence='AMBIGUOUS' "
-                            + "AND metadata LIKE '%\"via\":\"injection\"%'"));
+                            + "AND e.confidence='AMBIGUOUS' "
+                            + "AND e.metadata LIKE '%\"via\":\"injection\"%'"));
         }
     }
 

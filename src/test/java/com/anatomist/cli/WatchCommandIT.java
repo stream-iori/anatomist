@@ -132,6 +132,49 @@ class WatchCommandIT {
     }
 
     @Test
+    void failedAutoIndexRetainsPendingChangesAndReturnsNonZero(@TempDir Path tmp) throws Exception {
+        Path project = setupFixtureCopy(tmp);
+        Path db = tmp.resolve("index.db");
+        assertMiniSpringIndexOk(project, db);
+
+        WatchCommand cmd = new WatchCommand();
+        new CommandLine(cmd).parseArgs(
+                project.toString(),
+                "--project-source", CliTestSupport.miniSpringProjectSource(project),
+                "--no-classpath", "--output", db.toString(),
+                "--auto-index", "--strict-health",
+                "--debounce-ms", "100", "--max-iterations", "1");
+
+        AtomicInteger rc = new AtomicInteger(-1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        RunResult result = CliTestSupport.capture(() -> {
+            Thread thread = new Thread(() -> {
+                try {
+                    rc.set(cmd.call());
+                } catch (Throwable error) {
+                    failure.set(error);
+                }
+            });
+            thread.start();
+            Thread.sleep(500);
+            // Force the auto-index attempt itself to fail. The fixture is now
+            // healthy, so --strict-health is no longer an accidental failure
+            // trigger for this retry-behaviour test.
+            Files.writeString(db, "not a sqlite database", StandardCharsets.UTF_8);
+            Path service = project.resolve(
+                    "service/src/main/java/com/example/shop/service/OrderService.java");
+            Files.writeString(service, Files.readString(service) + "\n// strict health retry\n");
+            thread.join(15_000);
+            assertFalse(thread.isAlive());
+            if (failure.get() != null) throw new AssertionError(failure.get());
+            return rc.get();
+        });
+
+        assertEquals(1, result.exitCode());
+        assertTrue(result.stderr().contains("retaining 1 pending change"), result.stderr());
+    }
+
+    @Test
     void watchAutoIndexPassesIncludeTests(@TempDir Path tmp) throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, true);
         Path testFile = project.resolve("src/test/java/p/ATest.java");

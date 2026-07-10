@@ -63,11 +63,11 @@ class AnnotateCommandIT {
 
         try (Connection c = openDb()) {
             assertEquals(1, count(c,
-                    "SELECT count(*) FROM semantic_annotations "
-                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='REVIEWED'"));
+                    "SELECT count(*) FROM semantic_annotations a JOIN nodes n ON n.id=a.node_id "
+                  + "WHERE n.symbol_id='" + node + "' AND a.source='LLM' AND a.category='REVIEWED'"));
             assertEquals("reviewed", scalar(c,
-                    "SELECT business_label FROM semantic_annotations "
-                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='REVIEWED'"));
+                    "SELECT a.business_label FROM semantic_annotations a JOIN nodes n ON n.id=a.node_id "
+                  + "WHERE n.symbol_id='" + node + "' AND a.source='LLM' AND a.category='REVIEWED'"));
         }
     }
 
@@ -83,11 +83,11 @@ class AnnotateCommandIT {
 
         try (Connection c = openDb()) {
             assertEquals(1, count(c,
-                    "SELECT count(*) FROM semantic_annotations "
-                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='REVIEWED'"));
+                    "SELECT count(*) FROM semantic_annotations a JOIN nodes n ON n.id=a.node_id "
+                  + "WHERE n.symbol_id='" + node + "' AND a.source='LLM' AND a.category='REVIEWED'"));
             assertEquals("v2", scalar(c,
-                    "SELECT business_label FROM semantic_annotations "
-                  + "WHERE node_id='" + node + "' AND source='LLM' AND category='REVIEWED'"));
+                    "SELECT a.business_label FROM semantic_annotations a JOIN nodes n ON n.id=a.node_id "
+                  + "WHERE n.symbol_id='" + node + "' AND a.source='LLM' AND a.category='REVIEWED'"));
         }
     }
 
@@ -125,9 +125,11 @@ class AnnotateCommandIT {
 
         try (Connection c = openDb()) {
             assertEquals(1, count(c,
-                    "SELECT count(*) FROM semantic_annotations WHERE node_id='com.example.shop.repository.OrderRepository' AND source='LLM'"));
+                    "SELECT count(*) FROM semantic_annotations a JOIN nodes n ON n.id=a.node_id "
+                            + "WHERE n.symbol_id='com.example.shop.repository.OrderRepository' AND a.source='LLM'"));
             assertEquals(1, count(c,
-                    "SELECT count(*) FROM semantic_annotations WHERE node_id='com.example.shop.controller.OrderController' AND source='DOC'"));
+                    "SELECT count(*) FROM semantic_annotations a JOIN nodes n ON n.id=a.node_id "
+                            + "WHERE n.symbol_id='com.example.shop.controller.OrderController' AND a.source='DOC'"));
         }
     }
 

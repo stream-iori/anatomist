@@ -96,7 +96,7 @@ class IndexCommandIT {
             int lambdas    = scalar(st, "SELECT count(*) FROM nodes WHERE kind='LAMBDA'");
             int methodRefs = scalar(st, "SELECT count(*) FROM nodes WHERE kind='METHOD_REF'");
 
-            // Baseline post-gap-closure (monotonic floor — see CLAUDE.md Fixture section).
+            // Baseline post-gap-closure; keep these monotonic floors from regressing.
             assertTrue(classes  >= 4, "expected ≥4 CLASS nodes; got "  + classes);
             assertTrue(methods  >= 47, "expected ≥47 METHOD nodes; got " + methods);
             assertTrue(contains >= 75, "expected ≥75 CONTAINS edges; got " + contains);
@@ -303,8 +303,9 @@ class IndexCommandIT {
             // XML wires orderRepository/eventPublisher/priceCalculator; annotation
             // injection also narrows OrderRepository to InMemoryOrderRepository.
             int wiresInternal = scalar(st,
-                    "SELECT count(*) FROM edges WHERE relation='WIRES' AND is_external=0 "
-                            + "AND source_id='com.example.shop.service.OrderService'");
+                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                            + "WHERE e.relation='WIRES' AND e.is_external=0 "
+                            + "AND s.symbol_id='com.example.shop.service.OrderService'");
             assertTrue(wiresInternal >= 4,
                     "OrderService should wire XML collaborators plus DI narrowing; got " + wiresInternal);
 
@@ -320,13 +321,13 @@ class IndexCommandIT {
             java.util.List<com.anatomist.query.EdgeRow> deps =
                     q.depsOf("com.example.shop.service.OrderService");
             assertTrue(deps.stream().anyMatch(r -> "WIRES".equals(r.relation)
-                            && "com.example.shop.service.PriceCalculator".equals(r.target)),
+                            && "com.example.shop.service.PriceCalculator".equals(r.targetSymbolId)),
                     "deps-of OrderService should include WIRES → PriceCalculator");
 
             java.util.List<com.anatomist.query.EdgeRow> users =
                     q.usedBy("com.example.shop.service.PriceCalculator");
             assertTrue(users.stream().anyMatch(r -> "WIRES".equals(r.relation)
-                            && "com.example.shop.service.OrderService".equals(r.source)),
+                            && "com.example.shop.service.OrderService".equals(r.sourceSymbolId)),
                     "used-by PriceCalculator should include WIRES ← OrderService");
         }
 

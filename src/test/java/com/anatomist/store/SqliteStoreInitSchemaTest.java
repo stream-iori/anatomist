@@ -47,8 +47,8 @@ class SqliteStoreInitSchemaTest {
         Connection c = store.connection();
         try (Statement st = c.createStatement()) {
             st.executeUpdate(
-                "INSERT INTO nodes(id, label, kind, qualified_name, source_file) " +
-                "VALUES ('com.x.A', 'A', 'CLASS', 'com.x.A', 'A.java')"
+                "INSERT INTO nodes(id, symbol_id, label, kind, qualified_name, source_file, module, scope) " +
+                "VALUES ('.::MAIN::com.x.A', 'com.x.A', 'A', 'CLASS', 'com.x.A', 'A.java', '.', 'MAIN')"
             );
         }
 

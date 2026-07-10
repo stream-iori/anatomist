@@ -115,7 +115,8 @@ class SkillScenarioCoverageIT {
             assertTrue(usedByOrder.stream().anyMatch(e ->
                     "REFERENCES".equals(e.relation)
                             && "field_type".equals(e.context)
-                            && "com.example.shop.domain.event.OrderCreatedEvent#order".equals(e.source)));
+                            && "com.example.shop.domain.event.OrderCreatedEvent#order"
+                                    .equals(e.sourceSymbolId)));
 
             List<EdgeRow> statusAccess = q.fieldAccessPaged(
                     "com.example.shop.domain.entity.Order#status", "all", 50, 0, null).items();

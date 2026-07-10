@@ -5,48 +5,63 @@
     "total" : 15,
     "truncated" : true
   },
-  "next_queries" : [ "search OrderService --limit 5 --offset 5" ],
-  "query" : "search OrderService --limit 5",
+  "next_queries" : [ "search OrderService --limit 5 --scope MAIN --offset 5 --index ${INDEX}" ],
+  "query" : "search OrderService --limit 5 --scope MAIN",
   "results" : [ {
-    "id" : "bean:orderService",
+    "id" : "service::MAIN::bean:orderService",
     "javadoc" : null,
     "kind" : "BEAN",
     "label" : "orderService",
+    "module" : "service",
     "qualified_name" : "orderService",
+    "scope" : "MAIN",
     "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-    "source_location" : "L18"
+    "source_location" : "L18",
+    "symbol_id" : "bean:orderService"
   }, {
-    "id" : "com.example.shop.service.OrderService",
+    "id" : "service::MAIN::com.example.shop.service.OrderService",
     "javadoc" : null,
     "kind" : "CLASS",
     "label" : "OrderService",
+    "module" : "service",
     "qualified_name" : "com.example.shop.service.OrderService",
+    "scope" : "MAIN",
     "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-    "source_location" : "L18"
+    "source_location" : "L18",
+    "symbol_id" : "com.example.shop.service.OrderService"
   }, {
-    "id" : "com.example.shop.controller.OrderController#orderService",
+    "id" : "api::MAIN::com.example.shop.controller.OrderController#orderService",
     "javadoc" : null,
     "kind" : "FIELD",
     "label" : "orderService",
+    "module" : "api",
     "qualified_name" : "com.example.shop.controller.OrderController#orderService",
+    "scope" : "MAIN",
     "source_file" : "api/src/main/java/com/example/shop/controller/OrderController.java",
-    "source_location" : "L20"
+    "source_location" : "L20",
+    "symbol_id" : "com.example.shop.controller.OrderController#orderService"
   }, {
-    "id" : "com.example.shop.service.OrderService#orderRepository",
+    "id" : "service::MAIN::com.example.shop.service.OrderService#orderRepository",
     "javadoc" : null,
     "kind" : "FIELD",
     "label" : "orderRepository",
+    "module" : "service",
     "qualified_name" : "com.example.shop.service.OrderService#orderRepository",
+    "scope" : "MAIN",
     "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-    "source_location" : "L22"
+    "source_location" : "L22",
+    "symbol_id" : "com.example.shop.service.OrderService#orderRepository"
   }, {
-    "id" : "com.example.shop.service.OrderService#validator",
+    "id" : "service::MAIN::com.example.shop.service.OrderService#validator",
     "javadoc" : null,
     "kind" : "FIELD",
     "label" : "validator",
+    "module" : "service",
     "qualified_name" : "com.example.shop.service.OrderService#validator",
+    "scope" : "MAIN",
     "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-    "source_location" : "L24"
+    "source_location" : "L24",
+    "symbol_id" : "com.example.shop.service.OrderService#validator"
   } ],
   "stats" : {
     "label_matches" : 3,

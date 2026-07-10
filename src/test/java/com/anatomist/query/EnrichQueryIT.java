@@ -58,7 +58,7 @@ class EnrichQueryIT {
             store.insertDocuments(List.of(d));
 
             SemanticAnnotation sa = new SemanticAnnotation();
-            sa.nodeId = "com.example.shop.service.OrderService";
+            sa.nodeId = "service::MAIN::com.example.shop.service.OrderService";
             sa.category = "REVIEWED";
             sa.businessLabel = "reviewed";
             sa.source = "LLM";

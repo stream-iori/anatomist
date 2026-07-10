@@ -198,8 +198,8 @@ class CallGraphExtractorTest {
                 "CALLS".equals(e.relation)
                         && "INSTANCE".equals(e.callKind)
                         && "INFERRED".equals(e.confidence)
-                        && "pkg.A#run(<unresolved>)".equals(e.sourceId)
-                        && "pkg.A#helper(<unresolved>)".equals(e.targetId)
+                        && "pkg.A#run(pkg.Missing)".equals(e.sourceId)
+                        && "pkg.A#helper(pkg.Missing)".equals(e.targetId)
                         && !e.isExternal),
                 "unresolved unscoped local call fallback missing; got " + describe(r.edges));
     }
@@ -219,8 +219,8 @@ class CallGraphExtractorTest {
         assertTrue(r.edges.stream().anyMatch(e ->
                 "CALLS".equals(e.relation)
                         && e.sourceId.startsWith("pkg.A#outer()$anon@L")
-                        && e.sourceId.endsWith("#done(<unresolved>)")
-                        && "pkg.A#helper(<unresolved>)".equals(e.targetId)
+                        && e.sourceId.endsWith("#done(pkg.Missing)")
+                        && "pkg.A#helper(pkg.Missing)".equals(e.targetId)
                         && !e.isExternal),
                 "anonymous unresolved callback body call fallback missing; got " + describe(r.edges));
     }

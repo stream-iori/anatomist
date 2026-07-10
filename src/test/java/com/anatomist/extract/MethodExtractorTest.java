@@ -198,7 +198,7 @@ class MethodExtractorTest {
                 .filter(n -> "METHOD".equals(n.kind))
                 .map(n -> n.id)
                 .filter(id -> id.startsWith("pkg.A#outer()$anon@L"))
-                .filter(id -> id.endsWith("#done(<unresolved>)"))
+                .filter(id -> id.endsWith("#done(pkg.Missing)"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("fallback anonymous method node missing; got " + r.nodes));
         String anonClass = anonMethod.substring(0, anonMethod.indexOf("#done("));
@@ -259,6 +259,78 @@ class MethodExtractorTest {
         Set<String> ids = r.nodes.stream().filter(n -> "LAMBDA".equals(n.kind))
                 .map(n -> n.id).collect(Collectors.toSet());
         assertEquals(2, ids.size(), "nested lambda ids must be distinct; got " + ids);
+    }
+
+    @Test
+    void unresolvedParameterTypes_keepOverloadsDistinct() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public class A {"
+                + " void convert(MissingOne value) {}"
+                + " void convert(MissingTwo value) {}"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        Set<String> ids = r.nodes.stream().map(n -> n.id).collect(Collectors.toSet());
+        assertTrue(ids.contains("pkg.A#convert(pkg.MissingOne)"), ids.toString());
+        assertTrue(ids.contains("pkg.A#convert(pkg.MissingTwo)"), ids.toString());
+        assertEquals(2, ids.stream().filter(id -> id.contains("#convert(")).count());
+    }
+
+    @Test
+    void anonymousMethod_isEmittedExactlyOnce() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public class A { void outer() {"
+                + " new Runnable() { @Override public void run() {} };"
+                + "} }");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        List<Node> methods = r.nodes.stream()
+                .filter(n -> "METHOD".equals(n.kind) && n.id.contains("$anon@L") && n.id.endsWith("#run()"))
+                .toList();
+        assertEquals(1, methods.size(), methods.toString());
+        String owner = methods.get(0).id.substring(0, methods.get(0).id.lastIndexOf("#run()"));
+        List<Edge> contains = r.edges.stream()
+                .filter(e -> "CONTAINS".equals(e.relation) && methods.get(0).id.equals(e.targetId))
+                .toList();
+        assertEquals(1, contains.size());
+        assertEquals(owner, contains.get(0).sourceId);
+    }
+
+    @Test
+    void anonymousMethodInFieldInitializer_usesStableFieldOwner() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public class A {"
+                + " static Runnable task = new Runnable() { public void run() {} };"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        List<String> ids = r.nodes.stream().map(n -> n.id)
+                .filter(id -> id.endsWith("#run()"))
+                .toList();
+        assertEquals(1, ids.size(), ids.toString());
+        assertTrue(ids.get(0).startsWith("pkg.A#task$anon@L"), ids.toString());
+        assertFalse(ids.get(0).contains("Anonymous-"), ids.toString());
+        String owner = ids.get(0).substring(0, ids.get(0).lastIndexOf("#run()"));
+        assertTrue(r.edges.stream().anyMatch(e -> "CONTAINS".equals(e.relation)
+                && owner.equals(e.sourceId) && ids.get(0).equals(e.targetId)), r.edges.toString());
+    }
+
+    @Test
+    void recordMethodsAndCompactConstructor_areEmitted() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public record Request(String value) {"
+                + " public Request { if (value == null) throw new IllegalArgumentException(); }"
+                + " public String normalized() { return value.trim(); }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new MethodExtractor(ctx).extract(cu, r);
+
+        Set<String> ids = r.nodes.stream().map(n -> n.id).collect(Collectors.toSet());
+        assertTrue(ids.contains("pkg.Request#Request(java.lang.String)"), ids.toString());
+        assertTrue(ids.contains("pkg.Request#normalized()"), ids.toString());
     }
 
     @Test

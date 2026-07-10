@@ -54,8 +54,10 @@ class IncrementalRealignIT {
     private int internalCallEdges(Path db, String sourceId, String targetId) throws Exception {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
-            return scalar(st, "SELECT count(*) FROM edges WHERE relation='CALLS' AND is_external=0 "
-                    + "AND source_id='" + sourceId + "' AND target_id='" + targetId + "'");
+            return scalar(st, "SELECT count(*) FROM edges e "
+                    + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
+                    + "WHERE e.relation='CALLS' AND e.is_external=0 "
+                    + "AND s.symbol_id='" + sourceId + "' AND t.symbol_id='" + targetId + "'");
         }
     }
 

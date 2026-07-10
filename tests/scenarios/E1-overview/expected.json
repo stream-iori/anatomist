@@ -2,12 +2,12 @@
   "query" : "overview --format json",
   "results" : [ {
     "external_edge_counts" : {
-      "CALLS" : 21,
+      "CALLS" : 22,
       "REFERENCES" : 13
     },
     "internal_edge_counts" : {
       "CALLS" : 29,
-      "CONTAINS" : 77,
+      "CONTAINS" : 76,
       "DEFINED_BY" : 6,
       "HANDLES" : 2,
       "IMPLEMENTS" : 1,

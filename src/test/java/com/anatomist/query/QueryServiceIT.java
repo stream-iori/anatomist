@@ -300,8 +300,8 @@ class QueryServiceIT {
                     "OrderController.create → OrderService.createOrder → validator.validate");
             // First edge starts at the controller; last ends at the validator.
             assertEquals("com.example.shop.controller.OrderController#create"
-                    + "(com.example.shop.domain.dto.CreateOrderRequest)", path.get(0).source);
-            assertTrue(path.get(path.size() - 1).target
+                    + "(com.example.shop.domain.dto.CreateOrderRequest)", path.get(0).sourceSymbolId);
+            assertTrue(path.get(path.size() - 1).targetSymbolId
                     .startsWith("com.example.shop.service.OrderValidator#validate"));
         }
     }

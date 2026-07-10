@@ -11,6 +11,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +52,27 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
+    }
+
+    @Test
+    void strictHealthReturnsNonZeroForPersistedDegradedIndex(@TempDir Path tmp) throws Exception {
+        Path db = buildFixtureIndex(tmp, false);
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO index_diagnostics"
+                    + "(severity,code,phase,occurrence_count,sample) VALUES "
+                    + "('warning','DANGLING_FACTS_DROPPED','EDGE_BINDING',1,'test fixture')");
+        }
+
+        RunResult doctor = runCli("doctor", "--strict-health", "--format", "json",
+                "--index", db.toString());
+        assertEquals(3, doctor.exitCode, doctor.stderr);
+        assertEquals("degraded", asObject(doctor.stdout).get("health"));
+
+        RunResult survey = runCli("survey-baseline", "--strict-health", "--format", "json",
+                "--index", db.toString());
+        assertEquals(3, survey.exitCode, survey.stderr);
+        assertEquals("degraded", asObject(survey.stdout).get("health"));
     }
 
     @Test

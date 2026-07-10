@@ -84,5 +84,24 @@ class FieldExtractorTest {
                         && "pkg.Point".equals(e.sourceId)
                         && "pkg.Point#x".equals(e.targetId)).count();
         assertEquals(1, containsX, "got " + r.edges);
+        Set<String> methods = r.nodes.stream()
+                .filter(n -> "METHOD".equals(n.kind))
+                .map(n -> n.id).collect(Collectors.toSet());
+        assertTrue(methods.contains("pkg.Point#x()"), methods.toString());
+        assertTrue(methods.contains("pkg.Point#y()"), methods.toString());
+        assertTrue(methods.contains("pkg.Point#Point(int,int)"), methods.toString());
+    }
+
+    @Test
+    void explicitRecordAccessor_isNotSynthesizedTwice() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public record Name(String value) {"
+                + " public String value() { return value.trim(); }"
+                + "}");
+        ExtractionResult r = new ExtractionResult();
+        new FieldExtractor(ctx).extract(cu, r);
+
+        assertEquals(0, r.nodes.stream()
+                .filter(n -> "pkg.Name#value()".equals(n.id)).count());
     }
 }
