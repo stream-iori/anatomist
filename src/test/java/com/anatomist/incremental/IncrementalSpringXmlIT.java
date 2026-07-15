@@ -20,8 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Incremental coverage for the Spring-XML bean graph (T5):
  *   1. edit an xml → bean graph re-extracted, counts reflect the change;
- *   2. edit a Java class referenced by a bean → xml realigned via file_dependencies,
- *      WIRES reconnected;
+ *   2. body-only Java edit preserves the already-valid XML bean graph;
  *   3. delete the xml → its BEAN nodes and DEFINED_BY/WIRES edges vanish.
  */
 class IncrementalSpringXmlIT {
@@ -110,14 +109,13 @@ class IncrementalSpringXmlIT {
     }
 
     @Test
-    void editReferencedJavaRealignsXmlAndReconnectsWires(@TempDir Path tmp) throws Exception {
+    void bodyOnlyJavaEditPreservesXmlWiresWithoutRebuild(@TempDir Path tmp) throws Exception {
         Path project = setupFixtureCopy(tmp);
         Path db = tmp.resolve("index.db");
         assertEquals(0, runFull(project, db));
 
-        // Touch a class referenced by a bean. file_dependencies (xml -> java) should
-        // pull the xml into the realign closure; the bean graph is rebuilt and WIRES
-        // re-connect to the still-present class node.
+        // A comment-only change has the same Java contract. Its stable Java nodes
+        // update in place and the existing XML WIRES must remain valid.
         Path osvc = project.resolve(
                 "service/src/main/java/com/example/shop/service/OrderService.java");
         String original = Files.readString(osvc);
@@ -134,7 +132,7 @@ class IncrementalSpringXmlIT {
                             + "WHERE e.relation='WIRES' AND e.is_external=0 "
                             + "AND s.symbol_id='com.example.shop.service.OrderService' "
                             + "AND e.source_file LIKE '%.xml'");
-            assertEquals(3, wires, "XML WIRES reconnected to rewritten OrderService");
+            assertEquals(3, wires, "XML WIRES preserved without a global rebuild");
         }
     }
 

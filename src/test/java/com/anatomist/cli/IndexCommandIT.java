@@ -29,6 +29,104 @@ import static org.junit.jupiter.api.Assertions.*;
 class IndexCommandIT {
 
     @Test
+    void timingsAreOptInAndIncludedInIncrementalJson(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("index.db");
+        RunResult initial = CliTestSupport.runIndex(project,
+                "--no-classpath", "--output", db.toString(), "--format", "json");
+        assertEquals(0, initial.exitCode());
+        assertFalse(initial.stdout().contains("timings_ms"));
+
+        Path source = project.resolve("src/main/java/p/A.java");
+        Files.writeString(source, "package p; class A { void changed() {} }\n");
+        RunResult incremental = CliTestSupport.runIndex(project,
+                "--no-classpath", "--incremental", "--timings",
+                "--output", db.toString(), "--format", "json");
+        assertEquals(0, incremental.exitCode(), incremental.stderr());
+        assertTrue(incremental.stdout().contains("\"timings_ms\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"change_detection\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"parse_extract\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"symbol_delta\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"impact_analysis\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"graph_replace\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"metadata_git\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"metadata_fingerprint\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"metadata_write\""), incremental.stdout());
+        assertTrue(incremental.stdout().contains("\"total\""), incremental.stdout());
+        long elapsedMs = jsonNumber(incremental.stdout(), "elapsed_ms");
+        long totalMs = jsonNumber(incremental.stdout(), "total");
+        assertTrue(elapsedMs + 1 >= totalMs,
+                "elapsed_ms must include metadata and cover timings.total:\n" + incremental.stdout());
+    }
+
+    private static long jsonNumber(String json, String field) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\\\"" + field + "\\\"\\s*:\\s*(\\d+)")
+                .matcher(json);
+        assertTrue(matcher.find(), "missing numeric field " + field + ":\n" + json);
+        return Long.parseLong(matcher.group(1));
+    }
+
+    @Test
+    void timingsAreIncludedInFullJsonWhenRequested(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("index.db");
+
+        RunResult full = CliTestSupport.runIndex(project,
+                "--no-classpath", "--timings",
+                "--output", db.toString(), "--format", "json");
+
+        assertEquals(0, full.exitCode(), full.stderr());
+        assertTrue(full.stdout().contains("\"timings_ms\""), full.stdout());
+        assertTrue(full.stdout().contains("\"full_index\""), full.stdout());
+        assertTrue(full.stdout().contains("\"full_parse_extract\""), full.stdout());
+        assertTrue(full.stdout().contains("\"full_parse\""), full.stdout());
+        assertTrue(full.stdout().contains("\"full_extract\""), full.stdout());
+        assertTrue(full.stdout().contains("\"full_extract_call_graph\""), full.stdout());
+        assertTrue(full.stdout().contains("\"full_write_edges\""), full.stdout());
+        assertTrue(full.stdout().contains("\"full_file_dependencies\""), full.stdout());
+        assertTrue(full.stdout().contains("\"metadata_git\""), full.stdout());
+        assertTrue(full.stdout().contains("\"total\""), full.stdout());
+        assertTrue(jsonNumber(full.stdout(), "full_index")
+                        >= jsonNumber(full.stdout(), "full_parse_extract"),
+                "full_index must cover its parse/extract child:\n" + full.stdout());
+    }
+
+    @Test
+    void fullTimingsDoNotChangeIndexedFacts(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path plainDb = tmp.resolve("plain.db");
+        Path timedDb = tmp.resolve("timed.db");
+
+        RunResult plain = CliTestSupport.runIndex(project,
+                "--no-classpath", "--output", plainDb.toString(), "--format", "json");
+        RunResult timed = CliTestSupport.runIndex(project,
+                "--no-classpath", "--timings",
+                "--output", timedDb.toString(), "--format", "json");
+
+        assertEquals(0, plain.exitCode(), plain.stderr());
+        assertEquals(0, timed.exitCode(), timed.stderr());
+        assertFalse(plain.stdout().contains("\"timings_ms\""), plain.stdout());
+        assertTrue(timed.stdout().contains("\"timings_ms\""), timed.stdout());
+        assertArrayEquals(indexedFactCounts(plainDb), indexedFactCounts(timedDb),
+                "enabling timings must not change indexed facts");
+    }
+
+    private static int[] indexedFactCounts(Path db) throws Exception {
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            return new int[] {
+                    scalar(st, "SELECT count(*) FROM nodes"),
+                    scalar(st, "SELECT count(*) FROM edges"),
+                    scalar(st, "SELECT count(*) FROM annotations"),
+                    scalar(st, "SELECT count(*) FROM semantic_annotations"),
+                    scalar(st, "SELECT count(*) FROM file_cache"),
+                    scalar(st, "SELECT count(*) FROM index_diagnostics")
+            };
+        }
+    }
+
+    @Test
     void recreateDeletesExistingDatabaseAndSidecarsBeforeIndex(@TempDir Path tmp) throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
         Files.writeString(project.resolve("README.md"),
@@ -141,6 +239,11 @@ class IndexCommandIT {
                     "project_meta should record source_root for source windows");
             assertNotNull(scalarString(st, "SELECT value FROM project_meta WHERE key='indexed_at'"),
                     "project_meta should record indexed_at");
+            assertTrue(scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='source_snapshot_fingerprint'")
+                    .matches("sha256:[0-9a-f]{64}"));
+            assertEquals("false", scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='spring_xml'"));
             int fileDeps = scalar(st, "SELECT count(*) FROM file_dependencies");
             assertTrue(fileDeps >= 0, "file_dependencies table should be queryable");
 
@@ -209,6 +312,13 @@ class IndexCommandIT {
                 "--java-version", "17",
                 "--output", db.toString());
 
+        String before;
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            before = scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='source_snapshot_fingerprint'");
+        }
+
         Path source = project.resolve("src/main/java/p/A.java");
         Files.writeString(source,
                 "package p; class A { void run() {} void after() {} }\n",
@@ -228,6 +338,8 @@ class IndexCommandIT {
                     "SELECT value FROM project_meta WHERE key='classpath_mode'"));
             assertNotNull(scalarString(st,
                     "SELECT value FROM project_meta WHERE key='classpath_entries'"));
+            assertNotEquals(before, scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='source_snapshot_fingerprint'"));
         }
     }
 

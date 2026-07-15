@@ -20,10 +20,7 @@ import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.Optional;
-import java.util.Set;
 
 public class FieldAccessExtractor implements Extractor {
 
@@ -39,35 +36,9 @@ public class FieldAccessExtractor implements Extractor {
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
 
-        // Pass 1: collect write-site AST node identities so the read pass
-        // can skip them.
-        //
-        // IdentityHashMap is load-bearing: JavaParser's Node.equals() is
-        // *structural*, so two NameExpr instances spelling "x" compare equal
-        // even when they live on opposite sides of `x = x + 1`. A vanilla
-        // HashSet would mark every `x` in the file as a write-site, silently
-        // dropping ALL READS for the same name. Identity-only membership keeps
-        // the LHS instance distinct from the RHS / return-expression / etc.
-        Set<Node> writeSites = Collections.newSetFromMap(new IdentityHashMap<>());
-        new VoidVisitorAdapter<Void>() {
-            @Override
-            public void visit(AssignExpr n, Void arg) {
-                Node site = nameOrFieldAccess(n.getTarget());
-                if (site != null) writeSites.add(site);
-                super.visit(n, arg);
-            }
-
-            @Override
-            public void visit(UnaryExpr n, Void arg) {
-                if (isIncDec(n.getOperator())) {
-                    Node site = nameOrFieldAccess(n.getExpression());
-                    if (site != null) writeSites.add(site);
-                }
-                super.visit(n, arg);
-            }
-        }.visit(unit, null);
-
-        // Pass 2: actual emit.
+        // A single pass emits writes from their parent expression and skips the
+        // exact target node when the normal read visitor reaches it. Identity
+        // comparison is load-bearing because JavaParser Node.equals is structural.
         new VoidVisitorAdapter<Void>() {
             @Override
             public void visit(AssignExpr n, Void arg) {
@@ -96,7 +67,7 @@ public class FieldAccessExtractor implements Extractor {
 
             @Override
             public void visit(NameExpr n, Void arg) {
-                if (writeSites.contains(n)) { super.visit(n, arg); return; }
+                if (isWriteTarget(n)) { super.visit(n, arg); return; }
                 ResolvedFieldDeclaration field = fieldBindingOf(n);
                 String enclosingId = enclosingId(n);
                 if (field != null && enclosingId != null) {
@@ -107,7 +78,7 @@ public class FieldAccessExtractor implements Extractor {
 
             @Override
             public void visit(FieldAccessExpr n, Void arg) {
-                if (writeSites.contains(n)) { super.visit(n, arg); return; }
+                if (isWriteTarget(n)) { super.visit(n, arg); return; }
                 ResolvedFieldDeclaration field = fieldBindingOf(n);
                 String enclosingId = enclosingId(n);
                 if (field != null && enclosingId != null) {
@@ -118,9 +89,16 @@ public class FieldAccessExtractor implements Extractor {
         }.visit(unit, null);
     }
 
-    private static Node nameOrFieldAccess(Expression expr) {
-        if (expr instanceof NameExpr || expr instanceof FieldAccessExpr) return expr;
-        return null;
+    private static boolean isWriteTarget(Expression expression) {
+        Optional<Node> parent = expression.getParentNode();
+        if (parent.isEmpty()) return false;
+        if (parent.get() instanceof AssignExpr assign) {
+            return assign.getTarget() == expression;
+        }
+        if (parent.get() instanceof UnaryExpr unary && isIncDec(unary.getOperator())) {
+            return unary.getExpression() == expression;
+        }
+        return false;
     }
 
     private static boolean isIncDec(UnaryExpr.Operator op) {

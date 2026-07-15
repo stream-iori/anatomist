@@ -16,6 +16,11 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.List;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 
 public class DataWriter {
     private static final String SQL_DELETE_SEMANTIC_ANNOTATION_BY_KEY =
@@ -28,11 +33,12 @@ public class DataWriter {
             "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
     private static final String SQL_INSERT_FILE_CACHE =
             "INSERT OR REPLACE INTO file_cache"
-                    + "(source_file,hash,schema_version,last_indexed,node_count,edge_count)"
-                    + " VALUES (?,?,?,?,?,?)";
+                    + "(source_file,hash,schema_version,last_indexed,node_count,edge_count,"
+                    + "file_size,file_mtime_ns,contract_hash) VALUES (?,?,?,?,?,?,?,?,?)";
     private static final String SQL_UPSERT_PROJECT_META =
             "INSERT INTO project_meta(key,value) VALUES (?,?) "
-                    + "ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+                    + "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+                    + "WHERE project_meta.value IS NOT excluded.value";
     private static final String SQL_DELETE_SEMANTIC_ANNOTATIONS_BY_SOURCE_FILE =
             "DELETE FROM semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)";
     private static final String SQL_DELETE_FILE_CACHE_BY_SOURCE_FILE =
@@ -61,9 +67,15 @@ public class DataWriter {
             AND sn.source_file <> tn.source_file
             """;
     private static final String SQL_INSERT_NODE =
-            "INSERT OR REPLACE INTO nodes"
+            "INSERT INTO nodes"
                     + "(id,symbol_id,label,kind,qualified_name,package,source_file,source_location,module,scope,javadoc,metadata)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                    + " ON CONFLICT(id) DO UPDATE SET"
+                    + " symbol_id=excluded.symbol_id,label=excluded.label,kind=excluded.kind,"
+                    + " qualified_name=excluded.qualified_name,package=excluded.package,"
+                    + " source_file=excluded.source_file,source_location=excluded.source_location,"
+                    + " module=excluded.module,scope=excluded.scope,javadoc=excluded.javadoc,"
+                    + " metadata=excluded.metadata";
     private static final String SQL_INSERT_EDGE =
             "INSERT INTO edges"
                     + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,context,is_external,source_file,source_location,metadata)"
@@ -227,6 +239,9 @@ public class DataWriter {
                 ps.setString(4, entry.lastIndexed() == null ? Instant.now().toString() : entry.lastIndexed());
                 ps.setInt(5, entry.nodeCount());
                 ps.setInt(6, entry.edgeCount());
+                ps.setLong(7, entry.fileSize());
+                ps.setLong(8, entry.fileMtimeNs());
+                ps.setString(9, entry.contractHash() == null ? "" : entry.contractHash());
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -249,6 +264,21 @@ public class DataWriter {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to upsert project_meta", e);
         }
+    }
+
+    /** Atomically write one coherent metadata snapshot, skipping unchanged values. */
+    public void upsertProjectMeta(Map<String, String> values) {
+        if (values == null || values.isEmpty()) return;
+        inTransaction(c -> {
+            try (PreparedStatement ps = c.prepareStatement(SQL_UPSERT_PROJECT_META)) {
+                for (Map.Entry<String, String> entry : values.entrySet()) {
+                    ps.setString(1, entry.getKey());
+                    setNullableString(ps, 2, entry.getValue());
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        });
     }
 
     public void deleteBySourceFiles(List<String> sourceFiles) {
@@ -274,6 +304,115 @@ public class DataWriter {
             throw new RuntimeException("Failed to delete by source files", e);
         }
     }
+
+    /**
+     * Replace facts owned by source files while updating stable node ids in place.
+     * Incoming edges from other files survive unless their exact target node disappeared.
+     */
+    public ReplacementStats replaceSourceGraphInCurrentTransaction(
+            List<String> sourceFiles, com.anatomist.model.ExtractionResult result) {
+        if (sourceFiles == null || sourceFiles.isEmpty()) return new ReplacementStats(0, 0);
+        try {
+            Connection c = connSupplier.get();
+            Set<String> oldIds = nodeIdsBySourceFiles(c, sourceFiles);
+            Set<String> newIds = new HashSet<>();
+            if (result != null) {
+                for (Node node : result.nodes) newIds.add(node.id);
+            }
+            Set<String> obsoleteIds = new LinkedHashSet<>(oldIds);
+            obsoleteIds.removeAll(newIds);
+
+            int deletedEdges = countSourceOwnedAndObsoleteTargetEdges(c, sourceFiles, obsoleteIds);
+            deleteSourceOwnedFacts(c, sourceFiles);
+            if (result != null) insertNodes(c, result.nodes);
+            deleteNodes(c, obsoleteIds);
+            if (result != null) {
+                insertEdges(c, result.edges);
+                insertAnnotations(c, result.annotations);
+                insertSemanticAnnotations(c, result.semanticAnnotations);
+            }
+            return new ReplacementStats(obsoleteIds.size(), deletedEdges);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to replace source graph", e);
+        }
+    }
+
+    private static Set<String> nodeIdsBySourceFiles(Connection c, List<String> sourceFiles)
+            throws SQLException {
+        Set<String> out = new LinkedHashSet<>();
+        try (PreparedStatement ps = c.prepareStatement("SELECT id FROM nodes WHERE source_file=?")) {
+            for (String sourceFile : sourceFiles) {
+                ps.setString(1, sourceFile);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) out.add(rs.getString(1));
+                }
+            }
+        }
+        return out;
+    }
+
+    private static int countSourceOwnedAndObsoleteTargetEdges(
+            Connection c, List<String> sourceFiles, Set<String> obsoleteIds) throws SQLException {
+        Set<Long> edgeIds = new HashSet<>();
+        try (PreparedStatement ps = c.prepareStatement(
+                "SELECT id FROM edges WHERE source_file=? "
+                        + "OR source_id IN (SELECT id FROM nodes WHERE source_file=?)")) {
+            for (String sourceFile : sourceFiles) {
+                ps.setString(1, sourceFile);
+                ps.setString(2, sourceFile);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) edgeIds.add(rs.getLong(1));
+                }
+            }
+        }
+        if (!obsoleteIds.isEmpty()) {
+            try (PreparedStatement ps = c.prepareStatement("SELECT id FROM edges WHERE target_id=?")) {
+                for (String nodeId : obsoleteIds) {
+                    ps.setString(1, nodeId);
+                    try (java.sql.ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) edgeIds.add(rs.getLong(1));
+                    }
+                }
+            }
+        }
+        return edgeIds.size();
+    }
+
+    private static void deleteSourceOwnedFacts(Connection c, List<String> sourceFiles)
+            throws SQLException {
+        try (PreparedStatement semantic = c.prepareStatement(
+                    "DELETE FROM semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)");
+             PreparedStatement annotations = c.prepareStatement(
+                    "DELETE FROM annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)");
+             PreparedStatement edges = c.prepareStatement(
+                    "DELETE FROM edges WHERE source_file=? "
+                            + "OR source_id IN (SELECT id FROM nodes WHERE source_file=?)");
+             PreparedStatement cache = c.prepareStatement("DELETE FROM file_cache WHERE source_file=?")) {
+            for (String sourceFile : sourceFiles) {
+                semantic.setString(1, sourceFile); semantic.addBatch();
+                annotations.setString(1, sourceFile); annotations.addBatch();
+                edges.setString(1, sourceFile); edges.setString(2, sourceFile); edges.addBatch();
+                cache.setString(1, sourceFile); cache.addBatch();
+            }
+            semantic.executeBatch();
+            annotations.executeBatch();
+            edges.executeBatch();
+            cache.executeBatch();
+        }
+    }
+
+    private static void deleteNodes(Connection c, Set<String> nodeIds) throws SQLException {
+        if (nodeIds.isEmpty()) return;
+        try (PreparedStatement ps = c.prepareStatement("DELETE FROM nodes WHERE id=?")) {
+            for (String id : nodeIds) {
+                ps.setString(1, id);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    public record ReplacementStats(int deletedNodes, int deletedEdges) {}
 
     public void deleteSpringBeanGraph() {
         Connection c;
@@ -344,6 +483,58 @@ public class DataWriter {
             st.execute(SQL_DERIVE_FILE_DEPENDENCIES);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to refresh file_dependencies", e);
+        }
+    }
+
+    /** Refresh only dependency rows incident to files rewritten by an incremental batch. */
+    public void refreshFileDependencies(List<String> affectedFiles) {
+        if (affectedFiles == null || affectedFiles.isEmpty()) return;
+        Connection c;
+        try {
+            c = connSupplier.get();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        String placeholders = String.join(",", Collections.nCopies(affectedFiles.size(), "?"));
+        String deleteSql = "DELETE FROM file_dependencies WHERE source_file IN (" + placeholders
+                + ") OR depends_on_file IN (" + placeholders + ")";
+        String deriveSql = """
+                INSERT OR IGNORE INTO file_dependencies(source_file, depends_on_file)
+                SELECT sn.source_file, tn.source_file
+                FROM nodes sn
+                JOIN edges e ON e.source_id = sn.id
+                JOIN nodes tn ON tn.id = e.target_id
+                WHERE e.is_external=0
+                AND sn.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+                AND sn.source_file <> tn.source_file
+                AND sn.source_file IN (%s)
+                UNION
+                SELECT sn.source_file, tn.source_file
+                FROM nodes tn
+                JOIN edges e ON e.target_id = tn.id
+                JOIN nodes sn ON sn.id = e.source_id
+                WHERE e.is_external=0
+                AND sn.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+                AND sn.source_file <> tn.source_file
+                AND tn.source_file IN (%s)
+                """.formatted(placeholders, placeholders);
+        try (PreparedStatement delete = c.prepareStatement(deleteSql);
+             PreparedStatement derive = c.prepareStatement(deriveSql)) {
+            bindRepeated(delete, affectedFiles, 2);
+            delete.executeUpdate();
+            bindRepeated(derive, affectedFiles, 2);
+            derive.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to refresh incremental file_dependencies", e);
+        }
+    }
+
+    private static void bindRepeated(PreparedStatement statement,
+                                     List<String> values,
+                                     int repetitions) throws SQLException {
+        int index = 1;
+        for (int repeat = 0; repeat < repetitions; repeat++) {
+            for (String value : values) statement.setString(index++, value);
         }
     }
 

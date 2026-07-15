@@ -101,7 +101,12 @@ public class SqliteStore implements IndexWriter {
     public void replaceDocuments(List<Document> docs) { writer.replaceDocuments(docs); }
     public void updateFileCache(List<FileCacheEntry> entries) { writer.updateFileCache(entries); }
     public void upsertProjectMeta(String key, String value) { writer.upsertProjectMeta(key, value); }
+    public void upsertProjectMeta(Map<String, String> values) { writer.upsertProjectMeta(values); }
     public void deleteBySourceFiles(List<String> sourceFiles) { writer.deleteBySourceFiles(sourceFiles); }
+    public DataWriter.ReplacementStats replaceSourceGraphInCurrentTransaction(
+            List<String> sourceFiles, ExtractionResult result) {
+        return writer.replaceSourceGraphInCurrentTransaction(sourceFiles, result);
+    }
     public void deleteSpringBeanGraph() { writer.deleteSpringBeanGraph(); }
     public void replaceGeneratedWiringEdges(List<Edge> edges) { writer.replaceGeneratedWiringEdges(edges); }
     public void replaceGeneratedWiringEdgesInCurrentTransaction(List<Edge> edges) {
@@ -110,6 +115,9 @@ public class SqliteStore implements IndexWriter {
     public void clearFileDependencies() { writer.clearFileDependencies(); }
     public void deriveFileDependencies() { writer.deriveFileDependencies(); }
     public void refreshFileDependencies() { writer.refreshFileDependencies(); }
+    public void refreshFileDependencies(List<String> affectedFiles) {
+        writer.refreshFileDependencies(affectedFiles);
+    }
     public void replaceIndexDiagnostics(List<IndexDiagnostic> diagnostics) { writer.replaceIndexDiagnostics(diagnostics); }
 
     @FunctionalInterface
@@ -123,8 +131,29 @@ public class SqliteStore implements IndexWriter {
 
     public Map<String, FileCacheEntry> readFileCache() { return reader.readFileCache(); }
     public Optional<String> readProjectMeta(String key) { return reader.readProjectMeta(key); }
+    public Map<String, String> readProjectMeta() { return reader.readProjectMeta(); }
     public Set<String> dependentsOf(List<String> seed) { return reader.dependentsOf(seed); }
     public Set<String> allNodeIds() { return reader.allNodeIds(); }
+    public Map<String, Node> readNodesBySourceFiles(List<String> sourceFiles) {
+        return reader.readNodesBySourceFiles(sourceFiles);
+    }
+    public Set<String> sourceFilesReferencingNodeIds(Set<String> nodeIds) {
+        return reader.sourceFilesReferencingNodeIds(nodeIds);
+    }
+    public Set<String> sourceFilesReferencingOwnerIds(Set<String> ownerIds) {
+        return reader.sourceFilesReferencingOwnerIds(ownerIds);
+    }
+    public Set<String> sourceFilesMatchingExternalTargets(Set<String> logicalPrefixes) {
+        return reader.sourceFilesMatchingExternalTargets(logicalPrefixes);
+    }
+
+    public Set<String> sourceFilesMatchingExactExternalTargets(Set<String> logicalTargets) {
+        return reader.sourceFilesMatchingExactExternalTargets(logicalTargets);
+    }
+
+    public Set<String> sourceFilesImplementingTypeIds(Set<String> ownerIds) {
+        return reader.sourceFilesImplementingTypeIds(ownerIds);
+    }
     public Map<String, String> readBeanClassTargets() { return reader.readBeanClassTargets(); }
     public Map<String, FileCacheService.SourceFileStats> sourceFileStats() { return reader.sourceFileStats(); }
     public FileCacheService.SourceFileStats countRowsDeletedBySourceFiles(List<String> sourceFiles) {
@@ -133,7 +162,14 @@ public class SqliteStore implements IndexWriter {
     public FileCacheService.SourceFileStats countSpringBeanGraphRows() { return reader.countSpringBeanGraphRows(); }
     public int countGeneratedWiringEdges() { return reader.countGeneratedWiringEdges(); }
     public List<Edge> readWiringSourceEdges() { return reader.readWiringSourceEdges(); }
+    public List<Edge> readWiringSourceEdgesBySourceFiles(List<String> sourceFiles) {
+        return reader.readWiringSourceEdgesBySourceFiles(sourceFiles);
+    }
+    public int countGeneratedWiringEdgesBySourceFiles(List<String> sourceFiles) {
+        return reader.countGeneratedWiringEdgesBySourceFiles(sourceFiles);
+    }
     public Map<String, Long> queryKindCounts() { return reader.queryKindCounts(); }
+    public Set<String> queryPackagesByKinds(Set<String> kinds) { return reader.queryPackagesByKinds(kinds); }
     public Map<String, Long> queryRelationCounts() { return reader.queryRelationCounts(); }
     public long queryAnnotationCount() { return reader.queryAnnotationCount(); }
     public long querySemanticAnnotationCount() { return reader.querySemanticAnnotationCount(); }

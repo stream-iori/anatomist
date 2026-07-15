@@ -55,7 +55,7 @@ public class ContextCommand implements Callable<Integer> {
     @Option(names = "--with-docs", description = "Include related documentation snippets (requires --enrich).")
     boolean withDocs;
 
-    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/indexes/<repo-key>/index.db).")
     Path index;
 
     @Option(names = "--module", description = "Restrict symbol resolution to one module.") String module;

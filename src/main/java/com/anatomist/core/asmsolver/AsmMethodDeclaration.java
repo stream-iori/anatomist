@@ -76,6 +76,9 @@ public class AsmMethodDeclaration implements ResolvedMethodDeclaration {
         return AccessFlags.toSpecifier(access);
     }
 
+    int access() { return access; }
+    String signature() { return resolver.signature(); }
+
     @Override
     public String toString() {
         return "AsmMethodDeclaration(" + declaring.getQualifiedName() + "#" + name + resolver.descriptor() + ")";

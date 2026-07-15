@@ -14,6 +14,31 @@ import static org.junit.jupiter.api.Assertions.*;
 class JavaParserFactoryTest {
 
     @Test
+    void cacheBudgetsCanBeTunedAndInvalidValuesFallBack() {
+        String oldSource = System.getProperty(JavaParserFactory.SOURCE_CACHE_PROPERTY);
+        String oldCombined = System.getProperty(JavaParserFactory.COMBINED_CACHE_PROPERTY);
+        try {
+            System.setProperty(JavaParserFactory.SOURCE_CACHE_PROPERTY, "64");
+            System.setProperty(JavaParserFactory.COMBINED_CACHE_PROPERTY, "10000");
+            assertEquals(64, JavaParserFactory.fullSourceCacheSize());
+            assertEquals(64, JavaParserFactory.watchSourceCacheSize());
+            assertEquals(10_000, JavaParserFactory.combinedTypeCacheSize());
+
+            System.setProperty(JavaParserFactory.SOURCE_CACHE_PROPERTY, "0");
+            System.setProperty(JavaParserFactory.COMBINED_CACHE_PROPERTY, "bad");
+            assertEquals(256, JavaParserFactory.fullSourceCacheSize());
+            assertEquals(20_000, JavaParserFactory.combinedTypeCacheSize());
+        } finally {
+            restore(JavaParserFactory.SOURCE_CACHE_PROPERTY, oldSource);
+            restore(JavaParserFactory.COMBINED_CACHE_PROPERTY, oldCombined);
+        }
+    }
+
+    private static void restore(String key, String value) {
+        if (value == null) System.clearProperty(key); else System.setProperty(key, value);
+    }
+
+    @Test
     void parseAll_parsesEverySourceFile(@TempDir Path tmp) throws Exception {
         Path src = Files.createDirectories(tmp.resolve("src"));
         Files.writeString(src.resolve("A.java"), "package p; public class A {}");
@@ -44,6 +69,89 @@ class JavaParserFactoryTest {
         // resolve() should not throw with the SymbolResolver attached
         cus.get(0).findAll(com.github.javaparser.ast.body.MethodDeclaration.class)
                 .forEach(m -> assertDoesNotThrow(m::resolve));
+    }
+
+    @Test
+    void classpathDirectoryIsUsedByRegularAndWatchSessions(@TempDir Path tmp) throws Exception {
+        Path classes = Files.createDirectories(tmp.resolve("classes/com/dep"));
+        Files.write(classes.resolve("External.class"),
+                miniClass("com.dep.External"));
+        Path src = Files.createDirectories(tmp.resolve("src/p"));
+        Path source = src.resolve("Use.java");
+        Files.writeString(source, "package p; class Use { com.dep.External value; }");
+        Path sourceRoot = tmp.resolve("src");
+
+        JavaParserFactory regular = new JavaParserFactory(
+                21, List.of(tmp.resolve("classes")), List.of(sourceRoot), true);
+        IndexTimings timings = new IndexTimings();
+        regular.setTimings(timings);
+        assertEquals("com.dep.External", resolvedFieldType(regular.parseFiles(List.of(source)).get(0)));
+        assertTrue(timings.millis().containsKey("classpath_index_build"));
+        assertTrue(timings.millis().containsKey("type_cache_load"));
+
+        try (JavaParserFactory.SessionCache sessions = new JavaParserFactory.SessionCache()) {
+            JavaParserFactory watched = new JavaParserFactory(
+                    21, List.of(tmp.resolve("classes")), List.of(sourceRoot), true, sessions);
+            assertEquals("com.dep.External", resolvedFieldType(watched.parseFiles(List.of(source)).get(0)));
+        }
+    }
+
+    private static String resolvedFieldType(CompilationUnit unit) {
+        return unit.findFirst(com.github.javaparser.ast.body.FieldDeclaration.class)
+                .orElseThrow().getVariable(0).resolve().getType()
+                .asReferenceType().getQualifiedName();
+    }
+
+    private static byte[] miniClass(String fqn) {
+        org.objectweb.asm.ClassWriter writer = new org.objectweb.asm.ClassWriter(0);
+        writer.visit(org.objectweb.asm.Opcodes.V21, org.objectweb.asm.Opcodes.ACC_PUBLIC,
+                fqn.replace('.', '/'), null, "java/lang/Object", null);
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    void parseFilesDetailedPreservesProblemsForInvalidSource(@TempDir Path tmp) throws Exception {
+        Path src = Files.createDirectories(tmp.resolve("src"));
+        Path invalid = src.resolve("Broken.java");
+        Files.writeString(invalid, "package p; class Broken { void run() {} throws Exception }");
+
+        JavaParserFactory factory = new JavaParserFactory(
+                21, List.of(), List.of(src), /*vmClasspath*/ true);
+
+        JavaParserFactory.ParseFilesResult result = factory.parseFilesDetailed(List.of(invalid));
+
+        assertTrue(result.compilationUnits().isEmpty());
+        assertTrue(result.problems().containsKey(invalid.toAbsolutePath().normalize()));
+        assertFalse(result.problems().get(invalid.toAbsolutePath().normalize()).isEmpty());
+    }
+
+    @Test
+    void watchSessionInvalidatesChangedSourceAst(@TempDir Path tmp) throws Exception {
+        Path src = Files.createDirectories(tmp.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path a = pkg.resolve("A.java");
+        Path b = pkg.resolve("B.java");
+        Files.writeString(a, "package p; class A { String foo() { return \"x\"; } }");
+        Files.writeString(b, "package p; class B { String run() { return new A().foo(); } }");
+
+        try (JavaParserFactory.SessionCache sessions = new JavaParserFactory.SessionCache()) {
+            JavaParserFactory factory = new JavaParserFactory(
+                    21, List.of(), List.of(src), true, sessions);
+            factory.invalidate(List.of(a, b), true);
+            CompilationUnit first = factory.parseFiles(List.of(b)).get(0);
+            assertEquals("foo", first.findFirst(
+                    com.github.javaparser.ast.expr.MethodCallExpr.class).orElseThrow()
+                    .resolve().getName());
+
+            Files.writeString(a, "package p; class A { String bar() { return \"x\"; } }");
+            Files.writeString(b, "package p; class B { String run() { return new A().bar(); } }");
+            factory.invalidate(List.of(a, b), true);
+            CompilationUnit second = factory.parseFiles(List.of(b)).get(0);
+            assertEquals("bar", second.findFirst(
+                    com.github.javaparser.ast.expr.MethodCallExpr.class).orElseThrow()
+                    .resolve().getName());
+        }
     }
 
     @Test

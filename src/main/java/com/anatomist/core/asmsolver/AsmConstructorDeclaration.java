@@ -53,4 +53,7 @@ public class AsmConstructorDeclaration implements ResolvedConstructorDeclaration
     public AccessSpecifier accessSpecifier() {
         return AccessFlags.toSpecifier(access);
     }
+
+    int access() { return access; }
+    String descriptor() { return resolver.descriptor(); }
 }

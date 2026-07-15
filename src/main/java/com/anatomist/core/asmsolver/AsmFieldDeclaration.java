@@ -46,6 +46,9 @@ public class AsmFieldDeclaration implements ResolvedFieldDeclaration {
         return AccessFlags.toSpecifier(access);
     }
 
+    String descriptor() { return descriptor; }
+    int access() { return access; }
+
     @Override
     public String toString() {
         return "AsmFieldDeclaration(" + declaring.getQualifiedName() + "#" + name + ")";

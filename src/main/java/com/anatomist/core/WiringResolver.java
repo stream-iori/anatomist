@@ -51,6 +51,10 @@ public final class WiringResolver {
                         && GraphConstants.Relation.INJECTS.equals(e.relation) && !e.isExternal
                         && e.sourceId != null && e.targetId != null)
                 .toList();
+        Set<String> injectedTypePairs = new HashSet<>();
+        for (Edge injection : injections) {
+            injectedTypePairs.add(injection.sourceId + "\u0000" + injection.targetId);
+        }
 
         for (Edge inject : injections) {
             List<String> implTypes = distinct(implTypesByInterface.get(inject.targetId));
@@ -65,8 +69,8 @@ public final class WiringResolver {
             String callerType = ownerTypeOfMethod(call.sourceId);
             String calleeType = ownerTypeOfMethod(call.targetId);
             if (callerType == null || calleeType == null) continue;
-            boolean callerInjectsCalleeType = injections.stream()
-                    .anyMatch(i -> callerType.equals(i.sourceId) && calleeType.equals(i.targetId));
+            boolean callerInjectsCalleeType = injectedTypePairs.contains(
+                    callerType + "\u0000" + calleeType);
             if (!callerInjectsCalleeType) continue;
 
             List<String> implMethods = distinct(implMethodsByInterfaceMethod.get(call.targetId));

@@ -1,6 +1,7 @@
 package com.anatomist.cli;
 
 import com.anatomist.json.Json;
+import com.anatomist.test.CliTestSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -50,8 +51,58 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("commands")).contains("bean-config"));
         assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
         assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("source-snapshot-fingerprint"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
+        assertEquals(fixture().toRealPath().toString(), json.get("source_root"));
+        assertTrue(String.valueOf(json.get("source_snapshot_fingerprint"))
+                .matches("sha256:[0-9a-f]{64}"));
+        assertEquals("none", json.get("classpath_mode"));
+        assertEquals(Boolean.FALSE, json.get("spring_xml"));
+    }
+
+    @Test
+    void doctorReportsGitUntrackedCacheWithoutChangingIt(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        git(project, "init", "-q");
+        git(project, "config", "user.name", "Anatomist Test");
+        git(project, "config", "user.email", "anatomist@example.test");
+        git(project, "config", "core.untrackedCache", "true");
+        git(project, "add", ".");
+        git(project, "commit", "-qm", "initial");
+        Path db = tmp.resolve("doctor-git.db");
+        RunResult indexed = runCli("index", project.toString(), "--no-classpath",
+                "--output", db.toString());
+        assertEquals(0, indexed.exitCode, indexed.stderr);
+
+        RunResult enabled = runCli("doctor", "--format", "json", "--index", db.toString());
+        assertEquals(0, enabled.exitCode, enabled.stderr);
+        Map<?, ?> enabledJson = asObject(enabled.stdout);
+        assertEquals("enabled", enabledJson.get("git_untracked_cache"));
+        assertFalse(enabledJson.containsKey("advice"));
+
+        git(project, "config", "core.untrackedCache", "false");
+        RunResult disabled = runCli("doctor", "--format", "json", "--index", db.toString());
+        Map<?, ?> disabledJson = asObject(disabled.stdout);
+        assertEquals("disabled", disabledJson.get("git_untracked_cache"));
+        assertTrue(String.valueOf(disabledJson.get("advice"))
+                .contains("git config core.untrackedCache true"));
+    }
+
+    @Test
+    void surveyBaselineRejectsIndexFromDifferentProject(@TempDir Path tmp) throws Exception {
+        Path db = buildFixtureIndex(tmp, false);
+        Path other = Files.createDirectories(tmp.resolve("other-project"));
+
+        RunResult r = runCli("survey-baseline", other.toString(),
+                "--format", "json", "--index", db.toString());
+
+        assertEquals(2, r.exitCode, r.stderr);
+        Map<?, ?> json = asObject(r.stdout);
+        assertEquals("error", json.get("status"));
+        assertEquals("INDEX_PROJECT_MISMATCH", json.get("error"));
+        assertEquals(other.toRealPath().toString(), json.get("project_path"));
+        assertEquals(fixture().toRealPath().toString(), json.get("index_source_root"));
     }
 
     @Test
@@ -170,6 +221,18 @@ class AgentContractIT {
             System.setOut(oldOut);
             System.setErr(oldErr);
         }
+    }
+
+    private static void git(Path cwd, String... args) throws Exception {
+        java.util.ArrayList<String> command = new java.util.ArrayList<>();
+        command.add("git");
+        command.addAll(List.of(args));
+        Process process = new ProcessBuilder(command)
+                .directory(cwd.toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, process.waitFor(), output);
     }
 
     private record RunResult(int exitCode, String stdout, String stderr) {}

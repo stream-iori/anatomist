@@ -13,7 +13,7 @@ anatomist index <project-path> [options]
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--output <path>` | SQLite output path | `.anatomist/index.db` |
+| `--output <path>` | SQLite output path | `$ANATOMIST_HOME/indexes/<repo-key>/index.db` |
 | `--project-source <paths>` | Colon-separated source roots (relative to project) | auto-detect |
 | `--source-root <module>@<scope>=<path>` | Explicit module/scope identity; repeat for each root. Mutually exclusive with `--project-source` | inferred |
 | `--classpath <jars>` | Colon-separated jar paths | auto-detect via Maven |
@@ -23,7 +23,9 @@ anatomist index <project-path> [options]
 | `--exclude <dirs>` | Comma-separated directories to skip | none |
 | `--include-tests` | Also index test sources | false |
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
+| `--verify-content` | Hash every indexed source during standalone incremental scans instead of trusting unchanged size/mtime. Watch candidates are always hashed. | false |
 | `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts and XML property/map/list/ref config trees. Spring annotation Bean/MVC facts are indexed by default. | false |
+| `--timings` | Add per-phase milliseconds to text output or JSON `timings_ms`, including incremental `symbol_delta`, `impact_analysis`, `graph_replace`, and metadata sub-phases. Output is unchanged when omitted. | false |
 | `--format json` | Emit a stable Agent summary: `command`, `status`, `schema_version`, `index_path`, `stats`, `warnings`, `errors` | text |
 | `--strict-health` | Return exit code 3 when the completed index is degraded/unhealthy | false |
 
@@ -33,6 +35,25 @@ Example:
 anatomist index . --format json --output /tmp/index.db
 ```
 
+With `--timings`, full indexing keeps `full_index` as the parent measurement and
+reports `full_stage_write`, `full_stage_resolve`, and `full_stage_promote` for
+the file-backed streaming path. Incremental runs report `stage_write` and
+`stage_promote`; Watch also reports `staging_setup` and `known_ids` for its reused
+session state. Change detection reports `file_stat` and only reports `file_hash`
+when bytes were read. Impact queries are split into `impact_exact` and
+`impact_prefix`; metadata separates asynchronous Git work from `git_status_wait`.
+The older `full_write_*` keys remain as compatibility aliases.
+Classpath-backed runs additionally report `classpath_index_build`,
+`type_cache_load`, and `type_cache_write`. These include packed-cache work and
+are absent when indexing without dependency classpath entries.
+It adds non-overlapping top-level children for schema setup, parse/extract, project
+analysis, graph rewriting, SQLite writes, file-cache/metadata work, dependency
+refresh, `ANALYZE`, and final statistics/health. `full_parse_extract` is further
+split into parser overhead and extractor work; extractor keys identify type,
+field, method, annotation, hierarchy, reference, call-graph, field-access,
+framework-analyzer, and source-origin costs. Parent and nested measurements
+overlap by design and must not all be summed together.
+
 Full indexing also writes a source snapshot into `project_meta`. The most useful
 keys for Agents are:
 
@@ -41,6 +62,7 @@ keys for Agents are:
 | `source_root` | Absolute project root used to resolve `source_window` snippets |
 | `source_paths` | Source roots included in this index |
 | `source_layout` / `source_layout_hash` | Canonical module/scope/root mapping and its incremental compatibility fingerprint |
+| `source_snapshot_fingerprint` | Portable hash of logical source identities and file contents; excludes absolute paths and timestamps |
 | `indexed_at` | Index timestamp |
 | `source_git_commit` | Git commit of the indexed source tree, when available |
 | `source_git_branch` | Git branch, when available |
@@ -63,12 +85,31 @@ JSON includes:
 | `schema_version` | Current writer schema |
 | `default_index_path` / `index_path` | Resolved index locations |
 | `index_exists` | Whether the target DB exists |
+| `source_root` / `source_snapshot_fingerprint` | Local checkout ownership and portable indexed-source identity |
+| `java_version` / `classpath_mode` / `spring_xml` | Index profile used to build the current facts |
 | `commands` | Supported subcommands for Agent self-discovery |
 | `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
 | `health` / `diagnostics` | Persisted index health shared with `index` and `survey-baseline` |
+| `git_untracked_cache` | Repository Git setting: `enabled`, `disabled`, or `unknown` |
+
+When Git untracked cache is not enabled, `doctor` reports non-mutating advice:
+
+```bash
+git config core.untrackedCache true
+```
+
+Anatomist never runs this command automatically. With `--timings`, a slow
+incremental Git status check prints the same advice once per Watch process.
 
 Add `--strict-health` to return exit code 3 for a schema mismatch or persisted
 degraded/unhealthy report. Without it, reporting succeeds with exit code 0.
+
+The default DB stays under the tool-owned `$ANATOMIST_HOME` cache (default
+`~/.anatomist`) so repositories are not polluted with generated SQLite files.
+`<repo-key>` combines a sanitized checkout basename with the first 12 hex
+characters of SHA-256(realpath), so same-named checkouts do not collide. This
+path is a machine-local locator; portable consumers should persist
+`source_snapshot_fingerprint`, not `index_path`.
 
 ### `survey-baseline`
 Return a structural first-pass baseline for large repositories.
@@ -99,7 +140,7 @@ Monitor source tree, report or auto-index changes.
 ```bash
 anatomist watch <project-path> [--auto-index] [--debounce-ms 500]
 anatomist watch <project-path> --auto-index --output <db> \
-  --project-source <paths> [--spring-xml] [--no-classpath|--classpath <jars>]
+  --project-source <paths> [--spring-xml] [--timings] [--no-classpath|--classpath <jars>]
 ```
 
 Use `watch` to keep an existing index fresh while editing. It is a file-change
@@ -109,10 +150,14 @@ watcher, not a runtime tracer.
 |---|---|
 | No `--auto-index` | Print `CREATE` / `MODIFY` / `DELETE` events only. |
 | Source change with `--auto-index` | Run `index --incremental` against the same DB. |
-| Build-file change (`pom.xml`, Gradle settings) | Run a full re-index because source roots/classpath may have changed. |
-| Incremental cannot be trusted | `index --incremental` degrades to full, for example empty cache, schema mismatch, or too-large realign closure. |
-| Auto-index fails | Retain all pending paths and retry them with the next event; idle/iteration shutdown returns non-zero while pending work remains. |
-| `--fail-fast` | Exit immediately on the first failed auto-index attempt. |
+| Body-only or uniquely named member addition | Contract fingerprint stays stable, so update stable nodes in place; preserve incoming edges and Spring wiring without reparsing unchanged callers. |
+| Removed/renamed/contract-changed symbol or overload family | Reparse only source files selected by exact internal/external symbol edges. |
+| Build-file change (`pom.xml`, Gradle settings) | Re-resolve the index environment. Continue incrementally when source roots, Java version, classpath artifacts, and Spring mode are unchanged; otherwise full re-index once. |
+| Incremental cannot be trusted | `index --incremental` degrades to full, for example empty cache, schema mismatch, or a symbol-impact set above `--max-realign-files`. |
+| Changed Java is temporarily unparsable | Keep the previous committed index and retry three times at `max(100ms, debounce-ms)` even if no second filesystem event arrives. |
+| Parse retries are exhausted | Retain pending paths without a busy loop; the next source event resets the retry budget. Idle/iteration shutdown returns non-zero while work remains pending. |
+| Other auto-index failure | Retain pending paths but do not enter the timed parse-retry loop. |
+| `--fail-fast` | Exit immediately on the first failed auto-index attempt, including a parse failure. |
 
 For complex projects, pass the same indexing shape used for the initial index:
 
@@ -125,9 +170,25 @@ For complex projects, pass the same indexing shape used for the initial index:
 | `--java-version <N>` | Reuse it when the project is not detected correctly. |
 | `--source-root ...` | Reuse every explicit module/scope mapping. |
 | `--strict-health` | Treat a degraded index result as an auto-index failure. |
+| `--timings` | Print discovery, change detection, parse/write/wiring/dependency, metadata sub-phases, and total costs for auto-index runs. |
+
+For normal source edits, `watch --auto-index` forwards only the changed candidate
+paths and reuses the resolved source roots, Spring XML inventory, classpath metadata,
+JavaParser session, known node IDs, and an empty staging schema. Stable node IDs are
+updated in place. Removed or contract-changed
+symbols expand the batch through exact incoming edges, overload families, unresolved
+external targets, and type owners until the impact set reaches a fixed point.
+Filesystem overflow triggers reconciliation. Source-layout/environment changes fall back to
+the full correctness scan. `--max-realign-files` is a hard safety cap (default 1000);
+below it, stored full/incremental timings choose incremental work only when its estimated
+cost is at most 70% of the full baseline. Without history, the fallback budget is 20% of
+Java files with a 200-file floor. Realignment parsing is streamed in batches of at most 128.
 
 `watch` keeps static anatomist facts current. It does not prove that a route,
 branch, callback, bean profile, or runtime path actually executed.
+
+See [Troubleshooting](troubleshooting.md#watch-reports-a-java-parse-failure) for
+parse errors observed during editor or code-generator writes.
 
 ## Query Phase
 

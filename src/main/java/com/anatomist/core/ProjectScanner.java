@@ -3,12 +3,14 @@ package com.anatomist.core;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Stream;
 
 public class ProjectScanner {
 
@@ -40,11 +42,24 @@ public class ProjectScanner {
             return Collections.emptyList();
         }
         List<Path> out = new ArrayList<>();
-        try (Stream<Path> stream = Files.walk(root)) {
-            stream.filter(p -> notInExcludedDir(root.relativize(p)))
-                    .filter(p -> Files.isRegularFile(p))
-                    .filter(p -> p.getFileName().toString().endsWith(".java"))
-                    .forEach(out::add);
+        try {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (!dir.equals(root) && containsExcludedDir(root.relativize(dir))) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (attrs.isRegularFile() && file.getFileName().toString().endsWith(".java")) {
+                        out.add(file);
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (IOException e) {
             throw new RuntimeException("Failed scanning " + root, e);
         }
@@ -68,12 +83,25 @@ public class ProjectScanner {
             return Collections.emptyList();
         }
         List<Path> out = new ArrayList<>();
-        try (Stream<Path> stream = Files.walk(root)) {
-            stream.filter(p -> notInExcludedDir(root.relativize(p)))
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString().endsWith(".xml"))
-                    .filter(SpringBeanParser::isSpringBeansFile)
-                    .forEach(out::add);
+        try {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (!dir.equals(root) && containsExcludedDir(root.relativize(dir))) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (attrs.isRegularFile() && file.getFileName().toString().endsWith(".xml")
+                            && SpringBeanParser.isSpringBeansFile(file)) {
+                        out.add(file);
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (IOException e) {
             throw new RuntimeException("Failed scanning " + root, e);
         }
@@ -84,10 +112,6 @@ public class ProjectScanner {
         List<Path> out = new ArrayList<>();
         for (Path r : roots) out.addAll(scanSpringXml(r));
         return out;
-    }
-
-    private boolean notInExcludedDir(Path path) {
-        return !containsExcludedDir(path);
     }
 
     private boolean containsExcludedDir(Path path) {

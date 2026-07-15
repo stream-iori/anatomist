@@ -23,7 +23,7 @@ public class IndexDocsCommand implements Callable<Integer> {
     Path projectPath;
 
     @Option(names = {"--output", "--index"},
-            description = "SQLite database path (default: ~/.anatomist/<repo>/index.db).")
+            description = "SQLite database path (default: ~/.anatomist/indexes/<repo-key>/index.db).")
     Path output;
 
     @Override
@@ -34,7 +34,7 @@ public class IndexDocsCommand implements Callable<Integer> {
                 System.err.println("ERROR: project path does not exist or is not a directory: " + projectPath);
                 return 1;
             }
-            Path projectRoot = projectPath.toAbsolutePath().normalize();
+            Path projectRoot = projectPath.toRealPath().normalize();
 
             Path dbPath = output == null
                     ? DefaultIndexPath.forIndexWrite(projectRoot)

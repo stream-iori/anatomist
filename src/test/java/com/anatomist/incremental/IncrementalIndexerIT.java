@@ -20,6 +20,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -77,7 +78,8 @@ class IncrementalIndexerIT {
         Files.writeString(osvc, original + "\n// touched\n");
 
         String stdout = runIncrementalOutput(project, db);
-        assertPositive(stdout, "Deleted nodes:");
+        assertEquals(0, metric(stdout, "Deleted nodes:"),
+                "stable symbol ids must be updated in place");
         assertPositive(stdout, "Deleted edges:");
         assertPositive(stdout, "Written nodes:");
         assertPositive(stdout, "Written edges:");
@@ -97,8 +99,70 @@ class IncrementalIndexerIT {
     }
 
     @Test
-    void incrementalParsesOnlyRealignJavaFiles(@TempDir Path tmp) throws Exception {
-        Path project = tmp.resolve("proj");
+    void incrementalGraphMatchesFreshFullRebuild(@TempDir Path tmp) throws Exception {
+        Path project = setupFixtureCopy(tmp);
+        Path incrementalDb = tmp.resolve("incremental.db");
+        Path fullDb = tmp.resolve("full.db");
+        assertFullIndexOk(project, incrementalDb);
+
+        Path service = project.resolve(
+                "service/src/main/java/com/example/shop/service/OrderService.java");
+        String source = Files.readString(service);
+        Files.writeString(service, source.replace(
+                "\n}\n",
+                "\n    public String incrementalParityProbe() { return \"ok\"; }\n}\n"));
+
+        assertIncrementalOk(project, incrementalDb);
+        assertFullIndexOk(project, fullDb);
+
+        assertEquals(canonicalGraph(fullDb), canonicalGraph(incrementalDb),
+                "incremental nodes, edges, and file dependencies must equal a fresh full index");
+    }
+
+    @Test
+    void bodyOnlyChangeMatchesFreshFullRebuild(@TempDir Path tmp) throws Exception {
+        Path project = setupFixtureCopy(tmp);
+        Path incrementalDb = tmp.resolve("incremental.db");
+        Path fullDb = tmp.resolve("full.db");
+        assertFullIndexOk(project, incrementalDb);
+
+        Path service = project.resolve(
+                "service/src/main/java/com/example/shop/service/OrderService.java");
+        Files.writeString(service, Files.readString(service) + "\n// body-only parity probe\n");
+
+        assertIncrementalOk(project, incrementalDb);
+        assertFullIndexOk(project, fullDb);
+
+        assertEquals(canonicalGraph(fullDb), canonicalGraph(incrementalDb),
+                "body-only replacement must retain derived wiring and match full indexing");
+    }
+
+    @Test
+    void structuralSymbolChangeMatchesFreshFullRebuild(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("structural")).toRealPath();
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path a = pkg.resolve("A.java");
+        Path b = pkg.resolve("B.java");
+        Files.writeString(b, "package p; public class B { public String foo(){ return \"x\"; } }");
+        Files.writeString(a, "package p; public class A { String run(){ return new B().foo(); } }");
+        Path incrementalDb = tmp.resolve("structural-incremental.db");
+        Path fullDb = tmp.resolve("structural-full.db");
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", incrementalDb.toString());
+
+        Files.writeString(b, "package p; public class B { public Object bar(){ return \"x\"; } }");
+        runSimpleIncremental(project, src, incrementalDb);
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", fullDb.toString());
+
+        assertEquals(canonicalGraph(fullDb), canonicalGraph(incrementalDb),
+                "removed/renamed symbol impact must equal a fresh full graph");
+    }
+
+    @Test
+    void bodyOnlyChangeParsesOnlyChangedJavaFile(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("proj")).toRealPath();
         Path src = Files.createDirectories(project.resolve("src"));
         Path pkg = Files.createDirectories(src.resolve("p"));
         Path a = pkg.resolve("A.java");
@@ -129,10 +193,8 @@ class IncrementalIndexerIT {
         assertFalse(summary.degradedToFull);
         assertEquals(0, factory.parseAllCalls, "incremental Java reparse must not parse every source root");
         assertEquals(1, factory.parseFilesCalls);
-        assertEquals(List.of(
-                b.toAbsolutePath().normalize(),
-                a.toAbsolutePath().normalize()
-        ), factory.parsedFiles, "changed file and realigned dependent should be parsed");
+        assertEquals(Set.of(b.toAbsolutePath().normalize()), Set.copyOf(factory.parsedFiles),
+                "a body-only change must preserve incoming edges without reparsing callers");
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
@@ -142,6 +204,218 @@ class IncrementalIndexerIT {
                             + "WHERE e.relation='CALLS' AND e.is_external=0 "
                             + "AND s.symbol_id='p.A#run()' AND t.symbol_id='p.B#foo()'"));
         }
+    }
+
+    @Test
+    void signatureRemovalReparsesOnlyExactCaller(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("proj")).toRealPath();
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path a = pkg.resolve("A.java");
+        Path b = pkg.resolve("B.java");
+        Files.writeString(b, "package p; public class B { public void foo(){} }");
+        Files.writeString(a, "package p; public class A { void run(){ new B().foo(); } }");
+        Path db = tmp.resolve("index.db");
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", db.toString());
+
+        Files.writeString(b, "package p; public class B { public void bar(){} }");
+        FileCacheService fcs = new FileCacheService();
+        Map<String, String> diskHashes = fcs.computeFileHashes(project, List.of(a, b));
+        CountingJavaParserFactory factory = new CountingJavaParserFactory(8, List.of(src));
+        IncrementalIndexer.Summary summary;
+        try (SqliteStore store = new SqliteStore(db)) {
+            FileCacheService.Changes changes = fcs.detectChanges(diskHashes, store.readFileCache());
+            summary = new IncrementalIndexer(project, List.of(src), factory, store, 8, 200)
+                    .indexIncremental(changes.changed, changes.added, changes.deleted, diskHashes);
+        }
+
+        assertFalse(summary.degradedToFull);
+        assertEquals(1, summary.realignedDependents);
+        assertEquals(Set.of(a.toAbsolutePath().normalize(), b.toAbsolutePath().normalize()),
+                Set.copyOf(factory.parsedFiles));
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                            + "WHERE s.symbol_id='p.A#run()' AND e.target_id LIKE '%p.B#foo()'"));
+        }
+    }
+
+    @Test
+    void largePrimarySetIsParsedInBoundedBatches(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("proj")).toRealPath();
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        List<Path> sources = new ArrayList<>();
+        for (int i = 0; i < 130; i++) {
+            Path source = pkg.resolve("C" + i + ".java");
+            Files.writeString(source, "package p; class C" + i + " { int value(){ return 1; } }");
+            sources.add(source);
+        }
+        Path db = tmp.resolve("index.db");
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", db.toString());
+        for (int i = 0; i < sources.size(); i++) {
+            Files.writeString(sources.get(i),
+                    "package p; class C" + i + " { int value(){ return 2; } }");
+        }
+        FileCacheService fcs = new FileCacheService();
+        Map<String, String> diskHashes = fcs.computeFileHashes(project, sources);
+        CountingJavaParserFactory factory = new CountingJavaParserFactory(8, List.of(src));
+        IncrementalIndexer.Summary summary;
+        try (SqliteStore store = new SqliteStore(db)) {
+            FileCacheService.Changes changes = fcs.detectChanges(diskHashes, store.readFileCache());
+            summary = new IncrementalIndexer(project, List.of(src), factory, store, 8, 1000)
+                    .indexIncremental(changes.changed, changes.added, changes.deleted, diskHashes);
+        }
+
+        assertFalse(summary.degradedToFull);
+        assertEquals(130, summary.reparsedFiles);
+        assertEquals(2, factory.parseFilesCalls);
+        assertTrue(factory.maxBatchFiles <= 128, "max batch=" + factory.maxBatchFiles);
+    }
+
+    @Test
+    void overloadAdditionRebindsExistingFamilyCallers(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("overload")).toRealPath();
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path a = pkg.resolve("A.java");
+        Path b = pkg.resolve("B.java");
+        Files.writeString(b, "package p; public class B { public void foo(Object v){} }");
+        Files.writeString(a, "package p; public class A { void run(){ new B().foo(\"x\"); } }");
+        Path db = tmp.resolve("overload.db");
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", db.toString());
+
+        Files.writeString(b, "package p; public class B { "
+                + "public void foo(Object v){} public void foo(String v){} }");
+        String stdout = runSimpleIncremental(project, src, db);
+        assertEquals(1, metric(stdout, "Realigned deps:"), stdout);
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                            + "JOIN nodes t ON t.id=e.target_id WHERE s.symbol_id='p.A#run()' "
+                            + "AND t.symbol_id='p.B#foo(java.lang.String)'"));
+        }
+    }
+
+    @Test
+    void addedMethodRebindsPreviouslyExternalCall(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("external")).toRealPath();
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path a = pkg.resolve("A.java");
+        Path b = pkg.resolve("B.java");
+        Files.writeString(b, "package p; public class B {}");
+        Files.writeString(a, "package p; public class A { void run(){ new B().added(); } }");
+        Path db = tmp.resolve("external.db");
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", db.toString());
+
+        Files.writeString(b, "package p; public class B { public void added(){} }");
+        String stdout = runSimpleIncremental(project, src, db);
+        assertEquals(1, metric(stdout, "Realigned deps:"), stdout);
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                            + "JOIN nodes t ON t.id=e.target_id WHERE s.symbol_id='p.A#run()' "
+                            + "AND t.symbol_id='p.B#added()' AND e.is_external=0"));
+        }
+    }
+
+    @Test
+    void interfaceMethodAdditionReparsesImplementor(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("interface")).toRealPath();
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path contract = pkg.resolve("Contract.java");
+        Path impl = pkg.resolve("Impl.java");
+        Files.writeString(contract, "package p; public interface Contract {}");
+        Files.writeString(impl, "package p; public class Impl implements Contract { public void run(){} }");
+        Path db = tmp.resolve("interface.db");
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", db.toString());
+
+        Files.writeString(contract, "package p; public interface Contract { void run(); }");
+        String stdout = runSimpleIncremental(project, src, db);
+        assertEquals(1, metric(stdout, "Realigned deps:"), stdout);
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                            + "JOIN nodes t ON t.id=e.target_id WHERE e.relation='OVERRIDES' "
+                            + "AND s.symbol_id='p.Impl#run()' AND t.symbol_id='p.Contract#run()'"));
+        }
+    }
+
+    @Test
+    void uniqueMemberAdditionOnHighFanoutHubDoesNotDegrade(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("fanout")).toRealPath();
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path hub = pkg.resolve("Hub.java");
+        Files.writeString(hub, "package p; public class Hub { public static int value(){ return 1; } }");
+        for (int i = 0; i < 220; i++) {
+            Files.writeString(pkg.resolve("Caller" + i + ".java"),
+                    "package p; public class Caller" + i
+                            + " { int run(){ return Hub.value(); } }");
+        }
+        Path db = tmp.resolve("fanout.db");
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", db.toString());
+
+        Files.writeString(hub, "package p; public class Hub { "
+                + "public static int value(){ return 1; } public static int added(){ return 2; } }");
+        RunResult incremental = CliTestSupport.runIndex(project,
+                "--project-source", src.toString(), "--no-classpath", "--incremental",
+                "--max-realign-files", "200", "--output", db.toString());
+
+        assertEquals(0, incremental.exitCode(), incremental.stderr());
+        assertFalse(incremental.stderr().contains("degraded to full"), incremental.stderr());
+        assertEquals(0, metric(incremental.stdout(), "Realigned deps:"), incremental.stdout());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(220, scalar(st,
+                    "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target_id "
+                            + "WHERE e.relation='CALLS' AND t.symbol_id='p.Hub#value()'"));
+        }
+    }
+
+    @Test
+    void parseFailureLeavesCommittedGraphUntouched(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("parse-failure")).toRealPath();
+        Path src = Files.createDirectories(project.resolve("src"));
+        Path pkg = Files.createDirectories(src.resolve("p"));
+        Path source = pkg.resolve("A.java");
+        Files.writeString(source, "package p; public class A { void ok(){} }");
+        Path db = tmp.resolve("parse-failure.db");
+        CliTestSupport.assertIndexOk(project, "--project-source", src.toString(),
+                "--no-classpath", "--output", db.toString());
+        List<String> before = canonicalGraph(db);
+
+        Files.writeString(source, "package p; public class A { void broken( }");
+        RunResult incremental = CliTestSupport.runIndex(project,
+                "--project-source", src.toString(), "--no-classpath", "--incremental",
+                "--output", db.toString());
+
+        assertNotEquals(0, incremental.exitCode(), "invalid changed source must fail the attempt");
+        assertTrue(incremental.stderr().contains("incremental source parse failed"),
+                incremental.stderr());
+        assertFalse(incremental.stderr().contains("at com.anatomist"),
+                "expected parse failures should not print a stack trace:\n" + incremental.stderr());
+        assertEquals(before, canonicalGraph(db), "failed parsing must not mutate the committed graph");
+    }
+
+    private String runSimpleIncremental(Path project, Path src, Path db) throws Exception {
+        RunResult result = CliTestSupport.runIndex(project,
+                "--project-source", src.toString(), "--no-classpath",
+                "--output", db.toString(), "--incremental");
+        assertEquals(0, result.exitCode(), result.stderr());
+        return result.stdout();
     }
 
     @Test
@@ -290,7 +564,7 @@ class IncrementalIndexerIT {
 
         Map<?, ?> json = (Map<?, ?>) Json.parseTree(stdout);
         Map<?, ?> stats = (Map<?, ?>) json.get("stats");
-        assertTrue(((Number) stats.get("deleted_nodes")).intValue() > 0, stdout);
+        assertEquals(0, ((Number) stats.get("deleted_nodes")).intValue(), stdout);
         assertTrue(((Number) stats.get("deleted_edges")).intValue() > 0, stdout);
         assertTrue(((Number) stats.get("written_nodes")).intValue() > 0, stdout);
         assertTrue(((Number) stats.get("written_edges")).intValue() > 0, stdout);
@@ -384,6 +658,40 @@ class IncrementalIndexerIT {
         }
     }
 
+    private static List<String> canonicalGraph(Path db) throws Exception {
+        List<String> rows = new ArrayList<>();
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            appendRows(rows, st,
+                    "SELECT 'N|' || id || '|' || symbol_id || '|' || kind || '|' "
+                            + "|| COALESCE(qualified_name,'') || '|' || COALESCE(source_file,'') || '|' "
+                            + "|| COALESCE(module,'') || '|' || COALESCE(scope,'') || '|' "
+                            + "|| COALESCE(metadata,'') "
+                            + "FROM nodes ORDER BY 1");
+            appendRows(rows, st,
+                    "SELECT 'E|' || s.id || '|' || e.relation || '|' "
+                            + "|| COALESCE(t.id,e.external_target_fqn,'') || '|' "
+                            + "|| COALESCE(e.call_kind,'') || '|' || COALESCE(e.confidence,'') || '|' "
+                            + "|| COALESCE(e.context,'') || '|' || COALESCE(e.source_file,'') || '|' "
+                            + "|| e.is_external || '|' || COALESCE(e.metadata,'') "
+                            + "FROM edges e JOIN nodes s ON s.id=e.source_id "
+                            + "LEFT JOIN nodes t ON t.id=e.target_id ORDER BY 1");
+            appendRows(rows, st,
+                    "SELECT 'A|' || node_id || '|' || annotation_fqn || '|' || COALESCE(attributes,'') "
+                            + "FROM annotations ORDER BY 1");
+            appendRows(rows, st,
+                    "SELECT 'D|' || source_file || '|' || depends_on_file "
+                            + "FROM file_dependencies ORDER BY 1");
+        }
+        return rows;
+    }
+
+    private static void appendRows(List<String> rows, Statement st, String sql) throws Exception {
+        try (ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) rows.add(rs.getString(1));
+        }
+    }
+
     private static void assertPositive(String stdout, String label) {
         assertTrue(metric(stdout, label) > 0, "Expected positive " + label + " in:\n" + stdout);
     }
@@ -398,6 +706,7 @@ class IncrementalIndexerIT {
     private static final class CountingJavaParserFactory extends JavaParserFactory {
         int parseAllCalls;
         int parseFilesCalls;
+        int maxBatchFiles;
         final List<Path> parsedFiles = new ArrayList<>();
 
         CountingJavaParserFactory(int javaVersion, List<Path> sourcePaths) {
@@ -411,10 +720,11 @@ class IncrementalIndexerIT {
         }
 
         @Override
-        public List<CompilationUnit> parseFiles(List<Path> files) {
+        public ParseFilesResult parseFilesDetailed(List<Path> files) {
             parseFilesCalls++;
+            maxBatchFiles = Math.max(maxBatchFiles, files.size());
             parsedFiles.addAll(files);
-            return super.parseFiles(files);
+            return super.parseFilesDetailed(files);
         }
     }
 

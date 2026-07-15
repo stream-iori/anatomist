@@ -1,6 +1,7 @@
 package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
+import com.anatomist.core.IndexTimings;
 import com.anatomist.framework.JavaAstAnalyzer;
 import com.anatomist.model.ExtractionResult;
 import com.github.javaparser.ast.CompilationUnit;
@@ -9,38 +10,62 @@ import java.util.List;
 
 public class ExtractorPipeline {
 
-    private final List<Extractor> extractors;
+    private final List<TimedExtractor> extractors;
     private final List<JavaAstAnalyzer> analyzers;
+    private final IndexTimings timings;
 
     public ExtractorPipeline(ExtractionContext ctx) {
-        this(ctx, List.of());
+        this(ctx, List.of(), null);
     }
 
     public ExtractorPipeline(ExtractionContext ctx, List<JavaAstAnalyzer> analyzers) {
+        this(ctx, analyzers, null);
+    }
+
+    public ExtractorPipeline(ExtractionContext ctx,
+                             List<JavaAstAnalyzer> analyzers,
+                             IndexTimings timings) {
         this.extractors = List.of(
-                new TypeExtractor(ctx),
-                new FieldExtractor(ctx),
-                new MethodExtractor(ctx),
-                new AnnotationExtractor(ctx),
-                new HierarchyExtractor(ctx),
-                new ReferenceExtractor(ctx),
-                new CallGraphExtractor(ctx),
-                new FieldAccessExtractor(ctx)
+                new TimedExtractor("full_extract_type", new TypeExtractor(ctx)),
+                new TimedExtractor("full_extract_field", new FieldExtractor(ctx)),
+                new TimedExtractor("full_extract_method", new MethodExtractor(ctx)),
+                new TimedExtractor("full_extract_annotation", new AnnotationExtractor(ctx)),
+                new TimedExtractor("full_extract_hierarchy", new HierarchyExtractor(ctx)),
+                new TimedExtractor("full_extract_reference", new ReferenceExtractor(ctx)),
+                new TimedExtractor("full_extract_call_graph", new CallGraphExtractor(ctx)),
+                new TimedExtractor("full_extract_field_access", new FieldAccessExtractor(ctx))
         );
         this.analyzers = analyzers == null ? List.of() : List.copyOf(analyzers);
+        this.timings = timings;
     }
 
     public void extractAll(CompilationUnit unit, ExtractionResult result) {
         int nodeStart = result.nodes.size();
         int edgeStart = result.edges.size();
         int annotationStart = result.annotations.size();
-        for (Extractor e : extractors) {
-            e.extract(unit, result);
+        for (TimedExtractor timed : extractors) {
+            if (timings == null) {
+                timed.extractor().extract(unit, result);
+            } else {
+                long started = timings.start();
+                timed.extractor().extract(unit, result);
+                timings.stop(timed.phase(), started);
+            }
         }
-        for (JavaAstAnalyzer analyzer : analyzers) {
-            analyzer.analyze(unit, result);
+        if (timings == null) {
+            for (JavaAstAnalyzer analyzer : analyzers) analyzer.analyze(unit, result);
+        } else {
+            long started = timings.start();
+            for (JavaAstAnalyzer analyzer : analyzers) analyzer.analyze(unit, result);
+            timings.stop("full_extract_java_analyzers", started);
         }
-        stampOrigin(result, nodeStart, edgeStart, annotationStart, SourceFiles.of(unit));
+        if (timings == null) {
+            stampOrigin(result, nodeStart, edgeStart, annotationStart, SourceFiles.of(unit));
+        } else {
+            long started = timings.start();
+            stampOrigin(result, nodeStart, edgeStart, annotationStart, SourceFiles.of(unit));
+            timings.stop("full_extract_origin_stamp", started);
+        }
     }
 
     private static void stampOrigin(ExtractionResult result,
@@ -61,4 +86,6 @@ public class ExtractorPipeline {
             }
         }
     }
+
+    private record TimedExtractor(String phase, Extractor extractor) {}
 }

@@ -11,6 +11,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +28,7 @@ public class SurveyBaselineCommand implements Callable<Integer> {
     @Option(names = "--format", description = "Output format: json | text.", defaultValue = "json")
     String format;
 
-    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/indexes/<repo-key>/index.db).")
     Path index;
 
     @Option(names = "--strict-health", description = "Return exit code 3 unless index health is healthy.")
@@ -35,7 +36,30 @@ public class SurveyBaselineCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        Path db = IndexPath.resolve(index);
+        Path requestedProject;
+        try {
+            requestedProject = projectPath == null
+                    ? Paths.get("").toRealPath().normalize()
+                    : projectPath.toRealPath().normalize();
+        } catch (java.io.IOException ex) {
+            return emitProjectError("PROJECT_PATH_INVALID", String.valueOf(projectPath), null);
+        }
+        Path db = IndexPath.resolve(index, requestedProject);
+        if (projectPath != null) try (SqliteStore store = new SqliteStore(db)) {
+            String indexedRoot = store.readProjectMeta("source_root").orElse("");
+            if (indexedRoot.isBlank()) {
+                return emitProjectError("INDEX_IDENTITY_MISSING", requestedProject.toString(), null);
+            }
+            Path indexedProject;
+            try {
+                indexedProject = Path.of(indexedRoot).toRealPath().normalize();
+            } catch (java.io.IOException ex) {
+                return emitProjectError("INDEX_PROJECT_MISMATCH", requestedProject.toString(), indexedRoot);
+            }
+            if (!requestedProject.equals(indexedProject)) {
+                return emitProjectError("INDEX_PROJECT_MISMATCH", requestedProject.toString(), indexedRoot);
+            }
+        }
         try (QueryService q = new QueryService(db)) {
             DtoCodecs.ensureRegistered();
             OverviewResult overview = q.overview();
@@ -45,7 +69,7 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             out.put("status", "ok");
             out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
             out.put("index_path", db.toString());
-            if (projectPath != null) out.put("project_path", projectPath.toAbsolutePath().normalize().toString());
+            if (projectPath != null) out.put("project_path", requestedProject.toString());
             out.put("overview", overview.toStats());
             out.put("budget", Map.of(
                     "mode", "structural_summary",
@@ -77,5 +101,21 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             return strictHealth
                     && health.status() != com.anatomist.core.IndexHealthReport.Status.HEALTHY ? 3 : 0;
         }
+    }
+
+    private Integer emitProjectError(String error, String requestedProject, String indexedProject) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("command", "survey-baseline");
+        out.put("status", "error");
+        out.put("error", error);
+        out.put("project_path", requestedProject);
+        if (indexedProject != null) out.put("index_source_root", indexedProject);
+        if ("json".equalsIgnoreCase(format)) {
+            System.out.println(Json.writePretty(out));
+        } else {
+            System.err.println(error + ": requested project " + requestedProject
+                    + (indexedProject == null ? "" : " does not match " + indexedProject));
+        }
+        return 2;
     }
 }

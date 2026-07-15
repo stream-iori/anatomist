@@ -8,17 +8,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Pin the default storage policy:
- *
- *  <ul>
- *    <li>Index writes:   ~/.anatomist/&lt;repo-name&gt;/index.db (new default)</li>
- *    <li>Query reads:    ~/.anatomist/&lt;repo-name&gt;/index.db (new default)
- *        BUT falls back to the legacy in-project &lt;project&gt;/.anatomist/index.db
- *        when present, so existing users don't lose their data.</li>
- *    <li>An explicit path (--output or --index) always wins.</li>
- *    <li>The ANATOMIST_HOME env var can override the storage root for tests.</li>
- *  </ul>
- */
+/** Pin the collision-free, machine-local storage policy. */
 class DefaultIndexPathTest {
 
     @Test
@@ -27,22 +17,22 @@ class DefaultIndexPathTest {
         Path project = proj.resolve("my-app");
         ensureDir(project);
         Path got = DefaultIndexPath.forIndexWrite(project, home);
-        assertEquals(home.resolve("my-app").resolve("index.db"), got);
+        assertEquals(home.resolve("indexes").resolve(DefaultIndexPath.repoKeyOf(project)).resolve("index.db"), got);
+        assertTrue(got.getParent().getFileName().toString().matches("my-app-[0-9a-f]{12}"));
     }
 
     @Test
-    void defaultForWrite_legacyInProjectDbWins_whenPresent(@TempDir Path home,
-                                                            @TempDir Path proj) throws Exception {
+    void defaultForWrite_doesNotReuseLegacyInProjectDb(@TempDir Path home,
+                                                        @TempDir Path proj) throws Exception {
         Path project = proj.resolve("my-app");
         ensureDir(project);
-        // Pre-existing legacy database under <project>/.anatomist/index.db.
         Path legacy = project.resolve(".anatomist").resolve("index.db");
         Files.createDirectories(legacy.getParent());
         Files.write(legacy, new byte[]{1});
 
         Path got = DefaultIndexPath.forIndexWrite(project, home);
-        assertEquals(legacy, got,
-                "should keep writing to the legacy location when one already exists");
+        assertNotEquals(legacy, got);
+        assertEquals(home.resolve("indexes").resolve(DefaultIndexPath.repoKeyOf(project)).resolve("index.db"), got);
     }
 
     @Test
@@ -50,7 +40,7 @@ class DefaultIndexPathTest {
                                                                    @TempDir Path proj) throws Exception {
         Path project = proj.resolve("my-app");
         ensureDir(project);
-        Path expected = home.resolve("my-app").resolve("index.db");
+        Path expected = home.resolve("indexes").resolve(DefaultIndexPath.repoKeyOf(project)).resolve("index.db");
         Files.createDirectories(expected.getParent());
         Files.write(expected, new byte[]{1});
 
@@ -59,8 +49,8 @@ class DefaultIndexPathTest {
     }
 
     @Test
-    void defaultForRead_findsLegacyInProjectDb(@TempDir Path home,
-                                                @TempDir Path proj) throws Exception {
+    void defaultForRead_ignoresLegacyInProjectDb(@TempDir Path home,
+                                                  @TempDir Path proj) throws Exception {
         Path project = proj.resolve("my-app");
         ensureDir(project);
         Path legacy = project.resolve(".anatomist").resolve("index.db");
@@ -68,7 +58,8 @@ class DefaultIndexPathTest {
         Files.write(legacy, new byte[]{1});
 
         Path got = DefaultIndexPath.forQueryRead(project, home);
-        assertEquals(legacy, got);
+        assertNotEquals(legacy, got);
+        assertEquals(home.resolve("indexes").resolve(DefaultIndexPath.repoKeyOf(project)).resolve("index.db"), got);
     }
 
     @Test
@@ -79,7 +70,7 @@ class DefaultIndexPathTest {
         // No db on disk. We still return the canonical path so callers can
         // produce a clean "not found at X" error message.
         Path got = DefaultIndexPath.forQueryRead(project, home);
-        assertEquals(home.resolve("my-app").resolve("index.db"), got);
+        assertEquals(home.resolve("indexes").resolve(DefaultIndexPath.repoKeyOf(project)).resolve("index.db"), got);
     }
 
     @Test
@@ -87,7 +78,7 @@ class DefaultIndexPathTest {
         Path project = proj.resolve("my-app").resolve(""); // trailing-slash semantics
         ensureDir(project);
         Path got = DefaultIndexPath.forIndexWrite(project, home);
-        assertEquals(home.resolve("my-app").resolve("index.db"), got);
+        assertEquals(home.resolve("indexes").resolve(DefaultIndexPath.repoKeyOf(project)).resolve("index.db"), got);
     }
 
     @Test
@@ -95,7 +86,31 @@ class DefaultIndexPathTest {
         // "/" has no basename. We must produce something safe rather than NPE.
         Path got = DefaultIndexPath.forIndexWrite(Path.of("/"),
                 Path.of("/tmp/test-home"));
-        assertEquals(Path.of("/tmp/test-home/default-project/index.db"), got);
+        assertTrue(got.toString().matches("/tmp/test-home/indexes/default-project-[0-9a-f]{12}/index.db"));
+    }
+
+    @Test
+    void sameBasenameDifferentCheckoutsGetDifferentKeys(@TempDir Path home,
+                                                         @TempDir Path tmp) {
+        Path first = tmp.resolve("one/my-app");
+        Path second = tmp.resolve("two/my-app");
+        ensureDir(first);
+        ensureDir(second);
+
+        assertNotEquals(DefaultIndexPath.forIndexWrite(first, home),
+                DefaultIndexPath.forIndexWrite(second, home));
+    }
+
+    @Test
+    void symlinkAndRealCheckoutShareKey(@TempDir Path home,
+                                        @TempDir Path tmp) throws Exception {
+        Path project = tmp.resolve("my-app");
+        ensureDir(project);
+        Path link = tmp.resolve("linked-app");
+        Files.createSymbolicLink(link, project);
+
+        assertEquals(DefaultIndexPath.forIndexWrite(project, home),
+                DefaultIndexPath.forIndexWrite(link, home));
     }
 
     @Test

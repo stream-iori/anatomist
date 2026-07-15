@@ -22,7 +22,7 @@ public final class IndexApplicationService {
                     "--project-source and --source-root are mutually exclusive");
         }
         try {
-            return IndexOutcome.success(work.run(request.projectPath().toAbsolutePath().normalize()));
+            return IndexOutcome.success(work.run(request.projectPath().toRealPath().normalize()));
         } catch (Exception e) {
             return IndexOutcome.failure(e);
         }

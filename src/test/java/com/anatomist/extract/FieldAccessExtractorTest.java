@@ -144,6 +144,24 @@ class FieldAccessExtractorTest {
     }
 
     @Test
+    void nestedFieldTargetWritesLeafAndReadsReceiverField() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg;\n"
+                + "public class A {\n"
+                + "  B holder;\n"
+                + "  void set() { this.holder.value = 1; }\n"
+                + "  static class B { int value; }\n"
+                + "}\n");
+        ExtractionResult r = new ExtractionResult();
+        new FieldAccessExtractor(ctx).extract(cu, r);
+
+        assertEquals(1, r.edges.stream().filter(e -> "WRITES".equals(e.relation)
+                && "pkg.A.B#value".equals(e.targetId)).count(), "got " + r.edges);
+        assertEquals(1, r.edges.stream().filter(e -> "READS".equals(e.relation)
+                && "pkg.A#holder".equals(e.targetId)).count(), "got " + r.edges);
+    }
+
+    @Test
     void context_recordedForWriteInsideCatch() {
         CompilationUnit cu = JavaParserTestSupport.parse(
                 "package pkg;\n"

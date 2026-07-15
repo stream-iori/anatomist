@@ -45,6 +45,15 @@ class SqliteStoreWriteTest {
     }
 
     @Test
+    void schemaIndexesEdgesBySourceFileForIncrementalReplacement(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        assertEquals(1, count(store.connection(),
+                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_edges_source_file'"));
+    }
+
+    @Test
     void write_isAtomic(@TempDir Path tmp) throws Exception {
         store = new SqliteStore(tmp.resolve("index.db"));
         store.initSchema();
@@ -166,6 +175,24 @@ class SqliteStoreWriteTest {
     }
 
     @Test
+    void projectMetaBatchIsAtomic(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+        try (Statement st = store.connection().createStatement()) {
+            st.execute("CREATE TRIGGER reject_bad_meta BEFORE INSERT ON project_meta "
+                    + "WHEN NEW.key='bad' BEGIN SELECT RAISE(ABORT, 'bad metadata'); END");
+        }
+
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        values.put("good", "value");
+        values.put("bad", "value");
+        assertThrows(RuntimeException.class, () -> store.upsertProjectMeta(values));
+
+        assertTrue(store.readProjectMeta("good").isEmpty(),
+                "a failed metadata batch must roll back earlier rows");
+    }
+
+    @Test
     void testFileDependenciesDerivation(@TempDir Path tmp) throws Exception {
         store = new SqliteStore(tmp.resolve("index.db"));
         store.initSchema();
@@ -213,6 +240,37 @@ class SqliteStoreWriteTest {
     }
 
     @Test
+    void sourceGraphReplacementPreservesIncomingEdgesOnlyForStableNodes(@TempDir Path tmp)
+            throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        ExtractionResult initial = new ExtractionResult();
+        Node a = node("com.x.A", "A", "CLASS"); a.sourceFile = "A.java";
+        Node b = node("com.x.B", "B", "CLASS"); b.sourceFile = "B.java";
+        initial.nodes.add(a); initial.nodes.add(b);
+        Edge incoming = containsEdge("com.x.A", "com.x.B");
+        incoming.sourceFile = "A.java";
+        initial.edges.add(incoming);
+        store.write(initial);
+
+        ExtractionResult stableRewrite = new ExtractionResult();
+        Node updatedB = node("com.x.B", "B2", "CLASS"); updatedB.sourceFile = "B.java";
+        stableRewrite.nodes.add(updatedB);
+        store.inTransaction(c -> store.replaceSourceGraphInCurrentTransaction(
+                java.util.List.of("B.java"), stableRewrite));
+
+        Connection c = store.connection();
+        assertEquals(1, count(c, "SELECT count(*) FROM edges WHERE source_id='com.x.A' AND target_id='com.x.B'"));
+        assertEquals(1, count(c, "SELECT count(*) FROM nodes WHERE id='com.x.B' AND label='B2'"));
+
+        store.inTransaction(ignored -> store.replaceSourceGraphInCurrentTransaction(
+                java.util.List.of("B.java"), new ExtractionResult()));
+        assertEquals(0, count(c, "SELECT count(*) FROM nodes WHERE id='com.x.B'"));
+        assertEquals(0, count(c, "SELECT count(*) FROM edges WHERE target_id='com.x.B'"));
+    }
+
+    @Test
     void testDependentsOf(@TempDir Path tmp) throws Exception {
         store = new SqliteStore(tmp.resolve("index.db"));
         store.initSchema();
@@ -227,6 +285,34 @@ class SqliteStoreWriteTest {
         assertEquals(1, deps.size());
         assertTrue(deps.contains("A.java"));
         assertTrue(store.dependentsOf(java.util.List.of("A.java")).isEmpty());
+    }
+
+    @Test
+    void incrementalDependencyRefreshPreservesUnrelatedRows(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+        ExtractionResult result = new ExtractionResult();
+        Node a = node("A", "A", "CLASS"); a.sourceFile = "A.java";
+        Node b = node("B", "B", "CLASS"); b.sourceFile = "B.java";
+        Node c = node("C", "C", "CLASS"); c.sourceFile = "C.java";
+        Node d = node("D", "D", "CLASS"); d.sourceFile = "D.java";
+        result.nodes.addAll(java.util.List.of(a, b, c, d));
+        Edge ab = containsEdge("A", "B"); ab.sourceFile = "A.java";
+        Edge cd = containsEdge("C", "D"); cd.sourceFile = "C.java";
+        result.edges.addAll(java.util.List.of(ab, cd));
+        store.write(result);
+        store.deriveFileDependencies();
+
+        try (Statement st = store.connection().createStatement()) {
+            st.execute("DELETE FROM edges WHERE source_id='A' AND target_id='B'");
+        }
+        store.refreshFileDependencies(java.util.List.of("A.java", "B.java"));
+
+        Connection connection = store.connection();
+        assertEquals(0, count(connection,
+                "SELECT count(*) FROM file_dependencies WHERE source_file='A.java'"));
+        assertEquals(1, count(connection,
+                "SELECT count(*) FROM file_dependencies WHERE source_file='C.java' AND depends_on_file='D.java'"));
     }
 
     @Test

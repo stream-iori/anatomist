@@ -43,7 +43,7 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node Identity (schema v5)
+## Node Identity (schema v7)
 
 Every node stores both a logical symbol and a globally unique storage key:
 
@@ -61,7 +61,7 @@ service::TEST::com.example.OrderService
 ```
 
 The two rows above intentionally share `symbol_id` but cannot collide in the
-primary key. A schema v4 database is rejected/recreated; there is no migration
+primary key. An older schema database is rejected/recreated; there is no migration
 or compatibility read path.
 
 ### Symbol ID Generation Rules

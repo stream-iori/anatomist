@@ -8,6 +8,7 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -40,6 +41,43 @@ class AsmTypeSolverTest {
         var r1 = solver.tryToSolveType("com.x.Foo").getCorrespondingDeclaration();
         var r2 = solver.tryToSolveType("com.x.Foo").getCorrespondingDeclaration();
         assertSame(r1, r2, "same instance must be returned on repeated lookup");
+    }
+
+    @Test
+    void declarationCacheIsBounded() {
+        Map<String, byte[]> classes = new LinkedHashMap<>();
+        classes.put("com.x.A", miniClass("com.x.A"));
+        classes.put("com.x.B", miniClass("com.x.B"));
+        classes.put("com.x.C", miniClass("com.x.C"));
+        AsmTypeSolver solver = new AsmTypeSolver(new InMemoryClassFileSource(classes), 512);
+
+        assertTrue(solver.tryToSolveType("com.x.A").isSolved());
+        assertTrue(solver.tryToSolveType("com.x.B").isSolved());
+        assertTrue(solver.tryToSolveType("com.x.C").isSolved());
+
+        assertTrue(solver.cachedTypeCount() <= 1,
+                "declaration cache must honor its maximum weight");
+        assertTrue(solver.tryToSolveType("com.x.A").isSolved(),
+                "an evicted declaration must remain resolvable from class bytes");
+    }
+
+    @Test
+    void parsedDeclarationReleasesRawClassBytes() {
+        AsmTypeSolver solver = new AsmTypeSolver(
+                new InMemoryClassFileSource(Map.of("com.x.Foo", miniClass("com.x.Foo"))));
+        AsmClassDeclaration declaration = (AsmClassDeclaration) solver
+                .tryToSolveType("com.x.Foo").getCorrespondingDeclaration();
+
+        assertFalse(declaration.rawBytesReleased());
+        assertTrue(declaration.isClass());
+        assertTrue(declaration.rawBytesReleased());
+        assertEquals("com.x.Foo", declaration.getQualifiedName());
+    }
+
+    @Test
+    void rejectsNonPositiveCacheSize() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new AsmTypeSolver(new InMemoryClassFileSource(Map.of()), 0));
     }
 
     @Test

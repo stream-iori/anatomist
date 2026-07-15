@@ -79,6 +79,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 | [docs/architecture.md](docs/architecture.md) | Package layout, data flow, design constraints |
 | [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
 | [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Watch parse failures, retries, and recovery |
 | [AGENTS.md](AGENTS.md) | Contributor and Agent collaboration guide |
 | [SKILL.md](SKILL.md) | Codex skill definition (when/how to call anatomist) |
 | [todo.md](todo.md) | Future work |

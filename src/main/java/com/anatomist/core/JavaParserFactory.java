@@ -1,7 +1,7 @@
 package com.anatomist.core;
 
 import com.anatomist.core.asmsolver.AsmTypeSolver;
-import com.anatomist.core.asmsolver.JarClassFileSource;
+import com.anatomist.core.asmsolver.ClasspathClassFileSource;
 import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.core.nativeimage.EmbeddedJdkTypeSolver;
 import com.anatomist.core.nativeimage.JdkTypeCatalog;
@@ -11,7 +11,11 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.resolution.TypeSolver;
+import com.github.javaparser.resolution.cache.Cache;
+import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
+import com.github.javaparser.resolution.model.SymbolReference;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
+import com.github.javaparser.symbolsolver.cache.GuavaCache;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
@@ -22,8 +26,13 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.BiConsumer;
+
+import com.google.common.cache.CacheBuilder;
 
 /**
  * Builds a configured {@link JavaParser} (with {@link JavaSymbolSolver}) and
@@ -42,10 +51,18 @@ import java.util.function.BiConsumer;
  */
 public class JavaParserFactory {
 
+    private static final int FULL_SOURCE_CACHE_SIZE = 256;
+    private static final int WATCH_SOURCE_CACHE_SIZE = 1_024;
+    private static final long COMBINED_TYPE_CACHE_SIZE = 20_000;
+    static final String SOURCE_CACHE_PROPERTY = "anatomist.typeCache.sourceMaxEntries";
+    static final String COMBINED_CACHE_PROPERTY = "anatomist.typeCache.combinedMaxEntries";
+
     private final int javaVersion;
     private final List<Path> classpathEntries;
     private final List<Path> sourcePaths;
     private final boolean includeRunningVmClasspath;
+    private final Session session;
+    private IndexTimings timings;
 
     public JavaParserFactory(int javaVersion,
                              List<Path> classpathEntries,
@@ -55,15 +72,41 @@ public class JavaParserFactory {
         this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
         this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
         this.includeRunningVmClasspath = includeRunningVmClasspath;
+        this.session = null;
+    }
+
+    public JavaParserFactory(int javaVersion,
+                             List<Path> classpathEntries,
+                             List<Path> sourcePaths,
+                             boolean includeRunningVmClasspath,
+                             SessionCache sessions) {
+        this.javaVersion = javaVersion;
+        this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
+        this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
+        this.includeRunningVmClasspath = includeRunningVmClasspath;
+        this.session = sessions == null ? null : sessions.acquire(
+                javaVersion, this.classpathEntries, this.sourcePaths, includeRunningVmClasspath, this);
     }
 
     /** Build the combined TypeSolver matching the configured environment. */
     public CombinedTypeSolver newTypeSolver() {
-        CombinedTypeSolver ts = new CombinedTypeSolver();
+        return newTypeSolver(fullSourceCacheSize(), null);
+    }
+
+    public void setTimings(IndexTimings timings) {
+        this.timings = timings;
+    }
+
+    private CombinedTypeSolver newTypeSolver(int sourceCacheSize,
+                                             List<AutoCloseable> closeables) {
+        CombinedTypeSolver ts = new CombinedTypeSolver(
+                exception -> false, List.<TypeSolver>of(), boundedCache(combinedTypeCacheSize()));
+        ParserConfiguration sourceConfiguration = new ParserConfiguration()
+                .setLanguageLevel(toLanguageLevel(javaVersion));
         // Source paths first — project types should resolve before JDK/classpath
         for (Path src : sourcePaths) {
             if (src != null && Files.isDirectory(src)) {
-                ts.add(new JavaParserTypeSolver(src));
+                ts.add(new JavaParserTypeSolver(src, sourceConfiguration, sourceCacheSize));
             }
         }
         if (includeRunningVmClasspath) {
@@ -82,15 +125,10 @@ public class JavaParserFactory {
                 ts.add(new ReflectionTypeSolver(/*jreOnly*/ true));
             }
         }
-        for (Path jar : classpathEntries) {
-            if (jar != null && Files.isRegularFile(jar)) {
-                try {
-                    ts.add(new AsmTypeSolver(new JarClassFileSource(jar)));
-                } catch (RuntimeException e) {
-                    AnatomistLog.warn("failed to open jar (asm) for symbol resolution: "
-                            + jar + " (" + e.getMessage() + ")");
-                }
-            }
+        if (hasUsableClasspathEntry()) {
+            AsmTypeSolver solver = newAsmTypeSolver();
+            ts.add(solver);
+            if (closeables != null) closeables.add(solver);
         }
         return ts;
     }
@@ -133,48 +171,292 @@ public class JavaParserFactory {
      * fail per file).</p>
      */
     public void parseAll(BiConsumer<Path, CompilationUnit> consumer) {
-        ParserConfiguration cfg = newConfiguration();
-        for (Path src : sourcePaths) {
-            if (src == null || !Files.isDirectory(src)) continue;
-            SourceRoot root = new SourceRoot(src, cfg);
-            List<ParseResult<CompilationUnit>> results;
-            try {
-                results = root.tryToParse();
-            } catch (IOException e) {
-                AnatomistLog.warn("failed to walk source root " + src + ": " + e.getMessage());
-                continue;
-            }
-            for (ParseResult<CompilationUnit> pr : results) {
-                if (!pr.isSuccessful() || pr.getResult().isEmpty()) {
-                    pr.getProblems().forEach(p ->
-                            AnatomistLog.debug("parse problem: " + p.getMessage()));
+        Session ownedSession = session == null ? openSession(fullSourceCacheSize()) : null;
+        ParserConfiguration cfg = session == null ? ownedSession.configuration : session.configuration;
+        try {
+            for (Path src : sourcePaths) {
+                if (src == null || !Files.isDirectory(src)) continue;
+                SourceRoot root = new SourceRoot(src, cfg);
+                List<ParseResult<CompilationUnit>> results;
+                try {
+                    results = root.tryToParse();
+                } catch (IOException e) {
+                    AnatomistLog.warn("failed to walk source root " + src + ": " + e.getMessage());
                     continue;
                 }
-                CompilationUnit cu = pr.getResult().get();
-                Path file = cu.getStorage().map(s -> s.getPath()).orElse(null);
-                consumer.accept(file, cu);
+                for (ParseResult<CompilationUnit> result : results) {
+                    if (!result.isSuccessful() || result.getResult().isEmpty()) {
+                        result.getProblems().forEach(problem ->
+                                AnatomistLog.debug("parse problem: " + problem.getMessage()));
+                        continue;
+                    }
+                    CompilationUnit cu = result.getResult().get();
+                    Path file = cu.getStorage().map(storage -> storage.getPath()).orElse(null);
+                    consumer.accept(file, cu);
+                }
             }
+        } finally {
+            if (ownedSession != null) ownedSession.close();
         }
     }
 
     /** Parse an explicit list of files (used by tests / non-SourceRoot flows). */
     public List<CompilationUnit> parseFiles(List<Path> files) {
+        ParseFilesResult result = parseFilesDetailed(files);
+        result.problems().forEach((file, problems) -> problems.forEach(problem ->
+                System.err.println("WARN: parse problem in " + file + ": " + problem)));
+        return result.compilationUnits();
+    }
+
+    /** Parse explicit files while preserving per-file diagnostics for incremental retry decisions. */
+    public ParseFilesResult parseFilesDetailed(List<Path> files) {
         List<CompilationUnit> out = new ArrayList<>();
-        JavaParser parser = new JavaParser(newConfiguration());
+        Map<Path, List<String>> problems = new LinkedHashMap<>();
+        JavaParser parser = new JavaParser(session == null ? newConfiguration() : session.configuration);
         for (Path f : files) {
+            Path normalized = f.toAbsolutePath().normalize();
             try {
                 ParseResult<CompilationUnit> pr = parser.parse(f);
                 if (pr.isSuccessful() && pr.getResult().isPresent()) {
                     out.add(pr.getResult().get());
                 } else {
-                    pr.getProblems().forEach(p ->
-                            System.err.println("WARN: parse problem in " + f + ": " + p.getMessage()));
+                    List<String> messages = pr.getProblems().stream()
+                            .map(problem -> problem.getMessage())
+                            .toList();
+                    problems.put(normalized, messages.isEmpty()
+                            ? List.of("parser produced no compilation unit")
+                            : messages);
                 }
             } catch (IOException e) {
-                System.err.println("WARN: failed to read " + f + ": " + e.getMessage());
+                problems.put(normalized, List.of("failed to read source: " + e.getMessage()));
             }
         }
-        return out;
+        return new ParseFilesResult(List.copyOf(out), immutableProblems(problems));
+    }
+
+    private static Map<Path, List<String>> immutableProblems(Map<Path, List<String>> problems) {
+        Map<Path, List<String>> copy = new LinkedHashMap<>();
+        problems.forEach((path, messages) -> copy.put(path, List.copyOf(messages)));
+        return java.util.Collections.unmodifiableMap(copy);
+    }
+
+    public record ParseFilesResult(List<CompilationUnit> compilationUnits,
+                                   Map<Path, List<String>> problems) {}
+
+    /** Invalidate source-backed caches before an incremental batch. */
+    public void invalidate(Collection<Path> files, boolean directoryShapeMayHaveChanged) {
+        invalidate(files, directoryShapeMayHaveChanged, null);
+    }
+
+    /** Invalidate changed source declarations without discarding unrelated classpath results. */
+    public void invalidate(Collection<Path> files, boolean directoryShapeMayHaveChanged,
+                           Collection<String> declaredTypeNames) {
+        if (session != null) session.invalidate(files, directoryShapeMayHaveChanged, declaredTypeNames);
+    }
+
+    /** Watch-owned cache. A changed runtime signature atomically replaces the old session. */
+    public static final class SessionCache implements AutoCloseable {
+        private Session session;
+        private String signature;
+
+        private synchronized Session acquire(int javaVersion,
+                                             List<Path> classpathEntries,
+                                             List<Path> sourcePaths,
+                                             boolean vmClasspath,
+                                             JavaParserFactory factory) {
+            String next = javaVersion + "|" + vmClasspath + "|" + sourcePaths + "|" + classpathEntries;
+            if (session == null || !next.equals(signature)) {
+                close();
+                session = factory.openSession(watchSourceCacheSize());
+                signature = next;
+            }
+            return session;
+        }
+
+        public synchronized void clear() {
+            close();
+        }
+
+        @Override
+        public synchronized void close() {
+            if (session != null) session.close();
+            session = null;
+            signature = null;
+        }
+    }
+
+    /** Persistent source/type caches used only by a single-threaded Watch session. */
+    static final class Session implements AutoCloseable {
+        private final ParserConfiguration configuration;
+        private final Map<Path, ReloadableSourceSolver> sources;
+        private final Cache<String, SymbolReference<ResolvedReferenceTypeDeclaration>> combinedTypes;
+        private final List<AutoCloseable> closeables;
+
+        private Session(ParserConfiguration configuration,
+                        Map<Path, ReloadableSourceSolver> sources,
+                        Cache<String, SymbolReference<ResolvedReferenceTypeDeclaration>> combinedTypes,
+                        List<AutoCloseable> closeables) {
+            this.configuration = configuration;
+            this.sources = sources;
+            this.combinedTypes = combinedTypes;
+            this.closeables = closeables;
+        }
+
+        private void invalidate(Collection<Path> files, boolean directoryShapeMayHaveChanged,
+                                Collection<String> declaredTypeNames) {
+            if (declaredTypeNames == null || declaredTypeNames.isEmpty()) {
+                combinedTypes.removeAll();
+            } else {
+                declaredTypeNames.forEach(combinedTypes::remove);
+            }
+            if (files == null) return;
+            java.util.Set<Path> invalidatedRoots = new java.util.HashSet<>();
+            for (Path file : files) {
+                if (file == null) continue;
+                Path normalized = file.toAbsolutePath().normalize();
+                for (Map.Entry<Path, ReloadableSourceSolver> entry : sources.entrySet()) {
+                    if (normalized.startsWith(entry.getKey())) {
+                        invalidatedRoots.add(entry.getKey());
+                        break;
+                    }
+                }
+            }
+            invalidatedRoots.forEach(root -> sources.get(root).reload());
+        }
+
+        @Override
+        public void close() {
+            for (AutoCloseable closeable : closeables) {
+                try { closeable.close(); } catch (Exception ignore) {}
+            }
+            combinedTypes.removeAll();
+            sources.clear();
+        }
+    }
+
+    private static final class ReloadableSourceSolver implements TypeSolver {
+        private final Path root;
+        private final ParserConfiguration configuration;
+        private TypeSolver parent;
+        private JavaParserTypeSolver delegate;
+
+        private ReloadableSourceSolver(Path root, ParserConfiguration configuration) {
+            this.root = root;
+            this.configuration = configuration;
+            this.delegate = new JavaParserTypeSolver(root, configuration, watchSourceCacheSize());
+        }
+
+        private void reload() {
+            JavaParserTypeSolver replacement = new JavaParserTypeSolver(
+                    root, configuration, watchSourceCacheSize());
+            if (parent != null) replacement.setParent(this);
+            delegate = replacement;
+        }
+
+        @Override public TypeSolver getParent() { return parent; }
+
+        @Override
+        public void setParent(TypeSolver parent) {
+            if (this.parent != null) throw new IllegalStateException("This TypeSolver already has a parent.");
+            this.parent = parent;
+            delegate.setParent(this);
+        }
+
+        @Override
+        public SymbolReference<ResolvedReferenceTypeDeclaration> tryToSolveType(String name) {
+            return delegate.tryToSolveType(name);
+        }
+
+        @Override
+        public SymbolReference<ResolvedReferenceTypeDeclaration> tryToSolveTypeInModule(
+                String moduleName, String name) {
+            return delegate.tryToSolveTypeInModule(moduleName, name);
+        }
+    }
+
+    private Session openSession(int sourceCacheSize) {
+        Cache<String, SymbolReference<ResolvedReferenceTypeDeclaration>> combinedTypes =
+                boundedCache(combinedTypeCacheSize());
+        CombinedTypeSolver ts = new CombinedTypeSolver(
+                exception -> false, List.<TypeSolver>of(), combinedTypes);
+        Map<Path, ReloadableSourceSolver> sourceSolvers = new LinkedHashMap<>();
+        ParserConfiguration sourceConfiguration = new ParserConfiguration()
+                .setLanguageLevel(toLanguageLevel(javaVersion));
+        for (Path src : sourcePaths) {
+            if (src == null || !Files.isDirectory(src)) continue;
+            Path normalized = src.toAbsolutePath().normalize();
+            ReloadableSourceSolver solver = sourceCacheSize == watchSourceCacheSize()
+                    ? new ReloadableSourceSolver(normalized, sourceConfiguration)
+                    : null;
+            TypeSolver sourceSolver = solver != null
+                    ? solver
+                    : new JavaParserTypeSolver(normalized, sourceConfiguration, sourceCacheSize);
+            ts.add(sourceSolver);
+            if (solver != null) sourceSolvers.put(normalized, solver);
+        }
+        if (includeRunningVmClasspath) {
+            if (isNativeImage()) {
+                TypeSolver embedded = tryLoadEmbeddedJdkSolver();
+                ts.add(embedded != null ? embedded : new ReflectionTypeSolver(true));
+            } else {
+                ts.add(new ReflectionTypeSolver(true));
+            }
+        }
+        List<AutoCloseable> closeables = new ArrayList<>();
+        if (hasUsableClasspathEntry()) {
+            AsmTypeSolver solver = newAsmTypeSolver();
+            ts.add(solver);
+            closeables.add(solver);
+        }
+        ParserConfiguration configuration = new ParserConfiguration()
+                .setLanguageLevel(toLanguageLevel(javaVersion))
+                .setSymbolResolver(new JavaSymbolSolver(ts));
+        return new Session(configuration, sourceSolvers, combinedTypes, closeables);
+    }
+
+    private boolean hasUsableClasspathEntry() {
+        return classpathEntries.stream().anyMatch(entry -> entry != null
+                && (Files.isRegularFile(entry) || Files.isDirectory(entry)));
+    }
+
+    private AsmTypeSolver newAsmTypeSolver() {
+        long started = timings == null ? 0L : System.nanoTime();
+        ClasspathClassFileSource source = new ClasspathClassFileSource(classpathEntries, javaVersion);
+        if (timings != null) timings.addNanos("classpath_index_build", System.nanoTime() - started);
+        return new AsmTypeSolver(source,
+                timings == null ? null : (phase, nanos) -> timings.addNanos(phase, nanos));
+    }
+
+    private static <K, V> Cache<K, V> boundedCache(long maximumSize) {
+        return GuavaCache.create(CacheBuilder.newBuilder().maximumSize(maximumSize).build());
+    }
+
+    static int fullSourceCacheSize() {
+        return positiveIntProperty(SOURCE_CACHE_PROPERTY, FULL_SOURCE_CACHE_SIZE);
+    }
+
+    static int watchSourceCacheSize() {
+        return positiveIntProperty(SOURCE_CACHE_PROPERTY, WATCH_SOURCE_CACHE_SIZE);
+    }
+
+    static long combinedTypeCacheSize() {
+        return positiveLongProperty(COMBINED_CACHE_PROPERTY, COMBINED_TYPE_CACHE_SIZE);
+    }
+
+    private static int positiveIntProperty(String key, int fallback) {
+        long value = positiveLongProperty(key, fallback);
+        return value > Integer.MAX_VALUE ? fallback : (int) value;
+    }
+
+    private static long positiveLongProperty(String key, long fallback) {
+        String value = System.getProperty(key);
+        if (value == null || value.isBlank()) return fallback;
+        try {
+            long parsed = Long.parseLong(value);
+            return parsed > 0 ? parsed : fallback;
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 
     private static boolean isNativeImage() {

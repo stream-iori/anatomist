@@ -132,12 +132,35 @@ sdk use java 25.0.3-graal
 | 指标 | 目标 | 验证方式 |
 |------|-----|---------|
 | index 速度 | Commons Lang 70k 行 < 30s 冷启 | `assertTimeout` |
-| 增量 index | 改 1 文件 < 500ms | end-to-end |
+| Watch body-only 增量 | p50 ≤ 500ms，p95 ≤ 750ms | 同一进程连续修改，`--timings` |
+| 16 文件增量 | ≤ 7.5s | 固定源码快照和 binary |
+| 小闭包增量 | ≤ 2.5s | 契约变化但不超过 realign 上限 |
 | 查询 P99 | 任意单跳查询 < 50ms | mini-shop 上 1000 次 |
 | SQLite 大小 | 70k 行项目 < 30MB | 看 .db 体积 |
 | 内存峰值 | < 1GB heap | `-Xmx1g` 跑通 |
 
 **不卡硬阈值,CI 记录 trend,回归超 20% 才 fail**。
+
+增量正确性还要覆盖：size/mtime 快路径、`--verify-content`、恢复时间戳的
+Watch 候选、契约指纹对 body/签名的区分、impact SQL 索引计划、Spring XML
+入边保留，以及 Watch staging/known-ID 会话复用与退出清理。构建文件测试要
+区分“环境未变化继续增量”和“classpath/source-layout 变化触发一次 full”；
+成本模型固定覆盖 70% full 预算、20% 冷启动回退、1000 文件硬上限和 128 文件批次。
+
+大型项目诊断应使用同一源码快照和 native binary，向 `target/perf/` 写入
+三个独立的 `--recreate --timings --format=json` 结果，报告中位数、范围和
+`/usr/bin/time -l` 峰值内存。首轮不宣称冷缓存；三次离散度超过 10% 时追加
+两次并改用五次中位数。`--no-classpath` 和关闭 `--spring-xml` 只能作为归因
+对照，不能替代完整索引的正确性基线。
+
+流式 staging 的性能门禁还必须比较：最终 Node 全列、Edge/Annotation 的
+业务列及重复次数、峰值 RSS、最终 DB 大小。`index.db.stage-*` 是瞬时磁盘
+开销，不得计入最终 DB 大小；成功、失败和 parse retry 用例都要断言无残留。
+
+依赖类型缓存的性能验证使用隔离的 `anatomist.typeCache.dir`：清空目录后跑
+一次 cold，再复用目录跑 warm。`--timings` 应包含 `classpath_index_build`、
+`type_cache_load`、`type_cache_write`。缓存 key 覆盖有序 classpath、JAR 大小/
+mtime 和目标 Java 版本；单测还要覆盖 CRC 损坏后的自动删除与冷启动回退。
 
 ## 八、CI 流程
 

@@ -46,6 +46,7 @@ CREATE TABLE edges (
 );
 
 CREATE INDEX idx_edges_source_id ON edges(source_id);
+CREATE INDEX idx_edges_source_file ON edges(source_file);
 CREATE INDEX idx_edges_target_id ON edges(target_id);
 CREATE INDEX idx_edges_external_target_fqn ON edges(external_target_fqn);
 CREATE INDEX idx_edges_relation ON edges(relation);
@@ -157,7 +158,10 @@ CREATE TABLE file_cache (
     schema_version INTEGER NOT NULL,
     last_indexed TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     node_count INTEGER NOT NULL DEFAULT 0,
-    edge_count INTEGER NOT NULL DEFAULT 0
+    edge_count INTEGER NOT NULL DEFAULT 0,
+    file_size INTEGER NOT NULL DEFAULT -1,
+    file_mtime_ns INTEGER NOT NULL DEFAULT -1,
+    contract_hash TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX idx_file_cache_schema_version ON file_cache(schema_version);

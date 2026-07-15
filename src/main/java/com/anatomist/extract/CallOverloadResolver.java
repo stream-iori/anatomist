@@ -3,6 +3,7 @@ package com.anatomist.extract;
 import com.anatomist.core.NodeIdGenerator;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 
 import java.util.ArrayList;
@@ -18,16 +19,27 @@ final class CallOverloadResolver {
     private CallOverloadResolver() {}
 
     static List<MethodDeclaration> bestAst(List<MethodDeclaration> candidates, MethodCallExpr call) {
+        return bestAst(candidates, call, AstTypeNames::ofExpression);
+    }
+
+    static List<MethodDeclaration> bestAst(List<MethodDeclaration> candidates, MethodCallExpr call,
+                                           java.util.function.Function<Expression, String> typeName) {
         List<String> arguments = call.getArguments().stream()
-                .map(AstTypeNames::ofExpression)
+                .map(typeName)
                 .toList();
         return best(candidates, candidate -> score(candidate, arguments));
     }
 
     static List<ResolvedMethodDeclaration> bestResolved(
             List<ResolvedMethodDeclaration> candidates, MethodCallExpr call) {
+        return bestResolved(candidates, call, AstTypeNames::ofExpression);
+    }
+
+    static List<ResolvedMethodDeclaration> bestResolved(
+            List<ResolvedMethodDeclaration> candidates, MethodCallExpr call,
+            java.util.function.Function<Expression, String> typeName) {
         List<String> arguments = call.getArguments().stream()
-                .map(AstTypeNames::ofExpression)
+                .map(typeName)
                 .toList();
         return best(candidates, candidate -> score(candidate, arguments));
     }

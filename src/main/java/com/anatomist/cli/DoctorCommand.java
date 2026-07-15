@@ -20,7 +20,7 @@ public class DoctorCommand implements Callable<Integer> {
     @Option(names = "--format", description = "Output format: json | text.", defaultValue = "text")
     String format;
 
-    @Option(names = "--index", description = "Path to index.db. Defaults to ~/.anatomist/<repo>/index.db.")
+    @Option(names = "--index", description = "Path to index.db. Defaults to ~/.anatomist/indexes/<repo-key>/index.db.")
     Path index;
 
     @Option(names = "--strict-health", description = "Return exit code 3 unless index health is healthy.")
@@ -48,7 +48,7 @@ public class DoctorCommand implements Callable<Integer> {
         out.put("capabilities", List.of(
                 "json-query-output", "index-json-summary",
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
-                "branch-context-slices"));
+                "branch-context-slices", "source-snapshot-fingerprint"));
 
         if (exists) {
             try (SqliteStore store = new SqliteStore(db)) {
@@ -61,6 +61,23 @@ public class DoctorCommand implements Callable<Integer> {
                             "actual", store.schemaVersion())));
                 } else {
                     store.readProjectMeta("java_version").ifPresent(v -> out.put("java_version", v));
+                    store.readProjectMeta("classpath_mode").ifPresent(v -> out.put("classpath_mode", v));
+                    store.readProjectMeta("spring_xml")
+                            .ifPresent(v -> out.put("spring_xml", Boolean.parseBoolean(v)));
+                    store.readProjectMeta("source_root").ifPresent(v -> out.put("source_root", v));
+                    store.readProjectMeta(com.anatomist.core.ProjectMetadata.SNAPSHOT_FINGERPRINT_KEY)
+                            .ifPresent(v -> out.put("source_snapshot_fingerprint", v));
+                    if (store.readProjectMeta("source_git_commit").isPresent()
+                            && out.get("source_root") instanceof String sourceRoot) {
+                        com.anatomist.core.ProjectMetadata.GitUntrackedCache cache =
+                                com.anatomist.core.ProjectMetadata.gitUntrackedCache(Path.of(sourceRoot));
+                        out.put("git_untracked_cache", cache.value());
+                        if (cache != com.anatomist.core.ProjectMetadata.GitUntrackedCache.ENABLED) {
+                            out.put("advice", List.of(
+                                    "Enable faster exact Git dirty checks with: "
+                                            + "git config core.untrackedCache true"));
+                        }
+                    }
                     out.put("node_kinds", store.queryKindCounts());
                     out.put("relations", store.queryRelationCounts());
                     com.anatomist.core.IndexHealthReport health =
@@ -82,6 +99,12 @@ public class DoctorCommand implements Callable<Integer> {
             System.out.println(BuildVersion.display());
             System.out.println("Index: " + db + (exists ? " (exists)" : " (missing)"));
             System.out.println("Schema: " + FileCacheService.CURRENT_SCHEMA_VERSION);
+            if (out.containsKey("git_untracked_cache")) {
+                System.out.println("Git untracked cache: " + out.get("git_untracked_cache"));
+                if (out.containsKey("advice")) {
+                    System.out.println("Advice: git config core.untrackedCache true");
+                }
+            }
         }
         boolean unhealthy = !"ok".equals(out.get("status"))
                 || (out.containsKey("health") && !"healthy".equals(out.get("health")));

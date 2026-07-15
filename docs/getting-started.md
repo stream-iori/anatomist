@@ -133,9 +133,18 @@ anatomist index /path/to/your/project --output /tmp/project.db
 Key flags:
 - `--project-source` — colon-separated source roots (relative to project path)
 - `--no-classpath` — skip Maven dependency resolution (faster, loses external type info)
-- `--output` — SQLite database path (default: `.anatomist/index.db`)
+- `--output` — SQLite database path (default: `$ANATOMIST_HOME/indexes/<repo-key>/index.db`; `$ANATOMIST_HOME` defaults to `~/.anatomist`)
 - `--incremental` — only re-parse changed files
 - `--spring-xml` — include Spring XML `<beans>` wiring facts
+- `--timings` — show per-phase costs without changing default output
+
+Maven dependency classpaths are cached under
+`$ANATOMIST_HOME/cache/classpath` using the project POM files and Maven
+`settings.xml` as the fingerprint. Changing either invalidates the cache. For a
+legacy reactor that inherits a `jdk.tools/tools.jar` system dependency,
+anatomist retries Maven with a local JDK 8. Set
+`ANATOMIST_MAVEN_JAVA_HOME=/path/to/jdk` to override the Maven runtime without
+changing the JVM that runs anatomist.
 
 To keep the index fresh while editing, use `watch --auto-index` with the same
 indexing shape as the initial command:
@@ -145,12 +154,23 @@ anatomist watch fixtures/mini-spring-shop \
     --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
     --no-classpath \
     --output /tmp/shop.db \
-    --auto-index
+    --auto-index \
+    --timings
 ```
 
 For Spring XML projects, add `--spring-xml` to both `index` and `watch`.
 `watch` keeps the static index current; it does not prove a runtime path
 actually executed.
+
+If `--timings` shows a slow `metadata_git` phase, check `doctor` and optionally
+enable Git's repository-local untracked cache yourself:
+
+```bash
+git config core.untrackedCache true
+```
+
+Anatomist only detects and recommends this setting; it does not change Git
+configuration or the Git index automatically.
 
 ## Query the index
 
@@ -195,3 +215,4 @@ Every query outputs a JSON envelope:
 - [Data Model](data-model.md) — Node ID rules, edge semantics, metadata JSON
 - [Commands](commands.md) — full CLI reference
 - [Testing](testing.md) — how to run tests, fixture design
+- [Troubleshooting](troubleshooting.md) — watch parse failures and recovery

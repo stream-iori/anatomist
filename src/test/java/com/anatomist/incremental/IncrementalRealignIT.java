@@ -18,11 +18,10 @@ import java.sql.Statement;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Cross-file realignment: when a depended-on file is reparsed, SQLite's
- * {@code ON DELETE CASCADE} on {@code edges.target_id} removes dependents' edges
- * into it; only realigning (reparsing) those dependents in the same pass
- * recreates them. These ITs pin that behavior, the prune cross-file fix, and the
- * fan-out cap → full degradation.
+ * Symbol-level realignment: stable node ids update in place and retain incoming
+ * edges; removed or contract-changed symbols select exact callers for reparse.
+ * These ITs pin stable-edge preservation, the prune cross-file fix, and the
+ * symbol-impact cap → full degradation.
  */
 class IncrementalRealignIT {
 
@@ -62,7 +61,7 @@ class IncrementalRealignIT {
     }
 
     @Test
-    void realignRecreatesDependentEdgeAfterDependedFileReparsed(@TempDir Path tmp) throws Exception {
+    void stableUpdatePreservesDependentEdgeWithoutCallerReparse(@TempDir Path tmp) throws Exception {
         Path project = tmp.resolve("proj");
         write(project, "p/B.java", "package p; public class B { public void foo(){} }");
         write(project, "p/A.java", "package p; public class A { void run(){ new B().foo(); } }");
@@ -76,7 +75,7 @@ class IncrementalRealignIT {
         assertEquals(0, run(project, db, "--incremental"));
 
         assertEquals(1, internalCallEdges(db, "p.A#run()", "p.B#foo()"),
-                "realign should reparse dependent A and recreate its edge into reparsed B");
+                "stable B ids should preserve A's incoming edge without reparsing A");
     }
 
     @Test
@@ -104,8 +103,8 @@ class IncrementalRealignIT {
         Path db = tmp.resolve("index.db");
         assertEquals(0, run(project, db));
 
-        // Touch B; its dependent A makes the closure size 2 (B + A) > cap 1.
-        write(project, "p/B.java", "package p; public class B { public void foo(){} /* touched */ }");
+        // Removing foo impacts its exact caller A: B + A exceeds the cap of 1.
+        write(project, "p/B.java", "package p; public class B { public void bar(){} }");
 
         ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
         PrintStream origErr = System.err;
@@ -118,10 +117,10 @@ class IncrementalRealignIT {
         }
         assertEquals(0, rc);
         String err = errBuf.toString(StandardCharsets.UTF_8);
-        assertTrue(err.contains("incremental degraded to full (realign closure"),
+        assertTrue(err.contains("incremental degraded to full (symbol impact"),
                 "expected degrade-to-full message; got: " + err);
-        // Full re-index leaves the edge correct.
-        assertEquals(1, internalCallEdges(db, "p.A#run()", "p.B#foo()"));
+        // Full re-index removes the stale edge into the deleted symbol.
+        assertEquals(0, internalCallEdges(db, "p.A#run()", "p.B#foo()"));
     }
 
     private static int scalar(Statement st, String sql) throws Exception {

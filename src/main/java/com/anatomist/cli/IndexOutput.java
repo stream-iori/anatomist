@@ -19,6 +19,10 @@ final class IndexOutput {
     private IndexOutput() {}
 
     static void emitFullJson(IndexResult result, IndexConfig config) {
+        emitFullJson(result, config, Map.of());
+    }
+
+    static void emitFullJson(IndexResult result, IndexConfig config, Map<String, Long> timingsMs) {
         Map<String, Object> stats = new LinkedHashMap<>();
         Map<String, Long> kinds = result.kindCounts();
         Map<String, Long> relations = result.relationCounts();
@@ -45,15 +49,31 @@ final class IndexOutput {
         out.put("stats", stats);
         out.put("node_kinds", kinds);
         out.put("relations", relations);
+        if (timingsMs != null && !timingsMs.isEmpty()) out.put("timings_ms", timingsMs);
         addHealth(out, IndexHealthService.fromResult(result));
         System.out.println(Json.writePretty(out));
+    }
+
+    static void emitTimingsText(Map<String, Long> timingsMs) {
+        if (timingsMs == null || timingsMs.isEmpty()) return;
+        String rendered = timingsMs.entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(java.util.stream.Collectors.joining(" "));
+        System.out.println("  Timings (ms): " + rendered);
     }
 
     static void emitIncremental(String format, Path projectRoot, Path dbPath,
                                 int sourceFileCount, IncrementalIndexer.Summary summary,
                                 int fileCacheSize, long elapsedMs) {
+        emitIncremental(format, projectRoot, dbPath, sourceFileCount, summary,
+                fileCacheSize, elapsedMs, Map.of());
+    }
+
+    static void emitIncremental(String format, Path projectRoot, Path dbPath,
+                                int sourceFileCount, IncrementalIndexer.Summary summary,
+                                int fileCacheSize, long elapsedMs, Map<String, Long> timingsMs) {
         if (!"json".equalsIgnoreCase(format)) {
-            emitIncrementalText(projectRoot, dbPath, summary, fileCacheSize, elapsedMs);
+            emitIncrementalText(projectRoot, dbPath, summary, fileCacheSize, elapsedMs, timingsMs);
             return;
         }
         Map<String, Object> stats = new LinkedHashMap<>();
@@ -79,6 +99,7 @@ final class IndexOutput {
         out.put("project_root", projectRoot.toString());
         out.put("index_path", dbPath.toString());
         out.put("stats", stats);
+        if (timingsMs != null && !timingsMs.isEmpty()) out.put("timings_ms", timingsMs);
         addHealth(out, IndexHealthService.fromCounts(
                 summary.unresolvedSymbols, summary.droppedDanglingFacts));
         System.out.println(Json.writePretty(out));
@@ -86,7 +107,8 @@ final class IndexOutput {
 
     private static void emitIncrementalText(Path projectRoot, Path dbPath,
                                             IncrementalIndexer.Summary summary,
-                                            int fileCacheSize, long elapsedMs) {
+                                            int fileCacheSize, long elapsedMs,
+                                            Map<String, Long> timingsMs) {
         System.out.println("Indexed " + projectRoot + " (incremental)");
         System.out.println("  Changed files: " + summary.changedFiles);
         System.out.println("  New files:     " + summary.newFiles);
@@ -98,6 +120,7 @@ final class IndexOutput {
         System.out.println("  Written edges: " + summary.writtenEdges);
         System.out.println("  Output:        " + dbPath);
         System.out.println("  File cache:    " + fileCacheSize + " entries");
+        emitTimingsText(timingsMs);
         System.out.println("Done in " + elapsedMs + "ms");
     }
 

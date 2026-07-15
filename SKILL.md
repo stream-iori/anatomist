@@ -12,9 +12,15 @@ analysis, and source-backed navigation.
 Always discover the local CLI contract first:
 
 ```bash
+cd <project-root>
 anatomist doctor --format json
 anatomist <command> --help
 ```
+
+Never construct or persist the default DB path. The locator is machine-local
+and is resolved by `doctor.index_path` under
+`$ANATOMIST_HOME/indexes/<repo-key>/index.db` (default home: `~/.anatomist`).
+Use `source_snapshot_fingerprint` when a portable source identity is needed.
 
 If no usable index exists:
 
@@ -30,14 +36,16 @@ Index rules:
 | Spring annotations matter | Avoid `--no-classpath` when possible. |
 | Spring XML matters | Add `--spring-xml` so XML beans and property/map/list/ref config trees become facts. |
 | Re-index current work | Prefer `--incremental` against the same DB. |
-| Keep index fresh while editing | Use `watch --auto-index` with the same `--output`, `--project-source`, `--include-tests`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
+| Keep index fresh while editing | Use `watch --auto-index` with the same explicit `--output` (if any), `--project-source`, `--include-tests`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
 | Stale or risky DB | Use `--recreate`. |
-| Need exact snapshot | Inspect `project_meta` for `source_root`, `indexed_at`, `source_git_commit`, `source_git_dirty`. |
+| Need exact snapshot | Inspect `doctor` / `project_meta` for `source_root`, `source_snapshot_fingerprint`, index profile, `indexed_at`, `source_git_commit`, `source_git_dirty`. |
+| Incremental `metadata_git` is slow | Inspect `doctor.git_untracked_cache`; recommend `git config core.untrackedCache true`, but never run it without user authorization. |
+| High-fanout Java file changed | Stable symbols keep incoming edges; only removed/contract-changed symbols expand through exact callers. A `symbol impact N>limit` message means the precise set crossed `--max-realign-files`. |
 
 Snapshot check:
 
 ```bash
-sqlite3 <db> "select key,value from project_meta where key in ('source_root','indexed_at','source_git_commit','source_git_dirty');"
+sqlite3 <db> "select key,value from project_meta where key in ('source_root','source_snapshot_fingerprint','java_version','classpath_mode','spring_xml','indexed_at','source_git_commit','source_git_dirty');"
 ```
 
 If `source_git_dirty=true`, say the index came from a dirty worktree. If
@@ -199,9 +207,10 @@ Rules:
 | Initial index used `--spring-xml` | Pass `--spring-xml` to `watch`; otherwise XML bean edits will not stay in `WIRES` evidence or XML config trees. |
 | Initial index used `--no-classpath` or `--classpath` | Reuse the same classpath policy so unresolved/type-resolution behavior stays comparable. |
 | Watch reports an edit but index says `Changed files: 0` | The changed file is outside the indexed source roots/cache; refresh watch flags before trusting the event as indexed evidence. |
+| Watch reports a temporary Java parse failure | The last committed index remains consistent but stale for that path. Watch retries three times, then retains the path until the next event; finish the syntax and save again. |
 | No files changed in the index cache | `index --incremental` returns quickly and does not re-run Maven classpath detection. |
 | Java/test source changed and the prior full index used Maven classpath detection | `index --incremental` / `watch --auto-index` reuses cached classpath metadata instead of re-running Maven. |
-| Build file changed | Expect `watch --auto-index` to trigger a full re-index, because source roots or classpath may have changed. |
+| Build file changed | Watch re-detects source roots, Java version, and classpath artifacts. It continues incrementally when the environment fingerprint is unchanged and runs one full index when it changed. |
 | User asks "did this run online?" | `watch` is not enough; ask for logs, traces, metrics, or runtime evidence. |
 
 Explain the boundary as:

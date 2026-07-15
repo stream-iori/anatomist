@@ -1,6 +1,8 @@
 package com.anatomist.cli;
 
-import java.nio.file.Files;
+import com.anatomist.store.FileCacheService;
+
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -11,26 +13,23 @@ import java.nio.file.Paths;
  *  <ol>
  *    <li>Explicit {@code --output} / {@code --index} wins — handled by
  *        the callers, never reaches this class.</li>
- *    <li>If the project already has a legacy
- *        {@code <project>/.anatomist/index.db}, keep using it — silently
- *        migrating would be lossy.</li>
- *    <li>Otherwise the default is
- *        {@code $ANATOMIST_HOME/<project-basename>/index.db}, where
+ *    <li>The default is
+ *        {@code $ANATOMIST_HOME/indexes/<project-key>/index.db}, where
  *        {@code ANATOMIST_HOME} defaults to {@code ~/.anatomist}.</li>
  *  </ol>
  *
  *  <h3>Why per-project storage under HOME</h3>
  *  Keeping the DB out of the project tree avoids polluting working
  *  copies (git status, CI artifacts, container mounts) and lets a single
- *  developer index dozens of repos without clutter. Project-basename
- *  collisions are possible but rare; users in that situation can pass
- *  {@code --output} / {@code --index} explicitly. */
+ *  developer index dozens of repos without clutter. The project key combines
+ *  a readable basename with a hash of the canonical local checkout path, so
+ *  same-named repos and worktrees cannot silently share one database. */
 public final class DefaultIndexPath {
 
-    /** Resource directory name under the project root (legacy default). */
-    static final String LEGACY_DIR = ".anatomist";
     /** Index-database filename. */
     static final String INDEX_DB = "index.db";
+    /** Per-checkout index directories live below this storage namespace. */
+    static final String INDEXES_DIR = "indexes";
     /** Default name of the storage root under the user's HOME. */
     static final String HOME_DIR = ".anatomist";
     /** Environment variable that overrides the storage root entirely. */
@@ -56,17 +55,10 @@ public final class DefaultIndexPath {
     // ── overloads that take an explicit anatomistHome — for tests ────────
 
     static Path forIndexWrite(Path projectRoot, Path anatomistHome) {
-        Path legacy = legacyDb(projectRoot);
-        if (Files.isRegularFile(legacy)) {
-            // Don't silently move someone's existing data.
-            return legacy;
-        }
         return homedDb(projectRoot, anatomistHome);
     }
 
     static Path forQueryRead(Path projectRoot, Path anatomistHome) {
-        Path legacy = legacyDb(projectRoot);
-        if (Files.isRegularFile(legacy)) return legacy;
         // Return the canonical $HOME location whether it exists or not —
         // the caller checks isRegularFile and emits a clean error.
         return homedDb(projectRoot, anatomistHome);
@@ -90,12 +82,19 @@ public final class DefaultIndexPath {
         return resolveHome(System.getenv(ENV_HOME), System.getProperty("user.home"));
     }
 
-    private static Path legacyDb(Path projectRoot) {
-        return projectRoot.resolve(LEGACY_DIR).resolve(INDEX_DB);
+    private static Path homedDb(Path projectRoot, Path anatomistHome) {
+        return storageDir(projectRoot, anatomistHome).resolve(INDEX_DB);
     }
 
-    private static Path homedDb(Path projectRoot, Path anatomistHome) {
-        return anatomistHome.resolve(repoNameOf(projectRoot)).resolve(INDEX_DB);
+    static Path storageDir(Path projectRoot, Path anatomistHome) {
+        return anatomistHome.resolve(INDEXES_DIR).resolve(repoKeyOf(projectRoot));
+    }
+
+    /** Stable only on the current machine: locator identity never enters a portable baseline. */
+    static String repoKeyOf(Path projectRoot) {
+        Path canonical = canonicalRoot(projectRoot);
+        String digest = FileCacheService.sha256OfString(canonical.toString()).substring(0, 12);
+        return sanitizedRepoNameOf(canonical) + "-" + digest;
     }
 
     /** Derive a stable per-project directory name. Basename of the
@@ -107,5 +106,19 @@ public final class DefaultIndexPath {
         if (name == null) return "default-project";
         String s = name.toString();
         return s.isEmpty() ? "default-project" : s;
+    }
+
+    private static String sanitizedRepoNameOf(Path projectRoot) {
+        String raw = repoNameOf(projectRoot);
+        String sanitized = raw.replaceAll("[^A-Za-z0-9._-]", "_");
+        return sanitized.isEmpty() ? "default-project" : sanitized;
+    }
+
+    private static Path canonicalRoot(Path projectRoot) {
+        try {
+            return projectRoot.toRealPath().normalize();
+        } catch (IOException ex) {
+            return projectRoot.toAbsolutePath().normalize();
+        }
     }
 }

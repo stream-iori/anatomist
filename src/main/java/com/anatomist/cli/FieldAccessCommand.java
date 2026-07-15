@@ -26,7 +26,7 @@ public class FieldAccessCommand implements Callable<Integer> {
     @Option(names = "--mode", description = "Access mode: reads | writes | all (default: all).")
     String mode = "all";
 
-    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/indexes/<repo-key>/index.db).")
     Path index;
     @Option(names = "--module") String module;
     @Option(names = "--scope", defaultValue = "MAIN") String scope;

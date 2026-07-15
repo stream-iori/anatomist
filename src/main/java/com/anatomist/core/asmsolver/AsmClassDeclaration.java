@@ -35,7 +35,9 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
         MethodResolutionCapability {
 
     private final String fqn;
-    private final byte[] classBytes;
+    /** Raw bytes are needed only until the lazy ASM pass completes. */
+    private byte[] classBytes;
+    private final int rawByteSize;
     private final TypeSolver solver;
 
     // Parsed lazily from ASM on first need.
@@ -53,7 +55,34 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
     public AsmClassDeclaration(String fqn, byte[] classBytes, TypeSolver solver) {
         this.fqn = fqn;
         this.classBytes = classBytes;
+        this.rawByteSize = classBytes == null ? 0 : classBytes.length;
         this.solver = solver;
+    }
+
+    AsmClassDeclaration(AsmTypeMetadata metadata, TypeSolver solver) {
+        this.fqn = metadata.fqn();
+        this.classBytes = null;
+        this.rawByteSize = 0;
+        this.solver = solver;
+        this.superFqn = metadata.superFqn();
+        this.interfaceFqns = List.copyOf(metadata.interfaceFqns());
+        this.classAccess = metadata.access();
+        this.classSignature = metadata.signature();
+        this.declaredFields = metadata.fields().stream()
+                .map(field -> new AsmFieldDeclaration(field.name(), field.descriptor(),
+                        field.access(), this)).toList();
+        this.declaredMethods = metadata.methods().stream()
+                .map(method -> new AsmMethodDeclaration(method.name(), method.access(), this,
+                        new LazyDescriptorResolver(method.signature(), method.descriptor(), solver)))
+                .collect(java.util.stream.Collectors.collectingAndThen(
+                        java.util.stream.Collectors.toCollection(LinkedHashSet::new),
+                        Collections::unmodifiableSet));
+        this.constructors = metadata.constructors().stream()
+                .map(constructor -> new AsmConstructorDeclaration(constructor.descriptor(),
+                        constructor.access(), this)).toList();
+        this.directAnnotationFqns = Set.copyOf(metadata.annotations());
+        this.nestedTypeFqns = List.copyOf(metadata.nestedTypes());
+        this.parsed = true;
     }
 
     // ── identity ──
@@ -352,7 +381,11 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
         Set<String> annos = new LinkedHashSet<>();
         List<String> nested = new ArrayList<>();
         String internalSelf = fqn.replace('.', '/');
-        ClassReader cr = new ClassReader(classBytes);
+        byte[] bytes = classBytes;
+        if (bytes == null) {
+            throw new IllegalStateException("class bytes released before parsing " + fqn);
+        }
+        ClassReader cr = new ClassReader(bytes);
         cr.accept(new ClassVisitor(Opcodes.ASM9) {
             @Override
             public void visit(int version, int access, String name, String signature,
@@ -414,11 +447,14 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
             }
         }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         this.declaredFields = List.copyOf(fields);
-        this.declaredMethods = Set.copyOf(methods);
+        this.declaredMethods = Collections.unmodifiableSet(new LinkedHashSet<>(methods));
         this.constructors = List.copyOf(ctors);
         this.directAnnotationFqns = Set.copyOf(annos);
         this.nestedTypeFqns = List.copyOf(nested);
         parsed = true;
+        // Do not retain both the compressed class-file representation and the
+        // parsed declaration graph for the lifetime of the type cache.
+        classBytes = null;
     }
 
     // Package-visible accessors for future C-tasks
@@ -427,6 +463,26 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
     int access() { ensureParsed(); return classAccess; }
     TypeSolver solver() { return solver; }
     byte[] classBytes() { return classBytes; }
+    int estimatedCacheWeight() {
+        // Guava computes weight on insertion, before lazy parsing. Raw class
+        // size is a useful conservative proxy for the later member graph.
+        return Math.max(256, rawByteSize + fqn.length() * 2 + 128);
+    }
+    boolean rawBytesReleased() { return classBytes == null; }
+    AsmTypeMetadata metadataIfParsed() {
+        if (!parsed) return null;
+        List<AsmTypeMetadata.Field> fields = declaredFields.stream()
+                .map(field -> new AsmTypeMetadata.Field(field.getName(), field.descriptor(), field.access()))
+                .toList();
+        List<AsmTypeMetadata.Method> methods = declaredMethods.stream()
+                .map(method -> new AsmTypeMetadata.Method(method.getName(), method.toDescriptor(),
+                        method.signature(), method.access())).toList();
+        List<AsmTypeMetadata.Constructor> ctors = constructors.stream()
+                .map(constructor -> new AsmTypeMetadata.Constructor(constructor.descriptor(),
+                        constructor.access())).toList();
+        return new AsmTypeMetadata(fqn, superFqn, interfaceFqns, classAccess, classSignature,
+                fields, methods, ctors, List.copyOf(directAnnotationFqns), nestedTypeFqns);
+    }
 
     // ── ResolvedAnnotationDeclaration ───────────────────────────────────
 

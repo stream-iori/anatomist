@@ -13,6 +13,8 @@ import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
 
 import java.util.Optional;
+import java.util.IdentityHashMap;
+import java.util.Map;
 
 /**
  * Walks AST ancestors to compute the Node ID of the entity that owns a given
@@ -26,6 +28,7 @@ import java.util.Optional;
 final class AstEnclosing {
 
     private final NodeIdGenerator gen;
+    private final Map<Node, String> entityIds = new IdentityHashMap<>();
 
     AstEnclosing(NodeIdGenerator gen) {
         this.gen = gen;
@@ -36,16 +39,29 @@ final class AstEnclosing {
         Optional<Node> p = node.getParentNode();
         while (p.isPresent()) {
             Node cur = p.get();
-            if (cur instanceof LambdaExpr le) return lambdaId(le);
-            if (cur instanceof MethodReferenceExpr mr) return methodRefId(mr);
-            if (cur instanceof MethodDeclaration md) return tryMethodId(md);
-            if (cur instanceof ConstructorDeclaration cd) return tryConstructorId(cd);
-            if (cur instanceof CompactConstructorDeclaration cd) return tryCompactConstructorId(cd);
-            if (cur instanceof FieldDeclaration fd) return fieldFallbackId(fd);
-            if (cur instanceof TypeDeclaration<?> td) return tryTypeId(td);
+            if (cur instanceof LambdaExpr le) return cachedId(le, () -> lambdaId(le));
+            if (cur instanceof MethodReferenceExpr mr) return cachedId(mr, () -> methodRefId(mr));
+            if (cur instanceof MethodDeclaration md) return cachedId(md, () -> tryMethodId(md));
+            if (cur instanceof ConstructorDeclaration cd) return cachedId(cd, () -> tryConstructorId(cd));
+            if (cur instanceof CompactConstructorDeclaration cd) {
+                return cachedId(cd, () -> tryCompactConstructorId(cd));
+            }
+            if (cur instanceof FieldDeclaration fd) return cachedId(fd, () -> fieldFallbackId(fd));
+            if (cur instanceof TypeDeclaration<?> td) return cachedId(td, () -> tryTypeId(td));
             p = cur.getParentNode();
         }
         return null;
+    }
+
+    private String cachedId(Node node, java.util.function.Supplier<String> loader) {
+        if (entityIds.containsKey(node)) return entityIds.get(node);
+        String id = loader.get();
+        entityIds.put(node, id);
+        return id;
+    }
+
+    int cachedEntityCount() {
+        return entityIds.size();
     }
 
     /** Id of a LAMBDA Node itself. */

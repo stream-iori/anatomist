@@ -26,6 +26,7 @@ import com.github.javaparser.resolution.model.SymbolReference;
 import com.github.javaparser.resolution.types.ResolvedType;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -37,6 +38,13 @@ public class CallGraphExtractor implements Extractor {
 
     private final ExtractionContext ctx;
     private final AstEnclosing enclosing;
+    private final Map<Expression, Optional<ResolvedType>> calculatedTypes = new IdentityHashMap<>();
+    private final Map<Expression, Optional<ResolvedType>> scopeTypes = new IdentityHashMap<>();
+    private final Map<Expression, String> renderedTypes = new IdentityHashMap<>();
+    private final Map<Expression, String> overloadTypes = new IdentityHashMap<>();
+    private final Map<Expression, String> lexicalScopeTypes = new IdentityHashMap<>();
+    private final Map<ResolvedMethodLikeDeclaration, String> methodIds = new IdentityHashMap<>();
+    private List<ClassOrInterfaceDeclaration> lexicalTypes = List.of();
 
     public CallGraphExtractor(ExtractionContext ctx) {
         this.ctx = ctx;
@@ -46,6 +54,8 @@ public class CallGraphExtractor implements Extractor {
     @Override
     public void extract(CompilationUnit unit, ExtractionResult result) {
         if (unit == null) return;
+        clearUnitCaches();
+        lexicalTypes = unit.findAll(ClassOrInterfaceDeclaration.class);
         new VoidVisitorAdapter<Void>() {
             @Override
             public void visit(MethodCallExpr n, Void arg) {
@@ -83,6 +93,17 @@ public class CallGraphExtractor implements Extractor {
                 super.visit(n, arg);
             }
         }.visit(unit, null);
+        clearUnitCaches();
+    }
+
+    private void clearUnitCaches() {
+        calculatedTypes.clear();
+        scopeTypes.clear();
+        renderedTypes.clear();
+        overloadTypes.clear();
+        lexicalScopeTypes.clear();
+        methodIds.clear();
+        lexicalTypes = List.of();
     }
 
     private void emit(com.github.javaparser.ast.Node callNode,
@@ -143,7 +164,7 @@ public class CallGraphExtractor implements Extractor {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("reason", "overload");
         meta.put("arguments", call.getArguments().stream()
-                .map(AstTypeNames::ofExpression)
+                .map(this::fallbackTypeOfArgument)
                 .collect(Collectors.toList()));
         meta.put("candidates", candidates);
         String metadata = Json.writeCompact(meta);
@@ -182,7 +203,10 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private String methodTargetId(ResolvedMethodDeclaration method) {
-        return CallableIdFactory.forMethod(ctx.idGenerator(), method);
+        if (methodIds.containsKey(method)) return methodIds.get(method);
+        String id = CallableIdFactory.forMethod(ctx.idGenerator(), method);
+        methodIds.put(method, id);
+        return id;
     }
 
     private void emitFallback(MethodCallExpr call, ExtractionResult result) {
@@ -228,7 +252,7 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private List<MethodDeclaration> bestAstCandidates(List<MethodDeclaration> candidates, MethodCallExpr call) {
-        return CallOverloadResolver.bestAst(candidates, call);
+        return CallOverloadResolver.bestAst(candidates, call, this::overloadTypeOfArgument);
     }
 
     private void emitLocalAstCandidates(MethodCallExpr call, String enclosingId,
@@ -241,7 +265,8 @@ public class CallGraphExtractor implements Extractor {
                 .collect(Collectors.toList());
         Map<String, Object> meta = new LinkedHashMap<>();
         if (ambiguous) meta.put("reason", "overload");
-        meta.put("arguments", call.getArguments().stream().map(AstTypeNames::ofExpression).collect(Collectors.toList()));
+        meta.put("arguments", call.getArguments().stream()
+                .map(this::fallbackTypeOfArgument).collect(Collectors.toList()));
         meta.put("candidates", candidates);
         String metadata = Json.writeCompact(meta);
         for (MethodDeclaration target : targets) {
@@ -339,10 +364,13 @@ public class CallGraphExtractor implements Extractor {
 
     private String lexicalScopeType(Expression scope) {
         if (scope == null) return null;
+        if (lexicalScopeTypes.containsKey(scope)) return lexicalScopeTypes.get(scope);
+        String type = null;
         if (scope.isNameExpr()) {
-            return AstTypeNames.findVisibleNameType(scope.asNameExpr().getNameAsString(), scope);
+            type = AstTypeNames.findVisibleNameType(scope.asNameExpr().getNameAsString(), scope);
         }
-        return null;
+        lexicalScopeTypes.put(scope, type);
+        return type;
     }
 
     private List<MethodDeclaration> resolveByAstOverload(ResolvedReferenceTypeDeclaration decl, MethodCallExpr call) {
@@ -355,7 +383,7 @@ public class CallGraphExtractor implements Extractor {
                 .filter(m -> m.getParameters().size() == call.getArguments().size())
                 .toList();
         if (candidates.size() <= 1) return candidates;
-        return CallOverloadResolver.bestAst(candidates, call);
+        return CallOverloadResolver.bestAst(candidates, call, this::overloadTypeOfArgument);
     }
 
     private List<MethodDeclaration> resolveByLexicalAstOverload(ResolvedReferenceTypeDeclaration decl, MethodCallExpr call) {
@@ -365,7 +393,7 @@ public class CallGraphExtractor implements Extractor {
         try { qualified = decl.getQualifiedName(); }
         catch (RuntimeException e) { return List.of(); }
         String simple = qualified.substring(qualified.lastIndexOf('.') + 1);
-        for (ClassOrInterfaceDeclaration type : cuOpt.get().findAll(ClassOrInterfaceDeclaration.class)) {
+        for (ClassOrInterfaceDeclaration type : lexicalTypes) {
             if (!simple.equals(type.getNameAsString())) continue;
             String typeFqn = AstTypeNames.qualifySimpleName(type, type.getNameAsString());
             if (!qualified.equals(typeFqn) && !simple.equals(type.getNameAsString())) continue;
@@ -379,7 +407,7 @@ public class CallGraphExtractor implements Extractor {
         Optional<CompilationUnit> cuOpt = call.findCompilationUnit();
         if (cuOpt.isEmpty()) return List.of();
         String simple = typeName.substring(typeName.lastIndexOf('.') + 1);
-        for (ClassOrInterfaceDeclaration type : cuOpt.get().findAll(ClassOrInterfaceDeclaration.class)) {
+        for (ClassOrInterfaceDeclaration type : lexicalTypes) {
             if (simple.equals(type.getNameAsString())) return resolveByAstOverload(type, call);
         }
         return List.of();
@@ -391,7 +419,7 @@ public class CallGraphExtractor implements Extractor {
                 .filter(m -> m.getParameters().size() == call.getArguments().size())
                 .toList();
         if (candidates.size() <= 1) return candidates;
-        return CallOverloadResolver.bestAst(candidates, call);
+        return CallOverloadResolver.bestAst(candidates, call, this::overloadTypeOfArgument);
     }
 
     private void emitAstCandidates(MethodCallExpr call, ResolvedReferenceTypeDeclaration owner,
@@ -406,7 +434,8 @@ public class CallGraphExtractor implements Extractor {
                 .collect(Collectors.toList());
         Map<String, Object> meta = new LinkedHashMap<>();
         if (ambiguous) meta.put("reason", "overload");
-        meta.put("arguments", call.getArguments().stream().map(AstTypeNames::ofExpression).collect(Collectors.toList()));
+        meta.put("arguments", call.getArguments().stream()
+                .map(this::fallbackTypeOfArgument).collect(Collectors.toList()));
         meta.put("candidates", candidates);
         String metadata = Json.writeCompact(meta);
 
@@ -477,7 +506,7 @@ public class CallGraphExtractor implements Extractor {
             return candidates;
         }
 
-        return CallOverloadResolver.bestResolved(candidates, call);
+        return CallOverloadResolver.bestResolved(candidates, call, this::overloadTypeOfArgument);
     }
 
     private void emitStaticNameFallback(MethodCallExpr call, String enclosingId,
@@ -499,8 +528,13 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private ResolvedType resolveScopeType(Expression scope) {
-        try { return scope.calculateResolvedType(); }
-        catch (RuntimeException ignore) { }
+        Optional<ResolvedType> cached = scopeTypes.get(scope);
+        if (cached != null) return cached.orElse(null);
+        ResolvedType calculated = calculatedType(scope);
+        if (calculated != null) {
+            scopeTypes.put(scope, Optional.of(calculated));
+            return calculated;
+        }
 
         try {
             ResolvedValueDeclaration value = null;
@@ -509,8 +543,11 @@ public class CallGraphExtractor implements Extractor {
             } else if (scope.isFieldAccessExpr()) {
                 value = scope.asFieldAccessExpr().resolve();
             }
-            return value == null ? null : value.getType();
+            ResolvedType result = value == null ? null : value.getType();
+            scopeTypes.put(scope, Optional.ofNullable(result));
+            return result;
         } catch (RuntimeException e) {
+            scopeTypes.put(scope, Optional.empty());
             return null;
         }
     }
@@ -528,8 +565,9 @@ public class CallGraphExtractor implements Extractor {
     private List<ResolvedType> argumentTypes(MethodCallExpr call) {
         List<ResolvedType> out = new ArrayList<>();
         for (Expression arg : call.getArguments()) {
-            try { out.add(arg.calculateResolvedType()); }
-            catch (RuntimeException e) { return List.of(); }
+            ResolvedType type = calculatedType(arg);
+            if (type == null) return List.of();
+            out.add(type);
         }
         return out;
     }
@@ -541,11 +579,36 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private String fallbackTypeOfArgument(Expression arg) {
+        if (renderedTypes.containsKey(arg)) return renderedTypes.get(arg);
+        String rendered;
         if (arg instanceof ObjectCreationExpr oce && oce.getAnonymousClassBody().isPresent()) {
-            try { return NodeIdGenerator.erasedTypeDescribe(oce.getType().resolve()); }
-            catch (RuntimeException e) { return "<unresolved>"; }
+            try { rendered = NodeIdGenerator.erasedTypeDescribe(oce.getType().resolve()); }
+            catch (RuntimeException e) { rendered = "<unresolved>"; }
+        } else {
+            rendered = AstTypeNames.ofExpression(arg);
         }
-        return AstTypeNames.ofExpression(arg);
+        renderedTypes.put(arg, rendered);
+        return rendered;
+    }
+
+    private String overloadTypeOfArgument(Expression argument) {
+        if (overloadTypes.containsKey(argument)) return overloadTypes.get(argument);
+        String rendered = AstTypeNames.ofExpression(argument);
+        overloadTypes.put(argument, rendered);
+        return rendered;
+    }
+
+    private ResolvedType calculatedType(Expression expression) {
+        Optional<ResolvedType> cached = calculatedTypes.get(expression);
+        if (cached != null) return cached.orElse(null);
+        try {
+            ResolvedType type = expression.calculateResolvedType();
+            calculatedTypes.put(expression, Optional.of(type));
+            return type;
+        } catch (RuntimeException e) {
+            calculatedTypes.put(expression, Optional.empty());
+            return null;
+        }
     }
 
     private String resolveStaticScopeName(MethodCallExpr call, String scope) {

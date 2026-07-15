@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalInt;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,9 +22,11 @@ class ClasspathDetectorTest {
 
     private final PrintStream originalErr = System.err;
     private ByteArrayOutputStream errCapture;
+    @TempDir Path cacheRoot;
 
     @BeforeEach
     void captureErr() {
+        System.setProperty("anatomist.classpath.cache.dir", cacheRoot.toString());
         errCapture = new ByteArrayOutputStream();
         System.setErr(new PrintStream(errCapture, true, StandardCharsets.UTF_8));
     }
@@ -31,6 +34,7 @@ class ClasspathDetectorTest {
     @AfterEach
     void restoreErr() {
         System.setErr(originalErr);
+        System.clearProperty("anatomist.classpath.cache.dir");
     }
 
     @Test
@@ -207,6 +211,165 @@ class ClasspathDetectorTest {
         assertEquals(0, java.nio.file.Files.walk(tmp)
                 .filter(p -> p.getFileName().toString().equals("anatomist-classpath.txt"))
                 .count(), "generated classpath files must be cleaned up");
+    }
+
+    @Test
+    void selectMavenJavaHome_prefersExplicitOverride(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project><properties>"
+                + "<maven.compiler.source>8</maven.compiler.source>"
+                + "</properties></project>");
+        Path explicit = fakeJdk(tmp.resolve("explicit"), false);
+
+        ClasspathDetector detector = detectorWithEnvironment(Map.of(
+                ClasspathDetector.MAVEN_JAVA_HOME_ENV, explicit.toString()), tmp);
+
+        assertEquals(explicit.toAbsolutePath().normalize(), detector.selectMavenJavaHome(tmp));
+    }
+
+    @Test
+    void selectMavenJavaHome_usesJava8HomeForLegacyProject(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project><properties>"
+                + "<maven.compiler.source>1.8</maven.compiler.source>"
+                + "</properties></project>");
+        Path current = fakeJdk(tmp.resolve("current"), false);
+        Path java8 = fakeJdk(tmp.resolve("java8"), true);
+
+        ClasspathDetector detector = new ClasspathDetector() {
+            @Override protected String environment(String name) {
+                return "JAVA8_HOME".equals(name) ? java8.toString() : null;
+            }
+            @Override protected String systemProperty(String name) {
+                return switch (name) {
+                    case "java.home" -> current.toString();
+                    case "user.home" -> tmp.resolve("no-sdkman").toString();
+                    default -> null;
+                };
+            }
+            @Override protected String discoverMacJava8Home() { return null; }
+        };
+
+        assertEquals(java8.toAbsolutePath().normalize(), detector.selectMavenJavaHome(tmp));
+    }
+
+    @Test
+    void selectMavenJavaHome_usesJava8WhenAnyModuleReferencesToolsJar(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project><properties>"
+                + "<maven.compiler.source>17</maven.compiler.source>"
+                + "</properties><dependencies><dependency>"
+                + "<artifactId>jdk.tools</artifactId>"
+                + "<systemPath>${java.home}/../lib/tools.jar</systemPath>"
+                + "</dependency></dependencies></project>");
+        Path java8 = fakeJdk(tmp.resolve("java8"), true);
+
+        ClasspathDetector detector = new ClasspathDetector() {
+            @Override protected String environment(String name) {
+                return "JAVA8_HOME".equals(name) ? java8.toString() : null;
+            }
+            @Override protected String systemProperty(String name) {
+                return switch (name) {
+                    case "java.home" -> tmp.resolve("jdk25").toString();
+                    case "user.home" -> tmp.resolve("no-sdkman").toString();
+                    default -> null;
+                };
+            }
+            @Override protected String discoverMacJava8Home() { return null; }
+        };
+
+        assertEquals(java8.toAbsolutePath().normalize(), detector.selectMavenJavaHome(tmp));
+    }
+
+    @Test
+    void detect_drainsLargeMavenOutputAndReportsTail(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project/>");
+        Path script = tmp.resolve("fake-mvn.sh");
+        Files.writeString(script, "#!/bin/sh\ni=0\nwhile [ $i -lt 7000 ]; do echo 0123456789; i=$((i+1)); done\necho FINAL-MAVEN-ERROR\nexit 3\n");
+        assertTrue(script.toFile().setExecutable(true));
+
+        ClasspathDetector detector = new ClasspathDetector() {
+            @Override protected String mavenExecutable() { return script.toString(); }
+        };
+
+        assertTrue(detector.detect(tmp).isEmpty());
+        String err = errCapture.toString(StandardCharsets.UTF_8);
+        assertTrue(err.contains("FINAL-MAVEN-ERROR"), err);
+    }
+
+    @Test
+    void detect_retriesInheritedToolsJarFailureWithJava8(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project><properties>"
+                + "<maven.compiler.source>17</maven.compiler.source>"
+                + "</properties></project>");
+        Path java8 = fakeJdk(tmp.resolve("java8"), true);
+        java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
+
+        ClasspathDetector detector = new ClasspathDetector() {
+            @Override protected int runMvn(Path workingDir, List<String> args) throws IOException {
+                if (attempts.getAndIncrement() == 0) {
+                    setLastMavenOutput("Could not find jdk.tools:jdk.tools at ../lib/tools.jar");
+                    return 1;
+                }
+                Files.writeString(workingDir.resolve(extractOutputFile(args)), "/lib/resolved.jar");
+                return 0;
+            }
+            @Override protected String environment(String name) {
+                return "JAVA8_HOME".equals(name) ? java8.toString() : null;
+            }
+            @Override protected String systemProperty(String name) {
+                return switch (name) {
+                    case "java.home" -> tmp.resolve("jdk25").toString();
+                    case "user.home" -> tmp.resolve("no-sdkman").toString();
+                    default -> null;
+                };
+            }
+            @Override protected String discoverMacJava8Home() { return null; }
+        };
+
+        assertEquals(List.of("/lib/resolved.jar"), detector.detect(tmp));
+        assertEquals(2, attempts.get());
+    }
+
+    @Test
+    void detect_reusesPomFingerprintCache(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), "<project/>");
+        Path jar = Files.write(tmp.resolve("dep.jar"), new byte[] { 1 });
+        java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
+        ClasspathDetector first = new ClasspathDetector() {
+            @Override protected int runMvn(Path workingDir, List<String> args) throws IOException {
+                attempts.incrementAndGet();
+                Files.writeString(workingDir.resolve(extractOutputFile(args)), jar.toString());
+                return 0;
+            }
+        };
+        assertEquals(List.of(jar.toString()), first.detect(tmp));
+
+        ClasspathDetector second = new ClasspathDetector() {
+            @Override protected int runMvn(Path workingDir, List<String> args) {
+                throw new AssertionError("cache hit must not invoke Maven");
+            }
+        };
+        assertEquals(List.of(jar.toString()), second.detect(tmp));
+        assertEquals(1, attempts.get());
+    }
+
+    private static ClasspathDetector detectorWithEnvironment(Map<String, String> env, Path userHome) {
+        return new ClasspathDetector() {
+            @Override protected String environment(String name) { return env.get(name); }
+            @Override protected String systemProperty(String name) {
+                return "user.home".equals(name) ? userHome.toString() : null;
+            }
+            @Override protected String discoverMacJava8Home() { return null; }
+        };
+    }
+
+    private static Path fakeJdk(Path home, boolean toolsJar) throws IOException {
+        Path java = Files.createDirectories(home.resolve("bin")).resolve("java");
+        Files.writeString(java, "");
+        assertTrue(java.toFile().setExecutable(true));
+        if (toolsJar) {
+            Files.createDirectories(home.resolve("lib"));
+            Files.writeString(home.resolve("lib/tools.jar"), "");
+        }
+        return home;
     }
 
     private static Path extractOutputFile(List<String> args) {

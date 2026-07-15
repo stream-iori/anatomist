@@ -37,7 +37,7 @@ public class OverviewCommand implements Callable<Integer> {
     @Option(names = "--limit", description = "Max package-deps results (default 30, 0=all).") int limit = 30;
     @Option(names = "--offset", description = "Skip N package-deps results.") int offset = 0;
 
-    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/indexes/<repo-key>/index.db).")
     Path index;
 
     @Override

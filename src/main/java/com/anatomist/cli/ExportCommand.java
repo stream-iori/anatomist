@@ -42,7 +42,7 @@ public class ExportCommand implements Callable<Integer> {
             description = "Max code snippets to embed in arch export (default: 2000; 0 = none).")
     int maxSnippets = 2_000;
 
-    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/<repo>/index.db).")
+    @Option(names = "--index", description = "Path to index.db (default: ~/.anatomist/indexes/<repo-key>/index.db).")
     Path index;
 
     @Override
