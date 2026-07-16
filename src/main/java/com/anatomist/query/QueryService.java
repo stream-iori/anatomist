@@ -216,10 +216,6 @@ public class QueryService implements AutoCloseable {
         return overview.overview();
     }
 
-    public List<ClassEdge> classDepsInternal(int maxEdges) {
-        return overview.classDepsInternal(maxEdges);
-    }
-
     // ── Enrich ──────────────────────────────────────────────────────────
 
     public EnrichResult enrichNode(String fqnOrShorthand, int depth, boolean withDocs) {

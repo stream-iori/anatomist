@@ -54,7 +54,7 @@ class ArchitectureDependencyTest {
                 .toList();
 
         assertTrue(offenders.isEmpty(),
-                "indexing flow SQL belongs in store/query/export adapters: " + offenders);
+                "indexing flow SQL belongs in store/query adapters: " + offenders);
     }
 
     private static List<String> importsMatching(Path root, String importPrefix) throws Exception {

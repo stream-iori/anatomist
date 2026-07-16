@@ -26,7 +26,7 @@ class AgentContractIT {
         String[] commands = {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
-                "field-access", "call-path", "overview", "survey-baseline", "export",
+                "field-access", "call-path", "overview", "survey-baseline",
                 "annotate", "doctor"
         };
         for (String cmd : commands) {
@@ -34,6 +34,13 @@ class AgentContractIT {
             assertEquals(0, r.exitCode, cmd + " --help should exit 0; stderr=" + r.stderr);
             assertTrue(r.stdout.contains("Usage:"), cmd + " --help should print usage");
         }
+    }
+
+    @Test
+    void exportIsNoLongerACliCommand() {
+        RunResult r = runCli("export");
+        assertEquals(2, r.exitCode);
+        assertTrue((r.stdout + r.stderr).contains("Unmatched argument"));
     }
 
     @Test
@@ -51,6 +58,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
         assertTrue(((List<?>) json.get("commands")).contains("branches-of"));
         assertTrue(((List<?>) json.get("commands")).contains("bean-config"));
+        assertFalse(((List<?>) json.get("commands")).contains("export"));
         assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
         assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));
         assertTrue(((List<?>) json.get("capabilities")).contains("source-snapshot-fingerprint"));

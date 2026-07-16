@@ -59,53 +59,6 @@ public class OverviewService {
         return out;
     }
 
-    public List<ClassEdge> classDepsInternal(int maxEdges) {
-        String sql =
-                "WITH RECURSIVE owner(node_id, cur_id, cur_kind) AS ("
-              + "  SELECT id, id, kind FROM nodes n WHERE 1=1 " + resolver.selectorClause("n")
-              + "  UNION ALL "
-              + "  SELECT o.node_id, c.source_id, p.kind "
-              + "  FROM owner o "
-              + "  JOIN edges c INDEXED BY idx_edges_target_relation "
-              + "       ON c.target_id = o.cur_id AND c.relation = '" + GraphConstants.Relation.CONTAINS + "' AND c.is_external = 0 "
-              + "  JOIN nodes p ON p.id = c.source_id "
-              + "  WHERE o.cur_kind NOT IN (" + sqlIn(GraphConstants.DECLARED_TYPE_KINDS) + ") "
-              + "), type_of AS ("
-              + "  SELECT node_id, cur_id AS type_id FROM owner "
-              + "  WHERE cur_kind IN (" + sqlIn(GraphConstants.DECLARED_TYPE_KINDS) + ") "
-              + ") "
-              + "SELECT st.id AS source, st.label AS source_label, st.package AS source_package, "
-              + "       st.kind AS source_kind, json_extract(st.metadata,'$.isAbstract') AS source_abstract, "
-              + "       tt.id AS target, tt.label AS target_label, tt.package AS target_package, "
-              + "       tt.kind AS target_kind, json_extract(tt.metadata,'$.isAbstract') AS target_abstract, "
-              + "       MAX(CASE WHEN e.relation IN (" + sqlIn(GraphConstants.HIERARCHY_RELATIONS) + ") THEN 1 ELSE 0 END) AS is_inherit, "
-              + "       COUNT(*) AS edge_count "
-              + "FROM edges e "
-              + "JOIN type_of so ON e.source_id = so.node_id "
-              + "JOIN type_of ot ON e.target_id = ot.node_id "
-              + "JOIN nodes st ON so.type_id = st.id "
-              + "JOIN nodes tt ON ot.type_id = tt.id "
-              + "WHERE e.is_external = 0 "
-              + "  AND e.relation IN (" + sqlIn(GraphConstants.OVERVIEW_TYPE_EDGE_RELATIONS) + ") "
-              + "  AND so.type_id <> ot.type_id "
-              + "GROUP BY st.id, tt.id "
-              + "ORDER BY edge_count DESC, source, target"
-              + (maxEdges > 0 ? " LIMIT " + maxEdges : "");
-        return queryList(conn, sql, rs -> new ClassEdge(
-                rs.getString("source"),
-                rs.getString("source_label"),
-                rs.getString("source_package"),
-                rs.getString("source_kind"),
-                readBool(rs, "source_abstract"),
-                rs.getString("target"),
-                rs.getString("target_label"),
-                rs.getString("target_package"),
-                rs.getString("target_kind"),
-                readBool(rs, "target_abstract"),
-                readBool(rs, "is_inherit"),
-                rs.getInt("edge_count")));
-    }
-
     private void countByKind(OverviewResult ov) {
         queryList(conn, "SELECT kind, COUNT(*) FROM nodes n WHERE 1=1 "
                 + resolver.selectorClause("n") + " GROUP BY kind ORDER BY kind", rs -> {

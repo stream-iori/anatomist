@@ -9,11 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.*;
 
-/** L2 test for {@link QueryService#overview()} / {@link QueryService#classDepsInternal()}.
+/** L2 test for {@link QueryService#overview()}.
  *  Builds a tiny index in a temp db directly via {@link SqliteStore}. */
 class QueryServiceOverviewTest {
 
@@ -58,26 +56,6 @@ class QueryServiceOverviewTest {
             // packageDeps: com.a -> com.b should be present (internal, cross-package)
             assertTrue(ov.packageDeps.stream().anyMatch(d ->
                     "com.a".equals(d.get("source_package")) && "com.b".equals(d.get("target_package"))));
-        }
-    }
-
-    @Test
-    void classDepsInternal_returnsCrossClassEdgesWithPackages() {
-        try (QueryService q = new QueryService(dbPath)) {
-            List<ClassEdge> deps = q.classDepsInternal(0);
-            assertTrue(deps.stream().anyMatch(d ->
-                    "com.a.Foo".equals(d.source()) && "com.b.Baz".equals(d.target())
-                            && "com.a".equals(d.sourcePackage())
-                            && "com.b".equals(d.targetPackage())));
-            // external edge must not appear
-            assertFalse(deps.stream().anyMatch(d -> String.valueOf(d.target()).startsWith("java.")));
-        }
-    }
-
-    @Test
-    void classDepsInternal_respectsMaxEdges() {
-        try (QueryService q = new QueryService(dbPath)) {
-            assertEquals(1, q.classDepsInternal(1).size());
         }
     }
 

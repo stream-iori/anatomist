@@ -377,13 +377,6 @@ anatomist overview [--format markdown|json] [--depth N] [--deps-only] [--limit 3
 - `--deps-only`: output only package dependency edges
 - `--depth N`: collapse package tree to N segments
 
-### `export`
-Self-contained HTML visualization.
-
-```bash
-anatomist export --format html --output <file.html> [--max-edges 20000] --index <db>
-```
-
 ## Annotation Phase
 
 ### `annotate`

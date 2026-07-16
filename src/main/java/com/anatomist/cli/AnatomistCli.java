@@ -52,7 +52,6 @@ import picocli.CommandLine.HelpCommand;
                 CallPathCommand.class,
                 OverviewCommand.class,
                 SurveyBaselineCommand.class,
-                ExportCommand.class,
                 AnnotateCommand.class,
                 DoctorCommand.class
         }

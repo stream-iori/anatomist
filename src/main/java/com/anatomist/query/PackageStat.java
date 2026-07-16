@@ -1,6 +1,6 @@
 package com.anatomist.query;
 
-/** Per-package node tallies for the {@code overview} command and HTML export. */
+/** Per-package node tallies for the {@code overview} command. */
 public class PackageStat {
     public String name;
     public long types;

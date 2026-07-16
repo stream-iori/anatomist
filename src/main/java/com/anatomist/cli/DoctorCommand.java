@@ -48,7 +48,7 @@ public class DoctorCommand implements Callable<Integer> {
         out.put("commands", List.of(
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
-                "field-access", "call-path", "overview", "survey-baseline", "export",
+                "field-access", "call-path", "overview", "survey-baseline",
                 "annotate", "doctor"));
         out.put("capabilities", List.of(
                 "json-query-output", "index-json-summary",
