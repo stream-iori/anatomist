@@ -8,8 +8,10 @@ import com.anatomist.core.IndexTimings;
 import com.anatomist.core.ProjectScanner;
 import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.store.FileCacheService;
+import com.anatomist.store.IndexOperationLock;
 import com.anatomist.incremental.IncrementalIndexer;
 import com.anatomist.incremental.IncrementalParseException;
+import com.anatomist.incremental.FullRebuildRequiredException;
 import com.anatomist.incremental.PerformanceHistory;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.store.SqliteStore;
@@ -131,9 +133,21 @@ public class IndexCommand implements Callable<Integer> {
     boolean timings;
 
     private IndexExecutionHints executionHints;
+    private Path operationLockPath;
+    private boolean deferFullFallback;
 
     void setExecutionHints(IndexExecutionHints executionHints) {
         this.executionHints = executionHints;
+    }
+
+    /** Internal watch hook: replacement builds write a temporary DB but must
+     * still serialize with writers of the live DB. */
+    void setOperationLockPath(Path operationLockPath) {
+        this.operationLockPath = operationLockPath;
+    }
+
+    void deferFullFallbackForWatch() {
+        this.deferFullFallback = true;
     }
 
     boolean usesCandidateFastPathForTest() {
@@ -148,7 +162,14 @@ public class IndexCommand implements Callable<Integer> {
     com.anatomist.core.IndexOutcome executeOutcome() {
         return new com.anatomist.core.IndexApplicationService().execute(
                 new com.anatomist.core.IndexRequest(projectPath, projectSource, sourceRootSpecs),
-                this::execute);
+                root -> {
+                    Path lockTarget = operationLockPath != null ? operationLockPath
+                            : output == null ? DefaultIndexPath.forIndexWrite(root)
+                            : output.toAbsolutePath().normalize();
+                    try (IndexOperationLock ignored = IndexOperationLock.forWrite(lockTarget)) {
+                        return execute(root);
+                    }
+                });
     }
 
     int reportOutcome(com.anatomist.core.IndexOutcome outcome) {
@@ -216,6 +237,7 @@ public class IndexCommand implements Callable<Integer> {
             }
             if (schemaIncompatible) {
                 System.err.println("INFO: incremental degraded to full (schema_version mismatch)");
+                if (deferFullFallback) throw new FullRebuildRequiredException("schema_version mismatch");
                 IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                 return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
                         sourceFilesForFull(scanner, sourcePaths, sourceFiles),
@@ -239,6 +261,7 @@ public class IndexCommand implements Callable<Integer> {
                             ? "file_cache empty"
                             : "schema_version mismatch";
                     System.err.println("INFO: incremental degraded to full (" + reason + ")");
+                    if (deferFullFallback) throw new FullRebuildRequiredException(reason);
                     IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
                             sourceFilesForFull(scanner, sourcePaths, sourceFiles),
@@ -248,6 +271,7 @@ public class IndexCommand implements Callable<Integer> {
                 String expectedLayoutHash = sourceLayoutHash(resolvedSourceRoots);
                 if (!expectedLayoutHash.equals(store.readProjectMeta("source_layout_hash").orElse(""))) {
                     System.err.println("INFO: incremental degraded to full (source layout changed)");
+                    if (deferFullFallback) throw new FullRebuildRequiredException("source layout changed");
                     IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
                             sourceFilesForFull(scanner, sourcePaths, sourceFiles),
@@ -333,6 +357,9 @@ public class IndexCommand implements Callable<Integer> {
                 if (summary.degradedToFull) {
                     System.err.println("INFO: incremental degraded to full ("
                             + summary.degradationReason + ")");
+                    if (deferFullFallback) {
+                        throw new FullRebuildRequiredException(summary.degradationReason);
+                    }
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
                             sourceFilesForFull(scanner, sourcePaths, sourceFiles),
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,

@@ -534,6 +534,59 @@ class WatchCommandIT {
     }
 
     @Test
+    void backgroundFullContinuesCollectingEventsAndReplaysThem(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false).toRealPath();
+        Path source = project.resolve("src/main/java/p/A.java");
+        Path pom = project.resolve("pom.xml");
+        Path jar = tmp.resolve("dependency.jar");
+        Files.writeString(jar, "before");
+        Path db = tmp.resolve("index.db");
+        CliTestSupport.assertIndexOk(project,
+                "--classpath", jar.toString(), "--java-version", "17", "--output", db.toString());
+
+        WatchCommand command = new WatchCommand();
+        new CommandLine(command).parseArgs(project.toString(), "--auto-index",
+                "--classpath", jar.toString(), "--java-version", "17", "--output", db.toString(),
+                "--debounce-ms", "100", "--max-iterations", "2", "--full-policy", "background");
+        CountDownLatch fullStarted = new CountDownLatch(1);
+        CountDownLatch releaseFull = new CountDownLatch(1);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicReference<Boolean> replayWasIncremental = new AtomicReference<>(false);
+        command.setIndexCommandRunnerForTest(index -> {
+            if (attempts.getAndIncrement() == 0) {
+                fullStarted.countDown();
+                try {
+                    assertTrue(releaseFull.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(ex);
+                }
+            } else {
+                replayWasIncremental.set(index.usesCandidateFastPathForTest());
+            }
+            return IndexOutcome.success(0);
+        });
+        CountDownLatch ready = new CountDownLatch(1);
+        command.setReadyListenerForTest(ready::countDown);
+        AtomicInteger rc = new AtomicInteger(-1);
+        Thread watch = new Thread(() -> rc.set(command.call()));
+        watch.start();
+        assertTrue(ready.await(5, TimeUnit.SECONDS));
+
+        Files.writeString(jar, "changed artifact bytes");
+        Files.writeString(pom, Files.readString(pom) + "\n<!-- changed -->\n");
+        assertTrue(fullStarted.await(5, TimeUnit.SECONDS), "background full did not start");
+        Files.writeString(source, Files.readString(source) + "\n// changed while full runs\n");
+        releaseFull.countDown();
+        watch.join(10_000);
+
+        assertFalse(watch.isAlive(), "watch should replay events after background full");
+        assertEquals(0, rc.get());
+        assertEquals(2, attempts.get(), "one full plus one replay incremental expected");
+        assertTrue(replayWasIncremental.get(), "replayed source edit should use candidate fast path");
+    }
+
+    @Test
     void testWatchExtensionsFilter(@TempDir Path tmp) throws Exception {
         Path project = setupFixtureCopy(tmp);
         Path db = tmp.resolve("index.db");

@@ -125,6 +125,7 @@ sdk use java 25.0.3-graal
 | 测试 | 走什么路径 | 目的 |
 |------|----------|------|
 | 增量 diff 正确性 | `anatomist index --incremental`（合成 diff,无 WatchService） | 主路径,覆盖率高 |
+| Agent 查询门禁 | 无变更增量 + `--strict-health`，随后才允许查询 | 确保无变更不触发 Maven/JavaParser/图重建，失败时 Agent 不应使用旧索引结论 |
 | WatchService 集成 | 真启 watch 改文件 | 仅 1-2 个 happy-path,Linux 跑 |
 
 ## 七、性能基线
@@ -145,6 +146,8 @@ sdk use java 25.0.3-graal
 Watch 候选、契约指纹对 body/签名的区分、impact SQL 索引计划、Spring XML
 入边保留，以及 Watch staging/known-ID 会话复用与退出清理。构建文件测试要
 区分“环境未变化继续增量”和“classpath/source-layout 变化触发一次 full”；
+后台 full 还要覆盖：构建期间继续收集事件、单飞合并、回放后与 fresh full
+一致、临时 DB 失败保留旧库、以及重启后的 stale 对账；
 成本模型固定覆盖 70% full 预算、20% 冷启动回退、1000 文件硬上限和 128 文件批次。
 
 大型项目诊断应使用同一源码快照和 native binary，向 `target/perf/` 写入

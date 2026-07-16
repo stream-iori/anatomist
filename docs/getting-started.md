@@ -155,12 +155,29 @@ anatomist watch fixtures/mini-spring-shop \
     --no-classpath \
     --output /tmp/shop.db \
     --auto-index \
+    --full-policy background \
     --timings
 ```
 
 For Spring XML projects, add `--spring-xml` to both `index` and `watch`.
 `watch` keeps the static index current; it does not prove a runtime path
 actually executed.
+
+For a large project, leave the default `--full-policy background`: a necessary
+full rebuild uses a temporary DB while the watcher continues receiving edits.
+`doctor --index <db> --format json` reports watcher/DB state, but
+`freshness_state=idle` does not detect edits made while no watcher was running.
+
+For a one-off Agent query after local edits, use the query gate instead:
+
+```bash
+anatomist index fixtures/mini-spring-shop --incremental --strict-health --format json --output /tmp/shop.db \
+  && anatomist search OrderService --index /tmp/shop.db
+```
+
+Use `--verify-content` on the index command when files may have been rewritten
+with restored timestamps. Reuse the source-root, classpath, Java-version, and
+Spring XML options from the initial index.
 
 If `--timings` shows a slow `metadata_git` phase, check `doctor` and optionally
 enable Git's repository-local untracked cache yourself:

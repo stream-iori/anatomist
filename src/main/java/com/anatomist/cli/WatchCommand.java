@@ -10,8 +10,14 @@ import com.anatomist.core.SourceIdentityResolver;
 import com.anatomist.core.SourceRoot;
 import com.anatomist.core.SpringBeanParser;
 import com.anatomist.incremental.IncrementalParseException;
+import com.anatomist.incremental.FullRebuildRequiredException;
 import com.anatomist.incremental.IncrementalSessionState;
+import com.anatomist.store.IndexFileSwap;
+import com.anatomist.store.IndexLock;
+import com.anatomist.store.IndexOperationLock;
+import com.anatomist.store.IndexStateStore;
 import com.anatomist.store.SqliteStore;
+import com.anatomist.store.WatchLease;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -38,7 +44,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Command(
@@ -123,6 +134,10 @@ public class WatchCommand implements Callable<Integer> {
             description = "Treat DEGRADED or UNHEALTHY index results as auto-index failures.")
     boolean strictHealth;
 
+    @Option(names = "--full-policy", defaultValue = "background",
+            description = "When watch needs a full rebuild: background (default), inline, or manual.")
+    String fullPolicy;
+
     @Option(names = "--timings",
             description = "Include per-phase index timings in text/JSON output.")
     boolean timings;
@@ -195,6 +210,27 @@ public class WatchCommand implements Callable<Integer> {
         Path dbPath = output == null
                 ? DefaultIndexPath.forIndexWrite(projectRoot)
                 : output.toAbsolutePath().normalize();
+        FullPolicy configuredFullPolicy;
+        try {
+            configuredFullPolicy = FullPolicy.parse(fullPolicy);
+        } catch (IllegalArgumentException ex) {
+            System.err.println("ERROR: " + ex.getMessage());
+            return 2;
+        }
+        WatchLease watchLease = null;
+        if (autoIndex) {
+            try {
+                watchLease = WatchLease.acquire(dbPath);
+            } catch (IndexLock.LockTimeoutException ex) {
+                System.err.println("ERROR: WATCH_ALREADY_RUNNING for " + dbPath);
+                return 1;
+            }
+        }
+        IndexStateStore.Snapshot priorState = IndexStateStore.read(dbPath);
+        boolean recoverInterrupted = autoIndex
+                && (priorState.state() == IndexStateStore.State.REBUILDING
+                || priorState.state() == IndexStateStore.State.INCREMENTAL);
+        if (autoIndex) IndexStateStore.recoverInterrupted(dbPath);
 
         List<SourceRoot> resolvedRoots = new ArrayList<>(resolveSourceRoots(projectRoot, sourcePaths));
         Set<Path> watchedBuildFiles = discoverBuildFiles(projectRoot, sourcePaths);
@@ -202,6 +238,11 @@ public class WatchCommand implements Callable<Integer> {
                 ? new LinkedHashSet<>(new ProjectScanner(extraExcludes).scanSpringXml(projectRoot))
                 : new LinkedHashSet<>();
 
+        ExecutorService fullRebuildWorker = Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "anatomist-watch-full-rebuild");
+            thread.setDaemon(true);
+            return thread;
+        });
         try (WatchService ws = projectRoot.getFileSystem().newWatchService();
              JavaParserFactory.SessionCache parserSessions = new JavaParserFactory.SessionCache();
              IncrementalSessionState incrementalSession = new IncrementalSessionState()) {
@@ -232,14 +273,24 @@ public class WatchCommand implements Callable<Integer> {
             Map<String, String> buffered = new HashMap<>(); // relPath -> event kind
             boolean buildFileTouched = false;
             Map<String, String> pending = new HashMap<>();
-            boolean pendingFullReindex = false;
-            boolean reconciliationRequired = false;
+            boolean pendingFullReindex = recoverInterrupted;
+            boolean reconciliationRequired = recoverInterrupted;
+            if (recoverInterrupted) {
+                buffered.put("<interrupted-watch>", "RECONCILE");
+                lastEventAt = startedAt - Math.max(debounceMs, 1L);
+                System.out.println("Recovering interrupted watch rebuild in background");
+            }
             boolean pendingReconciliation = false;
             boolean fastPathEnabled = true;
             int iterations = 0;
             int parseRetryCount = 0;
             long parseRetryAt = Long.MAX_VALUE;
             long lastAttemptAt = startedAt;
+            long dirtyGeneration = 0;
+            Future<FlushResult> backgroundFull = null;
+            Map<String, String> backgroundAttempt = Map.of();
+            BuildEnvironmentCheck backgroundBuildCheck = null;
+            boolean backgroundCompleteEvents = false;
 
             while (!Thread.currentThread().isInterrupted()) {
                 WatchKey k = ws.poll(100, TimeUnit.MILLISECONDS);
@@ -251,6 +302,7 @@ public class WatchCommand implements Callable<Integer> {
                         if (kind == StandardWatchEventKinds.OVERFLOW) {
                             reconciliationRequired = true;
                             buffered.put("<watch-overflow>", "OVERFLOW");
+                            dirtyGeneration++;
                             lastEventAt = now;
                             continue;
                         }
@@ -294,10 +346,37 @@ public class WatchCommand implements Callable<Integer> {
                                 : kind == StandardWatchEventKinds.ENTRY_DELETE ? "DELETE"
                                 : "MODIFY";
                         buffered.put(rel, label);
+                        dirtyGeneration++;
                         lastEventAt = now;
                     }
                     boolean valid = k.reset();
                     if (!valid) keys.remove(k);
+                }
+
+                // A full rebuild runs on a dedicated worker. The watch loop must
+                // keep draining WatchService while it is parsing a large project.
+                FlushResult result = null;
+                Map<String, String> attempt = null;
+                BuildEnvironmentCheck buildCheck = null;
+                boolean forceFull = false;
+                boolean completeEvents = false;
+                boolean resultFromBackground = false;
+                if (backgroundFull != null && backgroundFull.isDone()) {
+                    try {
+                        result = backgroundFull.get();
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        return 1;
+                    } catch (ExecutionException ex) {
+                        System.err.println("WARN: background full rebuild failed: " + ex.getCause());
+                        result = FlushResult.failed();
+                    }
+                    attempt = backgroundAttempt;
+                    buildCheck = backgroundBuildCheck;
+                    forceFull = true;
+                    completeEvents = backgroundCompleteEvents;
+                    resultFromBackground = true;
+                    backgroundFull = null;
                 }
 
                 // Flush after debounce, or retry a transient parse failure even
@@ -306,27 +385,54 @@ public class WatchCommand implements Callable<Integer> {
                 boolean eventFlushDue = !buffered.isEmpty() && now - lastEventAt >= effectiveDebounce;
                 boolean parseRetryDue = buffered.isEmpty() && !pending.isEmpty()
                         && parseRetryAt != Long.MAX_VALUE && now >= parseRetryAt;
-                if (eventFlushDue || parseRetryDue) {
+                if (result == null && backgroundFull == null && (eventFlushDue || parseRetryDue)) {
                     if (eventFlushDue) {
                         parseRetryCount = 0;
                         parseRetryAt = Long.MAX_VALUE;
                     }
-                    Map<String, String> attempt = new HashMap<>(pending);
+                    attempt = new HashMap<>(pending);
                     attempt.putAll(buffered);
                     boolean attemptIncludesBuild = buildFileTouched
                             || containsBuildFile(projectRoot, attempt.keySet(), watchedBuildFiles);
-                    BuildEnvironmentCheck buildCheck = attemptIncludesBuild
+                    buildCheck = attemptIncludesBuild
                             ? checkBuildEnvironment(cd, projectRoot, dbPath)
                             : null;
-                    boolean forceFull = pendingFullReindex
-                            || (buildCheck != null && buildCheck.changed());
-                    boolean completeEvents = fastPathEnabled
+                    forceFull = pendingFullReindex
+                            || (buildCheck != null && buildCheck.changed())
+                            || (autoIndex && needsBootstrapFull(dbPath));
+                    completeEvents = fastPathEnabled
                             && !pendingReconciliation && !reconciliationRequired;
-                    FlushResult result = flush(projectRoot, sourcePaths, classpath, noClasspath,
-                            vmClasspath, javaVersion, dbPath, attempt, forceFull, autoIndex,
-                            resolvedRoots, new ArrayList<>(springXmlInventory), parserSessions,
-                            fingerprintCache, incrementalSession, completeEvents, eventFlushDue);
+                    if (forceFull && autoIndex && configuredFullPolicy == FullPolicy.BACKGROUND) {
+                        printEvents(attempt, eventFlushDue);
+                        System.out.println("Full re-index scheduled in background");
+                        backgroundAttempt = Map.copyOf(attempt);
+                        backgroundBuildCheck = buildCheck;
+                        backgroundCompleteEvents = completeEvents;
+                        Map<String, String> rebuildAttempt = backgroundAttempt;
+                        long rebuildGeneration = dirtyGeneration;
+                        backgroundFull = fullRebuildWorker.submit(() -> rebuildInBackground(projectRoot,
+                                classpath, noClasspath, vmClasspath, javaVersion, dbPath, rebuildAttempt,
+                                rebuildGeneration));
+                        buffered.clear();
+                        buildFileTouched = false;
+                        reconciliationRequired = false;
+                        lastAttemptAt = now;
+                        continue;
+                    }
+                    if (forceFull && autoIndex && configuredFullPolicy == FullPolicy.MANUAL) {
+                        IndexStateStore.write(dbPath, IndexStateStore.State.STALE,
+                                "full rebuild required; run anatomist index manually", dirtyGeneration, null);
+                        printEvents(attempt, eventFlushDue);
+                        result = FlushResult.success();
+                    } else {
+                        result = flush(projectRoot, sourcePaths, classpath, noClasspath,
+                                vmClasspath, javaVersion, dbPath, attempt, forceFull, autoIndex,
+                                resolvedRoots, new ArrayList<>(springXmlInventory), parserSessions,
+                                fingerprintCache, incrementalSession, completeEvents, eventFlushDue);
+                    }
                     lastAttemptAt = now;
+                }
+                if (result != null) {
                     if (result.status() == FlushStatus.SUCCESS) {
                         pending.clear();
                         pendingFullReindex = false;
@@ -358,6 +464,9 @@ public class WatchCommand implements Callable<Integer> {
                         }
                         // A successful full/reconciliation establishes a complete disk snapshot.
                         fastPathEnabled = true;
+                        if (autoIndex && configuredFullPolicy != FullPolicy.MANUAL) {
+                            IndexStateStore.clear(dbPath);
+                        }
                     } else if (result.status() == FlushStatus.RETRYABLE_PARSE) {
                         pending.clear();
                         pending.putAll(attempt);
@@ -385,6 +494,14 @@ public class WatchCommand implements Callable<Integer> {
                                     + MAX_PARSE_RETRIES + " retries; previous index retained; "
                                     + "waiting for next file event: " + parseFailure.sourceFiles());
                         }
+                    } else if (result.status() == FlushStatus.FULL_REQUIRED) {
+                        pending.clear();
+                        pending.putAll(attempt);
+                        pendingFullReindex = true;
+                        pendingReconciliation = !completeEvents;
+                        parseRetryCount = 0;
+                        parseRetryAt = now;
+                        System.out.println("Full re-index required; scheduling according to --full-policy");
                     } else {
                         pending.clear();
                         pending.putAll(attempt);
@@ -396,9 +513,11 @@ public class WatchCommand implements Callable<Integer> {
                                 + pending.size() + " pending change(s)");
                         if (failFast) return 1;
                     }
-                    buffered.clear();
-                    buildFileTouched = false;
-                    reconciliationRequired = false;
+                    if (!resultFromBackground) {
+                        buffered.clear();
+                        buildFileTouched = false;
+                        reconciliationRequired = false;
+                    }
                     iterations++;
                     if (maxIterations > 0 && iterations >= maxIterations) {
                         return pending.isEmpty() ? 0 : 1;
@@ -407,6 +526,7 @@ public class WatchCommand implements Callable<Integer> {
 
                 if (idleTimeoutMs > 0 && buffered.isEmpty()
                         && parseRetryAt == Long.MAX_VALUE
+                        && backgroundFull == null
                         && now - Math.max(Math.max(lastEventAt, lastAttemptAt), startedAt)
                         > idleTimeoutMs) {
                     break;
@@ -418,8 +538,90 @@ public class WatchCommand implements Callable<Integer> {
             return 1;
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
+        } finally {
+            fullRebuildWorker.shutdownNow();
+            if (watchLease != null) watchLease.close();
         }
         return 0;
+    }
+
+    private FlushResult rebuildInBackground(Path projectRoot, String classpathOverride,
+                                            boolean noClasspath, boolean vmClasspath,
+                                            Integer javaVersion, Path liveDb,
+                                            Map<String, String> dirtyFiles, long dirtyGeneration) {
+        Path temporary = liveDb.resolveSibling(liveDb.getFileName() + ".rebuild-"
+                + UUID.randomUUID() + ".db");
+        IndexStateStore.write(liveDb, IndexStateStore.State.REBUILDING,
+                "full rebuild required", dirtyGeneration, temporary);
+        try (IndexOperationLock ignored = IndexOperationLock.forWrite(liveDb)) {
+            System.out.println("Full re-index (background)");
+            IndexCommand command = configuredFullCommand(projectRoot, classpathOverride,
+                    noClasspath, vmClasspath, javaVersion, temporary, liveDb);
+            FlushResult result = classifyOutcome(command, indexCommandRunner.run(command));
+            if (result.status() != FlushStatus.SUCCESS) {
+                IndexStateStore.write(liveDb, IndexStateStore.State.FAILED,
+                        "background full index failed", dirtyGeneration, temporary);
+                return result;
+            }
+            // Test runners may intentionally avoid materialising a SQLite file. In
+            // production a successful full command always creates this target.
+            if (Files.isRegularFile(temporary)) {
+                try (IndexLock ignoredLive = IndexLock.forWrite(liveDb)) {
+                    IndexFileSwap.promote(temporary, liveDb);
+                }
+            }
+            IndexStateStore.clear(liveDb);
+            return FlushResult.success();
+        } catch (Exception ex) {
+            System.err.println("WARN: background full rebuild failed: " + ex.getMessage());
+            IndexStateStore.write(liveDb, IndexStateStore.State.FAILED,
+                    ex.getMessage(), dirtyGeneration, temporary);
+            return FlushResult.failed();
+        } finally {
+            IndexStateStore.cleanupTemporary(temporary.toString());
+        }
+    }
+
+    private IndexCommand configuredFullCommand(Path projectRoot, String classpathOverride,
+                                                boolean noClasspath, boolean vmClasspath,
+                                                Integer javaVersion, Path outputPath, Path liveDb) {
+        IndexCommand command = new IndexCommand();
+        List<String> args = new ArrayList<>();
+        args.add(projectRoot.toString());
+        if (projectSource != null) { args.add("--project-source"); args.add(projectSource); }
+        for (String spec : sourceRootSpecs) { args.add("--source-root"); args.add(spec); }
+        if (includeTests) args.add("--include-tests");
+        if (noClasspath) args.add("--no-classpath");
+        if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
+        args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
+        if (javaVersion != null) { args.add("--java-version"); args.add(String.valueOf(javaVersion)); }
+        args.add("--output"); args.add(outputPath.toString());
+        if (springXml) args.add("--spring-xml");
+        if (strictHealth) args.add("--strict-health");
+        if (timings) args.add("--timings");
+        args.add("--full");
+        new CommandLine(command).parseArgs(args.toArray(new String[0]));
+        command.setOperationLockPath(liveDb);
+        return command;
+    }
+
+    private static void printEvents(Map<String, String> events, boolean print) {
+        if (!print) return;
+        for (Map.Entry<String, String> event : events.entrySet()) {
+            System.out.println("[" + event.getValue() + "] " + event.getKey());
+        }
+    }
+
+    private static boolean needsBootstrapFull(Path dbPath) {
+        if (!Files.isRegularFile(dbPath)) return true;
+        try (SqliteStore store = new SqliteStore(dbPath)) {
+            return !store.schemaExists() || !store.schemaCompatible() || store.readFileCache().isEmpty();
+        } catch (RuntimeException ex) {
+            // A corrupt/unreadable DB is an operational failure, not a safe
+            // schema upgrade. Preserve the existing failure-and-pending-path
+            // behavior instead of silently replacing it.
+            return false;
+        }
     }
 
     private FlushResult flush(Path projectRoot, List<Path> sourcePaths, String classpathOverride,
@@ -487,6 +689,7 @@ public class WatchCommand implements Callable<Integer> {
             ic.setExecutionHints(new IndexExecutionHints(
                     resolvedRoots, buffered.keySet(), springXmlInventory, parserSessions,
                     fingerprintCache, incrementalSession, completeEvents));
+            ic.deferFullFallbackForWatch();
             return classifyOutcome(ic, indexCommandRunner.run(ic));
         } catch (Exception ex) {
             System.err.println("WARN: auto-index failed: " + ex.getMessage());
@@ -498,6 +701,9 @@ public class WatchCommand implements Callable<Integer> {
         if (outcome.exitCode() == 0) return FlushResult.success();
         if (outcome.cause() instanceof IncrementalParseException parseFailure) {
             return FlushResult.retryableParse(parseFailure);
+        }
+        if (outcome.cause() instanceof FullRebuildRequiredException) {
+            return FlushResult.fullRequired();
         }
         command.reportOutcome(outcome);
         return FlushResult.failed();
@@ -516,7 +722,22 @@ public class WatchCommand implements Callable<Integer> {
     private enum FlushStatus {
         SUCCESS,
         RETRYABLE_PARSE,
+        FULL_REQUIRED,
         FAILED
+    }
+
+    private enum FullPolicy {
+        BACKGROUND,
+        INLINE,
+        MANUAL;
+
+        static FullPolicy parse(String raw) {
+            try {
+                return FullPolicy.valueOf(raw == null ? "BACKGROUND" : raw.trim().toUpperCase());
+            } catch (IllegalArgumentException ex) {
+                throw new IllegalArgumentException("--full-policy must be background, inline, or manual");
+            }
+        }
     }
 
     private record FlushResult(FlushStatus status, IncrementalParseException parseFailure) {
@@ -526,6 +747,10 @@ public class WatchCommand implements Callable<Integer> {
 
         static FlushResult retryableParse(IncrementalParseException failure) {
             return new FlushResult(FlushStatus.RETRYABLE_PARSE, failure);
+        }
+
+        static FlushResult fullRequired() {
+            return new FlushResult(FlushStatus.FULL_REQUIRED, null);
         }
 
         static FlushResult failed() {

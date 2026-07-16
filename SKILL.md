@@ -42,6 +42,28 @@ Index rules:
 | Incremental `metadata_git` is slow | Inspect `doctor.git_untracked_cache`; recommend `git config core.untrackedCache true`, but never run it without user authorization. |
 | High-fanout Java file changed | Stable symbols keep incoming edges; only removed/contract-changed symbols expand through exact callers. A `symbol impact N>limit` message means the precise set crossed `--max-realign-files`. |
 
+## Agent query gate (P0)
+
+Before answering any question with static code facts, an Agent must synchronize
+the index for the current checkout, then query only if that command succeeds.
+Do this even when no `watch` process is running:
+
+```bash
+anatomist index <project-root> --incremental --strict-health --format json --output <db> \
+  && anatomist <query-command> --index <db> ...
+```
+
+| Situation | Gate |
+|---|---|
+| Normal local checkout | `index --incremental --strict-health` before every independent query session. A no-change pass checks file metadata but does not run Maven detection, JavaParser, or graph replacement. |
+| Content may have been rewritten with restored size/mtime | Add `--verify-content`; it hashes every indexed source but still does not reparse or rewrite an unchanged graph. |
+| First index used non-default source/classpath flags | Reuse the same `--project-source` or every `--source-root`, `--include-tests`, `--spring-xml`, classpath policy, and `--java-version`. |
+| Gate exits non-zero | Do not issue a code query or present old-index facts as current. Report the failed index/health result instead. |
+
+`doctor` is read-only. `freshness_state=idle` means the last watcher operation
+finished; it does not compare the current source tree with the DB, so it cannot
+replace this gate.
+
 Snapshot check:
 
 ```bash
@@ -69,7 +91,7 @@ architecture, inspect framework wiring, and verify evidence freshness.
 | Field relation | "Who holds Foo / who reads this field?" | `used-by <Foo>` filtered to `context=field_type`; `field-access <Owner>#<field>` | Composition and READS/WRITES are different facts. |
 | Architecture map | "How do packages/layers depend?" | `overview --deps-only`; `deps-of <anchor>`; `used-by <anchor>` | State the architecture rule before calling something a smell. |
 | Framework wiring | "How is Spring wired?" | `bean-config <bean> --property <name>` for XML map/list trees; `deps-of` / `used-by` for `INJECTS`, `WIRES`, `DEFINED_BY` | Completeness depends on classpath and `--spring-xml`. |
-| Evidence hygiene | "Is this index current / keep it fresh?" | `doctor --format json`; query `project_meta`; `watch <root> --auto-index --output <db>` plus the original index flags | Report index freshness; watch keeps static facts fresh, not runtime execution proof; stop watch processes when no longer needed. |
+| Evidence hygiene | "Is this index current / keep it fresh?" | For a one-off/static answer, run the Agent query gate first; then `doctor --format json`. For continuous edits use `watch <root> --auto-index --output <db>` plus the original index flags. | `doctor` reports DB/watch state but does not detect offline edits; watch keeps static facts fresh, not runtime execution proof. |
 
 ## Task details
 
@@ -195,7 +217,7 @@ or code generation. Do not start it for a one-off query.
 anatomist watch <root> --auto-index --output <db> \
   --project-source <same-as-index> \
   [--include-tests] [--spring-xml] [--no-classpath|--classpath <same-as-index>] \
-  [--java-version <same-as-index>]
+  [--java-version <same-as-index>] [--full-policy background]
 ```
 
 Rules:
@@ -211,6 +233,8 @@ Rules:
 | No files changed in the index cache | `index --incremental` returns quickly and does not re-run Maven classpath detection. |
 | Java/test source changed and the prior full index used Maven classpath detection | `index --incremental` / `watch --auto-index` reuses cached classpath metadata instead of re-running Maven. |
 | Build file changed | Watch re-detects source roots, Java version, and classpath artifacts. It continues incrementally when the environment fingerprint is unchanged and runs one full index when it changed. |
+| Large full rebuild | Default `background` keeps collecting events and swaps a complete temporary DB only after replay. Check `doctor.freshness_state`; old graph results can be stale while rebuilding. |
+| `WATCH_ALREADY_RUNNING` | Another auto-index watcher owns this DB. Reuse that process or choose a different `--output`. |
 | User asks "did this run online?" | `watch` is not enough; ask for logs, traces, metrics, or runtime evidence. |
 
 Explain the boundary as:

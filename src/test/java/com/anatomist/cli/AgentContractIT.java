@@ -2,6 +2,7 @@ package com.anatomist.cli;
 
 import com.anatomist.json.Json;
 import com.anatomist.test.CliTestSupport;
+import com.anatomist.store.SqliteStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -44,6 +45,7 @@ class AgentContractIT {
         Map<?, ?> json = asObject(r.stdout);
         assertEquals("doctor", json.get("command"));
         assertEquals("ok", json.get("status"));
+        assertEquals("idle", json.get("freshness_state"));
         assertEquals(Boolean.TRUE, json.get("index_exists"));
         assertTrue(((List<?>) json.get("commands")).contains("search"));
         assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
@@ -124,6 +126,22 @@ class AgentContractIT {
                 "--index", db.toString());
         assertEquals(3, survey.exitCode, survey.stderr);
         assertEquals("degraded", asObject(survey.stdout).get("health"));
+    }
+
+    @Test
+    void doctorRejectsCompatibleButEmptyIndex(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("empty.db");
+        try (SqliteStore store = new SqliteStore(db)) {
+            store.initSchema();
+        }
+
+        RunResult doctor = runCli("doctor", "--strict-health", "--format", "json",
+                "--index", db.toString());
+        assertEquals(3, doctor.exitCode, doctor.stderr);
+        Map<?, ?> json = asObject(doctor.stdout);
+        assertEquals("degraded", json.get("status"));
+        assertEquals("unhealthy", json.get("health"));
+        assertEquals("INDEX_EMPTY", ((Map<?, ?>) ((List<?>) json.get("errors")).get(0)).get("code"));
     }
 
     @Test

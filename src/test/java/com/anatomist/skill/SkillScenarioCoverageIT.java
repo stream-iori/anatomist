@@ -73,6 +73,17 @@ class SkillScenarioCoverageIT {
     }
 
     @Test
+    void skillRequiresAgentQueryGateBeforeStaticQueries() throws Exception {
+        Path skill = Path.of(System.getProperty("user.dir")).resolve("SKILL.md");
+        String content = Files.readString(skill);
+
+        assertTrue(content.contains("## Agent query gate (P0)"));
+        assertTrue(content.contains("index <project-root> --incremental --strict-health --format json"));
+        assertTrue(content.contains("Do not issue a code query"));
+        assertTrue(content.contains("`doctor` is read-only"));
+    }
+
+    @Test
     void forwardReverseAndCallPathScenariosAreCovered() {
         try (QueryService q = new QueryService(dbPath)) {
             List<EdgeRow> forward = q.calleesOf(

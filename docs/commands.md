@@ -140,7 +140,8 @@ Monitor source tree, report or auto-index changes.
 ```bash
 anatomist watch <project-path> [--auto-index] [--debounce-ms 500]
 anatomist watch <project-path> --auto-index --output <db> \
-  --project-source <paths> [--spring-xml] [--timings] [--no-classpath|--classpath <jars>]
+  --project-source <paths> [--spring-xml] [--timings] [--no-classpath|--classpath <jars>] \
+  [--full-policy background|inline|manual]
 ```
 
 Use `watch` to keep an existing index fresh while editing. It is a file-change
@@ -152,8 +153,12 @@ watcher, not a runtime tracer.
 | Source change with `--auto-index` | Run `index --incremental` against the same DB. |
 | Body-only or uniquely named member addition | Contract fingerprint stays stable, so update stable nodes in place; preserve incoming edges and Spring wiring without reparsing unchanged callers. |
 | Removed/renamed/contract-changed symbol or overload family | Reparse only source files selected by exact internal/external symbol edges. |
-| Build-file change (`pom.xml`, Gradle settings) | Re-resolve the index environment. Continue incrementally when source roots, Java version, classpath artifacts, and Spring mode are unchanged; otherwise full re-index once. |
-| Incremental cannot be trusted | `index --incremental` degrades to full, for example empty cache, schema mismatch, or a symbol-impact set above `--max-realign-files`. |
+| Build-file change (`pom.xml`, Gradle settings) | Re-resolve the index environment. Continue incrementally when inputs are unchanged; otherwise request a full rebuild. |
+| Incremental cannot be trusted | Empty cache, schema mismatch, source-layout drift, or a symbol-impact cap requests a full rebuild rather than blocking the event loop. |
+| `--full-policy background` | Default. Build a sibling temporary DB while WatchService keeps collecting events; replay collected changes, then switch the complete DB under a short lock. |
+| `--full-policy inline` | Legacy behavior: run full indexing in the watch process. Use only when blocking event collection is acceptable. |
+| `--full-policy manual` | Keep the existing DB and mark it stale; run `anatomist index ... --full` yourself. |
+| Second `watch --auto-index` for one DB | Fails with `WATCH_ALREADY_RUNNING`; one process must own the event stream. |
 | Changed Java is temporarily unparsable | Keep the previous committed index and retry three times at `max(100ms, debounce-ms)` even if no second filesystem event arrives. |
 | Parse retries are exhausted | Retain pending paths without a busy loop; the next source event resets the retry budget. Idle/iteration shutdown returns non-zero while work remains pending. |
 | Other auto-index failure | Retain pending paths but do not enter the timed parse-retry loop. |
@@ -179,7 +184,9 @@ updated in place. Removed or contract-changed
 symbols expand the batch through exact incoming edges, overload families, unresolved
 external targets, and type owners until the impact set reaches a fixed point.
 Filesystem overflow triggers reconciliation. Source-layout/environment changes fall back to
-the full correctness scan. `--max-realign-files` is a hard safety cap (default 1000);
+the full correctness scan. Background rebuilds keep the old complete index queryable; use
+`doctor --index <db> --format json` and inspect `freshness_state` before relying on it as
+current. `--max-realign-files` is a hard safety cap (default 1000);
 below it, stored full/incremental timings choose incremental work only when its estimated
 cost is at most 70% of the full baseline. Without history, the fallback budget is 20% of
 Java files with a 200-file floor. Realignment parsing is streamed in batches of at most 128.
@@ -189,6 +196,29 @@ branch, callback, bean profile, or runtime path actually executed.
 
 See [Troubleshooting](troubleshooting.md#watch-reports-a-java-parse-failure) for
 parse errors observed during editor or code-generator writes.
+
+### Agent query gate (P0)
+
+Query commands are read-only: they do not index the current checkout first.
+For a one-off Agent session, synchronize before querying and let the shell stop
+on an index or health failure:
+
+```bash
+anatomist index <project-path> --incremental --strict-health --format json --output <db> \
+  && anatomist search OrderService --index <db>
+```
+
+| Case | Result |
+|---|---|
+| No source changes | Scan file metadata and return `Changed files: 0`; Maven detection, JavaParser, and graph replacement are skipped. |
+| Source changes | Reparse the affected closure; incompatible environment/schema or excessive impact falls back to a full index. |
+| Exact content verification required | Add `--verify-content`. This hashes every indexed file, but an unchanged graph is still not reparsed or rewritten. |
+| Initial index used non-default flags | Reuse its `--project-source` / `--source-root`, `--include-tests`, `--spring-xml`, classpath policy, and `--java-version` in the gate. |
+| Gate fails | Do not issue a query or call an older graph current. |
+
+`doctor --strict-health` verifies the existing DB but does not inspect source
+files; `freshness_state=idle` only says a watcher operation finished. It is not
+a substitute for the Agent query gate when users edited code without `watch`.
 
 ## Query Phase
 

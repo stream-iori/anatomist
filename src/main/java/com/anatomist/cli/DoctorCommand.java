@@ -2,6 +2,7 @@ package com.anatomist.cli;
 
 import com.anatomist.store.FileCacheService;
 import com.anatomist.json.Json;
+import com.anatomist.store.IndexStateStore;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -40,6 +41,10 @@ public class DoctorCommand implements Callable<Integer> {
         out.put("default_index_path", defaultPath.toString());
         out.put("index_path", db.toString());
         out.put("index_exists", exists);
+        IndexStateStore.Snapshot freshness = IndexStateStore.read(db);
+        out.put("freshness_state", freshness.state().name().toLowerCase());
+        if (freshness.reason() != null) out.put("rebuild_reason", freshness.reason());
+        if (freshness.dirtyGeneration() > 0) out.put("dirty_generation", freshness.dirtyGeneration());
         out.put("commands", List.of(
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
@@ -78,8 +83,19 @@ public class DoctorCommand implements Callable<Integer> {
                                             + "git config core.untrackedCache true"));
                         }
                     }
-                    out.put("node_kinds", store.queryKindCounts());
-                    out.put("relations", store.queryRelationCounts());
+                    Map<String, Long> nodeKinds = store.queryKindCounts();
+                    Map<String, Long> relations = store.queryRelationCounts();
+                    out.put("node_kinds", nodeKinds);
+                    out.put("relations", relations);
+                    if (nodeKinds.isEmpty() || store.readFileCache().isEmpty()) {
+                        out.put("status", "degraded");
+                        out.put("health", "unhealthy");
+                        out.put("diagnostics", List.of());
+                        out.put("warnings", List.of());
+                        out.put("errors", List.of(Map.of("code", "INDEX_EMPTY",
+                                "message", "index schema exists but no committed graph is available")));
+                        return emit(out, db, exists);
+                    }
                     com.anatomist.core.IndexHealthReport health =
                             com.anatomist.core.IndexHealthService.read(store);
                     out.put("health", health.status().name().toLowerCase());
@@ -93,6 +109,10 @@ public class DoctorCommand implements Callable<Integer> {
             }
         }
 
+        return emit(out, db, exists);
+    }
+
+    private int emit(Map<String, Object> out, Path db, boolean exists) {
         if ("json".equalsIgnoreCase(format)) {
             System.out.println(Json.writePretty(out));
         } else {

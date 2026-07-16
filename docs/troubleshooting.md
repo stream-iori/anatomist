@@ -83,6 +83,30 @@ Do not delete a sidecar while its matching index command holds the write lock.
 After confirming no index/watch process is running, orphaned sidecars can be
 removed safely. A normal successful run leaves none behind.
 
+## Watch is rebuilding in the background
+
+With the default `watch --full-policy background`, a large full rebuild writes a
+temporary `index.db.rebuild-<uuid>.db` while the prior committed `index.db`
+remains readable. Watch continues collecting paths and applies them after the
+replacement is promoted.
+
+```text
+old complete index ──query──> available
+                     \-> temporary full build -> replay events -> short locked swap
+```
+
+Use `doctor --index <db> --format json` to inspect `freshness_state`:
+
+| State | Meaning |
+|---|---|
+| `idle` | The last watcher operation completed. |
+| `rebuilding` / `incremental` | The graph remains internally complete but may lag new files. |
+| `stale` / `failed` | Rebuild did not complete; inspect `rebuild_reason` and run a full index if needed. |
+
+If a watcher is interrupted, the next auto-index watcher cleans the abandoned
+temporary DB, marks the index stale, and reconciles the source tree before
+accepting new work. Do not start a second `--auto-index` watcher for the same DB.
+
 ## Incremental scan misses a content change with restored timestamps
 
 Schema v7 stores SHA-256 together with file size, nanosecond mtime, a Java
