@@ -90,6 +90,7 @@ public final class GraphConstants {
         public static final String CONSTRUCTOR = "CONSTRUCTOR";
         public static final String INSTANCE = "INSTANCE";
         public static final String INTERFACE = "INTERFACE";
+        public static final String REFLECTION = "REFLECTION";
         public static final String STATIC = "STATIC";
         public static final String SUPER = "SUPER";
 
@@ -99,6 +100,7 @@ public final class GraphConstants {
     public static final class MetadataVia {
         public static final String INJECTION = "injection";
         public static final String INJECTED_CALL = "injected-call";
+        public static final String REFLECTION = "reflection";
 
         private MetadataVia() {}
     }

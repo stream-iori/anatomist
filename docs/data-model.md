@@ -9,7 +9,7 @@ From scenario requirements, only store what Agent actually queries.
 | Relation | Source | What's Stored | Use Case |
 |----------|--------|---------------|----------|
 | **CONTAINS** | Class/Enum → Method/Field | parent → child node | "What methods does OrderService have?" |
-| **CALLS** | `MethodCallExpr.resolve()` | caller method → callee method; `call_kind` = INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE | Call chain tracing, impact analysis |
+| **CALLS** | `MethodCallExpr.resolve()` or exact reflection handle propagation | caller method → callee method; `call_kind` = INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE/REFLECTION | Call chain tracing, impact analysis |
 | **INHERITS** | `getAncestors()` class ancestors | child → parent class | Inheritance chain |
 | **IMPLEMENTS** | `getAncestors()` interface ancestors | implementor → interface | "Who implements this interface?" |
 | **ANNOTATED_WITH** | `getAnnotations().resolve()` | node → annotation | "All nodes annotated with @Deprecated" |
@@ -19,7 +19,7 @@ From scenario requirements, only store what Agent actually queries.
 | Relation | Source | What's Stored | Use Case |
 |----------|--------|---------------|----------|
 | **OVERRIDES** | Method resolution against parent methods | child method → parent method | Polymorphic dispatch |
-| **REFERENCES** | Field/param/return type resolution | user → referenced type | Dependency analysis, deletion impact |
+| **REFERENCES** | Field/param/return type or exact reflection lookup resolution | user → referenced type/member | Dependency analysis, deletion impact |
 | **READS** | NameExpr/FieldAccessExpr not on assignment LHS | method → field | "Who reads order.status?" |
 | **WRITES** | AssignExpr/UnaryExpr LHS field | method → field | "Who modifies order.status?" |
 
@@ -184,8 +184,8 @@ XML_*:                  parent XML id + segment + source location      → bean:
 | `target_id` | TEXT FK→nodes.id | Callee/parent/contained; **internal only**, NULL for external |
 | `external_target_fqn` | TEXT | External dep FQN (e.g. `java.util.List#add`); NULL for internal |
 | `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO |
-| `call_kind` | TEXT | CALLS only: INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE |
-| `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for query-time dispatch bridges |
+| `call_kind` | TEXT | CALLS only: INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE/REFLECTION |
+| `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for derived dispatch/reflection bridges |
 | `context` | TEXT | CALLS/READS/WRITES: lightweight control path such as `for@L4>if-then@L5`; REFERENCES: field_type/parameter_type/return_type/generic_arg |
 | `is_external` | INTEGER | 0=internal, 1=external |
 | `source_file` | TEXT | Relative source file path when known |
@@ -237,6 +237,24 @@ and reason. Stable reasons include `INTERNAL_SYMBOL_MISSING`,
 `FIELD_NOT_FOUND`, `GENERIC_INFERENCE_FAILED`, `AMBIGUOUS_OVERLOAD`, and
 `UNSUPPORTED_RESOLUTION`. Parsing failures use `JAVA_PARSE_FAILED`.
 
+## Core reflection facts
+
+Core reflection analysis runs by default and does not require `--dataflow`.
+It recognizes SymbolSolver-confirmed JDK APIs only:
+
+| Source pattern | Stored fact |
+|---|---|
+| `Class.forName("p.Target")` | `REFERENCES` target type |
+| `Target.class.getMethod("run", String.class)` | `REFERENCES` target method |
+| `getConstructor(...)` / `getDeclaredConstructor(...)` | `REFERENCES` target constructor |
+| `Method.invoke(...)` / `Constructor.newInstance(...)` | `CALLS`, `call_kind=REFLECTION` |
+
+Generated facts use `confidence=INFERRED` and JSON metadata containing
+`via=reflection`, `operation`, `resolution=EXACT`, target class/member/signature,
+lookup mode, and value source. Local strings and reflection handles are
+propagated conservatively inside one executable body. Unknown, conflicting, or
+non-unique values produce no target fact.
+
 ## Flow tables
 
 Flow facts are separate from the structural `nodes`/`edges` graph:
@@ -248,9 +266,9 @@ Flow facts are separate from the structural `nodes`/`edges` graph:
 | `method_flow_summaries` | Compact input-slot to return/exception dependencies |
 
 Arrays are treated as whole objects. Branches merge reaching-definition sets;
-loops use a conservative entry/body join. Heap aliasing, reflection, runtime
-proxy dispatch, SAT/path feasibility, and implicit runtime exceptions are not
-claimed.
+loops use a conservative entry/body join. Heap aliasing, reflection beyond the
+bounded core patterns above, runtime proxy dispatch, SAT/path feasibility, and
+implicit runtime exceptions are not claimed.
 
 `source_window` is not stored as a table. It is derived at query time from:
 

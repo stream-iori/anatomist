@@ -427,7 +427,9 @@ public class CallGraphService {
         for (Iterator<EdgeRow> it = rows.iterator(); it.hasNext();) {
             EdgeRow r = it.next();
             String key = r.source + "→" + (r.target != null ? r.target : r.externalTargetFqn)
-                    + "@" + r.depth;
+                    + "@" + r.depth
+                    + (GraphConstants.CallKind.REFLECTION.equals(r.callKind)
+                    ? ":" + GraphConstants.CallKind.REFLECTION : "");
             if (!seen.add(key)) it.remove();
         }
         return rows;

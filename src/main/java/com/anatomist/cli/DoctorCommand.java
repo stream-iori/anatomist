@@ -76,6 +76,7 @@ public class DoctorCommand implements Callable<Integer> {
                 "json-query-output", "index-json-summary",
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
                 "branch-context-slices", "source-snapshot-fingerprint",
+                "core-reflection",
                 "cfg", "def-use", "interprocedural-flow", "exception-flow", "taint-flow"));
 
         if (exists) {

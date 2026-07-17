@@ -166,8 +166,27 @@ anatomist taint-path '*' '*' --depth 30 --index <db>
 ```
 
 Treat `POSSIBLE` and `INFERRED` edges as conservative evidence. Arrays are
-whole-object abstractions; heap aliases, reflection, dynamic proxies, implicit
-runtime exceptions, and SAT/path feasibility remain outside the guarantee.
+whole-object abstractions; heap aliases, reflection beyond the bounded core
+patterns, dynamic proxies, implicit runtime exceptions, and SAT/path
+feasibility remain outside the guarantee.
+
+### Core reflection
+
+Default indexing recognizes exact `Class.forName`, `Class.getMethod` /
+`getDeclaredMethod`, constructor lookup, `Method.invoke`, and
+`Constructor.newInstance` targets. Use existing queries:
+
+```bash
+anatomist deps-of <type> --index <db>
+anatomist callees-of <method> --depth 3 --index <db>
+anatomist callers-of <target-method> --depth 3 --index <db>
+```
+
+Reflection lookup facts are `REFERENCES`; reflective invocations are `CALLS`
+with `call_kind=REFLECTION`. Require `confidence=INFERRED`,
+`metadata.via=reflection`, and `metadata.resolution=EXACT` before describing a
+target. Missing reflection facts mean the value was dynamic, conflicting, or
+outside the bounded patterns; they do not prove no runtime target exists.
 
 ### Type relation
 
@@ -293,6 +312,7 @@ possible. Page large results with `stats.truncated`, `next_offset`, and
 | Assume the DB matches current source | Check `project_meta` when precision matters. |
 | Treat no static path as no runtime path | Mention static-analysis limits. |
 
-Runtime behavior can be incomplete for reflection, profiles, AOP, generated
-code, dynamic dispatch, and configuration-driven routing. Fallback to source,
-config, logs, docs, or runtime evidence when the question depends on those.
+Runtime behavior can still be incomplete for unbounded reflection, profiles,
+AOP, generated code, dynamic dispatch, and configuration-driven routing.
+Fallback to source, config, logs, docs, or runtime evidence when the question
+depends on those.

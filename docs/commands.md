@@ -65,7 +65,7 @@ analysis, graph rewriting, SQLite writes, file-cache/metadata work, dependency
 refresh, `ANALYZE`, and final statistics/health. `full_parse_extract` is further
 split into parser overhead and extractor work; extractor keys identify type,
 field, method, annotation, hierarchy, reference, call-graph, field-access,
-framework-analyzer, and source-origin costs. Parent and nested measurements
+reflection, framework-analyzer, and source-origin costs. Parent and nested measurements
 overlap by design and must not all be summed together.
 
 Full indexing also writes a source snapshot into `project_meta`. The most useful
@@ -341,6 +341,9 @@ anatomist callees-of <method-fqn> --depth 2 --source-window=3 --index <db>
 - `--through-callbacks`: follow CALLS made inside anonymous-class / lambda bodies defined in the method (and nested), attributing them to the method. Essential for template-callback code (`SettleServiceTemplate#execute(callback)`, `TransactionTemplate.execute(...)`, stream lambdas) where the real downstream logic lives in the callback body. Synthesized edges are tagged `call_kind=CALLBACK` (when no original kind) and carry `via=<body-id>` pointing at the callback the call physically came from.
 - `--source-window[=N]`: attach a `source_window` object to each emitted edge, using `source_location` plus `project_meta.source_root`. Default context is 3 lines when the flag is present. Use it when an Agent answer needs source evidence without opening every file separately.
 - `--limit` / `--offset` / `--filter`: page wide call graphs and narrow by source/target/relation substring. JSON always includes paging stats and `budget`, including the first page.
+- Exact `Method.invoke` / `Constructor.newInstance` targets appear as
+  `CALLS` with `call_kind=REFLECTION`, `confidence=INFERRED`, and
+  `metadata.via=reflection`. The original JDK reflection API call remains visible.
 
 `source_window` JSON shape:
 
@@ -411,6 +414,10 @@ Outgoing dependencies (CALLS + REFERENCES + WIRES + INJECTS + HANDLES + DEFINED_
 ```bash
 anatomist deps-of <type> [--limit 50] [--offset 0] [--filter <keyword>] --index <db>
 ```
+
+Exact `Class.forName`, method lookup, and constructor lookup targets appear as
+`REFERENCES` with `metadata.via=reflection`. Dynamic or conflicting values do
+not create guessed targets.
 
 ### `used-by`
 Incoming dependencies (impact analysis), including Spring MVC route handlers and DI/configuration facts.

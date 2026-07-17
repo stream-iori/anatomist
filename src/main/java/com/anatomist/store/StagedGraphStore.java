@@ -373,6 +373,14 @@ public final class StagedGraphStore implements AutoCloseable {
                     + "WHERE n.symbol_id=stage_edges.external_target_fqn)=1");
             reboundExternalTargets += statement.executeUpdate("UPDATE stage_edges SET "
                     + "resolved_target=(SELECT min(n.id) FROM stage_nodes n "
+                    + "WHERE n.symbol_id=replace(stage_edges.external_target_fqn,'$','.')),"
+                    + "external_target_fqn=NULL,is_external=0 "
+                    + "WHERE is_external=1 AND instr(external_target_fqn,'$')>0 "
+                    + "AND metadata LIKE '%\"via\":\"reflection\"%' "
+                    + "AND (SELECT count(*) FROM stage_nodes n "
+                    + "WHERE n.symbol_id=replace(stage_edges.external_target_fqn,'$','.'))=1");
+            reboundExternalTargets += statement.executeUpdate("UPDATE stage_edges SET "
+                    + "resolved_target=(SELECT min(n.id) FROM stage_nodes n "
                     + "WHERE n.arity_key=stage_edges.target_arity_key),external_target_fqn=NULL,is_external=0 "
                     + "WHERE is_external=1 AND target_arity_key IS NOT NULL AND "
                     + "(SELECT count(*) FROM stage_nodes n "

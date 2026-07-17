@@ -62,6 +62,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
         assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));
         assertTrue(((List<?>) json.get("capabilities")).contains("source-snapshot-fingerprint"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("core-reflection"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
         assertEquals(fixture().toRealPath().toString(), json.get("source_root"));

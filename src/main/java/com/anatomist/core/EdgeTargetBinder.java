@@ -41,6 +41,11 @@ public final class EdgeTargetBinder {
             String target = known.contains(e.externalTargetFqn)
                     ? e.externalTargetFqn
                     : uniqueBySymbol.get(e.externalTargetFqn);
+            if (target == null && e.externalTargetFqn.indexOf('$') >= 0
+                    && e.metadata != null
+                    && e.metadata.contains("\"via\":\"reflection\"")) {
+                target = uniqueBySymbol.get(e.externalTargetFqn.replace('$', '.'));
+            }
             if (target == null) {
                 target = uniqueByArity.get(methodArityKey(e.externalTargetFqn));
             }

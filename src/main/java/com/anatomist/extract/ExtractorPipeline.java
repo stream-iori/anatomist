@@ -35,6 +35,7 @@ public class ExtractorPipeline {
                 new TimedExtractor("full_extract_hierarchy", new HierarchyExtractor(ctx)),
                 new TimedExtractor("full_extract_reference", new ReferenceExtractor(ctx)),
                 new TimedExtractor("full_extract_call_graph", new CallGraphExtractor(ctx)),
+                new TimedExtractor("full_extract_reflection", new ReflectionExtractor(ctx)),
                 new TimedExtractor("full_extract_field_access", new FieldAccessExtractor(ctx))
         );
         this.analyzers = analyzers == null ? List.of() : List.copyOf(analyzers);

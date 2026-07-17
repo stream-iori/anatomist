@@ -115,6 +115,27 @@ class EdgeTargetBinderTest {
         assertEquals("com.example.Template#execute(com.example.Child,com.example.Callback)", edge.externalTargetFqn);
     }
 
+    @Test
+    void bindsReflectionBinaryNestedNameToUniqueCanonicalNode() {
+        ExtractionResult result = new ExtractionResult();
+        result.nodes.add(node("com.example.Outer.Inner"));
+
+        Edge edge = new Edge();
+        edge.sourceId = "com.example.Caller#run()";
+        edge.relation = "REFERENCES";
+        edge.externalTargetFqn = "com.example.Outer$Inner";
+        edge.isExternal = true;
+        edge.metadata = "{\"via\":\"reflection\"}";
+        result.edges.add(edge);
+
+        int rebound = EdgeTargetBinder.bindExternalTargets(result);
+
+        assertEquals(1, rebound);
+        assertFalse(edge.isExternal);
+        assertEquals("com.example.Outer.Inner", edge.targetId);
+        assertNull(edge.externalTargetFqn);
+    }
+
     private static Node node(String id) {
         Node n = new Node();
         n.id = id;

@@ -59,6 +59,8 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 - Incremental re-index (only changed files)
 - Java 8–17 Maven/Gradle language-level detection with parse completeness health
 - Explainable resolution diagnostics by file, module, scope, phase, and reason
+- Bounded Java core-reflection targets for `Class.forName`, method/constructor
+  lookup, `Method.invoke`, and `Constructor.newInstance`
 - Optional CFG/def-use/return/exception/guard/taint analysis (`--dataflow`)
 - Spring XML bean wiring (`--spring-xml`)
 - Pagination + keyword filter on all list queries
@@ -68,7 +70,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 
 - No embedded LLM — all reasoning delegated to calling Agent
 - No cross-language (Java only)
-- No runtime/reflection dispatch analysis
+- No unbounded/runtime reflection, dynamic proxy, or AOP dispatch proof
 - No precise heap-alias or path-feasibility solver
 - No vector/semantic similarity (relies on FTS5 + Agent reasoning)
 
