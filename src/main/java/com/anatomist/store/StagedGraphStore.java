@@ -1,9 +1,16 @@
 package com.anatomist.store;
 
 import com.anatomist.core.NodeKeyFactory;
+import com.anatomist.core.IndexTimings;
 import com.anatomist.core.SourceIdentity;
 import com.anatomist.core.SourceIdentityResolver;
 import com.anatomist.extract.XmlBeanExtractor;
+import com.anatomist.flow.FlowEdge;
+import com.anatomist.flow.FlowNode;
+import com.anatomist.flow.FlowPersistence;
+import com.anatomist.flow.FlowResult;
+import com.anatomist.flow.MethodFlowCoverage;
+import com.anatomist.flow.MethodFlowSummary;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
@@ -130,6 +137,78 @@ public final class StagedGraphStore implements AutoCloseable {
         }
     }
 
+    /** Stream high-cardinality flow facts into the same low-overhead sidecar. */
+    public void writeFlowBatch(FlowResult result) {
+        if (result == null || result.factCount() == 0) return;
+        try {
+            Connection c = connection();
+            boolean previous = c.getAutoCommit();
+            c.setAutoCommit(false);
+            try (PreparedStatement nodes = c.prepareStatement(FLOW_NODE_INSERT);
+                 PreparedStatement edges = c.prepareStatement(FLOW_EDGE_INSERT);
+                 PreparedStatement summaries = c.prepareStatement(FLOW_SUMMARY_INSERT);
+                 PreparedStatement coverage = c.prepareStatement(FLOW_COVERAGE_INSERT)) {
+                for (FlowNode node : result.nodes) {
+                    int i = 1;
+                    nodes.setString(i++, node.id());
+                    nodes.setString(i++, node.methodId());
+                    nodes.setString(i++, node.kind());
+                    nodes.setString(i++, node.label());
+                    nodes.setString(i++, node.sourceFile());
+                    nodes.setString(i++, node.module());
+                    nodes.setString(i++, node.scope());
+                    nodes.setInt(i++, node.line());
+                    nodes.setInt(i++, node.column());
+                    nodes.setString(i++, node.calleeMethod());
+                    nodes.setString(i++, node.slot());
+                    nodes.setString(i, node.metadata());
+                    nodes.addBatch();
+                }
+                nodes.executeBatch();
+                for (FlowEdge edge : result.edges) {
+                    int i = 1;
+                    edges.setString(i++, edge.sourceNode());
+                    edges.setString(i++, edge.targetNode());
+                    edges.setString(i++, edge.relation());
+                    edges.setString(i++, edge.methodId());
+                    edges.setString(i++, edge.sourceFile());
+                    edges.setString(i++, edge.confidence());
+                    edges.setString(i++, edge.context());
+                    edges.setString(i, edge.metadata());
+                    edges.addBatch();
+                }
+                edges.executeBatch();
+                for (MethodFlowSummary summary : result.summaries) {
+                    int i = 1;
+                    summaries.setString(i++, summary.methodId());
+                    summaries.setString(i++, summary.inputSlot());
+                    summaries.setString(i++, summary.outputSlot());
+                    summaries.setString(i++, summary.relation());
+                    summaries.setString(i++, summary.sourceFile());
+                    summaries.setString(i++, summary.confidence());
+                    summaries.setString(i, summary.metadata());
+                    summaries.addBatch();
+                }
+                summaries.executeBatch();
+                for (MethodFlowCoverage item : result.coverage) {
+                    coverage.setString(1, item.methodId());
+                    coverage.setString(2, item.sourceFile());
+                    coverage.setString(3, item.detailLevel());
+                    coverage.addBatch();
+                }
+                coverage.executeBatch();
+                c.commit();
+            } catch (SQLException e) {
+                c.rollback();
+                throw e;
+            } finally {
+                c.setAutoCommit(previous);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to write staged flow batch", e);
+        }
+    }
+
     /** Resolve all cross-file references and prune invalid facts using bounded SQL operations. */
     public void finalizeRawFacts() {
         try {
@@ -240,6 +319,186 @@ public final class StagedGraphStore implements AutoCloseable {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to promote incremental staged graph", e);
         }
+    }
+
+    public FlowPersistence.Stats promoteFullFlow(SqliteStore target, IndexTimings timings) {
+        closeConnection();
+        try {
+            Connection c = target.connection();
+            attach(c);
+            try {
+                target.inTransaction(ignored -> {
+                    long started = System.nanoTime();
+                    try (Statement statement = c.createStatement()) {
+                        dropFlowIndexes(statement);
+                    }
+                    addTiming(timings, "flow_index_drop", started);
+
+                    started = System.nanoTime();
+                    try (Statement statement = c.createStatement()) {
+                        statement.executeUpdate("DELETE FROM method_flow_coverage");
+                        statement.executeUpdate("DELETE FROM method_flow_summaries");
+                        statement.executeUpdate("DELETE FROM flow_edges");
+                        statement.executeUpdate("DELETE FROM flow_nodes");
+                    }
+                    addTiming(timings, "flow_delete", started);
+
+                    started = System.nanoTime();
+                    try (Statement statement = c.createStatement()) {
+                        statement.executeUpdate("""
+                                INSERT INTO flow_nodes
+                                  (id,method_id,kind,label,source_file,module,scope,line,column_no,
+                                   callee_method,slot,metadata)
+                                SELECT id,method_id,kind,label,source_file,module,scope,line,column_no,
+                                       callee_method,slot,metadata
+                                FROM staged.stage_flow_nodes ORDER BY seq
+                                """);
+                    }
+                    addTiming(timings, "flow_nodes_insert", started);
+
+                    started = System.nanoTime();
+                    try (Statement statement = c.createStatement()) {
+                        statement.executeUpdate("""
+                                INSERT INTO flow_edges
+                                  (source_node,target_node,relation,method_id,source_file,confidence,
+                                   context,metadata)
+                                SELECT source_node,target_node,relation,method_id,source_file,confidence,
+                                       context,metadata
+                                FROM staged.stage_flow_edges ORDER BY seq
+                                """);
+                    }
+                    addTiming(timings, "flow_edges_insert", started);
+
+                    started = System.nanoTime();
+                    try (Statement statement = c.createStatement()) {
+                        statement.executeUpdate("""
+                                INSERT OR REPLACE INTO method_flow_summaries
+                                  (method_id,input_slot,output_slot,relation,source_file,confidence,metadata)
+                                SELECT method_id,input_slot,output_slot,relation,source_file,confidence,metadata
+                                FROM staged.stage_flow_summaries ORDER BY seq
+                                """);
+                    }
+                    addTiming(timings, "flow_summaries_insert", started);
+
+                    started = System.nanoTime();
+                    try (Statement statement = c.createStatement()) {
+                        statement.executeUpdate("""
+                                INSERT OR REPLACE INTO method_flow_coverage
+                                  (method_id,source_file,detail_level)
+                                SELECT method_id,source_file,detail_level
+                                FROM staged.stage_flow_coverage ORDER BY seq
+                                """);
+                    }
+                    addTiming(timings, "flow_coverage_insert", started);
+
+                    started = System.nanoTime();
+                    try (Statement statement = c.createStatement()) {
+                        createFlowIndexes(statement);
+                    }
+                    addTiming(timings, "flow_index_rebuild", started);
+                    FlowPersistence.relinkInterprocedural(c, timings);
+                });
+            } finally {
+                detach(c);
+            }
+            return FlowPersistence.stats(target);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to promote full staged flow graph", e);
+        }
+    }
+
+    public FlowPersistence.Stats promoteIncrementalFlow(SqliteStore target,
+                                                        List<String> affectedFiles,
+                                                        IndexTimings timings) {
+        if (affectedFiles == null || affectedFiles.isEmpty()) {
+            return FlowPersistence.stats(target);
+        }
+        closeConnection();
+        try {
+            Connection c = target.connection();
+            attach(c);
+            try {
+                target.inTransaction(ignored -> {
+                    String marks = placeholders(affectedFiles.size());
+                    long started = System.nanoTime();
+                    executeForFiles(c, "DELETE FROM method_flow_coverage WHERE source_file IN ("
+                            + marks + ")", affectedFiles);
+                    executeForFiles(c, "DELETE FROM method_flow_summaries WHERE source_file IN ("
+                            + marks + ")", affectedFiles);
+                    executeForFiles(c, "DELETE FROM flow_edges WHERE source_file IN ("
+                            + marks + ")", affectedFiles);
+                    executeForFiles(c, "DELETE FROM flow_nodes WHERE source_file IN ("
+                            + marks + ")", affectedFiles);
+                    addTiming(timings, "flow_delete", started);
+
+                    started = System.nanoTime();
+                    executeForFiles(c, """
+                            INSERT OR REPLACE INTO flow_nodes
+                              (id,method_id,kind,label,source_file,module,scope,line,column_no,
+                               callee_method,slot,metadata)
+                            SELECT id,method_id,kind,label,source_file,module,scope,line,column_no,
+                                   callee_method,slot,metadata
+                            FROM staged.stage_flow_nodes WHERE source_file IN (%s)
+                            """.formatted(marks), affectedFiles);
+                    addTiming(timings, "flow_nodes_insert", started);
+
+                    started = System.nanoTime();
+                    executeForFiles(c, """
+                            INSERT INTO flow_edges
+                              (source_node,target_node,relation,method_id,source_file,confidence,
+                               context,metadata)
+                            SELECT source_node,target_node,relation,method_id,source_file,confidence,
+                                   context,metadata
+                            FROM staged.stage_flow_edges WHERE source_file IN (%s)
+                            """.formatted(marks), affectedFiles);
+                    addTiming(timings, "flow_edges_insert", started);
+
+                    started = System.nanoTime();
+                    executeForFiles(c, """
+                            INSERT OR REPLACE INTO method_flow_summaries
+                              (method_id,input_slot,output_slot,relation,source_file,confidence,metadata)
+                            SELECT method_id,input_slot,output_slot,relation,source_file,confidence,metadata
+                            FROM staged.stage_flow_summaries WHERE source_file IN (%s)
+                            """.formatted(marks), affectedFiles);
+                    addTiming(timings, "flow_summaries_insert", started);
+
+                    started = System.nanoTime();
+                    executeForFiles(c, """
+                            INSERT OR REPLACE INTO method_flow_coverage
+                              (method_id,source_file,detail_level)
+                            SELECT method_id,source_file,detail_level
+                            FROM staged.stage_flow_coverage WHERE source_file IN (%s)
+                            """.formatted(marks), affectedFiles);
+                    addTiming(timings, "flow_coverage_insert", started);
+                    FlowPersistence.relinkInterprocedural(c, timings);
+                });
+            } finally {
+                detach(c);
+            }
+            return FlowPersistence.stats(target);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to promote incremental staged flow graph", e);
+        }
+    }
+
+    private static void executeForFiles(Connection connection, String sql, List<String> files)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            bindFiles(statement, files, 1);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void dropFlowIndexes(Statement statement) throws SQLException {
+        for (String name : FLOW_INDEX_NAMES) statement.execute("DROP INDEX IF EXISTS " + name);
+    }
+
+    private static void createFlowIndexes(Statement statement) throws SQLException {
+        for (String sql : FLOW_INDEX_DEFINITIONS) statement.execute(sql);
+    }
+
+    private static void addTiming(IndexTimings timings, String phase, long started) {
+        if (timings != null) timings.addNanos(phase, System.nanoTime() - started);
     }
 
     public Set<String> allSymbolIds() {
@@ -584,6 +843,10 @@ public final class StagedGraphStore implements AutoCloseable {
         reboundExternalTargets = 0;
         droppedDanglingFacts = 0;
         try (Statement statement = connection().createStatement()) {
+            statement.executeUpdate("DELETE FROM stage_flow_coverage");
+            statement.executeUpdate("DELETE FROM stage_flow_summaries");
+            statement.executeUpdate("DELETE FROM stage_flow_edges");
+            statement.executeUpdate("DELETE FROM stage_flow_nodes");
             statement.executeUpdate("DELETE FROM stage_semantic_annotations");
             statement.executeUpdate("DELETE FROM stage_annotations");
             statement.executeUpdate("DELETE FROM stage_edges");
@@ -616,6 +879,40 @@ public final class StagedGraphStore implements AutoCloseable {
     private static final String SEMANTIC_INSERT = "INSERT INTO stage_semantic_annotations(node_ref,doc_id,category,"
             + "business_label,business_description,domain_context,source,confidence,source_file,source_module,"
             + "source_scope,node_is_key,resolved_node) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String FLOW_NODE_INSERT = "INSERT OR REPLACE INTO stage_flow_nodes"
+            + "(id,method_id,kind,label,source_file,module,scope,line,column_no,callee_method,slot,metadata)"
+            + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String FLOW_EDGE_INSERT = "INSERT INTO stage_flow_edges"
+            + "(source_node,target_node,relation,method_id,source_file,confidence,context,metadata)"
+            + " VALUES (?,?,?,?,?,?,?,?)";
+    private static final String FLOW_SUMMARY_INSERT = "INSERT OR REPLACE INTO stage_flow_summaries"
+            + "(method_id,input_slot,output_slot,relation,source_file,confidence,metadata)"
+            + " VALUES (?,?,?,?,?,?,?)";
+    private static final String FLOW_COVERAGE_INSERT = "INSERT OR REPLACE INTO stage_flow_coverage"
+            + "(method_id,source_file,detail_level) VALUES (?,?,?)";
+
+    private static final List<String> FLOW_INDEX_NAMES = List.of(
+            "idx_flow_nodes_method", "idx_flow_nodes_kind", "idx_flow_nodes_source_file",
+            "idx_flow_nodes_callee_kind", "idx_flow_nodes_method_kind_slot",
+            "idx_flow_edges_source", "idx_flow_edges_target", "idx_flow_edges_relation",
+            "idx_flow_edges_method", "idx_flow_edges_source_file",
+            "idx_flow_summaries_source_file", "idx_flow_summaries_method",
+            "idx_flow_coverage_source_file", "idx_flow_coverage_detail");
+    private static final List<String> FLOW_INDEX_DEFINITIONS = List.of(
+            "CREATE INDEX idx_flow_nodes_method ON flow_nodes(method_id)",
+            "CREATE INDEX idx_flow_nodes_kind ON flow_nodes(kind)",
+            "CREATE INDEX idx_flow_nodes_source_file ON flow_nodes(source_file)",
+            "CREATE INDEX idx_flow_nodes_callee_kind ON flow_nodes(callee_method,kind)",
+            "CREATE INDEX idx_flow_nodes_method_kind_slot ON flow_nodes(method_id,kind,slot)",
+            "CREATE INDEX idx_flow_edges_source ON flow_edges(source_node)",
+            "CREATE INDEX idx_flow_edges_target ON flow_edges(target_node)",
+            "CREATE INDEX idx_flow_edges_relation ON flow_edges(relation)",
+            "CREATE INDEX idx_flow_edges_method ON flow_edges(method_id)",
+            "CREATE INDEX idx_flow_edges_source_file ON flow_edges(source_file)",
+            "CREATE INDEX idx_flow_summaries_source_file ON method_flow_summaries(source_file)",
+            "CREATE INDEX idx_flow_summaries_method ON method_flow_summaries(method_id)",
+            "CREATE INDEX idx_flow_coverage_source_file ON method_flow_coverage(source_file)",
+            "CREATE INDEX idx_flow_coverage_detail ON method_flow_coverage(detail_level)");
 
     private static final List<String> STAGING_SCHEMA = List.of(
             "CREATE TABLE stage_nodes(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,symbol_id TEXT,"
@@ -638,6 +935,19 @@ public final class StagedGraphStore implements AutoCloseable {
                     + "category TEXT,business_label TEXT,business_description TEXT,domain_context TEXT,source TEXT,"
                     + "confidence TEXT,source_file TEXT,source_module TEXT,source_scope TEXT,node_is_key INTEGER,"
                     + "resolved_node TEXT)",
-            "CREATE INDEX stage_semantic_ref ON stage_semantic_annotations(node_ref)"
+            "CREATE INDEX stage_semantic_ref ON stage_semantic_annotations(node_ref)",
+            "CREATE TABLE stage_flow_nodes(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,"
+                    + "method_id TEXT NOT NULL,kind TEXT NOT NULL,label TEXT,source_file TEXT NOT NULL,module TEXT NOT NULL,"
+                    + "scope TEXT NOT NULL,line INTEGER NOT NULL,column_no INTEGER NOT NULL,callee_method TEXT,slot TEXT,"
+                    + "metadata TEXT)",
+            "CREATE TABLE stage_flow_edges(seq INTEGER PRIMARY KEY AUTOINCREMENT,source_node TEXT NOT NULL,"
+                    + "target_node TEXT NOT NULL,relation TEXT NOT NULL,method_id TEXT NOT NULL,source_file TEXT NOT NULL,"
+                    + "confidence TEXT NOT NULL,context TEXT,metadata TEXT)",
+            "CREATE TABLE stage_flow_summaries(seq INTEGER PRIMARY KEY AUTOINCREMENT,method_id TEXT NOT NULL,"
+                    + "input_slot TEXT NOT NULL,output_slot TEXT NOT NULL,relation TEXT NOT NULL,source_file TEXT NOT NULL,"
+                    + "confidence TEXT NOT NULL,metadata TEXT,"
+                    + "UNIQUE(method_id,input_slot,output_slot,relation))",
+            "CREATE TABLE stage_flow_coverage(seq INTEGER PRIMARY KEY AUTOINCREMENT,method_id TEXT NOT NULL UNIQUE,"
+                    + "source_file TEXT NOT NULL,detail_level TEXT NOT NULL)"
     );
 }

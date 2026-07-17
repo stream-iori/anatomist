@@ -1,4 +1,14 @@
 {
+  "evidence" : {
+    "affected_dimensions" : [ "other_resolution" ],
+    "coverage" : "partial",
+    "diagnostic_counts" : {
+      "METHOD_NOT_FOUND" : 4
+    },
+    "diagnostic_query" : "anatomist doctor --format json --diagnostic-code METHOD_NOT_FOUND --index <same-index>",
+    "negative_conclusion_safe" : false,
+    "status" : "positive"
+  },
   "query" : "call-path com.example.shop.controller.OrderController#create com.example.shop.service.OrderValidator#validate --depth 5",
   "results" : [ {
     "call_kind" : "INSTANCE",

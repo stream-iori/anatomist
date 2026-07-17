@@ -78,7 +78,9 @@ class SkillScenarioCoverageIT {
         String content = Files.readString(skill);
 
         assertTrue(content.contains("## Agent query gate (P0)"));
-        assertTrue(content.contains("index <project-root> --incremental --strict-health --format json"));
+        assertTrue(content.contains(
+                "index <project-root> --incremental --health-policy integrity --format json"));
+        assertTrue(content.contains("evidence.status=confirmed_empty"));
         assertTrue(content.contains("Do not issue a code query"));
         assertTrue(content.contains("`doctor` is read-only"));
     }

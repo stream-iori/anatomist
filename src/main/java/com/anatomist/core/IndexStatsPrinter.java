@@ -49,6 +49,8 @@ public class IndexStatsPrinter {
         if (cfg.dataflow()) {
             out.println("  Flow facts:   " + r.flowNodes() + " nodes, "
                     + r.flowEdges() + " edges, " + r.flowSummaries() + " summaries");
+            out.println("  Flow coverage:" + r.flowDetailedMethods() + " detailed, "
+                    + r.flowSummaryOnlyMethods() + " summary-only methods");
         }
         out.println("  Output:       " + cfg.dbPath());
         if (r.samplingEnabled() && r.unresolvedSamples() != null) {

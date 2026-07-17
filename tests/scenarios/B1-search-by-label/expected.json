@@ -5,6 +5,13 @@
     "total" : 15,
     "truncated" : true
   },
+  "evidence" : {
+    "affected_dimensions" : [ ],
+    "coverage" : "complete",
+    "diagnostic_counts" : { },
+    "negative_conclusion_safe" : true,
+    "status" : "positive"
+  },
   "next_queries" : [ "search OrderService --limit 5 --scope MAIN --offset 5 --index ${INDEX}" ],
   "query" : "search OrderService --limit 5 --scope MAIN",
   "results" : [ {

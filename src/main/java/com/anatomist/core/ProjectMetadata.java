@@ -46,6 +46,8 @@ public final class ProjectMetadata {
         values.put("rebound_external_edges", String.valueOf(rebound));
         values.put("wiring_resolved_edges", String.valueOf(wired));
         values.put("dataflow", String.valueOf(cfg.dataflow()));
+        values.put("dataflow_mode", cfg.flowProfile().mode().name().toLowerCase());
+        values.put("dataflow_scopes", String.join(",", cfg.flowProfile().scopes()));
         values.put("implicit_taint", String.valueOf(cfg.implicitTaint()));
         if (cfg.javaVersionDetection() != null) {
             values.put("java_version_source",

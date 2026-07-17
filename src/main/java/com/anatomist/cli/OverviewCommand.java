@@ -5,6 +5,7 @@ import com.anatomist.query.MarkdownFormatter;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.PackageStat;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -62,6 +63,9 @@ public class OverviewCommand implements Callable<Integer> {
                             + " --offset " + end);
                     Disclosure.putBudget(env, "package_deps", page.size(), total);
                 }
+                env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+                        QueryCoverageService.Capability.AGGREGATE,
+                        List.of(), null, "MAIN", total > 0, true).toMap());
                 JsonFormatter.emit(System.out, env);
                 return 0;
             }
@@ -71,6 +75,9 @@ public class OverviewCommand implements Callable<Integer> {
                 QueryEnvelope env = new QueryEnvelope(buildQueryString(), List.of(ov));
                 env.stats.clear();
                 env.stats.putAll(ov.toStats());
+                env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+                        QueryCoverageService.Capability.AGGREGATE,
+                        List.of(), null, "MAIN", true, true).toMap());
                 JsonFormatter.emit(System.out, env);
             } else {
                 System.out.print(MarkdownFormatter.format(ov));

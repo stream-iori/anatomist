@@ -16,6 +16,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
+import java.util.ArrayList;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -47,6 +48,30 @@ class SqliteStoreWriteTest {
         assertEquals(4, diagnostics.stream()
                 .filter(d -> "B.java".equals(d.sourceFile()))
                 .mapToLong(IndexDiagnostic::count).sum());
+    }
+
+    @Test
+    void diagnosticLimitKeepsWarningsAndDisclosesTruncation(@TempDir Path tmp) {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+        List<IndexDiagnostic> diagnostics = new ArrayList<>();
+        for (int i = 0; i < 5_100; i++) {
+            diagnostics.add(new IndexDiagnostic(
+                    "info", "OTHER_INFERENCE", "RESOLUTION", "F" + i + ".java",
+                    ".", "MAIN", null, 1, null));
+        }
+        diagnostics.add(new IndexDiagnostic(
+                "warning", "INTERNAL_SYMBOL_MISSING", "RESOLUTION", "Important.java",
+                ".", "MAIN", null, 1, null));
+
+        store.replaceIndexDiagnostics(diagnostics);
+
+        List<IndexDiagnostic> stored = store.readIndexDiagnostics();
+        assertEquals(5_000, stored.size());
+        assertTrue(stored.stream().anyMatch(d ->
+                "INTERNAL_SYMBOL_MISSING".equals(d.code())));
+        assertTrue(stored.stream().anyMatch(d ->
+                "DIAGNOSTIC_STORAGE_TRUNCATED".equals(d.code())));
     }
 
     @Test

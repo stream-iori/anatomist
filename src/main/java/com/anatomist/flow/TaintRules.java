@@ -141,6 +141,11 @@ public final class TaintRules {
                         "method exceeds " + MAX_METHOD_CHARS + " characters", index);
                 continue;
             }
+            if (!validSlot(kind, slot)) {
+                diagnostics.add("TAINT_RULE_SLOT_INVALID", kind,
+                        "unsupported slot " + slot, index);
+                continue;
+            }
             if (out.size() >= MAX_RULES_PER_KIND) {
                 diagnostics.add("TAINT_RULE_LIMIT_EXCEEDED", kind,
                         "more than " + MAX_RULES_PER_KIND + " valid rules", index);
@@ -149,6 +154,19 @@ public final class TaintRules {
             out.add(new Rule(method, slot));
         }
         return out;
+    }
+
+    private static boolean validSlot(String kind, String slot) {
+        if ("sources".equals(kind) || "sanitizers".equals(kind)) {
+            return "return".equals(slot);
+        }
+        if (!"sinks".equals(kind)) return false;
+        if ("this".equals(slot)) return true;
+        if (slot == null || !slot.startsWith("arg:") || slot.length() == 4) return false;
+        for (int i = 4; i < slot.length(); i++) {
+            if (!Character.isDigit(slot.charAt(i))) return false;
+        }
+        return true;
     }
 
     private static List<CompiledRule> compile(List<Rule> rules) {

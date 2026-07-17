@@ -5,6 +5,13 @@
     "total" : 1,
     "truncated" : false
   },
+  "evidence" : {
+    "affected_dimensions" : [ ],
+    "coverage" : "complete",
+    "diagnostic_counts" : { },
+    "negative_conclusion_safe" : true,
+    "status" : "positive"
+  },
   "query" : "branches-of com.example.shop.repository.InMemoryOrderRepository#save --depth 1",
   "results" : [ {
     "branch_kind" : "if-then",

@@ -40,15 +40,19 @@ public class ClasspathDetector {
     static final String CP_FILE = "anatomist-classpath.txt";
 
     public List<String> detect(Path projectRoot) {
+        return detectResult(projectRoot).entries();
+    }
+
+    public ClasspathDetectionResult detectResult(Path projectRoot) {
         if (projectRoot == null || !isMavenProject(projectRoot)) {
-            return Collections.emptyList();
+            return ClasspathDetectionResult.notRequested();
         }
         List<String> cached = readClasspathCache(projectRoot);
         if (!cached.isEmpty()) {
             java.util.LinkedHashSet<String> union = new java.util.LinkedHashSet<>(cached);
             detectBuildOutputClasspath(projectRoot).forEach(path -> union.add(path.toString()));
             AnatomistLog.debug("classpath: cache hit with " + cached.size() + " dependency entries");
-            return new ArrayList<>(union);
+            return ClasspathDetectionResult.cacheHit(new ArrayList<>(union));
         }
         // Clear any stragglers from a prior interrupted run so the union is clean.
         deleteClasspathFiles(projectRoot);
@@ -114,14 +118,76 @@ public class ClasspathDetector {
                 union.add(output.toString());
             }
             AnatomistLog.debug("classpath: union total = " + union.size() + " entrie(s)");
-            return new ArrayList<>(union);
+            if (code == 0) {
+                return new ClasspathDetectionResult(
+                        ClasspathDetectionResult.Status.FULL,
+                        new ArrayList<>(union), code, cpFiles.size(), null, List.of());
+            }
+            String sample = boundedMavenSample(lastMavenOutput);
+            String diagnosticCode = union.isEmpty()
+                    ? "CLASSPATH_UNAVAILABLE" : "CLASSPATH_PARTIAL";
+            String message = union.isEmpty()
+                    ? "Maven classpath detection failed and produced no usable entries."
+                    : "Maven classpath detection was partial; successful module outputs were retained.";
+            IndexDiagnostic diagnostic = new IndexDiagnostic(
+                    "warning", diagnosticCode, "CLASSPATH",
+                    null, null, null, null, 1,
+                    sample == null ? message : message + " " + sample);
+            return new ClasspathDetectionResult(
+                    union.isEmpty()
+                            ? ClasspathDetectionResult.Status.UNAVAILABLE
+                            : ClasspathDetectionResult.Status.PARTIAL,
+                    new ArrayList<>(union), code, cpFiles.size(), sample,
+                    List.of(diagnostic));
         } catch (IOException | InterruptedException e) {
             warn("mvn classpath detection failed (" + e.getMessage() + "), proceeding with empty classpath");
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            return Collections.emptyList();
+            String sample = boundedMavenSample(e.getMessage());
+            return new ClasspathDetectionResult(
+                    ClasspathDetectionResult.Status.UNAVAILABLE,
+                    List.of(), null, 0, sample,
+                    List.of(new IndexDiagnostic(
+                            "warning", "CLASSPATH_UNAVAILABLE", "CLASSPATH",
+                            null, null, null, null, 1,
+                            "Maven classpath detection failed. "
+                                    + (sample == null ? "" : sample))));
         } finally {
             deleteClasspathFiles(projectRoot);
         }
+    }
+
+    private static String boundedMavenSample(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String value = raw.strip();
+        int start = Math.max(0, value.length() - 500);
+        value = value.substring(start);
+        StringBuilder safe = new StringBuilder(value.length());
+        int cursor = 0;
+        while (cursor < value.length()) {
+            int scheme = value.indexOf("://", cursor);
+            if (scheme < 0) {
+                safe.append(value, cursor, value.length());
+                break;
+            }
+            safe.append(value, cursor, scheme + 3);
+            int credentialsEnd = value.indexOf('@', scheme + 3);
+            int boundary = firstBoundary(value, scheme + 3);
+            if (credentialsEnd >= 0 && (boundary < 0 || credentialsEnd < boundary)) {
+                safe.append("***@");
+                cursor = credentialsEnd + 1;
+            } else {
+                cursor = scheme + 3;
+            }
+        }
+        return safe.toString();
+    }
+
+    private static int firstBoundary(String value, int start) {
+        for (int i = start; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isWhitespace(c) || c == '/' || c == '\\') return i;
+        }
+        return -1;
     }
 
     private static boolean hasClasspathEntries(List<Path> files) {

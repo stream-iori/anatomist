@@ -1,4 +1,11 @@
 {
+  "evidence" : {
+    "affected_dimensions" : [ ],
+    "coverage" : "complete",
+    "diagnostic_counts" : { },
+    "negative_conclusion_safe" : true,
+    "status" : "positive"
+  },
   "query" : "context com.example.shop.service.OrderService --scope MAIN",
   "results" : [ {
     "annotations" : [ ],

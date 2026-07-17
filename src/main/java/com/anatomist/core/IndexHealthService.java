@@ -10,8 +10,12 @@ public final class IndexHealthService {
     private IndexHealthService() {}
 
     public static IndexHealthReport fromResult(IndexResult result) {
-        List<IndexDiagnostic> diagnostics = new ArrayList<>(
-                fromCounts(result.unresolvedCount(), result.droppedDanglingEdges()).diagnostics());
+        return IndexHealthReport.of(diagnosticsFromResult(result));
+    }
+
+    public static List<IndexDiagnostic> diagnosticsFromResult(IndexResult result) {
+        List<IndexDiagnostic> diagnostics = countDiagnostics(
+                result.unresolvedCount(), result.droppedDanglingEdges());
         if (result.diagnostics() != null) diagnostics.addAll(result.diagnostics());
         ParseInventory parse = result.parseInventory();
         if (parse != null && parse.failedFiles() > 0) {
@@ -21,10 +25,14 @@ public final class IndexHealthService {
                             file.toString(), null, null, null, 1,
                             problems.isEmpty() ? "parser produced no compilation unit" : problems.get(0))));
         }
-        return IndexHealthReport.of(diagnostics);
+        return List.copyOf(diagnostics);
     }
 
     public static IndexHealthReport fromCounts(long unresolved, long dropped) {
+        return IndexHealthReport.of(countDiagnostics(unresolved, dropped));
+    }
+
+    private static List<IndexDiagnostic> countDiagnostics(long unresolved, long dropped) {
         List<IndexDiagnostic> diagnostics = new ArrayList<>();
         if (unresolved > 0) {
             diagnostics.add(new IndexDiagnostic("info", "UNRESOLVED_SYMBOLS", "RESOLUTION",
@@ -36,7 +44,7 @@ public final class IndexHealthService {
                     null, null, null, null, dropped,
                     "Internal edges or annotations referenced nodes that were not emitted."));
         }
-        return IndexHealthReport.of(diagnostics);
+        return diagnostics;
     }
 
     public static IndexHealthReport read(SqliteStore store) {

@@ -1,10 +1,15 @@
 package com.anatomist.store;
 
 import com.anatomist.core.NodeKeyFactory;
+import com.anatomist.core.IndexTimings;
 import com.anatomist.core.SourceIdentity;
 import com.anatomist.core.SourceIdentityResolver;
 import com.anatomist.core.SourceRoot;
 import com.anatomist.core.SourceScope;
+import com.anatomist.flow.FlowEdge;
+import com.anatomist.flow.FlowNode;
+import com.anatomist.flow.FlowPersistence;
+import com.anatomist.flow.FlowResult;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
@@ -124,6 +129,39 @@ class StagedGraphStoreTest {
         assertFalse(Files.exists(stagingPath));
     }
 
+    @Test
+    void failedFlowPromotionRestoresOldFactsAndDroppedIndexes(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("index.db");
+        try (SqliteStore target = new SqliteStore(db)) {
+            target.initSchema();
+            FlowResult old = new FlowResult();
+            old.nodes.add(flowNode("old-node", "old-method", "Old.java"));
+            FlowPersistence.replaceAll(target, old, null);
+
+            try (StagedGraphStore staging = new StagedGraphStore(db, identities(tmp))) {
+                FlowResult invalid = new FlowResult();
+                invalid.nodes.add(flowNode("new-node", "new-method", "New.java"));
+                invalid.edges.add(new FlowEdge(
+                        "new-node", "missing-node", "DEF_USE", "new-method",
+                        "New.java", "EXACT", null, null));
+                staging.writeFlowBatch(invalid);
+
+                assertThrows(RuntimeException.class,
+                        () -> staging.promoteFullFlow(target, new IndexTimings()));
+            }
+
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(1, scalar(statement,
+                        "SELECT count(*) FROM flow_nodes WHERE id='old-node'"));
+                assertEquals(1, scalar(statement,
+                        "SELECT count(*) FROM pragma_index_list('flow_edges') "
+                                + "WHERE name='idx_flow_edges_source'"));
+                assertEquals(0, scalar(statement,
+                        "SELECT count(*) FROM pragma_foreign_key_check"));
+            }
+        }
+    }
+
     private static SourceIdentityResolver identities(Path root) throws Exception {
         Path m1 = Files.createDirectories(root.resolve("m1/src/main/java"));
         Path m2 = Files.createDirectories(root.resolve("m2/src/main/java"));
@@ -152,6 +190,12 @@ class StagedGraphStoreTest {
         edge.confidence = GraphConstants.Confidence.EXTRACTED;
         edge.sourceFile = sourceFile;
         return edge;
+    }
+
+    private static FlowNode flowNode(String id, String methodId, String sourceFile) {
+        return new FlowNode(
+                id, methodId, "EXPRESSION", id, sourceFile,
+                ".", "MAIN", 1, 1, null, null, null);
     }
 
     private static int scalar(Statement statement, String sql) throws Exception {

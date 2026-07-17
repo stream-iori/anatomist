@@ -5,6 +5,7 @@ import com.anatomist.query.EdgeRow;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.PagedResult;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -59,6 +60,9 @@ public class UsedByCommand implements Callable<Integer> {
                 Disclosure.addOption(next, "--offset", env.stats.get("next_offset"));
                 env.nextQueries = List.of(Disclosure.renderCommand(next));
             }
+            env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+                    QueryCoverageService.Capability.REFERENCE_INCOMING,
+                    List.of(type), module, scope, paged.total() > 0, false).toMap());
             JsonFormatter.emit(System.out, env);
             return 0;
         }

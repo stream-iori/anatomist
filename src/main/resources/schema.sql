@@ -188,6 +188,25 @@ CREATE INDEX idx_diagnostics_severity ON index_diagnostics(severity);
 CREATE INDEX idx_diagnostics_code ON index_diagnostics(code);
 CREATE INDEX idx_diagnostics_source_file ON index_diagnostics(source_file);
 
+CREATE TABLE analysis_coverage (
+    source_file TEXT NOT NULL,
+    module TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('complete','partial','failed')),
+    occurrences INTEGER NOT NULL DEFAULT 0,
+    groups_count INTEGER NOT NULL DEFAULT 0,
+    codes TEXT NOT NULL,
+    code_counts TEXT NOT NULL,
+    details_truncated INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source_file, module, scope, capability)
+);
+
+CREATE INDEX idx_analysis_coverage_capability
+    ON analysis_coverage(capability, module, scope);
+CREATE INDEX idx_analysis_coverage_source_file
+    ON analysis_coverage(source_file);
+
 CREATE TABLE file_dependencies (
     source_file TEXT NOT NULL,
     depends_on_file TEXT NOT NULL,
@@ -206,12 +225,16 @@ CREATE TABLE flow_nodes (
     scope TEXT NOT NULL CHECK (scope IN ('MAIN','TEST','GENERATED')),
     line INTEGER NOT NULL DEFAULT 0,
     column_no INTEGER NOT NULL DEFAULT 0,
+    callee_method TEXT,
+    slot TEXT,
     metadata TEXT
 );
 
 CREATE INDEX idx_flow_nodes_method ON flow_nodes(method_id);
 CREATE INDEX idx_flow_nodes_kind ON flow_nodes(kind);
 CREATE INDEX idx_flow_nodes_source_file ON flow_nodes(source_file);
+CREATE INDEX idx_flow_nodes_callee_kind ON flow_nodes(callee_method, kind);
+CREATE INDEX idx_flow_nodes_method_kind_slot ON flow_nodes(method_id, kind, slot);
 
 CREATE TABLE flow_edges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -244,3 +267,12 @@ CREATE TABLE method_flow_summaries (
 
 CREATE INDEX idx_flow_summaries_source_file ON method_flow_summaries(source_file);
 CREATE INDEX idx_flow_summaries_method ON method_flow_summaries(method_id);
+
+CREATE TABLE method_flow_coverage (
+    method_id TEXT PRIMARY KEY,
+    source_file TEXT NOT NULL,
+    detail_level TEXT NOT NULL CHECK (detail_level IN ('SUMMARY','DETAIL'))
+);
+
+CREATE INDEX idx_flow_coverage_source_file ON method_flow_coverage(source_file);
+CREATE INDEX idx_flow_coverage_detail ON method_flow_coverage(detail_level);

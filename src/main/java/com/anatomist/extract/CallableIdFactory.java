@@ -21,27 +21,27 @@ import java.util.stream.IntStream;
  * The AST fallback keeps overloads distinct when one resolved parameter type is
  * unavailable instead of collapsing every failure to {@code <unresolved>}.
  */
-final class CallableIdFactory {
+public final class CallableIdFactory {
 
     private CallableIdFactory() {}
 
-    static String forMethod(NodeIdGenerator generator, MethodDeclaration declaration) {
+    public static String forMethod(NodeIdGenerator generator, MethodDeclaration declaration) {
         ResolvedMethodDeclaration resolved = declaration.resolve();
         return forMethod(generator, resolved, declaration);
     }
 
-    static String forMethod(NodeIdGenerator generator, ResolvedMethodDeclaration declaration) {
+    public static String forMethod(NodeIdGenerator generator, ResolvedMethodDeclaration declaration) {
         Optional<MethodDeclaration> ast = ast(declaration, MethodDeclaration.class);
         return ast.map(method -> forMethod(generator, declaration, method))
                 .orElseGet(() -> generator.forMethod(declaration));
     }
 
-    static String forConstructor(NodeIdGenerator generator, ConstructorDeclaration declaration) {
+    public static String forConstructor(NodeIdGenerator generator, ConstructorDeclaration declaration) {
         ResolvedConstructorDeclaration resolved = declaration.resolve();
         return forConstructor(generator, resolved, declaration);
     }
 
-    static String forConstructor(NodeIdGenerator generator, ResolvedConstructorDeclaration declaration) {
+    public static String forConstructor(NodeIdGenerator generator, ResolvedConstructorDeclaration declaration) {
         Optional<ConstructorDeclaration> ast = ast(declaration, ConstructorDeclaration.class);
         if (ast.isPresent()) return forConstructor(generator, declaration, ast.get());
         Optional<CompactConstructorDeclaration> compact = ast(declaration, CompactConstructorDeclaration.class);
@@ -49,7 +49,7 @@ final class CallableIdFactory {
         return generator.forConstructor(declaration);
     }
 
-    static String forCompactConstructor(NodeIdGenerator generator,
+    public static String forCompactConstructor(NodeIdGenerator generator,
                                         CompactConstructorDeclaration declaration) {
         RecordDeclaration record = declaration.findAncestor(RecordDeclaration.class)
                 .orElseThrow(() -> new IllegalArgumentException("compact constructor has no record owner"));
@@ -66,12 +66,12 @@ final class CallableIdFactory {
                 + signature(resolved, record.getParameters(), declaration) + ")";
     }
 
-    static String forAnonymousMethod(String ownerId, MethodDeclaration declaration) {
+    public static String forAnonymousMethod(String ownerId, MethodDeclaration declaration) {
         return ownerId + "#" + declaration.getNameAsString()
                 + "(" + signature(null, declaration.getParameters(), declaration) + ")";
     }
 
-    static String signature(MethodDeclaration declaration) {
+    public static String signature(MethodDeclaration declaration) {
         ResolvedMethodDeclaration resolved = null;
         try { resolved = declaration.resolve(); }
         catch (RuntimeException ignore) { }

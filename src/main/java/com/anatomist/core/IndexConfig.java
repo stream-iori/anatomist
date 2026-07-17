@@ -1,6 +1,7 @@
 package com.anatomist.core;
 
 import com.anatomist.config.ProjectConfig;
+import com.anatomist.flow.FlowProfile;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -20,6 +21,10 @@ public record IndexConfig(
         List<SourceRoot> sourceRoots,
         boolean strictHealth,
         JavaVersionDetection javaVersionDetection,
-        boolean dataflow,
+        FlowProfile flowProfile,
         boolean implicitTaint
-) {}
+) {
+    public boolean dataflow() {
+        return flowProfile != null && flowProfile.enabled();
+    }
+}

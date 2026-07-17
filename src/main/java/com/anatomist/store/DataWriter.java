@@ -1,5 +1,6 @@
 package com.anatomist.store;
 
+import com.anatomist.core.AnalysisCoverage;
 import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Document;
@@ -15,6 +16,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Collections;
 import java.util.HashSet;
@@ -542,8 +544,19 @@ public class DataWriter {
         inTransaction(c -> {
             try (Statement st = c.createStatement()) {
                 st.execute("DELETE FROM index_diagnostics");
+                st.execute("DELETE FROM analysis_coverage");
             }
             insertIndexDiagnostics(c, diagnostics);
+            insertAnalysisCoverage(c, AnalysisCoverage.summarize(diagnostics));
+        });
+    }
+
+    public void replaceAnalysisCoverage(List<IndexDiagnostic> diagnostics) {
+        inTransaction(c -> {
+            try (Statement st = c.createStatement()) {
+                st.execute("DELETE FROM analysis_coverage");
+            }
+            insertAnalysisCoverage(c, AnalysisCoverage.summarize(diagnostics));
         });
     }
 
@@ -561,8 +574,50 @@ public class DataWriter {
                 delete.executeUpdate();
             }
             insertIndexDiagnostics(c, diagnostics);
+            deleteAnalysisCoverageForFiles(c, sourceFiles);
+            insertAnalysisCoverage(c, AnalysisCoverage.summarize(diagnostics));
             refreshUnresolvedAggregate(c);
         });
+    }
+
+    private static void deleteAnalysisCoverageForFiles(Connection c, List<String> sourceFiles)
+            throws SQLException {
+        String placeholders = String.join(",", java.util.Collections.nCopies(
+                sourceFiles.size(), "?"));
+        try (PreparedStatement delete = c.prepareStatement(
+                "DELETE FROM analysis_coverage WHERE source_file IN (" + placeholders + ")")) {
+            for (int i = 0; i < sourceFiles.size(); i++) {
+                delete.setString(i + 1, sourceFiles.get(i));
+            }
+            delete.executeUpdate();
+        }
+    }
+
+    private static void insertAnalysisCoverage(Connection c, List<AnalysisCoverage.Row> rows)
+            throws SQLException {
+        if (rows == null || rows.isEmpty()) return;
+        String sql = """
+                INSERT OR REPLACE INTO analysis_coverage
+                (source_file,module,scope,capability,status,occurrences,groups_count,
+                 codes,code_counts,details_truncated)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """;
+        try (PreparedStatement statement = c.prepareStatement(sql)) {
+            for (AnalysisCoverage.Row row : rows) {
+                statement.setString(1, row.sourceFile());
+                statement.setString(2, row.module());
+                statement.setString(3, row.scope());
+                statement.setString(4, row.capability());
+                statement.setString(5, row.status());
+                statement.setLong(6, row.occurrences());
+                statement.setLong(7, row.groups());
+                statement.setString(8, row.codes());
+                statement.setString(9, row.codeCounts());
+                statement.setInt(10, row.detailsTruncated() ? 1 : 0);
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
     }
 
     private static void refreshUnresolvedAggregate(Connection c) throws SQLException {
@@ -593,12 +648,12 @@ public class DataWriter {
                                                List<IndexDiagnostic> diagnostics)
             throws SQLException {
         if (diagnostics == null || diagnostics.isEmpty()) return;
+        List<IndexDiagnostic> ordered =
+                com.anatomist.core.IndexDiagnosticRetention.retain(diagnostics);
         String sql = "INSERT INTO index_diagnostics(severity,code,phase,source_file,module,scope,symbol,occurrence_count,sample)"
                 + " VALUES (?,?,?,?,?,?,?,?,?)";
         try (PreparedStatement ps = c.prepareStatement(sql)) {
-            int emitted = 0;
-            for (IndexDiagnostic d : diagnostics) {
-                if (emitted++ >= 5000) break;
+            for (IndexDiagnostic d : ordered) {
                 ps.setString(1, d.severity());
                 ps.setString(2, d.code());
                 ps.setString(3, d.phase());

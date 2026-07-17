@@ -15,4 +15,8 @@ public final class ExceptionFlowCommand extends FlowQueryCommand {
     @Override protected QueryEnvelope execute(FlowQueryService service) {
         return service.exceptionFlow(method, limit);
     }
+
+    @Override protected java.util.List<String> coverageAnchors() {
+        return java.util.List.of(method);
+    }
 }

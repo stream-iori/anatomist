@@ -15,6 +15,18 @@ subsequent full index does not pay the Maven reactor cost again. Delete the
 matching file under `$ANATOMIST_HOME/cache/classpath` only when diagnosing a
 suspected stale cache; missing jar files invalidate it automatically.
 
+Check `doctor --format json` before treating Maven output as all-or-nothing:
+
+| `classpath_detection.status` | Meaning |
+|---|---|
+| `full` / `cache_hit` / `explicit` | Requested dependency inputs are available |
+| `partial` | Maven failed, but usable module output/classpath entries were recovered |
+| `unavailable` | Maven failed and no usable entries were recovered |
+| `not_requested` | Classpath detection was disabled or not applicable |
+
+`partial` and `unavailable` degrade external-resolution coverage. They do not
+fail `--health-policy integrity`, but do fail `--strict-health`.
+
 ## Watch reports a Java parse failure
 
 Typical output:
@@ -121,10 +133,10 @@ pair and reuses the saved SHA; this avoids reading every source file. Use
 | Standalone incremental, size/mtime stable | Reuses cached hash. |
 | Standalone incremental with `--verify-content` | Hashes every source. |
 
-Opening an older schema database with the v7 binary intentionally reports
+Opening an older schema database with the v11 binary intentionally reports
 `incremental degraded to full (schema_version mismatch)` once. The rebuild is
-required because old rows have no trustworthy stat or contract fingerprint, and
-because v7 adds the `edges(source_file)` index used by single-file replacement.
+required because old rows have no lossless capability coverage aggregate and
+anonymous-class IDs do not include columns. There is no compatibility migration.
 
 Body/comment/initializer-only Java edits keep the contract hash stable, so they
 do not invalidate dependent type-resolution caches or rebuild Spring wiring.

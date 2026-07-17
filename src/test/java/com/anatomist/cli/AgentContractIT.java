@@ -138,6 +138,60 @@ class AgentContractIT {
     }
 
     @Test
+    void integrityPolicyAllowsResolutionWarningsButRejectsParseWarnings(@TempDir Path tmp)
+            throws Exception {
+        Path db = buildFixtureIndex(tmp, false);
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO index_diagnostics"
+                    + "(severity,code,phase,occurrence_count,sample) VALUES "
+                    + "('warning','THIRDPARTY_SYMBOL_MISSING','full_extract_call_graph',8,'third party')");
+        }
+
+        RunResult integrity = runCli("doctor", "--health-policy", "integrity",
+                "--format", "json", "--index", db.toString());
+        assertEquals(0, integrity.exitCode, integrity.stderr);
+        Map<?, ?> integrityJson = asObject(integrity.stdout);
+        assertEquals("committed", integrityJson.get("index_state"));
+        assertEquals(Boolean.TRUE, ((Map<?, ?>) integrityJson.get("gate")).get("passed"));
+
+        RunResult complete = runCli("doctor", "--strict-health",
+                "--format", "json", "--index", db.toString());
+        assertEquals(3, complete.exitCode, complete.stderr);
+
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO index_diagnostics"
+                    + "(severity,code,phase,occurrence_count,sample) VALUES "
+                    + "('warning','JAVA_PARSE_FAILED','PARSING',1,'bad source')");
+        }
+        RunResult rejected = runCli("doctor", "--health-policy", "integrity",
+                "--format", "json", "--index", db.toString());
+        assertEquals(3, rejected.exitCode, rejected.stderr);
+    }
+
+    @Test
+    void queryEvidenceDisclosesIndeterminateEmptyWithoutChangingExitCode(@TempDir Path tmp)
+            throws Exception {
+        Path db = buildFixtureIndex(tmp, false);
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO index_diagnostics"
+                    + "(severity,code,phase,source_file,module,scope,occurrence_count,sample) VALUES "
+                    + "('warning','THIRDPARTY_SYMBOL_MISSING','full_extract_call_graph',"
+                    + "'service/src/main/java/example/Unknown.java','service','MAIN',2,'missing')");
+        }
+
+        RunResult callers = runCli("callers-of", "DefinitelyMissing#method",
+                "--index", db.toString());
+        assertEquals(0, callers.exitCode, callers.stderr);
+        Map<?, ?> evidence = (Map<?, ?>) asObject(callers.stdout).get("evidence");
+        assertEquals("indeterminate", evidence.get("status"));
+        assertEquals("QUERY_COVERAGE_INCOMPLETE", evidence.get("code"));
+        assertEquals(Boolean.FALSE, evidence.get("negative_conclusion_safe"));
+    }
+
+    @Test
     void doctorRejectsCompatibleButEmptyIndex(@TempDir Path tmp) throws Exception {
         Path db = tmp.resolve("empty.db");
         try (SqliteStore store = new SqliteStore(db)) {
@@ -151,6 +205,22 @@ class AgentContractIT {
         assertEquals("degraded", json.get("status"));
         assertEquals("unhealthy", json.get("health"));
         assertEquals("INDEX_EMPTY", ((Map<?, ?>) ((List<?>) json.get("errors")).get(0)).get("code"));
+        assertEquals("degraded",
+                ((Map<?, ?>) json.get("health_dimensions")).get("graph_integrity") instanceof Map<?, ?> graph
+                        ? graph.get("status") : null);
+        assertEquals(Boolean.FALSE, ((Map<?, ?>) json.get("gate")).get("passed"));
+    }
+
+    @Test
+    void strictAliasCannotConflictWithExplicitHealthPolicy(@TempDir Path tmp) throws Exception {
+        Path db = buildFixtureIndex(tmp, false);
+
+        RunResult doctor = runCli("doctor", "--strict-health",
+                "--health-policy", "integrity", "--format", "json",
+                "--index", db.toString());
+
+        assertEquals(2, doctor.exitCode, doctor.stderr);
+        assertTrue(doctor.stderr.contains("complete-policy alias"));
     }
 
     @Test

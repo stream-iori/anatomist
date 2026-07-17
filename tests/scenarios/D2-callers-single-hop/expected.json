@@ -5,6 +5,16 @@
     "total" : 2,
     "truncated" : false
   },
+  "evidence" : {
+    "affected_dimensions" : [ "other_resolution" ],
+    "coverage" : "partial",
+    "diagnostic_counts" : {
+      "METHOD_NOT_FOUND" : 4
+    },
+    "diagnostic_query" : "anatomist doctor --format json --diagnostic-code METHOD_NOT_FOUND --index <same-index>",
+    "negative_conclusion_safe" : false,
+    "status" : "positive"
+  },
   "query" : "callers-of 'com.example.shop.service.OrderService#createOrder' --depth 1 --scope MAIN",
   "results" : [ {
     "call_kind" : "INSTANCE",

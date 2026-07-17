@@ -16,4 +16,8 @@ public final class TaintPathCommand extends FlowQueryCommand {
     @Override protected QueryEnvelope execute(FlowQueryService service) {
         return service.path(source, sink, depth, true);
     }
+
+    @Override protected java.util.List<String> coverageAnchors() {
+        return java.util.List.of(source, sink);
+    }
 }

@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import com.anatomist.json.Json;
+
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -20,6 +22,26 @@ import java.util.Set;
 
 /** Read-only flow graph traversal and path queries. */
 public final class FlowQueryService implements AutoCloseable {
+
+    private static final Set<String> DATA_RELATIONS = Set.of(
+            "DEF_USE", "ARGUMENT_FLOW", "RETURN_FLOW",
+            "CALL_ARGUMENT", "CALL_RETURN", "TAINT_FLOW");
+    private static final Set<String> CONTROL_RELATIONS = Set.of(
+            "CONTROL_FLOW", "CONDITION_FLOW", "GUARD_TRUE", "GUARD_FALSE");
+
+    public record PathOptions(String sourceSlot,
+                              String targetSlot,
+                              boolean includeControl,
+                              boolean includeException,
+                              boolean taintOnly) {
+        public static PathOptions dataOnly() {
+            return new PathOptions(null, null, false, false, false);
+        }
+
+        public static PathOptions taint() {
+            return new PathOptions(null, null, false, false, true);
+        }
+    }
 
     private final Connection connection;
     private String module;
@@ -42,10 +64,15 @@ public final class FlowQueryService implements AutoCloseable {
         }
     }
 
+    public Connection connection() {
+        return connection;
+    }
+
     public QueryEnvelope flowOf(String method,
                                 boolean reverse,
                                 int depth,
                                 int limit) {
+        requireDetailed(method);
         Set<String> starts = flowNodesFor(method);
         Traversal traversal = traverse(starts, reverse, depth, limit, false);
         QueryEnvelope envelope = new QueryEnvelope(
@@ -57,19 +84,41 @@ public final class FlowQueryService implements AutoCloseable {
     }
 
     public QueryEnvelope path(String source, String target, int depth, boolean taintOnly) {
-        Set<String> starts = endpointNodes(source, taintOnly ? "TAINT_SOURCE" : null);
-        Set<String> targets = endpointNodes(target, taintOnly ? "TAINT_SINK" : null);
-        List<Map<String, Object>> path = shortestPath(starts, targets, depth, taintOnly);
+        return path(source, target, depth,
+                taintOnly ? PathOptions.taint() : PathOptions.dataOnly());
+    }
+
+    public QueryEnvelope path(String source, String target, int depth, PathOptions options) {
+        requireFullCoverage();
+        Set<String> relations = pathRelations(options);
+        Set<String> starts = endpointNodes(source,
+                options.taintOnly() ? "TAINT_SOURCE" : null, options.sourceSlot());
+        Set<String> targets = endpointNodes(target,
+                options.taintOnly() ? "TAINT_SINK" : null, options.targetSlot());
+        List<Map<String, Object>> path = shortestPath(
+                starts, targets, depth, options.taintOnly(), relations);
         QueryEnvelope envelope = new QueryEnvelope(
-                (taintOnly ? "taint-path " : "flow-path ") + source + " " + target, path);
+                (options.taintOnly() ? "taint-path " : "flow-path ")
+                        + source + " " + target, path);
         envelope.stats.put("found", !path.isEmpty());
         envelope.stats.put("max_depth", Math.max(1, depth));
         envelope.stats.put("source_candidates", starts.size());
         envelope.stats.put("target_candidates", targets.size());
+        envelope.stats.put("source_slot", options.sourceSlot());
+        envelope.stats.put("target_slot", options.targetSlot());
+        envelope.stats.put("relations", relations.stream().sorted().toList());
         return envelope;
     }
 
+    private static Set<String> pathRelations(PathOptions options) {
+        Set<String> relations = new LinkedHashSet<>(DATA_RELATIONS);
+        if (options.includeControl()) relations.addAll(CONTROL_RELATIONS);
+        if (options.includeException()) relations.add("EXCEPTION_FLOW");
+        return Collections.unmodifiableSet(relations);
+    }
+
     public QueryEnvelope exceptionFlow(String method, int limit) {
+        requireDetailed(method);
         List<Map<String, Object>> rows = rowsForMethod(method,
                 "n.kind IN ('THROW','EXCEPTION','CATCH_PARAMETER')"
                         + " OR e.relation='EXCEPTION_FLOW'", limit);
@@ -77,6 +126,7 @@ public final class FlowQueryService implements AutoCloseable {
     }
 
     public QueryEnvelope guardsOf(String method, int limit) {
+        requireDetailed(method);
         List<Map<String, Object>> rows = rowsForMethod(method,
                 "e.relation IN ('GUARD_TRUE','GUARD_FALSE','CONDITION_FLOW')", limit);
         return new QueryEnvelope("guards-of " + method, rows);
@@ -111,6 +161,53 @@ public final class FlowQueryService implements AutoCloseable {
             throw new RuntimeException("Failed to query method flow summaries", e);
         }
         return new QueryEnvelope("flow-summary " + method, rows);
+    }
+
+    private void requireFullCoverage() {
+        String mode = flowMode();
+        if (!"full".equals(mode)) {
+            throw new FlowCoverageException("FLOW_COVERAGE_INCOMPLETE",
+                    "flow-path and taint-path require a full dataflow index; current mode is "
+                            + mode);
+        }
+    }
+
+    private void requireDetailed(String method) {
+        List<String> methods = resolveMethodIds(method);
+        if (methods.isEmpty()) return;
+        String placeholders = String.join(",", Collections.nCopies(methods.size(), "?"));
+        String sql = "SELECT count(*) FROM method_flow_coverage"
+                + " WHERE detail_level='DETAIL' AND method_id IN (" + placeholders + ")";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int i = 0; i < methods.size(); i++) statement.setString(i + 1, methods.get(i));
+            try (ResultSet result = statement.executeQuery()) {
+                int detailed = result.next() ? result.getInt(1) : 0;
+                if (detailed != methods.size()) {
+                    throw new FlowCoverageException("FLOW_DETAIL_NOT_INDEXED",
+                            "detailed flow is not indexed for " + method
+                                    + "; rebuild with --dataflow or a matching --dataflow-scope");
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to check flow coverage for " + method, e);
+        }
+    }
+
+    private String flowMode() {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT value FROM project_meta WHERE key='dataflow_mode'");
+             ResultSet result = statement.executeQuery()) {
+            if (result.next()) return result.getString(1);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read dataflow profile", e);
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT value FROM project_meta WHERE key='dataflow'");
+             ResultSet result = statement.executeQuery()) {
+            return result.next() && Boolean.parseBoolean(result.getString(1)) ? "full" : "off";
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read dataflow profile", e);
+        }
     }
 
     private Traversal traverse(Set<String> starts,
@@ -151,7 +248,8 @@ public final class FlowQueryService implements AutoCloseable {
     private List<Map<String, Object>> shortestPath(Set<String> starts,
                                                    Set<String> targets,
                                                    int depth,
-                                                   boolean taintOnly) {
+                                                   boolean taintOnly,
+                                                   Set<String> relations) {
         if (starts.isEmpty() || targets.isEmpty()) return List.of();
         int maxDepth = Math.max(1, Math.min(depth, 100));
         Deque<NodeDepth> queue = new ArrayDeque<>();
@@ -168,6 +266,8 @@ public final class FlowQueryService implements AutoCloseable {
             if (current.depth() >= maxDepth) continue;
             if (taintOnly && "SANITIZER".equals(nodeKind(current.node()))) continue;
             for (EdgeRecord edge : edges(current.node(), false)) {
+                if (!relations.contains(edge.relation())) continue;
+                if (taintOnly && !matchesTaintSinkSlot(edge)) continue;
                 if (seen.add(edge.target())) {
                     previous.put(edge.target(), edge);
                     if (targets.contains(edge.target())) {
@@ -202,13 +302,14 @@ public final class FlowQueryService implements AutoCloseable {
         String sql = """
                 SELECT e.id,e.source_node,e.target_node,e.relation,e.method_id,e.source_file,
                        e.confidence,e.context,e.metadata,
-                       s.kind,s.label,s.line,t.kind,t.label,t.line
+                       s.kind,s.label,s.line,t.kind,t.label,t.line,t.metadata
                 FROM flow_edges e
                 JOIN flow_nodes s ON s.id=e.source_node
                 JOIN flow_nodes t ON t.id=e.target_node
                 JOIN flow_nodes n ON n.id=e.target_node
                 WHERE e.method_id IN (%s) AND (%s)
-                ORDER BY e.source_file,s.line,e.id LIMIT ?
+                ORDER BY e.source_file,s.line,e.relation,e.source_node,e.target_node,
+                         COALESCE(e.context,''),e.confidence,e.id LIMIT ?
                 """.formatted(placeholders, predicate);
         List<Map<String, Object>> rows = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -228,11 +329,13 @@ public final class FlowQueryService implements AutoCloseable {
         String sql = """
                 SELECT e.id,e.source_node,e.target_node,e.relation,e.method_id,e.source_file,
                        e.confidence,e.context,e.metadata,
-                       s.kind,s.label,s.line,t.kind,t.label,t.line
+                       s.kind,s.label,s.line,t.kind,t.label,t.line,t.metadata
                 FROM flow_edges e
                 JOIN flow_nodes s ON s.id=e.source_node
                 JOIN flow_nodes t ON t.id=e.target_node
-                WHERE %s=? ORDER BY e.id
+                WHERE %s=?
+                ORDER BY e.relation,e.target_node,e.source_node,
+                         COALESCE(e.context,''),e.confidence,e.id
                 """.formatted(reverse ? "e.target_node" : "e.source_node");
         List<EdgeRecord> rows = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -252,7 +355,8 @@ public final class FlowQueryService implements AutoCloseable {
                 result.getString(4), result.getString(5), result.getString(6),
                 result.getString(7), result.getString(8), result.getString(9),
                 result.getString(10), result.getString(11), result.getInt(12),
-                result.getString(13), result.getString(14), result.getInt(15));
+                result.getString(13), result.getString(14), result.getInt(15),
+                result.getString(16));
     }
 
     private static Map<String, Object> edgeMap(EdgeRecord edge, int depth) {
@@ -281,7 +385,8 @@ public final class FlowQueryService implements AutoCloseable {
         String placeholders = String.join(",", Collections.nCopies(methods.size(), "?"));
         Set<String> out = new LinkedHashSet<>();
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id FROM flow_nodes WHERE method_id IN (" + placeholders + ")")) {
+                "SELECT id FROM flow_nodes WHERE method_id IN (" + placeholders
+                        + ") ORDER BY id")) {
             for (int i = 0; i < methods.size(); i++) statement.setString(i + 1, methods.get(i));
             try (ResultSet result = statement.executeQuery()) {
                 while (result.next()) out.add(result.getString(1));
@@ -292,35 +397,65 @@ public final class FlowQueryService implements AutoCloseable {
         return out;
     }
 
-    private Set<String> endpointNodes(String input, String defaultKind) {
+    private Set<String> endpointNodes(String input, String defaultKind, String slot) {
+        validateEndpointSlot(slot);
         if (input == null || input.isBlank() || "*".equals(input)) {
-            return defaultKind == null ? Set.of() : nodesByKind(defaultKind);
+            if (defaultKind == null) return Set.of();
+            return nodesByKind(defaultKind, slot);
         }
-        Set<String> exact = new LinkedHashSet<>();
+        Set<String> exactNode = exactNode(input, defaultKind, slot);
+        if (!exactNode.isEmpty()) return exactNode;
+
+        List<String> methods = resolveMethodIds(input);
+        if (methods.size() > 1) {
+            throw new FlowCoverageException("FLOW_ENDPOINT_AMBIGUOUS",
+                    "flow endpoint " + input + " matches multiple methods: "
+                            + String.join(", ", methods));
+        }
+        if (methods.isEmpty()) return Set.of();
+        return nodesForMethod(methods.getFirst(), defaultKind, slot);
+    }
+
+    private Set<String> exactNode(String input, String defaultKind, String slot) {
+        Set<String> out = new LinkedHashSet<>();
         String selector = selector("n");
-        String sql = "SELECT n.id FROM flow_nodes n WHERE "
-                + "(n.id=? OR n.method_id=? OR n.label=? OR n.method_id LIKE ?)"
-                + (defaultKind == null ? "" : " AND n.kind=?") + selector;
+        String sql = "SELECT n.id FROM flow_nodes n WHERE n.id=?"
+                + kindAndSlotPredicate(defaultKind, slot) + selector + " ORDER BY n.id";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, input);
-            statement.setString(2, input);
-            statement.setString(3, input);
-            statement.setString(4, "%" + input + "%");
-            if (defaultKind != null) statement.setString(5, defaultKind);
             try (ResultSet result = statement.executeQuery()) {
-                while (result.next()) exact.add(result.getString(1));
+                while (result.next()) out.add(result.getString(1));
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to resolve flow endpoint " + input, e);
         }
-        if (!exact.isEmpty()) return exact;
-        return flowNodesFor(input);
+        return out;
     }
 
-    private Set<String> nodesByKind(String kind) {
+    private Set<String> nodesForMethod(String method, String kind, String slot) {
         Set<String> out = new LinkedHashSet<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT n.id FROM flow_nodes n WHERE n.kind=?" + selector("n"))) {
+        String sql = "SELECT n.id FROM flow_nodes n WHERE n.method_id=?"
+                + kindAndSlotPredicate(kind, slot) + selector("n") + " ORDER BY n.id";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, method);
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) out.add(result.getString(1));
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to query flow nodes for " + method, e);
+        }
+        if (slot != null && out.isEmpty()) {
+            throw new FlowCoverageException("FLOW_ENDPOINT_SLOT_INVALID",
+                    "method " + method + " has no flow endpoint for slot " + slot);
+        }
+        return out;
+    }
+
+    private Set<String> nodesByKind(String kind, String slot) {
+        Set<String> out = new LinkedHashSet<>();
+        String sql = "SELECT n.id FROM flow_nodes n WHERE n.kind=?"
+                + slotPredicate(slot) + selector("n") + " ORDER BY n.id";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, kind);
             try (ResultSet result = statement.executeQuery()) {
                 while (result.next()) out.add(result.getString(1));
@@ -329,6 +464,32 @@ public final class FlowQueryService implements AutoCloseable {
             throw new RuntimeException("Failed to query flow nodes by kind", e);
         }
         return out;
+    }
+
+    private static void validateEndpointSlot(String slot) {
+        if (slot == null || "return".equals(slot) || "throw".equals(slot)) return;
+        if (!slot.startsWith("arg:") || slot.length() == 4) {
+            throw new FlowCoverageException("FLOW_ENDPOINT_SLOT_INVALID",
+                    "slot must be arg:N, return, or throw: " + slot);
+        }
+        for (int i = 4; i < slot.length(); i++) {
+            if (!Character.isDigit(slot.charAt(i))) {
+                throw new FlowCoverageException("FLOW_ENDPOINT_SLOT_INVALID",
+                        "slot must be arg:N, return, or throw: " + slot);
+            }
+        }
+    }
+
+    private static String kindAndSlotPredicate(String kind, String slot) {
+        String kindPredicate = kind == null ? "" : " AND n.kind='" + kind + "'";
+        return kindPredicate + slotPredicate(slot);
+    }
+
+    private static String slotPredicate(String slot) {
+        if (slot == null) return "";
+        if ("return".equals(slot)) return " AND n.kind='RETURN'";
+        if ("throw".equals(slot)) return " AND n.kind IN ('THROW','EXCEPTION')";
+        return " AND n.kind='PARAMETER' AND n.slot='" + slot + "'";
     }
 
     private List<String> resolveMethodIds(String input) {
@@ -356,7 +517,8 @@ public final class FlowQueryService implements AutoCloseable {
         }
         if (!out.isEmpty()) return out;
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT DISTINCT method_id FROM flow_nodes WHERE method_id=? OR method_id LIKE ?")) {
+                "SELECT DISTINCT method_id FROM flow_nodes"
+                        + " WHERE method_id=? OR method_id LIKE ? ORDER BY method_id")) {
             statement.setString(1, input);
             statement.setString(2, "%" + normalizeMethodSearch(input) + "%");
             try (ResultSet result = statement.executeQuery()) {
@@ -394,6 +556,26 @@ public final class FlowQueryService implements AutoCloseable {
         }
     }
 
+    private static boolean matchesTaintSinkSlot(EdgeRecord edge) {
+        if (!"TAINT_SINK".equals(edge.targetKind())) return true;
+        String slot = metadataString(edge.targetMetadata(), "taint_sink_slot");
+        return slot == null || ("ARGUMENT_FLOW".equals(edge.relation())
+                && slot.equals(edge.context()));
+    }
+
+    private static String metadataString(String metadata, String key) {
+        if (metadata == null) return null;
+        try {
+            Object tree = Json.parseTree(metadata);
+            if (tree instanceof Map<?, ?> map && map.get(key) != null) {
+                return String.valueOf(map.get(key));
+            }
+        } catch (RuntimeException ignored) {
+            // Invalid node metadata should not make a read-only path query fail.
+        }
+        return null;
+    }
+
     private static int safeLimit(int limit) {
         return limit <= 0 ? 1000 : Math.min(limit, 10_000);
     }
@@ -412,5 +594,6 @@ public final class FlowQueryService implements AutoCloseable {
                               String method, String sourceFile, String confidence,
                               String context, String metadata,
                               String sourceKind, String sourceLabel, int sourceLine,
-                              String targetKind, String targetLabel, int targetLine) {}
+                              String targetKind, String targetLabel, int targetLine,
+                              String targetMetadata) {}
 }

@@ -2,6 +2,7 @@ package com.anatomist.cli;
 
 import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -23,6 +24,16 @@ public class ImplementorsOfCommand extends QueryCommand {
 
     @Option(names = "--count", description = "Return only the count of implementors (results omitted).")
     boolean count;
+
+    @Override
+    protected QueryCoverageService.Capability coverageCapability() {
+        return QueryCoverageService.Capability.TYPE_INCOMING;
+    }
+
+    @Override
+    protected List<String> coverageAnchors() {
+        return List.of(type);
+    }
 
     @Override
     protected QueryEnvelope execute(QueryService q) {

@@ -4,6 +4,7 @@ import com.anatomist.query.CallChainSlicer;
 import com.anatomist.query.ContextFilter;
 import com.anatomist.query.EdgeRow;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -53,6 +54,16 @@ public class CallersOfCommand extends QueryCommand {
             description = "Attach source_window with path, line, start_line, end_line, "
                     + "and numbered snippet. Optional value is surrounding context lines.")
     Integer sourceWindow;
+
+    @Override
+    protected QueryCoverageService.Capability coverageCapability() {
+        return QueryCoverageService.Capability.CALL_INCOMING;
+    }
+
+    @Override
+    protected List<String> coverageAnchors() {
+        return List.of(method);
+    }
 
     @Override
     protected QueryEnvelope execute(QueryService q) {

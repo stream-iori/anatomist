@@ -10,7 +10,6 @@ import com.anatomist.framework.spring.SpringXmlAnalyzer;
 import com.anatomist.flow.FlowAnalyzer;
 import com.anatomist.flow.FlowPersistence;
 import com.anatomist.flow.FlowResult;
-import com.anatomist.flow.InterproceduralFlowLinker;
 import com.anatomist.flow.TaintRules;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
@@ -68,14 +67,16 @@ public class IndexOrchestrator {
                 : SourceIdentityResolver.fromRoots(cfg.projectRoot(), cfg.sourceRoots());
         ExtractionResult result = new ExtractionResult();
         FlowResult flowResult = new FlowResult();
+        FlowResult stagedFlowResult = new FlowResult();
         TaintRules taintRules = TaintRules.load(cfg.projectRoot());
         FlowAnalyzer flowAnalyzer = cfg.dataflow()
                 ? new FlowAnalyzer(cfg.projectRoot(), cfg.sourcePaths(), cfg.sourceRoots(),
-                taintRules, cfg.implicitTaint())
+                taintRules, cfg.implicitTaint(), cfg.flowProfile())
                 : null;
         Map<String, String> contractHashes = new java.util.LinkedHashMap<>();
         List<Path> parsedJavaFiles = new ArrayList<>();
         StagedGraphStore.PromotionStats promotion;
+        FlowPersistence.Stats flowStats;
         List<Path> xmlFiles = Collections.emptyList();
         ParseInventory parseInventory;
 
@@ -84,6 +85,8 @@ public class IndexOrchestrator {
             long parseExtractStarted = startTiming(timings);
             long[] extractNanos = {0L};
             long[] stageNanos = {0L};
+            long[] flowAnalyzeNanos = {0L};
+            long[] flowStageNanos = {0L};
             int[] batchFiles = {0};
             parseInventory = factory.parseInventory(cfg.sourceFiles(), (filePath, cu) -> {
                 long extractStarted = startTiming(timings);
@@ -93,18 +96,28 @@ public class IndexOrchestrator {
                 if (filePath != null) parsedJavaFiles.add(filePath.toAbsolutePath().normalize());
                 pipeline.extractAll(cu, result);
                 if (flowAnalyzer != null) {
+                    FlowResult unitFlow = new FlowResult();
+                    long flowStarted = System.nanoTime();
                     try {
-                        flowAnalyzer.analyze(cu, flowResult);
+                        flowAnalyzer.analyze(cu, unitFlow);
                     } catch (RuntimeException failure) {
-                        flowResult.diagnostics.add(new IndexDiagnostic(
+                        unitFlow.diagnostics.add(new IndexDiagnostic(
                                 "warning", "FLOW_ANALYSIS_FAILED", "FLOW",
                                 relative, null, null, null, 1, failure.getMessage()));
                     }
+                    flowAnalyzeNanos[0] += System.nanoTime() - flowStarted;
+                    flowResult.diagnostics.addAll(unitFlow.diagnostics);
+                    stagedFlowResult.addFacts(unitFlow);
                 }
                 if (timings != null) extractNanos[0] += System.nanoTime() - extractStarted;
                 batchFiles[0]++;
-                if (batchFiles[0] >= STAGE_FILE_BATCH || result.factCount() >= STAGE_FACT_BATCH) {
+                if (batchFiles[0] >= STAGE_FILE_BATCH || result.factCount() >= STAGE_FACT_BATCH
+                        || stagedFlowResult.factCount() >= STAGE_FACT_BATCH) {
                     stageNanos[0] += flushRawBatch(staging, result, timings);
+                    long flowStarted = System.nanoTime();
+                    staging.writeFlowBatch(stagedFlowResult);
+                    stagedFlowResult.clearFacts();
+                    flowStageNanos[0] += System.nanoTime() - flowStarted;
                     batchFiles[0] = 0;
                 }
                 progress.tick();
@@ -112,11 +125,17 @@ public class IndexOrchestrator {
             parseInventory = relativeInventory(parseInventory, cfg.projectRoot());
             for (int i = 0; i < parseInventory.failedFiles(); i++) progress.tick();
             stageNanos[0] += flushRawBatch(staging, result, timings);
+            long finalFlowStarted = System.nanoTime();
+            staging.writeFlowBatch(stagedFlowResult);
+            stagedFlowResult.clearFacts();
+            flowStageNanos[0] += System.nanoTime() - finalFlowStarted;
             progress.done();
             if (timings != null) {
                 long parseExtractNanos = System.nanoTime() - parseExtractStarted;
                 timings.addNanos("full_parse_extract", parseExtractNanos);
                 timings.addNanos("full_extract", extractNanos[0]);
+                timings.addNanos("flow_analyze", flowAnalyzeNanos[0]);
+                timings.addNanos("flow_stage_write", flowStageNanos[0]);
                 timings.addNanos("full_parse", Math.max(0L,
                         parseExtractNanos - extractNanos[0] - stageNanos[0]));
             }
@@ -145,6 +164,9 @@ public class IndexOrchestrator {
             phaseStarted = startTiming(timings);
             promotion = staging.promoteFull(store);
             stopTiming(timings, "full_stage_promote", phaseStarted);
+            phaseStarted = startTiming(timings);
+            flowStats = staging.promoteFullFlow(store, timings);
+            stopTiming(timings, "full_flow_write", phaseStarted);
             if (timings != null) {
                 // Compatibility aliases retained for existing timing consumers.
                 timings.addNanos("full_write_nodes", 0L);
@@ -170,16 +192,6 @@ public class IndexOrchestrator {
             AnatomistLog.warn("dropped " + dropped + " edges with dangling internal target "
                     + "(extractor gaps) for " + cfg.projectRoot());
         }
-
-        phaseStarted = startTiming(timings);
-        if (cfg.dataflow()) {
-            InterproceduralFlowLinker.link(flowResult);
-            FlowPersistence.replaceAll(store, flowResult);
-            FlowPersistence.relinkInterprocedural(store);
-        } else {
-            FlowPersistence.replaceAll(store, new FlowResult());
-        }
-        stopTiming(timings, "full_flow_write", phaseStarted);
 
         List<Path> cachedFiles = parsedJavaFiles;
         if (!xmlFiles.isEmpty()) {
@@ -229,11 +241,16 @@ public class IndexOrchestrator {
                 ctx.samplingEnabled(),
                 parseInventory,
                 detailedDiagnostics,
-                flowResult.nodes.size(),
-                flowResult.edges.size(),
-                flowResult.summaries.size()
+                flowStats.nodes(),
+                flowStats.edges(),
+                flowStats.summaries(),
+                flowStats.detailedMethods(),
+                flowStats.summaryOnlyMethods()
         );
-        store.replaceIndexDiagnostics(IndexHealthService.fromResult(indexResult).diagnostics());
+        List<IndexDiagnostic> rawDiagnostics =
+                IndexHealthService.diagnosticsFromResult(indexResult);
+        store.replaceIndexDiagnostics(IndexHealthReport.of(rawDiagnostics).diagnostics());
+        store.replaceAnalysisCoverage(rawDiagnostics);
         stopTiming(timings, "full_stats_health", phaseStarted);
         return indexResult;
     }

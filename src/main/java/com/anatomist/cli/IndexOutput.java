@@ -4,6 +4,7 @@ import com.anatomist.core.IndexConfig;
 import com.anatomist.core.IndexHealthReport;
 import com.anatomist.core.IndexHealthService;
 import com.anatomist.core.IndexResult;
+import com.anatomist.core.HealthPolicy;
 import com.anatomist.core.ParseInventory;
 import com.anatomist.incremental.IncrementalIndexer;
 import com.anatomist.json.Json;
@@ -24,6 +25,11 @@ final class IndexOutput {
     }
 
     static void emitFullJson(IndexResult result, IndexConfig config, Map<String, Long> timingsMs) {
+        emitFullJson(result, config, timingsMs, HealthPolicy.NONE);
+    }
+
+    static void emitFullJson(IndexResult result, IndexConfig config,
+                             Map<String, Long> timingsMs, HealthPolicy policy) {
         Map<String, Object> stats = new LinkedHashMap<>();
         Map<String, Long> kinds = result.kindCounts();
         Map<String, Long> relations = result.relationCounts();
@@ -59,27 +65,37 @@ final class IndexOutput {
         stats.put("flow_nodes", result.flowNodes());
         stats.put("flow_edges", result.flowEdges());
         stats.put("flow_summaries", result.flowSummaries());
+        stats.put("flow_detailed_methods", result.flowDetailedMethods());
+        stats.put("flow_summary_only_methods", result.flowSummaryOnlyMethods());
+        stats.put("dataflow_mode", config.flowProfile().mode().name().toLowerCase());
+        stats.put("dataflow_scopes", config.flowProfile().scopes());
         stats.put("elapsed_ms", result.elapsedMs());
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("command", "index");
         out.put("status", "ok");
+        out.put("index_state", "committed");
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("index_path", config.dbPath().toString());
         out.put("stats", stats);
         out.put("node_kinds", kinds);
         out.put("relations", relations);
         if (timingsMs != null && !timingsMs.isEmpty()) out.put("timings_ms", timingsMs);
-        addHealth(out, IndexHealthService.fromResult(result));
+        addHealth(out, IndexHealthService.fromResult(result), policy);
         System.out.println(Json.writePretty(out));
     }
 
     static void emitStrictParseFailure(Path dbPath, ParseInventory parse) {
+        emitStrictParseFailure(dbPath, parse, HealthPolicy.COMPLETE);
+    }
+
+    static void emitStrictParseFailure(Path dbPath, ParseInventory parse, HealthPolicy policy) {
         Map<String, Object> stats = new LinkedHashMap<>();
         addParseStats(stats, parse);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("command", "index");
         out.put("status", "error");
+        out.put("index_state", "rejected");
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("index_path", dbPath.toString());
         out.put("stats", stats);
@@ -92,7 +108,7 @@ final class IndexOutput {
                                         ? "parser produced no compilation unit"
                                         : entry.getValue().get(0)))
                         .toList();
-        addHealth(out, IndexHealthReport.of(diagnostics));
+        addHealth(out, IndexHealthReport.of(diagnostics), policy);
         System.out.println(Json.writePretty(out));
     }
 
@@ -127,13 +143,22 @@ final class IndexOutput {
         emitIncremental(format, projectRoot, dbPath, sourceFileCount, summary,
                 fileCacheSize, elapsedMs, timingsMs,
                 IndexHealthService.fromCounts(
-                        summary.unresolvedSymbols, summary.droppedDanglingFacts));
+                        summary.unresolvedSymbols, summary.droppedDanglingFacts),
+                HealthPolicy.NONE);
     }
 
     static void emitIncremental(String format, Path projectRoot, Path dbPath,
                                 int sourceFileCount, IncrementalIndexer.Summary summary,
                                 int fileCacheSize, long elapsedMs, Map<String, Long> timingsMs,
                                 IndexHealthReport health) {
+        emitIncremental(format, projectRoot, dbPath, sourceFileCount, summary,
+                fileCacheSize, elapsedMs, timingsMs, health, HealthPolicy.NONE);
+    }
+
+    static void emitIncremental(String format, Path projectRoot, Path dbPath,
+                                int sourceFileCount, IncrementalIndexer.Summary summary,
+                                int fileCacheSize, long elapsedMs, Map<String, Long> timingsMs,
+                                IndexHealthReport health, HealthPolicy policy) {
         if (!"json".equalsIgnoreCase(format)) {
             emitIncrementalText(projectRoot, dbPath, summary, fileCacheSize, elapsedMs, timingsMs);
             return;
@@ -157,6 +182,8 @@ final class IndexOutput {
         stats.put("flow_nodes", summary.flowNodes);
         stats.put("flow_edges", summary.flowEdges);
         stats.put("flow_summaries", summary.flowSummaries);
+        stats.put("flow_detailed_methods", summary.flowDetailedMethods);
+        stats.put("flow_summary_only_methods", summary.flowSummaryOnlyMethods);
         stats.put("unresolved", summary.unresolvedSymbols);
         stats.put("dropped_dangling_edges", summary.droppedDanglingFacts);
         stats.put("file_cache_entries", fileCacheSize);
@@ -165,13 +192,14 @@ final class IndexOutput {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("command", "index");
         out.put("status", "ok");
+        out.put("index_state", "committed");
         out.put("mode", "incremental");
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("project_root", projectRoot.toString());
         out.put("index_path", dbPath.toString());
         out.put("stats", stats);
         if (timingsMs != null && !timingsMs.isEmpty()) out.put("timings_ms", timingsMs);
-        addHealth(out, health);
+        addHealth(out, health, policy);
         System.out.println(Json.writePretty(out));
     }
 
@@ -194,12 +222,15 @@ final class IndexOutput {
         System.out.println("Done in " + elapsedMs + "ms");
     }
 
-    private static void addHealth(Map<String, Object> out, IndexHealthReport health) {
+    private static void addHealth(Map<String, Object> out, IndexHealthReport health,
+                                  HealthPolicy policy) {
         int limit = 100;
         java.util.List<com.anatomist.core.IndexDiagnostic> page =
                 health.diagnostics().stream().limit(limit).toList();
         IndexHealthReport displayed = new IndexHealthReport(health.status(), page);
         out.put("health", health.status().name().toLowerCase());
+        out.put("health_dimensions", health.dimensions());
+        out.put("gate", health.gate(policy).toMap());
         out.put("diagnostics", displayed.toMaps());
         out.put("warnings", displayed.warnings());
         out.put("errors", displayed.errors());

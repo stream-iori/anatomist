@@ -15,4 +15,8 @@ public final class FlowSummaryCommand extends FlowQueryCommand {
     @Override protected QueryEnvelope execute(FlowQueryService service) {
         return service.summaries(method, limit);
     }
+
+    @Override protected java.util.List<String> coverageAnchors() {
+        return java.util.List.of(method);
+    }
 }

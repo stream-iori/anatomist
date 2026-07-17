@@ -50,13 +50,14 @@ the index for the current checkout, then query only if that command succeeds.
 Do this even when no `watch` process is running:
 
 ```bash
-anatomist index <project-root> --incremental --strict-health --format json --output <db> \
+anatomist index <project-root> --incremental --health-policy integrity --format json --output <db> \
   && anatomist <query-command> --index <db> ...
 ```
 
 | Situation | Gate |
 |---|---|
-| Normal local checkout | `index --incremental --strict-health` before every independent query session. A no-change pass checks file metadata but does not run Maven detection, JavaParser, or graph replacement. |
+| Normal local checkout | `index --incremental --health-policy integrity` before every independent query session. It rejects parse/graph-integrity gaps but allows disclosed external-resolution gaps. A no-change pass checks file metadata but does not run Maven detection, JavaParser, or graph replacement. |
+| Completeness-sensitive task | Use `--strict-health` (alias of `--health-policy complete`) only when any warning must block the query. |
 | Content may have been rewritten with restored size/mtime | Add `--verify-content`; it hashes every indexed source but still does not reparse or rewrite an unchanged graph. |
 | First index used non-default source/classpath flags | Reuse the same `--project-source` or every `--source-root`, `--include-tests`, `--spring-xml`, classpath policy, and `--java-version`. |
 | Gate exits non-zero | Do not issue a code query or present old-index facts as current. Report the failed index/health result instead. |
@@ -73,6 +74,22 @@ sqlite3 <db> "select key,value from project_meta where key in ('source_root','so
 
 If `source_git_dirty=true`, say the index came from a dirty worktree. If
 `source_root` moved, `--source-window` snippets may be absent.
+
+Read the JSON contracts as separate signals:
+
+| Signal | Use |
+|---|---|
+| `index_state=committed` | A complete snapshot was promoted |
+| `health_dimensions.parse` / `graph_integrity` | Whether structural facts are safe to query |
+| `health_dimensions.resolution` | Which internal/external/JDK lookups are partial |
+| `classpath_detection.status` | Whether Maven classpath input is full, partial, unavailable, cached, or explicit |
+| `gate` | Which policy was applied and why it passed/failed |
+
+Every JSON query exposes `evidence`. Returned positive facts remain usable when
+coverage is partial, but are not exhaustive. A zero-result answer is safe only
+when `evidence.status=confirmed_empty` and
+`negative_conclusion_safe=true`. If status is `indeterminate`, report the
+coverage gap instead of saying the code path/type/caller does not exist.
 
 ## IDEA task routing
 
@@ -158,7 +175,9 @@ prove path feasibility.
 
 ```bash
 anatomist flow-of <method> --depth 8 --index <db>
-anatomist flow-path <source> <target> --depth 20 --index <db>
+anatomist flow-path <source> <target> \
+  [--from-slot arg:0] [--to-slot return] \
+  [--include-control] [--include-exception] --depth 20 --index <db>
 anatomist flow-summary <method> --index <db>
 anatomist guards-of <method> --index <db>
 anatomist exception-flow <method> --index <db>
@@ -169,6 +188,17 @@ Treat `POSSIBLE` and `INFERRED` edges as conservative evidence. Arrays are
 whole-object abstractions; heap aliases, reflection beyond the bounded core
 patterns, dynamic proxies, implicit runtime exceptions, and SAT/path
 feasibility remain outside the guarantee.
+
+`flow-path` is data-only by default. Add control or exception edges only when
+the question requires them. Prefer exact slots (`arg:N`, `return`, `throw`) and
+full overloaded signatures; `FLOW_ENDPOINT_AMBIGUOUS` means the selector must
+be narrowed. Taint rules accept source/sanitizer `return` and sink `arg:N` or
+`this`; invalid slots are not silently applied.
+
+Evidence coverage comes from `analysis_coverage`, which preserves full
+file/module/scope/capability aggregates even when diagnostic samples are
+truncated. Do not infer completeness from the number of `doctor.diagnostics`
+rows.
 
 ### Core reflection
 
@@ -309,7 +339,8 @@ possible. Page large results with `stats.truncated`, `next_offset`, and
 | Stop at `template.execute` or callback container | Try callback traversal if supported. |
 | Trust naming matches as semantics | Mark them as weak signals. |
 | Paste long source files | Use source windows and cite exact file/line. |
-| Assume the DB matches current source | Check `project_meta` when precision matters. |
+| Assume the DB matches current source | Run the integrity gate and inspect `index_state`. |
+| Treat any empty result as proof of absence | Require `evidence.status=confirmed_empty`. |
 | Treat no static path as no runtime path | Mention static-analysis limits. |
 
 Runtime behavior can still be incomplete for unbounded reflection, profiles,

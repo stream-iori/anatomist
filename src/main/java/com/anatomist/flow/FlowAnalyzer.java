@@ -5,6 +5,7 @@ import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.NodeKeyFactory;
 import com.anatomist.core.SourceIdentity;
 import com.anatomist.core.SourceIdentityResolver;
+import com.anatomist.extract.CallableIdFactory;
 import com.anatomist.json.Json;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
@@ -72,18 +73,30 @@ public final class FlowAnalyzer {
     private final NodeIdGenerator ids = new NodeIdGenerator();
     private final TaintRules taintRules;
     private final boolean implicitTaint;
+    private final FlowProfile profile;
 
     public FlowAnalyzer(Path projectRoot,
                         List<Path> sourcePaths,
                         List<com.anatomist.core.SourceRoot> sourceRoots,
                         TaintRules taintRules,
                         boolean implicitTaint) {
+        this(projectRoot, sourcePaths, sourceRoots, taintRules, implicitTaint,
+                FlowProfile.full());
+    }
+
+    public FlowAnalyzer(Path projectRoot,
+                        List<Path> sourcePaths,
+                        List<com.anatomist.core.SourceRoot> sourceRoots,
+                        TaintRules taintRules,
+                        boolean implicitTaint,
+                        FlowProfile profile) {
         this.projectRoot = projectRoot.toAbsolutePath().normalize();
         this.identities = sourceRoots == null || sourceRoots.isEmpty()
                 ? new SourceIdentityResolver(projectRoot, sourcePaths)
                 : SourceIdentityResolver.fromRoots(projectRoot, sourceRoots);
         this.taintRules = taintRules;
         this.implicitTaint = implicitTaint;
+        this.profile = profile == null ? FlowProfile.full() : profile;
     }
 
     public void analyze(CompilationUnit unit, FlowResult output) {
@@ -111,7 +124,8 @@ public final class FlowAnalyzer {
                                  FlowResult output) {
         if (body == null) return;
         String methodId = methodId(callable, identity);
-        MethodContext context = new MethodContext(methodId, sourceFile, identity, output);
+        FlowResult methodOutput = new FlowResult();
+        MethodContext context = new MethodContext(methodId, sourceFile, identity, methodOutput);
         State state = new State();
         for (int i = 0; i < parameters.size(); i++) {
             Parameter parameter = parameters.get(i);
@@ -122,6 +136,15 @@ public final class FlowAnalyzer {
         }
         analyzeBlock(body, state, context);
         buildSummaries(context);
+        boolean detailed = profile.detailed(methodId, sourceFile);
+        if (detailed) {
+            output.nodes.addAll(methodOutput.nodes);
+            output.edges.addAll(methodOutput.edges);
+        }
+        output.summaries.addAll(methodOutput.summaries);
+        output.diagnostics.addAll(methodOutput.diagnostics);
+        output.coverage.add(new MethodFlowCoverage(
+                methodId, sourceFile, detailed ? "DETAIL" : "SUMMARY"));
     }
 
     private void analyzeBlock(BlockStmt block, State state, MethodContext context) {
@@ -401,6 +424,10 @@ public final class FlowAnalyzer {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("callee_method", resolved.methodId());
         metadata.put("callee", resolved.matchName());
+        metadata.put("call_name", call.getNameAsString());
+        metadata.put("argument_count", call.getArguments().size());
+        metadata.put("resolution", NodeKeyFactory.isKey(resolved.methodId())
+                ? "EXACT" : "LEXICAL");
         if (sourceRule != null) metadata.put("taint_source_slot", sourceRule.slot());
         if (sinkRule != null) metadata.put("taint_sink_slot", sinkRule.slot());
         if (sanitizerRule != null) metadata.put("sanitizer_slot", sanitizerRule.slot());
@@ -429,17 +456,25 @@ public final class FlowAnalyzer {
         if (existing != null) return existing;
         String callee = creation.getTypeAsString() + "#<init>";
         String methodId = callee;
-        try {
-            ResolvedConstructorDeclaration resolved = creation.resolve();
-            String symbol = ids.forConstructor(resolved);
-            methodId = storageMethodId(symbol, resolved.toAst().flatMap(Node::findCompilationUnit)
-                    .orElse(null), context.identity);
-            callee = symbol;
-        } catch (RuntimeException e) {
-            context.partialResolution(e);
+        if (creation.getAnonymousClassBody().isEmpty()) {
+            try {
+                ResolvedConstructorDeclaration resolved = creation.resolve();
+                String symbol = CallableIdFactory.forConstructor(ids, resolved);
+                methodId = storageMethodId(symbol,
+                        resolved.toAst().flatMap(Node::findCompilationUnit).orElse(null),
+                        context.identity);
+                callee = symbol;
+            } catch (RuntimeException e) {
+                context.partialResolution(e);
+            }
         }
         FlowNode node = context.node("CALL_RESULT", creation.getTypeAsString(),
-                creation, Map.of("callee_method", methodId, "callee", callee), state);
+                creation, Map.of(
+                        "callee_method", methodId,
+                        "callee", callee,
+                        "call_name", "<init>",
+                        "argument_count", creation.getArguments().size(),
+                        "resolution", NodeKeyFactory.isKey(methodId) ? "EXACT" : "LEXICAL"), state);
         context.expressionNodes.put(creation, node.id());
         for (int i = 0; i < creation.getArguments().size(); i++) {
             connectExpression(creation.getArgument(i), node.id(), "ARGUMENT_FLOW",
@@ -451,7 +486,7 @@ public final class FlowAnalyzer {
     private ResolvedCall resolve(MethodCallExpr call, MethodContext context) {
         try {
             ResolvedMethodDeclaration resolved = call.resolve();
-            String symbol = ids.forMethod(resolved);
+            String symbol = CallableIdFactory.forMethod(ids, resolved);
             CompilationUnit targetUnit = resolved.toAst(MethodDeclaration.class)
                     .flatMap(Node::findCompilationUnit).orElse(null);
             String storage = storageMethodId(symbol, targetUnit, context.identity);
@@ -532,9 +567,9 @@ public final class FlowAnalyzer {
         String symbol;
         try {
             if (callable instanceof MethodDeclaration method) {
-                symbol = ids.forMethod(method.resolve());
+                symbol = CallableIdFactory.forMethod(ids, method);
             } else if (callable instanceof ConstructorDeclaration constructor) {
-                symbol = ids.forConstructor(constructor.resolve());
+                symbol = CallableIdFactory.forConstructor(ids, constructor);
             } else {
                 symbol = lexicalMethodId(callable);
             }
@@ -610,6 +645,7 @@ public final class FlowAnalyzer {
         final IdentityHashMap<Expression, String> expressionNodes = new IdentityHashMap<>();
         final Map<String, FlowNode> nodesById = new LinkedHashMap<>();
         final Set<String> diagnosticKeys = new HashSet<>();
+        final Set<String> edgeKeys = new HashSet<>();
         int sequence;
 
         MethodContext(String methodId, String sourceFile,
@@ -627,9 +663,14 @@ public final class FlowAnalyzer {
             String id = methodId + "@flow:" + line + ":" + column + ":"
                     + kind + ":" + sequence++;
             String json = metadata == null || metadata.isEmpty()
-                    ? null : Json.writeCompact(metadata);
+                    ? null : Json.writeCompact(new java.util.TreeMap<>(metadata));
+            String calleeMethod = metadata == null || metadata.get("callee_method") == null
+                    ? null : String.valueOf(metadata.get("callee_method"));
+            String slot = metadata == null || metadata.get("slot") == null
+                    ? null : String.valueOf(metadata.get("slot"));
             FlowNode node = new FlowNode(id, methodId, kind, label, sourceFile,
-                    identity.module(), identity.scope().name(), line, column, json);
+                    identity.module(), identity.scope().name(), line, column,
+                    calleeMethod, slot, json);
             output.nodes.add(node);
             nodesById.put(id, node);
             for (Guard guard : guards) {
@@ -651,6 +692,9 @@ public final class FlowAnalyzer {
         void edge(String source, String target, String relation,
                   String edgeContext, String confidence) {
             if (source == null || target == null || source.equals(target)) return;
+            String key = source + "\u0000" + target + "\u0000" + relation + "\u0000"
+                    + edgeContext + "\u0000" + confidence;
+            if (!edgeKeys.add(key)) return;
             output.edges.add(new FlowEdge(source, target, relation, methodId,
                     sourceFile, confidence, edgeContext, null));
         }

@@ -17,4 +17,8 @@ public final class FlowOfCommand extends FlowQueryCommand {
     @Override protected QueryEnvelope execute(FlowQueryService service) {
         return service.flowOf(method, reverse, depth, limit);
     }
+
+    @Override protected java.util.List<String> coverageAnchors() {
+        return java.util.List.of(method);
+    }
 }

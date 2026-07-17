@@ -27,6 +27,10 @@ public class DoctorCommand implements Callable<Integer> {
     @Option(names = "--strict-health", description = "Return exit code 3 unless index health is healthy.")
     boolean strictHealth;
 
+    @Option(names = "--health-policy",
+            description = "Health gate: none | integrity | complete. --strict-health aliases complete.")
+    String healthPolicy;
+
     @Option(names = "--diagnostic-file", description = "Filter diagnostics by source-file substring.")
     String diagnosticFile;
 
@@ -50,6 +54,13 @@ public class DoctorCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        com.anatomist.core.HealthPolicy policy;
+        try {
+            policy = com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
+        } catch (IllegalArgumentException invalid) {
+            System.err.println("ERROR: " + invalid.getMessage());
+            return 2;
+        }
         Path defaultPath = DefaultIndexPath.forQueryRead(Path.of("").toAbsolutePath());
         Path db = index == null ? defaultPath : index.toAbsolutePath().normalize();
         boolean exists = Files.isRegularFile(db);
@@ -62,6 +73,7 @@ public class DoctorCommand implements Callable<Integer> {
         out.put("default_index_path", defaultPath.toString());
         out.put("index_path", db.toString());
         out.put("index_exists", exists);
+        out.put("index_state", exists ? "unknown" : "missing");
         IndexStateStore.Snapshot freshness = IndexStateStore.read(db);
         out.put("freshness_state", freshness.state().name().toLowerCase());
         if (freshness.reason() != null) out.put("rebuild_reason", freshness.reason());
@@ -83,18 +95,43 @@ public class DoctorCommand implements Callable<Integer> {
             try (SqliteStore store = new SqliteStore(db)) {
                 out.put("index_schema_version", store.schemaVersion());
                 if (!store.schemaCompatible()) {
+                    out.put("index_state", "incompatible");
                     out.put("status", "degraded");
-                    out.put("health", "unhealthy");
-                    out.put("errors", List.of(Map.of("code", "SCHEMA_MISMATCH",
-                            "required", FileCacheService.CURRENT_SCHEMA_VERSION,
-                            "actual", store.schemaVersion())));
+                    com.anatomist.core.IndexDiagnostic mismatch =
+                            new com.anatomist.core.IndexDiagnostic(
+                                    "error", "SCHEMA_MISMATCH", "SCHEMA",
+                                    null, null, null, null, 1,
+                                    "required=" + FileCacheService.CURRENT_SCHEMA_VERSION
+                                            + ", actual=" + store.schemaVersion());
+                    addHealth(out, com.anatomist.core.IndexHealthReport.of(List.of(mismatch)),
+                            policy);
                 } else {
                     store.readProjectMeta("java_version").ifPresent(v -> out.put("java_version", v));
                     store.readProjectMeta("java_version_source")
                             .ifPresent(v -> out.put("java_version_source", v));
                     store.readProjectMeta("classpath_mode").ifPresent(v -> out.put("classpath_mode", v));
+                    Map<String, Object> classpathDetection = new java.util.LinkedHashMap<>();
+                    store.readProjectMeta("classpath_detection_status")
+                            .ifPresent(v -> classpathDetection.put("status", v));
+                    putIntegerMeta(store, classpathDetection,
+                            "classpath_detection_entries", "entries");
+                    putIntegerMeta(store, classpathDetection,
+                            "classpath_detection_module_outputs", "module_output_files");
+                    putIntegerMeta(store, classpathDetection,
+                            "classpath_detection_maven_exit", "maven_exit_code");
+                    store.readProjectMeta("classpath_detection_error_sample")
+                            .filter(v -> !v.isBlank())
+                            .ifPresent(v -> classpathDetection.put("error_sample", v));
+                    if (!classpathDetection.isEmpty()) {
+                        out.put("classpath_detection", classpathDetection);
+                    }
                     store.readProjectMeta("spring_xml")
                             .ifPresent(v -> out.put("spring_xml", Boolean.parseBoolean(v)));
+                    store.readProjectMeta("dataflow_mode")
+                            .ifPresent(v -> out.put("dataflow_mode", v));
+                    store.readProjectMeta("dataflow_scopes")
+                            .ifPresent(v -> out.put("dataflow_scopes",
+                                    v.isBlank() ? List.of() : List.of(v.split(","))));
                     store.readProjectMeta("source_root").ifPresent(v -> out.put("source_root", v));
                     store.readProjectMeta(com.anatomist.core.ProjectMetadata.SNAPSHOT_FINGERPRINT_KEY)
                             .ifPresent(v -> out.put("source_snapshot_fingerprint", v));
@@ -114,14 +151,18 @@ public class DoctorCommand implements Callable<Integer> {
                     out.put("node_kinds", nodeKinds);
                     out.put("relations", relations);
                     if (nodeKinds.isEmpty() || store.readFileCache().isEmpty()) {
+                        out.put("index_state", "empty");
                         out.put("status", "degraded");
-                        out.put("health", "unhealthy");
-                        out.put("diagnostics", List.of());
-                        out.put("warnings", List.of());
-                        out.put("errors", List.of(Map.of("code", "INDEX_EMPTY",
-                                "message", "index schema exists but no committed graph is available")));
-                        return emit(out, db, exists);
+                        com.anatomist.core.IndexDiagnostic empty =
+                                new com.anatomist.core.IndexDiagnostic(
+                                        "error", "INDEX_EMPTY", "GRAPH_INTEGRITY",
+                                        null, null, null, null, 1,
+                                        "index schema exists but no committed graph is available");
+                        addHealth(out, com.anatomist.core.IndexHealthReport.of(List.of(empty)),
+                                policy);
+                        return emit(out, db, exists, policy);
                     }
+                    out.put("index_state", "committed");
                     com.anatomist.core.IndexHealthReport health =
                             com.anatomist.core.IndexHealthService.read(store);
                     List<com.anatomist.core.IndexDiagnostic> filtered = health.diagnostics().stream()
@@ -134,6 +175,8 @@ public class DoctorCommand implements Callable<Integer> {
                     com.anatomist.core.IndexHealthReport displayed =
                             new com.anatomist.core.IndexHealthReport(health.status(), page);
                     out.put("health", health.status().name().toLowerCase());
+                    out.put("health_dimensions", health.dimensions());
+                    out.put("gate", health.gate(policy).toMap());
                     out.put("diagnostics", displayed.toMaps());
                     out.put("warnings", displayed.warnings());
                     out.put("errors", displayed.errors());
@@ -150,7 +193,7 @@ public class DoctorCommand implements Callable<Integer> {
             }
         }
 
-        return emit(out, db, exists);
+        return emit(out, db, exists, policy);
     }
 
     private boolean matchesDiagnostic(com.anatomist.core.IndexDiagnostic diagnostic) {
@@ -171,13 +214,47 @@ public class DoctorCommand implements Callable<Integer> {
                 || actual != null && actual.equalsIgnoreCase(filter);
     }
 
-    private int emit(Map<String, Object> out, Path db, boolean exists) {
+    private static void putIntegerMeta(SqliteStore store, Map<String, Object> out,
+                                       String metaKey, String outputKey) {
+        store.readProjectMeta(metaKey).filter(value -> !value.isBlank()).ifPresent(value -> {
+            try {
+                out.put(outputKey, Integer.parseInt(value));
+            } catch (NumberFormatException ignored) {
+                out.put(outputKey, value);
+            }
+        });
+    }
+
+    private static void addHealth(Map<String, Object> out,
+                                  com.anatomist.core.IndexHealthReport health,
+                                  com.anatomist.core.HealthPolicy policy) {
+        out.put("health", health.status().name().toLowerCase());
+        out.put("health_dimensions", health.dimensions());
+        out.put("gate", health.gate(policy).toMap());
+        out.put("diagnostics", health.toMaps());
+        out.put("warnings", health.warnings());
+        out.put("errors", health.errors());
+    }
+
+    private int emit(Map<String, Object> out, Path db, boolean exists,
+                     com.anatomist.core.HealthPolicy policy) {
         if ("json".equalsIgnoreCase(format)) {
             System.out.println(Json.writePretty(out));
         } else {
             System.out.println(BuildVersion.display());
             System.out.println("Index: " + db + (exists ? " (exists)" : " (missing)"));
             System.out.println("Schema: " + FileCacheService.CURRENT_SCHEMA_VERSION);
+            if (out.containsKey("index_state")) {
+                System.out.println("Index state: " + out.get("index_state"));
+            }
+            if (out.containsKey("health")) {
+                System.out.println("Health: " + out.get("health"));
+            }
+            if (out.get("gate") instanceof Map<?, ?> gate) {
+                System.out.println("Gate: " + gate.get("policy")
+                        + " (" + (Boolean.TRUE.equals(gate.get("passed")) ? "passed" : "failed")
+                        + ")");
+            }
             if (out.containsKey("git_untracked_cache")) {
                 System.out.println("Git untracked cache: " + out.get("git_untracked_cache"));
                 if (out.containsKey("advice")) {
@@ -185,8 +262,11 @@ public class DoctorCommand implements Callable<Integer> {
                 }
             }
         }
-        boolean unhealthy = !"ok".equals(out.get("status"))
-                || (out.containsKey("health") && !"healthy".equals(out.get("health")));
-        return strictHealth && unhealthy ? 3 : 0;
+        if (policy == com.anatomist.core.HealthPolicy.NONE) return 0;
+        if (!"ok".equals(out.get("status"))) return 3;
+        if (out.get("gate") instanceof Map<?, ?> gate) {
+            return Boolean.TRUE.equals(gate.get("passed")) ? 0 : 3;
+        }
+        return 3;
     }
 }

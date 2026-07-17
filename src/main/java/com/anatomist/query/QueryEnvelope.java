@@ -19,6 +19,7 @@ public class QueryEnvelope {
     public List<?> results;
     public Map<String, Object> stats = new LinkedHashMap<>();
     public Map<String, Object> budget = new LinkedHashMap<>();
+    public Map<String, Object> evidence = new LinkedHashMap<>();
     public List<String> nextQueries;
     public SliceResult blocks;
 

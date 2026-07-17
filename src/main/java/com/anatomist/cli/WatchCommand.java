@@ -1,5 +1,7 @@
 package com.anatomist.cli;
 
+import com.anatomist.config.ConfigLoader;
+import com.anatomist.config.ProjectConfig;
 import com.anatomist.core.ClasspathDetector;
 import com.anatomist.core.IndexEnvironmentFingerprint;
 import com.anatomist.core.IndexOutcome;
@@ -12,6 +14,7 @@ import com.anatomist.core.SpringBeanParser;
 import com.anatomist.incremental.IncrementalParseException;
 import com.anatomist.incremental.FullRebuildRequiredException;
 import com.anatomist.incremental.IncrementalSessionState;
+import com.anatomist.flow.FlowProfile;
 import com.anatomist.store.IndexFileSwap;
 import com.anatomist.store.IndexLock;
 import com.anatomist.store.IndexOperationLock;
@@ -134,8 +137,20 @@ public class WatchCommand implements Callable<Integer> {
             description = "Treat DEGRADED or UNHEALTHY index results as auto-index failures.")
     boolean strictHealth;
 
+    @Option(names = "--health-policy",
+            description = "Health gate: none | integrity | complete. --strict-health aliases complete.")
+    String healthPolicy;
+
     @Option(names = "--dataflow", description = "Keep optional CFG/def-use facts current.")
     boolean dataflow;
+
+    @Option(names = "--dataflow-mode",
+            description = "Flow materialization: off | full | summary | scoped.")
+    String dataflowMode;
+
+    @Option(names = "--dataflow-scope",
+            description = "Scoped flow selector. Repeatable.")
+    List<String> dataflowScopes = new ArrayList<>();
 
     @Option(names = "--implicit-taint",
             description = "Propagate taint through control dependencies. Implies --dataflow.")
@@ -181,6 +196,12 @@ public class WatchCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        try {
+            com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
+        } catch (IllegalArgumentException invalid) {
+            System.err.println("ERROR: " + invalid.getMessage());
+            return 2;
+        }
         if (projectPath == null || !Files.isDirectory(projectPath)) {
             System.err.println("ERROR: project path does not exist or is not a directory: " + projectPath);
             return 1;
@@ -604,14 +625,50 @@ public class WatchCommand implements Callable<Integer> {
         if (javaVersion != null) { args.add("--java-version"); args.add(String.valueOf(javaVersion)); }
         args.add("--output"); args.add(outputPath.toString());
         if (springXml) args.add("--spring-xml");
-        if (dataflow || implicitTaint) args.add("--dataflow");
-        if (implicitTaint) args.add("--implicit-taint");
-        if (strictHealth) args.add("--strict-health");
+        appendFlowArgs(args);
+        appendHealthArgs(args);
         if (timings) args.add("--timings");
         args.add("--full");
         new CommandLine(command).parseArgs(args.toArray(new String[0]));
         command.setOperationLockPath(liveDb);
         return command;
+    }
+
+    private void appendFlowArgs(List<String> args) {
+        if (dataflow) args.add("--dataflow");
+        if (dataflowMode != null && !dataflowMode.isBlank()) {
+            args.add("--dataflow-mode");
+            args.add(dataflowMode);
+        }
+        for (String scope : dataflowScopes) {
+            args.add("--dataflow-scope");
+            args.add(scope);
+        }
+        if (implicitTaint) args.add("--implicit-taint");
+    }
+
+    private void appendHealthArgs(List<String> args) {
+        if (strictHealth) args.add("--strict-health");
+        if (healthPolicy != null && !healthPolicy.isBlank()) {
+            args.add("--health-policy");
+            args.add(healthPolicy);
+        }
+    }
+
+    private FlowProfile resolveFlowProfile(Path projectRoot) {
+        ProjectConfig config = ConfigLoader.load(projectRoot);
+        boolean effectiveImplicitTaint = implicitTaint || config.implicitTaint();
+        List<String> scopes = dataflowScopes == null || dataflowScopes.isEmpty()
+                ? config.dataflowScopes() : dataflowScopes;
+        String suppliedMode = dataflowMode == null || dataflowMode.isBlank()
+                ? config.dataflowMode() : dataflowMode;
+        FlowProfile.Mode mode = FlowProfile.Mode.parse(suppliedMode);
+        if (mode == null) {
+            mode = !scopes.isEmpty() ? FlowProfile.Mode.SCOPED
+                    : dataflow || config.dataflow() || effectiveImplicitTaint
+                    ? FlowProfile.Mode.FULL : FlowProfile.Mode.OFF;
+        }
+        return new FlowProfile(mode, scopes);
     }
 
     private static void printEvents(Map<String, String> events, boolean print) {
@@ -669,9 +726,8 @@ public class WatchCommand implements Callable<Integer> {
                 if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
                 args.add("--output"); args.add(dbPath.toString());
                 if (springXml) args.add("--spring-xml");
-                if (dataflow || implicitTaint) args.add("--dataflow");
-                if (implicitTaint) args.add("--implicit-taint");
-                if (strictHealth) args.add("--strict-health");
+                appendFlowArgs(args);
+                appendHealthArgs(args);
                 if (timings) args.add("--timings");
                 args.add("--full");
                 new CommandLine(ic).parseArgs(args.toArray(new String[0]));
@@ -693,9 +749,8 @@ public class WatchCommand implements Callable<Integer> {
             args.add("--output"); args.add(dbPath.toString());
             args.add("--incremental");
             if (springXml) args.add("--spring-xml");
-            if (dataflow || implicitTaint) args.add("--dataflow");
-            if (implicitTaint) args.add("--implicit-taint");
-            if (strictHealth) args.add("--strict-health");
+            appendFlowArgs(args);
+            appendHealthArgs(args);
             if (timings) args.add("--timings");
             args.add("--max-realign-files"); args.add(String.valueOf(maxRealignFiles));
             new CommandLine(ic).parseArgs(args.toArray(new String[0]));
@@ -869,9 +924,18 @@ public class WatchCommand implements Callable<Integer> {
                     prior = store.readProjectMeta();
                 }
             }
+            FlowProfile flowProfile = resolveFlowProfile(projectRoot);
+            boolean requestedImplicitTaint =
+                    implicitTaint || ConfigLoader.load(projectRoot).implicitTaint();
             boolean flowProfileChanged =
-                    !String.valueOf(dataflow || implicitTaint).equals(prior.get("dataflow"))
-                    || !String.valueOf(implicitTaint).equals(prior.get("implicit_taint"));
+                    !flowProfile.mode().name().toLowerCase().equals(
+                            prior.getOrDefault("dataflow_mode",
+                                    Boolean.parseBoolean(prior.getOrDefault("dataflow", "false"))
+                                            ? "full" : "off"))
+                    || !String.join(",", flowProfile.scopes()).equals(
+                            prior.getOrDefault("dataflow_scopes", ""))
+                    || !String.valueOf(requestedImplicitTaint).equals(
+                            prior.get("implicit_taint"));
             boolean changed = !current.hash().equals(
                     prior.get(IndexEnvironmentFingerprint.META_KEY)) || flowProfileChanged;
             if (changed) {

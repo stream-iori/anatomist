@@ -43,7 +43,7 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node Identity (schema v7)
+## Node Identity (schema v11)
 
 Every node stores both a logical symbol and a globally unique storage key:
 
@@ -73,7 +73,7 @@ CLASS/INTERFACE/ENUM/RECORD: FQN as-is                               → com.exa
 METHOD:                 classFQN + # + name + (erased-signature)     → com.example.OrderService#checkout(java.lang.String,java.util.List)
 FIELD:                  classFQN + # + fieldName (no parens = field)  → com.example.OrderService#orderRepo
 ENUM_CONSTANT:          enumFQN + # + constantName                   → com.example.OrderStatus#PENDING
-ANONYMOUS_CLASS:        parentMethodID + $anon@L<line>               → com.example.OrderService#checkout(...)$anon@L42
+ANONYMOUS_CLASS:        parentMethodID + $anon@L<line>C<col>         → com.example.OrderService#checkout(...)$anon@L42C18
 LAMBDA:                 parentMethodID + $lambda@L<line>C<col>       → com.example.OrderService#checkout(...)$lambda@L42C18
 BEAN:                   bean:<springBeanName>                         → bean:orderService
 ROUTE:                  route:<HTTP_METHOD> <path>                    → route:POST /api/orders
@@ -218,24 +218,48 @@ belong on every node or edge.
 | `classpath_hash` | Fingerprint of classpath input | Detect changed resolution environment |
 | `index_version` | File-cache/schema version | Incremental compatibility |
 | `source_layout` / `source_layout_hash` | Module/scope/root identity mapping | Force full indexing when identity inputs change |
-| `dataflow` / `implicit_taint` | Optional flow-analysis profile | Prevent incompatible incremental reuse |
+| `dataflow_mode` / `dataflow_scopes` / `implicit_taint` | Optional flow-analysis profile and coverage | Prevent incompatible incremental reuse |
 
 ## Index Diagnostics
 
 `index_diagnostics` persists bounded, machine-readable health findings. The
 same rows drive `index`, `doctor`, and `survey-baseline` health output.
 
-| Severity | Default exit | With `--strict-health` |
-|---|---:|---:|
-| healthy / no rows | 0 | 0 |
-| warning (`DEGRADED`) | 0 | 3 |
-| error (`UNHEALTHY`) | 0 | 3 |
+| Finding | `none` | `integrity` | `complete` / `--strict-health` |
+|---|---:|---:|---:|
+| no findings | 0 | 0 | 0 |
+| external/JDK resolution warning | 0 | 0 | 3 |
+| parse or graph-integrity finding | 0 | 3 | 3 |
+| other error | 0 | 0 unless integrity-classified | 3 |
 
 Resolution diagnostics are grouped by `source_file`, `module`, `scope`, `phase`,
 and reason. Stable reasons include `INTERNAL_SYMBOL_MISSING`,
 `THIRDPARTY_SYMBOL_MISSING`, `JDK_SYMBOL_MISMATCH`, `METHOD_NOT_FOUND`,
 `FIELD_NOT_FOUND`, `GENERIC_INFERENCE_FAILED`, `AMBIGUOUS_OVERLOAD`, and
 `UNSUPPORTED_RESOLUTION`. Parsing failures use `JAVA_PARSE_FAILED`.
+At most 5,000 rows are retained. When the input exceeds the bound, the final
+row is `DIAGNOSTIC_STORAGE_TRUNCATED` with the omitted count; error/warning
+rows are prioritized ahead of informational rows.
+
+Query JSON derives a capability-specific `evidence` object from these rows.
+Outgoing queries narrow file-scoped diagnostics to their anchor files;
+incoming/global queries remain conservative because an unresolved caller can
+originate anywhere.
+
+`analysis_coverage` stores the unbounded aggregate before diagnostic retention:
+
+| Column | Meaning |
+|---|---|
+| `source_file`, `module`, `scope` | Coverage boundary; `*` means global/unknown |
+| `capability` | Query capability such as `CALL_OUTGOING`, `CALL_PATH`, or `FLOW` |
+| `status` | `complete`, `partial`, or `failed` |
+| `occurrences`, `groups_count` | Full aggregate counts |
+| `codes`, `code_counts` | Stable reason set and per-reason counts |
+| `details_truncated` | Whether detail samples were truncated |
+
+Query safety is derived from this table, not from the bounded
+`index_diagnostics` sample. Schema v11 has no migration path; older indexes
+must be rebuilt.
 
 ## Core reflection facts
 
@@ -264,6 +288,11 @@ Flow facts are separate from the structural `nodes`/`edges` graph:
 | `flow_nodes` | Parameters, definitions, calls, conditions, returns, throws, catches, taint markers |
 | `flow_edges` | `CONTROL_FLOW`, `DEF_USE`, `RETURN_FLOW`, `ARGUMENT_FLOW`, `CALL_ARGUMENT`, `CALL_RETURN`, `EXCEPTION_FLOW`, and guard relations |
 | `method_flow_summaries` | Compact input-slot to return/exception dependencies |
+| `method_flow_coverage` | Per-method `DETAIL` or `SUMMARY` coverage used to prevent false-negative queries |
+
+`flow_nodes.callee_method` and `flow_nodes.slot` are first-class indexed
+columns. JSON metadata remains available for presentation, but cross-method
+linking does not scan it.
 
 Arrays are treated as whole objects. Branches merge reaching-definition sets;
 loops use a conservative entry/body join. Heap aliasing, reflection beyond the

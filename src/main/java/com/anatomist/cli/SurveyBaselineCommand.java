@@ -34,8 +34,19 @@ public class SurveyBaselineCommand implements Callable<Integer> {
     @Option(names = "--strict-health", description = "Return exit code 3 unless index health is healthy.")
     boolean strictHealth;
 
+    @Option(names = "--health-policy",
+            description = "Health gate: none | integrity | complete. --strict-health aliases complete.")
+    String healthPolicy;
+
     @Override
     public Integer call() {
+        com.anatomist.core.HealthPolicy policy;
+        try {
+            policy = com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
+        } catch (IllegalArgumentException invalid) {
+            System.err.println("ERROR: " + invalid.getMessage());
+            return 2;
+        }
         Path requestedProject;
         try {
             requestedProject = projectPath == null
@@ -67,10 +78,14 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("command", "survey-baseline");
             out.put("status", "ok");
+            out.put("index_state", "committed");
             out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
             out.put("index_path", db.toString());
             if (projectPath != null) out.put("project_path", requestedProject.toString());
             out.put("overview", overview.toStats());
+            out.put("evidence", new com.anatomist.query.QueryCoverageService(q.connection()).assess(
+                    com.anatomist.query.QueryCoverageService.Capability.AGGREGATE,
+                    List.of(), null, "ALL", true, true).toMap());
             out.put("budget", Map.of(
                     "mode", "structural_summary",
                     "packages", overview.packages.size(),
@@ -80,6 +95,8 @@ public class SurveyBaselineCommand implements Callable<Integer> {
                 health =
                         com.anatomist.core.IndexHealthService.read(store);
                 out.put("health", health.status().name().toLowerCase());
+                out.put("health_dimensions", health.dimensions());
+                out.put("gate", health.gate(policy).toMap());
                 out.put("diagnostics", health.toMaps());
                 out.put("warnings", health.warnings());
                 out.put("errors", health.errors());
@@ -98,8 +115,7 @@ public class SurveyBaselineCommand implements Callable<Integer> {
                         + " methods=" + stats.get("methods")
                         + " package_deps=" + stats.get("package_deps"));
             }
-            return strictHealth
-                    && health.status() != com.anatomist.core.IndexHealthReport.Status.HEALTHY ? 3 : 0;
+            return health.gate(policy).passed() ? 0 : 3;
         }
     }
 

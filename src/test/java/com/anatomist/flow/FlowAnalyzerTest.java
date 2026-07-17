@@ -36,6 +36,11 @@ class FlowAnalyzerTest {
                     void fail(String input) {
                         if (input == null) throw new IllegalArgumentException(input);
                     }
+                    Object callback() {
+                        return new Object() {
+                            @Override public String toString() { return "callback"; }
+                        };
+                    }
                 }
                 """);
         Path sourceRoot = tmp.resolve("src/main/java");
@@ -46,16 +51,21 @@ class FlowAnalyzerTest {
 
         new FlowAnalyzer(tmp, List.of(sourceRoot), List.of(),
                 TaintRules.load(tmp), false).analyze(unit, result);
-        InterproceduralFlowLinker.link(result);
-
         assertFalse(result.nodes.isEmpty());
         assertTrue(result.edges.stream().anyMatch(edge -> "DEF_USE".equals(edge.relation())));
         assertTrue(result.edges.stream().anyMatch(edge -> "GUARD_TRUE".equals(edge.relation())));
         assertTrue(result.edges.stream().anyMatch(edge -> "GUARD_FALSE".equals(edge.relation())));
         assertTrue(result.edges.stream().anyMatch(edge -> "RETURN_FLOW".equals(edge.relation())));
         assertTrue(result.edges.stream().anyMatch(edge -> "EXCEPTION_FLOW".equals(edge.relation())));
+        assertTrue(result.nodes.stream().noneMatch(node ->
+                (node.calleeMethod() != null && node.calleeMethod().contains("Anonymous-"))
+                        || (node.metadata() != null && node.metadata().contains("Anonymous-"))));
+        assertTrue(result.nodes.stream()
+                .filter(node -> node.metadata() != null && node.metadata().contains("call_name"))
+                .allMatch(node -> node.metadata().startsWith("{\"argument_count\"")));
         assertTrue(result.summaries.stream().anyMatch(summary ->
                 "arg:0".equals(summary.inputSlot()) && "return".equals(summary.outputSlot())));
-        assertTrue(result.edges.stream().anyMatch(edge -> "CALL_RETURN".equals(edge.relation())));
+        assertTrue(result.coverage.stream()
+                .allMatch(coverage -> "DETAIL".equals(coverage.detailLevel())));
     }
 }

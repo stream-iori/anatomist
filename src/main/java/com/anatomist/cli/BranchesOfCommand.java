@@ -2,6 +2,7 @@ package com.anatomist.cli;
 
 import com.anatomist.query.BranchSlice;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -38,6 +39,16 @@ public class BranchesOfCommand extends QueryCommand {
     @Option(names = "--source-window", arity = "0..1", fallbackValue = "3",
             description = "Attach source_window around the branch line. Optional value is surrounding context lines.")
     Integer sourceWindow;
+
+    @Override
+    protected QueryCoverageService.Capability coverageCapability() {
+        return QueryCoverageService.Capability.CALL_OUTGOING;
+    }
+
+    @Override
+    protected List<String> coverageAnchors() {
+        return List.of(method);
+    }
 
     @Override
     protected QueryEnvelope execute(QueryService q) {

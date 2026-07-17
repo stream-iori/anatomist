@@ -18,5 +18,7 @@ public record IndexResult(
         java.util.List<IndexDiagnostic> diagnostics,
         int flowNodes,
         int flowEdges,
-        int flowSummaries
+        int flowSummaries,
+        int flowDetailedMethods,
+        int flowSummaryOnlyMethods
 ) {}

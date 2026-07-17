@@ -7,6 +7,7 @@ import com.anatomist.query.MarkdownFormatter;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -96,6 +97,7 @@ public class ContextCommand implements Callable<Integer> {
                                 + " --scope " + scope + " "
                                 + Disclosure.renderCommand(List.of("--index", db.toString())))
                         .toList();
+                attachEvidence(q, env, true);
                 JsonFormatter.emit(System.out, env);
                 return 2;
             }
@@ -141,6 +143,7 @@ public class ContextCommand implements Callable<Integer> {
                 }
                 Disclosure.putBudget(env, "members", r.members.size(), membersTotal);
             }
+            attachEvidence(q, env, r != null);
             JsonFormatter.emit(System.out, env);
             return r == null ? 2 : 0;
         }
@@ -162,12 +165,20 @@ public class ContextCommand implements Callable<Integer> {
                 QueryEnvelope env = new QueryEnvelope(buildQueryString(), List.of(r));
                 env.stats.clear();
                 env.stats.putAll(r.toStats());
+                attachEvidence(q, env, true);
                 JsonFormatter.emit(System.out, env);
             } else {
                 System.out.print(MarkdownFormatter.format(r));
             }
             return 0;
         }
+    }
+
+    private void attachEvidence(QueryService service, QueryEnvelope envelope, boolean positive) {
+        envelope.evidence.putAll(new QueryCoverageService(service.connection()).assess(
+                QueryCoverageService.Capability.DECLARATION,
+                target == null ? List.of() : List.of(target),
+                module, scope, positive, false).toMap());
     }
 
     private String buildQueryString() {

@@ -80,6 +80,37 @@ class TaintRulesTest {
     }
 
     @Test
+    void loadRejectsUnsupportedSlotsWithoutDisablingValidRules(@TempDir Path project)
+            throws Exception {
+        writeRules(project, """
+                {
+                  "sources": [
+                    {"method":"p.A#badSource","slot":"arg:0"},
+                    {"method":"p.A#source","slot":"return"}
+                  ],
+                  "sinks": [
+                    {"method":"p.A#badSink","slot":"return"},
+                    {"method":"p.A#sink","slot":"this"}
+                  ],
+                  "sanitizers": [
+                    {"method":"p.A#badClean","slot":"arg:0"}
+                  ]
+                }
+                """);
+
+        TaintRules rules = TaintRules.load(project);
+
+        assertNull(rules.source("p.A#badSource"));
+        assertNotNull(rules.source("p.A#source"));
+        assertNull(rules.sink("p.A#badSink"));
+        assertEquals("this", rules.sink("p.A#sink").slot());
+        assertNull(rules.sanitizer("p.A#badClean"));
+        assertEquals(3, rules.diagnostics().stream()
+                .filter(diagnostic -> "TAINT_RULE_SLOT_INVALID".equals(diagnostic.code()))
+                .mapToLong(IndexDiagnostic::count).sum());
+    }
+
+    @Test
     void loadRejectsOversizedFileBeforeJsonParsing(@TempDir Path project) throws Exception {
         Path directory = Files.createDirectories(project.resolve(".anatomist"));
         Files.writeString(directory.resolve("taint-rules.json"),

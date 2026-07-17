@@ -13,6 +13,7 @@ import com.anatomist.incremental.IncrementalIndexer;
 import com.anatomist.incremental.IncrementalParseException;
 import com.anatomist.incremental.FullRebuildRequiredException;
 import com.anatomist.incremental.PerformanceHistory;
+import com.anatomist.flow.FlowProfile;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
@@ -128,6 +129,10 @@ public class IndexCommand implements Callable<Integer> {
             description = "Return exit code 3 when the completed index health is not HEALTHY.")
     boolean strictHealth;
 
+    @Option(names = "--health-policy",
+            description = "Health gate: none | integrity | complete. --strict-health aliases complete.")
+    String healthPolicy;
+
     @Option(names = "--timings",
             description = "Include per-phase index timings in text/JSON output.")
     boolean timings;
@@ -136,14 +141,28 @@ public class IndexCommand implements Callable<Integer> {
             description = "Build optional CFG/def-use/interprocedural flow facts.")
     boolean dataflow;
 
+    @Option(names = "--dataflow-mode",
+            description = "Flow materialization: off | full | summary | scoped.")
+    String dataflowMode;
+
+    @Option(names = "--dataflow-scope",
+            description = "Scoped flow selector: package:<glob>, method:<glob>, or source:<glob>. Repeatable.")
+    List<String> dataflowScopes = new ArrayList<>();
+
     @Option(names = "--implicit-taint",
             description = "Propagate taint through control dependencies. Implies --dataflow.")
     boolean implicitTaint;
+
+    private FlowProfile flowProfile = FlowProfile.off();
+    private com.anatomist.core.HealthPolicy effectiveHealthPolicy =
+            com.anatomist.core.HealthPolicy.NONE;
 
     private IndexExecutionHints executionHints;
     private Path operationLockPath;
     private boolean deferFullFallback;
     private com.anatomist.core.JavaVersionDetection currentJavaVersionDetection;
+    private com.anatomist.core.ClasspathDetectionResult currentClasspathDetection =
+            com.anatomist.core.ClasspathDetectionResult.notRequested();
 
     void setExecutionHints(IndexExecutionHints executionHints) {
         this.executionHints = executionHints;
@@ -165,6 +184,12 @@ public class IndexCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        try {
+            com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
+        } catch (IllegalArgumentException invalid) {
+            System.err.println("ERROR: " + invalid.getMessage());
+            return 2;
+        }
         return reportOutcome(executeOutcome());
     }
 
@@ -197,8 +222,10 @@ public class IndexCommand implements Callable<Integer> {
         long totalStarted = System.nanoTime();
         IndexTimings phaseTimings = new IndexTimings();
         ProjectConfig config = ConfigLoader.load(projectRoot);
-        dataflow = dataflow || config.dataflow() || implicitTaint || config.implicitTaint();
+        effectiveHealthPolicy = com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
         implicitTaint = implicitTaint || config.implicitTaint();
+        flowProfile = resolveFlowProfile(config);
+        dataflow = flowProfile.enabled();
         if (externalExclude != null && !externalExclude.isBlank()) {
             config.addExternalExcludePatterns(Arrays.asList(externalExclude.split(",")));
         }
@@ -289,11 +316,15 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
-                boolean priorDataflow = Boolean.parseBoolean(
-                        store.readProjectMeta("dataflow").orElse("false"));
                 boolean priorImplicitTaint = Boolean.parseBoolean(
                         store.readProjectMeta("implicit_taint").orElse("false"));
-                if (priorDataflow != dataflow || priorImplicitTaint != implicitTaint) {
+                String priorMode = store.readProjectMeta("dataflow_mode").orElseGet(() ->
+                        Boolean.parseBoolean(store.readProjectMeta("dataflow").orElse("false"))
+                                ? "full" : "off");
+                String priorScopes = store.readProjectMeta("dataflow_scopes").orElse("");
+                if (!priorMode.equals(flowProfile.mode().name().toLowerCase())
+                        || !priorScopes.equals(String.join(",", flowProfile.scopes()))
+                        || priorImplicitTaint != implicitTaint) {
                     String reason = "flow profile changed";
                     System.err.println("INFO: incremental degraded to full (" + reason + ")");
                     if (deferFullFallback) throw new FullRebuildRequiredException(reason);
@@ -362,6 +393,15 @@ public class IndexCommand implements Callable<Integer> {
                 phaseTimings.stop("change_detection", phaseStarted);
                 if (ch.isEmpty()) {
                     IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
+                    if (flowProfile.enabled()) {
+                        com.anatomist.flow.FlowPersistence.Stats flowStats =
+                                com.anatomist.flow.FlowPersistence.stats(store);
+                        summary.flowNodes = flowStats.nodes();
+                        summary.flowEdges = flowStats.edges();
+                        summary.flowSummaries = flowStats.summaries();
+                        summary.flowDetailedMethods = flowStats.detailedMethods();
+                        summary.flowSummaryOnlyMethods = flowStats.summaryOnlyMethods();
+                    }
                     for (com.anatomist.core.IndexDiagnostic diagnostic : store.readIndexDiagnostics()) {
                         if ("UNRESOLVED_SYMBOLS".equals(diagnostic.code())) {
                             summary.unresolvedSymbols += diagnostic.count();
@@ -380,8 +420,11 @@ public class IndexCommand implements Callable<Integer> {
                             cache, fingerprintCache(), phaseTimings, gitTask);
                     phaseTimings.stop("metadata", phaseStarted);
                     maybeAdviseGitCache(projectRoot, metadataResult);
+                    persistClasspathDetection(store);
                     store.upsertProjectMeta(java.util.Map.of(
                             "dataflow", String.valueOf(dataflow),
+                            "dataflow_mode", flowProfile.mode().name().toLowerCase(),
+                            "dataflow_scopes", String.join(",", flowProfile.scopes()),
                             "implicit_taint", String.valueOf(implicitTaint)));
                     phaseTimings.stop("total", totalStarted);
                     long elapsed = System.currentTimeMillis() - started;
@@ -389,9 +432,9 @@ public class IndexCommand implements Callable<Integer> {
                             com.anatomist.core.IndexHealthService.read(store);
                     IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(cache),
                             summary, cache.size(), elapsed,
-                            timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth);
-                    if (strictHealth && persistedHealth.status()
-                            != com.anatomist.core.IndexHealthReport.Status.HEALTHY) return 3;
+                            timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
+                            effectiveHealthPolicy);
+                    if (!persistedHealth.gate(effectiveHealthPolicy).passed()) return 3;
                     return 0;
                 }
 
@@ -404,7 +447,7 @@ public class IndexCommand implements Callable<Integer> {
                         maxRealignFiles, springXml, config, resolvedSourceRoots,
                         executionHints == null ? null : executionHints.springXmlFiles(), phaseTimings,
                         executionHints == null ? null : executionHints.incrementalSession(),
-                        dataflow, implicitTaint);
+                        flowProfile, implicitTaint);
                 IncrementalIndexer.Summary summary = ii.indexIncremental(
                         ch.changed, ch.added, ch.deleted, diskHashes);
 
@@ -429,8 +472,11 @@ public class IndexCommand implements Callable<Integer> {
                         classpath, springXml, after, fingerprintCache(), phaseTimings, gitTask);
                 phaseTimings.stop("metadata", phaseStarted);
                 maybeAdviseGitCache(projectRoot, metadataResult);
+                persistClasspathDetection(store);
                 store.upsertProjectMeta(java.util.Map.of(
                         "dataflow", String.valueOf(dataflow),
+                        "dataflow_mode", flowProfile.mode().name().toLowerCase(),
+                        "dataflow_scopes", String.join(",", flowProfile.scopes()),
                         "implicit_taint", String.valueOf(implicitTaint)));
                 phaseTimings.stop("total", totalStarted);
                 long variableMs = phaseTimings.millis().getOrDefault("parse_extract", 0L)
@@ -444,9 +490,9 @@ public class IndexCommand implements Callable<Integer> {
                         com.anatomist.core.IndexHealthService.read(store);
                 IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(after),
                         summary, after.size(), elapsed,
-                        timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth);
-                if (strictHealth && persistedHealth.status()
-                        != com.anatomist.core.IndexHealthReport.Status.HEALTHY) return 3;
+                        timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
+                        effectiveHealthPolicy);
+                if (!persistedHealth.gate(effectiveHealthPolicy).passed()) return 3;
                 return 0;
             }
         }
@@ -476,9 +522,10 @@ public class IndexCommand implements Callable<Integer> {
         com.anatomist.core.IndexConfig cfg = new com.anatomist.core.IndexConfig(
                 projectRoot, sourcePaths, classpathEntries, sourceFiles,
                 jv, springXml, config, dbPath, classpathOverride, noClasspath, debug,
-                resolveSourceRoots(projectRoot, sourcePaths), strictHealth,
+                resolveSourceRoots(projectRoot, sourcePaths),
+                effectiveHealthPolicy != com.anatomist.core.HealthPolicy.NONE,
                 factory == null ? null : currentJavaVersionDetection,
-                dataflow, implicitTaint);
+                flowProfile, implicitTaint);
         com.anatomist.core.IndexOrchestrator orchestrator =
                 new com.anatomist.core.IndexOrchestrator(cfg, factory);
 
@@ -503,7 +550,8 @@ public class IndexCommand implements Callable<Integer> {
                 } catch (com.anatomist.core.StrictHealthException rejected) {
                     phaseTimings.stop("full_index", fullIndexStarted);
                     if ("json".equalsIgnoreCase(format)) {
-                        IndexOutput.emitStrictParseFailure(dbPath, rejected.parseInventory());
+                        IndexOutput.emitStrictParseFailure(
+                                dbPath, rejected.parseInventory(), effectiveHealthPolicy);
                     } else {
                         System.err.println("ERROR: " + rejected.getMessage());
                         rejected.parseInventory().failures().forEach((file, problems) ->
@@ -512,6 +560,7 @@ public class IndexCommand implements Callable<Integer> {
                     }
                     return 3;
                 }
+                persistClasspathDetection(store);
                 phaseTimings.stop("full_index", fullIndexStarted);
                 PerformanceHistory.recordFull(store,
                         phaseTimings.millis().getOrDefault("full_index", 0L),
@@ -519,7 +568,8 @@ public class IndexCommand implements Callable<Integer> {
                 phaseTimings.stop("total", totalStarted);
                 if ("json".equalsIgnoreCase(format)) {
                     IndexOutput.emitFullJson(result, cfg,
-                            timings ? phaseTimings.millis() : java.util.Map.of());
+                            timings ? phaseTimings.millis() : java.util.Map.of(),
+                            effectiveHealthPolicy);
                 } else {
                     com.anatomist.core.IndexStatsPrinter.print(result, cfg, System.out);
                     if (timings) IndexOutput.emitTimingsText(phaseTimings.millis());
@@ -536,13 +586,36 @@ public class IndexCommand implements Callable<Integer> {
                     com.anatomist.core.UnresolvedReporter.print(
                             System.out, sampleData, projectPackages, unresolvedCount);
                 }
-                if (strictHealth && com.anatomist.core.IndexHealthService.fromResult(result).status()
-                        != com.anatomist.core.IndexHealthReport.Status.HEALTHY) {
+                if (!com.anatomist.core.IndexHealthService.fromResult(result)
+                        .gate(effectiveHealthPolicy).passed()) {
                     return 3;
                 }
             }
         }
         return 0;
+    }
+
+    private FlowProfile resolveFlowProfile(ProjectConfig config) {
+        boolean legacyFull = dataflow || config.dataflow();
+        List<String> scopes = dataflowScopes == null || dataflowScopes.isEmpty()
+                ? config.dataflowScopes() : List.copyOf(dataflowScopes);
+        String suppliedMode = dataflowMode == null || dataflowMode.isBlank()
+                ? config.dataflowMode() : dataflowMode;
+        FlowProfile.Mode mode = FlowProfile.Mode.parse(suppliedMode);
+        if (mode == null) {
+            mode = !scopes.isEmpty() ? FlowProfile.Mode.SCOPED
+                    : legacyFull || implicitTaint ? FlowProfile.Mode.FULL
+                    : FlowProfile.Mode.OFF;
+        }
+        if (dataflow && mode != FlowProfile.Mode.FULL) {
+            throw new IllegalArgumentException(
+                    "--dataflow is the full-mode alias and cannot be combined with " + mode);
+        }
+        if (implicitTaint && (mode == FlowProfile.Mode.OFF || mode == FlowProfile.Mode.SUMMARY)) {
+            throw new IllegalArgumentException(
+                    "--implicit-taint requires full or scoped dataflow");
+        }
+        return new FlowProfile(mode, scopes);
     }
 
     private IndexRuntime resolveRuntimeTimed(ClasspathDetector cd,
@@ -564,12 +637,20 @@ public class IndexCommand implements Callable<Integer> {
 
     private IndexRuntime resolveRuntime(ClasspathDetector cd, Path projectRoot, List<Path> sourcePaths) {
         com.anatomist.core.JavaVersionDetection detected = resolveJavaVersion(cd, projectRoot);
-        currentJavaVersionDetection = detected;
         boolean willDetectClasspath = !noClasspath && (classpath == null || classpath.isEmpty());
         if (willDetectClasspath) {
             System.err.println("Detecting classpath via Maven (this can take a while)...");
         }
         List<Path> classpathEntries = resolveClasspath(cd, projectRoot);
+        if (!currentClasspathDetection.diagnostics().isEmpty()) {
+            java.util.List<com.anatomist.core.IndexDiagnostic> diagnostics =
+                    new java.util.ArrayList<>(detected.diagnostics());
+            diagnostics.addAll(currentClasspathDetection.diagnostics());
+            detected = new com.anatomist.core.JavaVersionDetection(
+                    detected.version(), detected.source(), detected.evidenceFile(),
+                    detected.evidenceExpression(), diagnostics);
+        }
+        currentJavaVersionDetection = detected;
         int jv = detected.version();
         System.err.println("Parsing with Java " + jv);
         JavaParserFactory factory = new JavaParserFactory(
@@ -653,6 +734,8 @@ public class IndexCommand implements Callable<Integer> {
                             + " is outside the supported analysis range 8..17");
         }
         List<Path> cachedClasspath = parsePathList(store.readProjectMeta("classpath_entries").orElse(""));
+        currentClasspathDetection = com.anatomist.core.ClasspathDetectionResult.cacheHit(
+                cachedClasspath.stream().map(Path::toString).toList());
         JavaParserFactory factory = new JavaParserFactory(
                 cachedJavaVersion, cachedClasspath, sourcePaths, vmClasspath,
                 executionHints == null ? null : executionHints.parserSessions());
@@ -798,7 +881,10 @@ public class IndexCommand implements Callable<Integer> {
     }
 
     List<Path> resolveClasspath(ClasspathDetector cd, Path projectRoot) {
-        if (noClasspath) return Collections.emptyList();
+        if (noClasspath) {
+            currentClasspathDetection = com.anatomist.core.ClasspathDetectionResult.notRequested();
+            return Collections.emptyList();
+        }
         java.util.LinkedHashSet<Path> out = new java.util.LinkedHashSet<>();
         if (classpath != null && !classpath.isEmpty()) {
             Arrays.stream(classpath.split(File.pathSeparator))
@@ -806,9 +892,35 @@ public class IndexCommand implements Callable<Integer> {
                     .map(Path::of)
                     .forEach(out::add);
             out.addAll(cd.detectBuildOutputClasspath(projectRoot));
+            currentClasspathDetection = com.anatomist.core.ClasspathDetectionResult.explicit(
+                    out.stream().map(Path::toString).toList());
             return new ArrayList<>(out);
         }
-        return cd.detect(projectRoot).stream().map(Path::of).collect(Collectors.toList());
+        currentClasspathDetection = cd.detectResult(projectRoot);
+        return currentClasspathDetection.entries().stream()
+                .map(Path::of).collect(Collectors.toList());
+    }
+
+    private void persistClasspathDetection(SqliteStore store) {
+        if (store == null || currentClasspathDetection == null) return;
+        if (currentClasspathDetection.status()
+                == com.anatomist.core.ClasspathDetectionResult.Status.NOT_REQUESTED
+                && store.readProjectMeta("classpath_detection_status").isPresent()) {
+            return;
+        }
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        values.put("classpath_detection_status", currentClasspathDetection.wireStatus());
+        values.put("classpath_detection_entries",
+                String.valueOf(currentClasspathDetection.entries().size()));
+        values.put("classpath_detection_module_outputs",
+                String.valueOf(currentClasspathDetection.moduleOutputFiles()));
+        values.put("classpath_detection_maven_exit",
+                currentClasspathDetection.mavenExitCode() == null
+                        ? "" : String.valueOf(currentClasspathDetection.mavenExitCode()));
+        values.put("classpath_detection_error_sample",
+                currentClasspathDetection.errorSample() == null
+                        ? "" : currentClasspathDetection.errorSample());
+        store.upsertProjectMeta(values);
     }
 
 }

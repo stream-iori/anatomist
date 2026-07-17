@@ -25,17 +25,17 @@ import java.util.Map;
  * LambdaExpr → MethodReferenceExpr → MethodDeclaration → ConstructorDeclaration
  * → FieldDeclaration → TypeDeclaration. The first match wins.</p>
  */
-final class AstEnclosing {
+public final class AstEnclosing {
 
     private final NodeIdGenerator gen;
     private final Map<Node, String> entityIds = new IdentityHashMap<>();
 
-    AstEnclosing(NodeIdGenerator gen) {
+    public AstEnclosing(NodeIdGenerator gen) {
         this.gen = gen;
     }
 
     /** Owner of {@code node}: the id of the closest ancestor entity, or null. */
-    String ownerIdOf(Node node) {
+    public String ownerIdOf(Node node) {
         Optional<Node> p = node.getParentNode();
         while (p.isPresent()) {
             Node cur = p.get();
@@ -82,12 +82,13 @@ final class AstEnclosing {
         return NodeIdGenerator.forMethodRef(parent, line, col);
     }
 
-    String anonymousClassId(ObjectCreationExpr expr) {
+    public String anonymousClassId(ObjectCreationExpr expr) {
         if (expr == null || expr.getAnonymousClassBody().isEmpty()) return null;
         String parent = ownerIdOf(expr);
         if (parent == null) return null;
         int line = expr.getBegin().map(p -> p.line).orElse(0);
-        return parent + "$anon@L" + line;
+        int column = expr.getBegin().map(p -> p.column).orElse(0);
+        return parent + "$anon@L" + line + "C" + column;
     }
 
     private String tryMethodId(MethodDeclaration md) {

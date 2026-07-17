@@ -63,12 +63,16 @@ public class ProjectScanner {
         } catch (IOException e) {
             throw new RuntimeException("Failed scanning " + root, e);
         }
+        out.sort(java.util.Comparator.comparing(
+                path -> path.toAbsolutePath().normalize().toString()));
         return out;
     }
 
     public List<Path> scan(List<Path> roots) {
         List<Path> out = new ArrayList<>();
         for (Path r : roots) out.addAll(scan(r));
+        out.sort(java.util.Comparator.comparing(
+                path -> path.toAbsolutePath().normalize().toString()));
         return out;
     }
 
@@ -105,12 +109,16 @@ public class ProjectScanner {
         } catch (IOException e) {
             throw new RuntimeException("Failed scanning " + root, e);
         }
+        out.sort(java.util.Comparator.comparing(
+                path -> path.toAbsolutePath().normalize().toString()));
         return out;
     }
 
     public List<Path> scanSpringXml(List<Path> roots) {
         List<Path> out = new ArrayList<>();
         for (Path r : roots) out.addAll(scanSpringXml(r));
+        out.sort(java.util.Comparator.comparing(
+                path -> path.toAbsolutePath().normalize().toString()));
         return out;
     }
 

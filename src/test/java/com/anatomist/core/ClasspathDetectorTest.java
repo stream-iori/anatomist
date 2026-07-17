@@ -160,9 +160,13 @@ class ClasspathDetectorTest {
             }
         };
 
-        List<String> cp = det.detect(tmp);
+        ClasspathDetectionResult result = det.detectResult(tmp);
+        List<String> cp = result.entries();
         // Despite exit 1, the good module's classpath survives.
         assertEquals(List.of("/lib/shared.jar", "/lib/core.jar"), cp);
+        assertEquals(ClasspathDetectionResult.Status.PARTIAL, result.status());
+        assertEquals(1, result.mavenExitCode());
+        assertEquals("CLASSPATH_PARTIAL", result.diagnostics().get(0).code());
         String err = errCapture.toString(StandardCharsets.UTF_8);
         assertTrue(err.contains("WARN"), "expected WARN about partial classpath; got: " + err);
     }

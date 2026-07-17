@@ -5,6 +5,13 @@
     "total" : 19,
     "truncated" : false
   },
+  "evidence" : {
+    "affected_dimensions" : [ ],
+    "coverage" : "complete",
+    "diagnostic_counts" : { },
+    "negative_conclusion_safe" : true,
+    "status" : "positive"
+  },
   "query" : "callees-of 'com.example.shop.service.OrderService#createOrder' --depth 1 --scope MAIN",
   "results" : [ {
     "call_kind" : "STATIC",

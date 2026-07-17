@@ -66,6 +66,8 @@ class ConfigLoaderTest {
                 java_version = 17
                 include_tests = true
                 spring_xml = true
+                dataflow_mode = "scoped"
+                dataflow_scopes = ["package:com.example.**", "source:service/**"]
                 exclude = ["generated", "test-output"]
 
                 [external]
@@ -78,6 +80,9 @@ class ConfigLoaderTest {
         assertEquals(17, config.javaVersion());
         assertTrue(config.includeTests());
         assertTrue(config.springXml());
+        assertEquals("scoped", config.dataflowMode());
+        assertEquals(List.of("package:com.example.**", "source:service/**"),
+                config.dataflowScopes());
         assertEquals(List.of("generated", "test-output"), config.exclude());
         assertEquals(List.of("java.lang.*", "com.google.**"), config.externalExcludePatterns());
     }

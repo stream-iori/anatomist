@@ -15,4 +15,8 @@ public final class GuardsOfFlowCommand extends FlowQueryCommand {
     @Override protected QueryEnvelope execute(FlowQueryService service) {
         return service.guardsOf(method, limit);
     }
+
+    @Override protected java.util.List<String> coverageAnchors() {
+        return java.util.List.of(method);
+    }
 }

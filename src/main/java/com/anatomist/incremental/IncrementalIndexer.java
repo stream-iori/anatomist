@@ -20,8 +20,8 @@ import com.anatomist.extract.TypeExtractor;
 import com.anatomist.framework.spring.SpringXmlAnalyzer;
 import com.anatomist.flow.FlowAnalyzer;
 import com.anatomist.flow.FlowPersistence;
+import com.anatomist.flow.FlowProfile;
 import com.anatomist.flow.FlowResult;
-import com.anatomist.flow.InterproceduralFlowLinker;
 import com.anatomist.flow.TaintRules;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
@@ -62,6 +62,7 @@ public class IncrementalIndexer {
     private final IncrementalSessionState sessionState;
     private final boolean dataflow;
     private final boolean implicitTaint;
+    private final FlowProfile flowProfile;
 
     public IncrementalIndexer(Path projectRoot,
                               List<Path> sourcePaths,
@@ -153,6 +154,25 @@ public class IncrementalIndexer {
                               IncrementalSessionState sessionState,
                               boolean dataflow,
                               boolean implicitTaint) {
+        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
+                springXml, projectConfig, sourceRoots, springXmlInventory, timings,
+                sessionState, dataflow ? FlowProfile.full() : FlowProfile.off(), implicitTaint);
+    }
+
+    public IncrementalIndexer(Path projectRoot,
+                              List<Path> sourcePaths,
+                              JavaParserFactory parserFactory,
+                              SqliteStore store,
+                              int javaVersion,
+                              int maxRealignFiles,
+                              boolean springXml,
+                              ProjectConfig projectConfig,
+                              List<SourceRoot> sourceRoots,
+                              List<Path> springXmlInventory,
+                              IndexTimings timings,
+                              IncrementalSessionState sessionState,
+                              FlowProfile flowProfile,
+                              boolean implicitTaint) {
         this.projectRoot = projectRoot;
         this.sourcePaths = sourcePaths;
         this.parserFactory = parserFactory;
@@ -165,7 +185,8 @@ public class IncrementalIndexer {
         this.springXmlInventory = springXmlInventory == null ? null : List.copyOf(springXmlInventory);
         this.timings = timings;
         this.sessionState = sessionState;
-        this.dataflow = dataflow;
+        this.flowProfile = flowProfile == null ? FlowProfile.off() : flowProfile;
+        this.dataflow = this.flowProfile.enabled();
         this.implicitTaint = implicitTaint;
         this.parserFactory.setTimings(timings);
     }
@@ -185,6 +206,8 @@ public class IncrementalIndexer {
         public int flowNodes;
         public int flowEdges;
         public int flowSummaries;
+        public int flowDetailedMethods;
+        public int flowSummaryOnlyMethods;
         public boolean degradedToFull;
         public String degradationReason;
     }
@@ -310,7 +333,12 @@ public class IncrementalIndexer {
             s.droppedDanglingFacts += post.droppedDanglingFacts();
             s.unresolvedSymbols += batch.unresolvedSymbols();
             resolutionDiagnostics.addAll(batch.resolutionDiagnostics());
-            flowResult.addAll(batch.flowResult());
+            if (dataflow) {
+                long flowStageStarted = startTiming();
+                staging.writeFlowBatch(batch.flowResult());
+                stopTiming("flow_stage_write", flowStageStarted);
+                flowResult.diagnostics.addAll(batch.flowResult().diagnostics);
+            }
             stopTiming("parse_extract", parseStarted);
 
             long deltaStarted = startTiming();
@@ -387,12 +415,13 @@ public class IncrementalIndexer {
         if (sessionState != null) sessionState.replaceKnownNodeIds(knownIds);
 
         if (dataflow) {
-            InterproceduralFlowLinker.link(flowResult);
-            FlowPersistence.replaceFiles(store, affectedFiles, flowResult);
-            FlowPersistence.relinkInterprocedural(store);
-            s.flowNodes = flowResult.nodes.size();
-            s.flowEdges = flowResult.edges.size();
-            s.flowSummaries = flowResult.summaries.size();
+            FlowPersistence.Stats flowStats =
+                    staging.promoteIncrementalFlow(store, affectedFiles, timings);
+            s.flowNodes = flowStats.nodes();
+            s.flowEdges = flowStats.edges();
+            s.flowSummaries = flowStats.summaries();
+            s.flowDetailedMethods = flowStats.detailedMethods();
+            s.flowSummaryOnlyMethods = flowStats.summaryOnlyMethods();
             resolutionDiagnostics.addAll(flowResult.diagnostics);
         }
 
@@ -488,10 +517,11 @@ public class IncrementalIndexer {
         }
         FlowResult batchFlow = new FlowResult();
         if (dataflow) {
+            long flowStarted = startTiming();
             TaintRules rules = TaintRules.load(projectRoot);
             batchFlow.diagnostics.addAll(rules.diagnostics());
             FlowAnalyzer analyzer = new FlowAnalyzer(projectRoot, sourcePaths, sourceRoots,
-                    rules, implicitTaint);
+                    rules, implicitTaint, flowProfile);
             for (var cu : parsedBatch.compilationUnits()) {
                 try {
                     analyzer.analyze(cu, batchFlow);
@@ -503,6 +533,7 @@ public class IncrementalIndexer {
                             file, null, null, null, 1, failure.getMessage()));
                 }
             }
+            stopTiming("flow_analyze", flowStarted);
         }
         boolean noClasspath = "none".equals(store.readProjectMeta("classpath_mode").orElse(""));
         return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,

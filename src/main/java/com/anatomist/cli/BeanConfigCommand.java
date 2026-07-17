@@ -3,6 +3,7 @@ package com.anatomist.cli;
 import com.anatomist.query.BeanConfigService;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -38,6 +39,9 @@ public class BeanConfigCommand implements Callable<Integer> {
                     .beanConfig(target, property);
             if ("json".equalsIgnoreCase(format)) {
                 QueryEnvelope env = new QueryEnvelope(buildQueryString(), results);
+                env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+                        QueryCoverageService.Capability.WIRING,
+                        List.of(target), null, "MAIN", !results.isEmpty(), false).toMap());
                 JsonFormatter.emit(System.out, env);
             } else {
                 renderText(results);

@@ -107,10 +107,10 @@ public class TypeExtractor implements Extractor {
         // qualifiedName is the enclosing context + "$N". For ID stability we
         // append "$anon@L<line>" to the enclosing method's id, mirroring the
         // existing Phase 1 rule (DESIGN.md §Node ID 生成规则).
-        String parentMethodId = enclosing.ownerIdOf(expr);
-        if (parentMethodId == null) return; // initializer/field with unresolved owner — Phase 1 skip
+        String id = enclosing.anonymousClassId(expr);
+        if (id == null) return; // initializer/field with unresolved owner — Phase 1 skip
         int line = lineOf(expr);
-        String id = parentMethodId + "$anon@L" + line;
+        String parentMethodId = id.substring(0, id.lastIndexOf("$anon@"));
 
         String baseType = expr.getType().getNameAsString();
         try {

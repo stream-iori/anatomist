@@ -137,6 +137,8 @@ Key flags:
 - `--incremental` — only re-parse changed files
 - `--spring-xml` — include Spring XML `<beans>` wiring facts
 - `--timings` — show per-phase costs without changing default output
+- `--health-policy integrity` — reject incomplete parse/graph snapshots while
+  allowing disclosed third-party resolution gaps
 
 Maven dependency classpaths are cached under
 `$ANATOMIST_HOME/cache/classpath` using the project POM files and Maven
@@ -171,13 +173,15 @@ full rebuild uses a temporary DB while the watcher continues receiving edits.
 For a one-off Agent query after local edits, use the query gate instead:
 
 ```bash
-anatomist index fixtures/mini-spring-shop --incremental --strict-health --format json --output /tmp/shop.db \
+anatomist index fixtures/mini-spring-shop --incremental --health-policy integrity --format json --output /tmp/shop.db \
   && anatomist search OrderService --index /tmp/shop.db
 ```
 
 Use `--verify-content` on the index command when files may have been rewritten
 with restored timestamps. Reuse the source-root, classpath, Java-version, and
 Spring XML options from the initial index.
+Read query `evidence.status` before making a negative claim:
+`confirmed_empty` is conclusive; `indeterminate` is not.
 
 If `--timings` shows a slow `metadata_git` phase, check `doctor` and optionally
 enable Git's repository-local untracked cache yourself:

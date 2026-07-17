@@ -10,5 +10,7 @@ public record FlowNode(
         String scope,
         int line,
         int column,
+        String calleeMethod,
+        String slot,
         String metadata
 ) {}

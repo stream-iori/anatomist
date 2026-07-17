@@ -119,6 +119,9 @@ public class SqliteStore implements IndexWriter {
         writer.refreshFileDependencies(affectedFiles);
     }
     public void replaceIndexDiagnostics(List<IndexDiagnostic> diagnostics) { writer.replaceIndexDiagnostics(diagnostics); }
+    public void replaceAnalysisCoverage(List<IndexDiagnostic> diagnostics) {
+        writer.replaceAnalysisCoverage(diagnostics);
+    }
     public void replaceIndexDiagnosticsForFiles(List<String> sourceFiles,
                                                 List<IndexDiagnostic> diagnostics) {
         writer.replaceIndexDiagnosticsForFiles(sourceFiles, diagnostics);

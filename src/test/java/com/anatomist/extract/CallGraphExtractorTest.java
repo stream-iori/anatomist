@@ -161,7 +161,7 @@ class CallGraphExtractorTest {
         assertTrue(r.edges.stream().anyMatch(e ->
                 "CALLS".equals(e.relation)
                         && "STATIC".equals(e.callKind)
-                        && "pkg.A#run()$anon@L5#done()".equals(e.sourceId)
+                        && "pkg.A#run()$anon@L5C30#done()".equals(e.sourceId)
                         && "pkg.Template#fillSuccessResult(pkg.MissingResult)".equals(e.externalTargetFqn)),
                 "static template callback fallback missing; got " + describe(r.edges));
     }

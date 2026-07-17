@@ -4,6 +4,7 @@ import com.anatomist.query.CallChainSlicer;
 import com.anatomist.query.EdgeRow;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -60,6 +61,9 @@ public class CallPathCommand implements Callable<Integer> {
                         ? CallChainSlicer.Level.CLASS : CallChainSlicer.Level.PACKAGE;
                 env.blocks = slicer.slice(rows, level);
             }
+            env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+                    QueryCoverageService.Capability.CALL_PATH,
+                    List.of(from, to), null, "MAIN", !rows.isEmpty(), false).toMap());
             JsonFormatter.emit(System.out, env);
             return rows.isEmpty() ? 2 : 0;
         }

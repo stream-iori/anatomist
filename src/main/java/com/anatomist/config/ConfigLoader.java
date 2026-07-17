@@ -89,6 +89,8 @@ public class ConfigLoader {
             case "spring_xml" -> config.setSpringXml(parseBool(value));
             case "vm_classpath" -> config.setVmClasspath(parseBool(value));
             case "dataflow" -> config.setDataflow(parseBool(value));
+            case "dataflow_mode" -> config.setDataflowMode(unquote(value));
+            case "dataflow_scopes" -> config.setDataflowScopes(parseStringArray(value));
             case "implicit_taint" -> config.setImplicitTaint(parseBool(value));
             case "exclude" -> config.setExclude(parseStringArray(value));
             default -> {}

@@ -129,12 +129,15 @@ sdk use java 25.0.3-graal
 | 测试 | 走什么路径 | 目的 |
 |------|----------|------|
 | 增量 diff 正确性 | `anatomist index --incremental`（合成 diff,无 WatchService） | 主路径,覆盖率高 |
-| Agent 查询门禁 | 无变更增量 + `--strict-health`，随后才允许查询 | 确保无变更不触发 Maven/JavaParser/图重建，失败时 Agent 不应使用旧索引结论 |
+| Agent 查询门禁 | 无变更增量 + `--health-policy integrity`，随后才允许查询 | 确保无变更不触发 Maven/JavaParser/图重建，失败时 Agent 不应使用旧索引结论 |
+| 健康策略 | external resolution、parse failure、dangling facts 分别跑 `integrity` / `complete` | 防止第三方缺失误杀正常 Agent 查询，同时守住索引完整性 |
+| 查询证据 | 正结果、可信空结果、覆盖不全的空结果 | 空结果仍 exit 0，但必须披露 `confirmed_empty` / `indeterminate` |
 | WatchService 集成 | 真启 watch 改文件 | 仅 1-2 个 happy-path,Linux 跑 |
 
 数据流回归额外覆盖：分支合流、循环回边、参数/局部变量 def-use、返回值、
 跨方法调用、显式 throw/catch、guard 极性、taint source/sink/sanitizer，
-以及增量按文件替换 flow facts。
+增量按文件替换 flow facts，以及 summary/scoped coverage 门禁。非 full
+索引必须拒绝全局 `flow-path`/`taint-path`，不能把未物化事实报告成无路径。
 
 ## 七、性能基线
 
@@ -164,6 +167,10 @@ Javadoc 标签扫描，每项上限 3 秒。生产正则只允许静态预编译
 | 内存峰值 | < 1GB heap | `-Xmx1g` 跑通 |
 
 **不卡硬阈值,CI 记录 trend,回归超 20% 才 fail**。
+
+大型数据流优化额外比较 `full_flow_write` 和总耗时：同一源码 commit、native
+binary 和参数改造前后各跑三次；离散度超过 10% 时扩展到五次。当前优化验收
+要求两个指标的中位数均至少下降 70%，并记录 flow 子阶段、RSS 和最终 DB 大小。
 
 增量正确性还要覆盖：size/mtime 快路径、`--verify-content`、恢复时间戳的
 Watch 候选、契约指纹对 body/签名的区分、impact SQL 索引计划、Spring XML

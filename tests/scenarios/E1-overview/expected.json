@@ -1,4 +1,18 @@
 {
+  "evidence" : {
+    "affected_dimensions" : [ "external_resolution", "other_resolution" ],
+    "coverage" : "partial",
+    "diagnostic_counts" : {
+      "FIELD_NOT_FOUND" : 7,
+      "METHOD_NOT_FOUND" : 4,
+      "OTHER_INFERENCE" : 19,
+      "THIRDPARTY_SYMBOL_MISSING" : 4,
+      "UNSUPPORTED_RESOLUTION" : 2
+    },
+    "diagnostic_query" : "anatomist doctor --format json --diagnostic-code FIELD_NOT_FOUND --index <same-index>",
+    "negative_conclusion_safe" : false,
+    "status" : "partial_aggregate"
+  },
   "query" : "overview --format json",
   "results" : [ {
     "external_edge_counts" : {
