@@ -104,7 +104,7 @@ architecture, inspect framework wiring, and verify evidence freshness.
 | Local context | "What is in this class/method?" | `context <type-or-method>`; add `--with-callees=N` when useful | Summarize members, annotations, and nearby calls; read source for literals and branches. |
 | Forward trace | "What does this call next / until DB?" | `callees-of <method> --depth N`; `call-path <from> <to> --depth N` | Static path means possible code path, not runtime certainty. |
 | Branch/control-flow slice | "What happens inside this if/else/branch?" | `branches-of <method> --source-window=3`; `callees-of <method> --in-branch --source-window=3`; `field-access <Owner>#<field> --in-branch` | Branch filters use static edge context; they locate branch-contained calls/accesses, not full condition semantics or runtime execution proof. |
-| Data/exception/taint flow | "Where does this value/exception/input reach?" | `flow-of <method>`; `flow-path <from> <to>`; `exception-flow <method>`; `taint-path '*' '*'` | Requires a `--dataflow` index. Results are conservative static possibilities, not runtime proof. |
+| Data/exception/taint flow | "Where does this value/exception/input reach?" | `flow-of <method>`; `flow-path <from> <to>`; `exception-flow <method>`; `taint-path '*' '*'` | `flow-path` / `taint-path` require a full `--dataflow` index; `flow-of` needs DETAIL coverage. Results are conservative static possibilities, not runtime proof. |
 | Reverse impact | "Who uses/calls this repo/type/method?" | `callers-of <method> --depth N`; `used-by <type>` | Separate direct callers from higher-level facade/message entries. |
 | Type relation | "This extends what / who implements it?" | `hierarchy <type>`; `implementors-of <type>`; `implementors-of <type> --recursive` | `hierarchy` is upward only; child/subtype expansion uses `implementors-of`. |
 | Field relation | "Who holds Foo / who reads this field?" | `used-by <Foo>` filtered to `context=field_type`; `field-access <Owner>#<field>` | Composition and READS/WRITES are different facts. |
@@ -173,6 +173,16 @@ prove path feasibility.
 
 ### Data, exception, and taint flow
 
+Build the required flow profile before querying:
+
+| Need | Required index profile | If unavailable |
+|---|---|---|
+| Compact method dependency | Any enabled dataflow mode | Use `flow-summary` |
+| One method's local flow | `DETAIL` coverage for that method | Rebuild with `--dataflow` or a matching `--dataflow-scope` |
+| Source-to-target or taint path | `--dataflow` / `--dataflow-mode full` | `FLOW_COVERAGE_INCOMPLETE`; do not infer that no path exists |
+
+Do not run `flow-path` or `taint-path` against `summary` or `scoped` indexes.
+
 ```bash
 anatomist flow-of <method> --depth 8 --index <db>
 anatomist flow-path <source> <target> \
@@ -192,8 +202,7 @@ feasibility remain outside the guarantee.
 `flow-path` is data-only by default. Add control or exception edges only when
 the question requires them. Prefer exact slots (`arg:N`, `return`, `throw`) and
 full overloaded signatures; `FLOW_ENDPOINT_AMBIGUOUS` means the selector must
-be narrowed. Taint rules accept source/sanitizer `return` and sink `arg:N` or
-`this`; invalid slots are not silently applied.
+be narrowed. Taint rules accept source/sanitizer `return` and sink `arg:N` or `this`; invalid slots are not silently applied.
 
 Evidence coverage comes from `analysis_coverage`, which preserves full
 file/module/scope/capability aggregates even when diagnostic samples are

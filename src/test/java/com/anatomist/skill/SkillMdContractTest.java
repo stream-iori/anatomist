@@ -52,4 +52,22 @@ class SkillMdContractTest {
             assertTrue(text.contains(rule), "missing skill rule: " + rule);
         }
     }
+
+    @Test
+    void flowSkillContractRequiresFullPathsAndExactEndpoints() throws Exception {
+        Path skill = Path.of(System.getProperty("user.dir")).resolve("SKILL.md");
+        String text = Files.readString(skill, StandardCharsets.UTF_8);
+
+        for (String requirement : List.of(
+                "`--dataflow-mode full`",
+                "`FLOW_COVERAGE_INCOMPLETE`",
+                "Do not run `flow-path` or `taint-path` against `summary` or `scoped` indexes.",
+                "[--from-slot arg:0]",
+                "[--to-slot return]",
+                "`FLOW_ENDPOINT_AMBIGUOUS`",
+                "sink `arg:N` or `this`")) {
+            assertTrue(text.contains(requirement),
+                    "missing flow skill contract: " + requirement);
+        }
+    }
 }
