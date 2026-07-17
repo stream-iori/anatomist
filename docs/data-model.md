@@ -218,6 +218,7 @@ belong on every node or edge.
 | `classpath_hash` | Fingerprint of classpath input | Detect changed resolution environment |
 | `index_version` | File-cache/schema version | Incremental compatibility |
 | `source_layout` / `source_layout_hash` | Module/scope/root identity mapping | Force full indexing when identity inputs change |
+| `dataflow` / `implicit_taint` | Optional flow-analysis profile | Prevent incompatible incremental reuse |
 
 ## Index Diagnostics
 
@@ -229,6 +230,27 @@ same rows drive `index`, `doctor`, and `survey-baseline` health output.
 | healthy / no rows | 0 | 0 |
 | warning (`DEGRADED`) | 0 | 3 |
 | error (`UNHEALTHY`) | 0 | 3 |
+
+Resolution diagnostics are grouped by `source_file`, `module`, `scope`, `phase`,
+and reason. Stable reasons include `INTERNAL_SYMBOL_MISSING`,
+`THIRDPARTY_SYMBOL_MISSING`, `JDK_SYMBOL_MISMATCH`, `METHOD_NOT_FOUND`,
+`FIELD_NOT_FOUND`, `GENERIC_INFERENCE_FAILED`, `AMBIGUOUS_OVERLOAD`, and
+`UNSUPPORTED_RESOLUTION`. Parsing failures use `JAVA_PARSE_FAILED`.
+
+## Flow tables
+
+Flow facts are separate from the structural `nodes`/`edges` graph:
+
+| Table | Purpose |
+|---|---|
+| `flow_nodes` | Parameters, definitions, calls, conditions, returns, throws, catches, taint markers |
+| `flow_edges` | `CONTROL_FLOW`, `DEF_USE`, `RETURN_FLOW`, `ARGUMENT_FLOW`, `CALL_ARGUMENT`, `CALL_RETURN`, `EXCEPTION_FLOW`, and guard relations |
+| `method_flow_summaries` | Compact input-slot to return/exception dependencies |
+
+Arrays are treated as whole objects. Branches merge reaching-definition sets;
+loops use a conservative entry/body join. Heap aliasing, reflection, runtime
+proxy dispatch, SAT/path feasibility, and implicit runtime exceptions are not
+claimed.
 
 `source_window` is not stored as a table. It is derived at query time from:
 

@@ -20,6 +20,8 @@ anatomist index <project-path> [options]
 | `--no-classpath` | Skip classpath detection entirely | false |
 | `--vm-classpath` | Use JVM's own classloading for JDK types | true |
 | `--java-version <N>` | Target Java language level | auto-detect |
+| `--dataflow` | Build optional CFG, def-use, return, exception, guard, and interprocedural flow facts | false |
+| `--implicit-taint` | Propagate taint through control dependencies; implies `--dataflow` | false |
 | `--exclude <dirs>` | Comma-separated directories to skip | none |
 | `--include-tests` | Also index test sources | false |
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
@@ -28,6 +30,18 @@ anatomist index <project-path> [options]
 | `--timings` | Add per-phase milliseconds to text output or JSON `timings_ms`, including incremental `symbol_delta`, `impact_analysis`, `graph_replace`, and metadata sub-phases. Output is unchanged when omitted. | false |
 | `--format json` | Emit a stable Agent summary: `command`, `status`, `schema_version`, `index_path`, `stats`, `warnings`, `errors` | text |
 | `--strict-health` | Return exit code 3 when the completed index is degraded/unhealthy | false |
+
+Target-project language support is Java 8–17. Detection precedence is
+`--java-version` → `.anatomist/config.toml` → Maven/Gradle declarations → Java 8.
+Maven detection reads compiler `release`/`source`, plugin configuration, local
+parent properties, and property references. Gradle detection statically reads
+toolchains, compatibility/release assignments, and simple `gradle.properties`
+references; it never executes a build script. Java 18+ is rejected before parsing.
+
+JSON `stats` reports `scanned_files`, `attempted_files`, `parsed_files`,
+`failed_files`, `parse_completeness`, and `completeness`. A failed file makes
+health degraded and is not cached. Under `--strict-health`, full indexing stops
+before graph promotion and returns 3.
 
 Example:
 
@@ -74,7 +88,10 @@ keys for Agents are:
 Report CLI capabilities, schema version, and index health.
 
 ```bash
-anatomist doctor --format json [--index <db>]
+anatomist doctor --format json [--index <db>] \
+  [--diagnostic-file <path>] [--diagnostic-code <reason>] \
+  [--diagnostic-scope MAIN] [--diagnostic-module <module>] \
+  [--diagnostic-phase <phase>] [--offset 0] [--limit 100]
 ```
 
 JSON includes:
@@ -90,6 +107,7 @@ JSON includes:
 | `commands` | Supported subcommands for Agent self-discovery |
 | `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
 | `health` / `diagnostics` | Persisted index health shared with `index` and `survey-baseline` |
+| `diagnostic_stats` | Total/matched/page counts for bounded diagnostic output |
 | `git_untracked_cache` | Repository Git setting: `enabled`, `disabled`, or `unknown` |
 
 When Git untracked cache is not enabled, `doctor` reports non-mutating advice:
@@ -176,6 +194,7 @@ For complex projects, pass the same indexing shape used for the initial index:
 | `--source-root ...` | Reuse every explicit module/scope mapping. |
 | `--strict-health` | Treat a degraded index result as an auto-index failure. |
 | `--timings` | Print discovery, change detection, parse/write/wiring/dependency, metadata sub-phases, and total costs for auto-index runs. |
+| `--dataflow` / `--implicit-taint` | Reuse the same flow-analysis profile. |
 
 For normal source edits, `watch --auto-index` forwards only the changed candidate
 paths and reuses the resolved source roots, Spring XML inventory, classpath metadata,
@@ -225,6 +244,47 @@ a substitute for the Agent query gate when users edited code without `watch`.
 All node-oriented query commands accept `--module <name>` and
 `--scope MAIN|TEST|GENERATED|ALL`. The default is `scope=MAIN`; use `ALL` only
 when duplicate symbols across scopes are intentional.
+
+### Flow queries
+
+Flow facts are available only when the index was built with `--dataflow`.
+
+```bash
+anatomist flow-of com.example.Service#run --depth 8 --index <db>
+anatomist flow-path <source-method-or-node> <target-method-or-node> --depth 20 --index <db>
+anatomist flow-summary com.example.Service#run --index <db>
+anatomist guards-of com.example.Service#run --index <db>
+anatomist exception-flow com.example.Service#run --index <db>
+anatomist taint-path '*' '*' --depth 30 --index <db>
+```
+
+| Command | Evidence |
+|---|---|
+| `flow-of` | CFG, def-use, argument, return, and cross-method edges |
+| `flow-path` | Shortest bounded static flow path |
+| `flow-summary` | `arg:n`/`this` to return or exception summaries |
+| `guards-of` | Condition dependencies and true/false guarded facts |
+| `exception-flow` | Explicit throw, catch, and declared exception propagation |
+| `taint-path` | Configured source-to-sink path; sanitizer nodes stop traversal |
+
+Taint rules live in `.anatomist/taint-rules.json`:
+
+```json
+{
+  "sources": [{"method": "javax.servlet.*#getParameter*", "slot": "return"}],
+  "sinks": [{"method": "java.sql.Statement#execute*", "slot": "arg:0"}],
+  "sanitizers": [{"method": "com.example.SqlEscaper#escape*", "slot": "return"}]
+}
+```
+
+Method patterns support full-string `*` and `?` glob matching. Matching uses a
+bounded non-regex state machine: the configuration file is limited to 1 MiB,
+each source/sink/sanitizer list to 256 valid rules, and each method pattern to
+512 characters. Invalid or excess entries are skipped with
+`TAINT_RULE_SKIPPED` / `TAINT_RULE_LIMIT_EXCEEDED`; an oversized or malformed
+file is disabled with `TAINT_RULES_TOO_LARGE` / `TAINT_RULES_INVALID`.
+Explicit data flow is the default.
+`--implicit-taint` also adds possible taint flow through control guards.
 
 ### `search`
 Find nodes by name (FTS5), precise simple-name, or annotation.

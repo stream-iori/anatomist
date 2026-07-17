@@ -4,11 +4,13 @@ import java.util.*;
 
 public class ProjectConfig {
 
-    private int javaVersion = 8;
+    private Integer javaVersion;
     private List<String> exclude = List.of();
     private boolean includeTests = false;
     private boolean springXml = false;
     private boolean vmClasspath = true;
+    private boolean dataflow = false;
+    private boolean implicitTaint = false;
 
     private List<String> externalExcludePatterns = List.of(
             "java.lang.*",
@@ -21,7 +23,8 @@ public class ProjectConfig {
             "jdk.*"
     );
 
-    public int javaVersion() { return javaVersion; }
+    public Integer javaVersion() { return javaVersion; }
+    public boolean hasJavaVersion() { return javaVersion != null; }
     public void setJavaVersion(int v) { this.javaVersion = v; }
 
     public List<String> exclude() { return exclude; }
@@ -35,6 +38,12 @@ public class ProjectConfig {
 
     public boolean vmClasspath() { return vmClasspath; }
     public void setVmClasspath(boolean v) { this.vmClasspath = v; }
+
+    public boolean dataflow() { return dataflow; }
+    public void setDataflow(boolean value) { this.dataflow = value; }
+
+    public boolean implicitTaint() { return implicitTaint; }
+    public void setImplicitTaint(boolean value) { this.implicitTaint = value; }
 
     public List<String> externalExcludePatterns() { return externalExcludePatterns; }
     public void setExternalExcludePatterns(List<String> v) { this.externalExcludePatterns = List.copyOf(v); }

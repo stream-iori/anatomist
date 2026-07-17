@@ -200,6 +200,51 @@ public class JavaParserFactory {
         }
     }
 
+    /**
+     * Parse the scanner's exact file inventory while preserving a failure for
+     * every file that did not produce a usable compilation unit.
+     */
+    public ParseInventory parseInventory(List<Path> files,
+                                         BiConsumer<Path, CompilationUnit> consumer) {
+        List<Path> inventory = files == null ? List.of() : files.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(path -> path.toAbsolutePath().normalize())
+                .distinct()
+                .toList();
+        Map<Path, List<String>> failures = new LinkedHashMap<>();
+        int parsed = 0;
+        Session ownedSession = session == null ? openSession(fullSourceCacheSize()) : null;
+        ParserConfiguration configuration =
+                session == null ? ownedSession.configuration : session.configuration;
+        JavaParser parser = new JavaParser(configuration);
+        try {
+            for (Path file : inventory) {
+                try {
+                    ParseResult<CompilationUnit> result = parser.parse(file);
+                    if (!result.isSuccessful() || result.getResult().isEmpty()) {
+                        List<String> messages = result.getProblems().stream()
+                                .map(problem -> problem.getMessage())
+                                .toList();
+                        failures.put(file, messages.isEmpty()
+                                ? List.of("parser produced no compilation unit")
+                                : messages);
+                        continue;
+                    }
+                    CompilationUnit unit = result.getResult().get();
+                    consumer.accept(file, unit);
+                    parsed++;
+                } catch (IOException e) {
+                    failures.put(file, List.of("failed to read source: " + e.getMessage()));
+                } catch (RuntimeException e) {
+                    failures.put(file, List.of("parser failed: " + e.getMessage()));
+                }
+            }
+        } finally {
+            if (ownedSession != null) ownedSession.close();
+        }
+        return new ParseInventory(inventory.size(), inventory.size(), parsed, failures);
+    }
+
     /** Parse an explicit list of files (used by tests / non-SourceRoot flows). */
     public List<CompilationUnit> parseFiles(List<Path> files) {
         ParseFilesResult result = parseFilesDetailed(files);

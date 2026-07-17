@@ -195,3 +195,52 @@ CREATE TABLE file_dependencies (
 );
 
 CREATE INDEX idx_file_deps_target ON file_dependencies(depends_on_file);
+
+CREATE TABLE flow_nodes (
+    id TEXT PRIMARY KEY,
+    method_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    label TEXT,
+    source_file TEXT NOT NULL,
+    module TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('MAIN','TEST','GENERATED')),
+    line INTEGER NOT NULL DEFAULT 0,
+    column_no INTEGER NOT NULL DEFAULT 0,
+    metadata TEXT
+);
+
+CREATE INDEX idx_flow_nodes_method ON flow_nodes(method_id);
+CREATE INDEX idx_flow_nodes_kind ON flow_nodes(kind);
+CREATE INDEX idx_flow_nodes_source_file ON flow_nodes(source_file);
+
+CREATE TABLE flow_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_node TEXT NOT NULL REFERENCES flow_nodes(id) ON DELETE CASCADE,
+    target_node TEXT NOT NULL REFERENCES flow_nodes(id) ON DELETE CASCADE,
+    relation TEXT NOT NULL,
+    method_id TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    confidence TEXT NOT NULL DEFAULT 'EXTRACTED',
+    context TEXT,
+    metadata TEXT
+);
+
+CREATE INDEX idx_flow_edges_source ON flow_edges(source_node);
+CREATE INDEX idx_flow_edges_target ON flow_edges(target_node);
+CREATE INDEX idx_flow_edges_relation ON flow_edges(relation);
+CREATE INDEX idx_flow_edges_method ON flow_edges(method_id);
+CREATE INDEX idx_flow_edges_source_file ON flow_edges(source_file);
+
+CREATE TABLE method_flow_summaries (
+    method_id TEXT NOT NULL,
+    input_slot TEXT NOT NULL,
+    output_slot TEXT NOT NULL,
+    relation TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    confidence TEXT NOT NULL DEFAULT 'INFERRED',
+    metadata TEXT,
+    PRIMARY KEY (method_id, input_slot, output_slot, relation)
+);
+
+CREATE INDEX idx_flow_summaries_source_file ON method_flow_summaries(source_file);
+CREATE INDEX idx_flow_summaries_method ON method_flow_summaries(method_id);

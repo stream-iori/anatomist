@@ -86,8 +86,22 @@ final class Disclosure {
     }
 
     private static String shellQuote(String value) {
-        if (value.matches("[A-Za-z0-9_./:=@+,-]+")) return value;
+        if (isShellSafe(value)) return value;
         return "'" + value.replace("'", "'\\''") + "'";
+    }
+
+    private static boolean isShellSafe(String value) {
+        if (value.isEmpty()) return false;
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
+            if (!(character >= 'A' && character <= 'Z')
+                    && !(character >= 'a' && character <= 'z')
+                    && !(character >= '0' && character <= '9')
+                    && "_./:=@+,-".indexOf(character) < 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean contains(String value, String lower) {

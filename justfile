@@ -193,6 +193,14 @@ test:
     sdk use java 25.0.3-graal || true
     mvn test
 
+# Adversarial regex/glob complexity guards (excluded from the default suite)
+regex-perf:
+    #!/usr/bin/env bash
+    export SDKMAN_DIR="${HOME}/.sdkman"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
+    sdk use java 25.0.3-graal || true
+    mvn -Pregex-perf test
+
 # Integration tests (anything ending in *IT)
 it:
     #!/usr/bin/env bash

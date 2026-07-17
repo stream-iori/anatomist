@@ -110,8 +110,16 @@ public final class DefaultIndexPath {
 
     private static String sanitizedRepoNameOf(Path projectRoot) {
         String raw = repoNameOf(projectRoot);
-        String sanitized = raw.replaceAll("[^A-Za-z0-9._-]", "_");
-        return sanitized.isEmpty() ? "default-project" : sanitized;
+        StringBuilder sanitized = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char character = raw.charAt(i);
+            boolean allowed = character >= 'A' && character <= 'Z'
+                    || character >= 'a' && character <= 'z'
+                    || character >= '0' && character <= '9'
+                    || character == '.' || character == '_' || character == '-';
+            sanitized.append(allowed ? character : '_');
+        }
+        return sanitized.isEmpty() ? "default-project" : sanitized.toString();
     }
 
     private static Path canonicalRoot(Path projectRoot) {

@@ -4,6 +4,10 @@ anatomist 自身运行在 **JDK 21+**（`maven.compiler.release=21`），但被�
 
 ## 一、测试金字塔
 
+目标项目版本矩阵固定覆盖 Java 8、11、17；Java 18+ 只验证明确拒绝，
+不作为支持目标。版本探测测试覆盖 Maven release/plugin/父属性引用和
+Gradle Groovy/Kotlin toolchain/gradle.properties。
+
 | 层 | 验证什么 | 形式 | 占比 |
 |----|---------|------|------|
 | L1 单元 | 单个 Extractor 解析单个 .java 片段 | JUnit 5 + JavaParser 内存 AST + SymbolSolver | 60% |
@@ -128,7 +132,26 @@ sdk use java 25.0.3-graal
 | Agent 查询门禁 | 无变更增量 + `--strict-health`，随后才允许查询 | 确保无变更不触发 Maven/JavaParser/图重建，失败时 Agent 不应使用旧索引结论 |
 | WatchService 集成 | 真启 watch 改文件 | 仅 1-2 个 happy-path,Linux 跑 |
 
+数据流回归额外覆盖：分支合流、循环回边、参数/局部变量 def-use、返回值、
+跨方法调用、显式 throw/catch、guard 极性、taint source/sink/sanitizer，
+以及增量按文件替换 flow facts。
+
 ## 七、性能基线
+
+正则/通配符复杂度守卫独立运行，避免慢机器影响默认测试：
+
+```bash
+mvn -Pregex-perf test
+# 或
+just regex-perf
+```
+
+性能用例统一标记 `@Tag("regex-performance")`，默认 `mvn test` 排除。
+当前覆盖污点规则多通配符失败匹配、10 万空行 Gradle 版本探测和 10 万空行
+Javadoc 标签扫描，每项上限 3 秒。生产正则只允许静态预编译、输入有界且无
+重叠量词；简单字符白名单、空白折叠和分页参数处理使用字符扫描或结构化参数。
+保留的低风险正则包括 `DocScanner` 的 H1/ADR、构建文件中固定前缀且有明确
+终止符的属性提取，以及固定分隔符 `split`。
 
 | 指标 | 目标 | 验证方式 |
 |------|-----|---------|

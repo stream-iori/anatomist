@@ -55,6 +55,9 @@ class ProgressiveDisclosureIT {
         assertTrue(((Number) stats.get("total")).intValue() > 1);
         assertEquals(Boolean.TRUE, stats.get("truncated"));
         assertEquals(2, ((Number) stats.get("next_offset")).intValue());
+        String nextQuery = (String) ((List<?>) json.get("next_queries")).get(0);
+        assertTrue(nextQuery.contains("--offset 2"), nextQuery);
+        assertEquals(1, occurrences(nextQuery, "--offset"), nextQuery);
     }
 
     @Test
@@ -92,6 +95,9 @@ class ProgressiveDisclosureIT {
         assertTrue(((Number) stats.get("members_total")).intValue() > 2);
         assertEquals(Boolean.TRUE, stats.get("members_truncated"));
         assertNotNull(json.get("next_queries"));
+        String nextQuery = (String) ((List<?>) json.get("next_queries")).get(0);
+        assertTrue(nextQuery.contains("--members-offset 3"), nextQuery);
+        assertEquals(1, occurrences(nextQuery, "--members-offset"), nextQuery);
     }
 
     @Test
@@ -260,6 +266,16 @@ class ProgressiveDisclosureIT {
         Object tree = Json.parseTree(json);
         assertTrue(tree instanceof Map, "expected JSON object, got: " + json);
         return (Map<?, ?>) tree;
+    }
+
+    private static int occurrences(String value, String needle) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = value.indexOf(needle, offset)) >= 0) {
+            count++;
+            offset += needle.length();
+        }
+        return count;
     }
 
     private static RunResult runCli(String... args) {

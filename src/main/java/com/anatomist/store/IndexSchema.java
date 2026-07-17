@@ -1,7 +1,7 @@
 package com.anatomist.store;
 
 public final class IndexSchema {
-    public static final int VERSION = 7;
+    public static final int VERSION = 8;
 
     private IndexSchema() {}
 }

@@ -125,7 +125,8 @@ final class CallableIdFactory {
         if (index < parameters.size()) {
             String type = AstTypeNames.of(parameters.get(index).getType(), parameters.get(index));
             if (usable(type)) return type;
-            String lexical = parameters.get(index).getTypeAsString().replaceAll("\\s+", "");
+            String lexical = removeAsciiRegexWhitespace(
+                    parameters.get(index).getTypeAsString());
             if (!lexical.isBlank()) return "?" + lexical;
         }
         int line = declaration.getBegin().map(p -> p.line).orElse(0);
@@ -137,6 +138,18 @@ final class CallableIdFactory {
                 && !"null".equals(type)
                 && !"<unknown>".equals(type)
                 && !"<unresolved>".equals(type);
+    }
+
+    private static String removeAsciiRegexWhitespace(String value) {
+        StringBuilder out = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
+            if (character != ' ' && character != '\t' && character != '\n'
+                    && character != '\u000B' && character != '\f' && character != '\r') {
+                out.append(character);
+            }
+        }
+        return out.length() == value.length() ? value : out.toString();
     }
 
     private static String lexicalTypeId(RecordDeclaration declaration) {

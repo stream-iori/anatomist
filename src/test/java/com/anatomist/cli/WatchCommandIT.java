@@ -231,7 +231,7 @@ class WatchCommandIT {
         Path source = project.resolve("src/main/java/p/A.java");
         Path db = tmp.resolve("index.db");
         CliTestSupport.assertIndexOk(project,
-                "--no-classpath", "--output", db.toString());
+                "--no-classpath", "--java-version", "17", "--output", db.toString());
         String relative = project.relativize(source).toString();
         String beforeHash = cachedHash(db, relative);
 

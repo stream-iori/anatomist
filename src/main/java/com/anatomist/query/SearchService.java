@@ -26,7 +26,7 @@ public class SearchService {
     public List<NodeRow> search(String term, String kind, int limit, int offset) {
         String ftsExpr = term == null ? "" : term.trim();
         if (ftsExpr.isEmpty()) return Collections.emptyList();
-        if (!ftsExpr.matches(".*[\\s\"():*-].*")) ftsExpr = ftsExpr + "*";
+        if (!containsFtsSyntax(ftsExpr)) ftsExpr = ftsExpr + "*";
 
         StringBuilder sql = new StringBuilder()
                 .append("SELECT ").append(RowMappers.NODE_COLS).append(" ")
@@ -102,7 +102,7 @@ public class SearchService {
     public int countSearch(String term, String kind) {
         String ftsExpr = term == null ? "" : term.trim();
         if (ftsExpr.isEmpty()) return 0;
-        if (!ftsExpr.matches(".*[\\s\"():*-].*")) ftsExpr = ftsExpr + "*";
+        if (!containsFtsSyntax(ftsExpr)) ftsExpr = ftsExpr + "*";
         StringBuilder sql = new StringBuilder(
                 "SELECT COUNT(*) FROM node_names nn JOIN nodes n ON nn.rowid = n.rowid "
               + "WHERE node_names MATCH ? ");
@@ -127,6 +127,23 @@ public class SearchService {
 
     private static String globToLike(String glob) {
         return glob == null ? "%" : glob.replace('*', '%').replace('?', '_');
+    }
+
+    private static boolean containsFtsSyntax(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
+            if (isAsciiRegexWhitespace(character)
+                    || character == '"' || character == '(' || character == ')'
+                    || character == ':' || character == '*' || character == '-') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isAsciiRegexWhitespace(char character) {
+        return character == ' ' || character == '\t' || character == '\n'
+                || character == '\u000B' || character == '\f' || character == '\r';
     }
 
     public List<NodeRow> implementorsOf(String typeRef) {

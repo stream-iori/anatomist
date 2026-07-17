@@ -57,6 +57,9 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 - SymbolSolver-level call resolution (not naive label match) — distinguishes INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE
 - Stable IDs for lambdas, method refs, anonymous classes
 - Incremental re-index (only changed files)
+- Java 8–17 Maven/Gradle language-level detection with parse completeness health
+- Explainable resolution diagnostics by file, module, scope, phase, and reason
+- Optional CFG/def-use/return/exception/guard/taint analysis (`--dataflow`)
 - Spring XML bean wiring (`--spring-xml`)
 - Pagination + keyword filter on all list queries
 - GraalVM native binary (~10ms cold start vs ~300ms JVM)
@@ -66,6 +69,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 - No embedded LLM — all reasoning delegated to calling Agent
 - No cross-language (Java only)
 - No runtime/reflection dispatch analysis
+- No precise heap-alias or path-feasibility solver
 - No vector/semantic similarity (relies on FTS5 + Agent reasoning)
 
 ---
@@ -75,7 +79,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 | Doc | Purpose |
 |-----|---------|
 | [docs/getting-started.md](docs/getting-started.md) | Installation, first index, first query |
-| [docs/commands.md](docs/commands.md) | Full CLI reference (all 19 commands + flags) |
+| [docs/commands.md](docs/commands.md) | Full CLI reference (all commands + flags) |
 | [docs/architecture.md](docs/architecture.md) | Package layout, data flow, design constraints |
 | [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
 | [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |

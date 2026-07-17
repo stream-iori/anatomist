@@ -22,6 +22,18 @@ public final class IndexEnvironmentFingerprint {
                                     List<Path> classpathEntries,
                                     String classpathOverride,
                                     boolean springXml) {
+        return snapshot(sourceRoots, javaVersion, classpathMode, classpathEntries,
+                classpathOverride, springXml, false, false);
+    }
+
+    public static Snapshot snapshot(List<SourceRoot> sourceRoots,
+                                    int javaVersion,
+                                    String classpathMode,
+                                    List<Path> classpathEntries,
+                                    String classpathOverride,
+                                    boolean springXml,
+                                    boolean dataflow,
+                                    boolean implicitTaint) {
         String layout = sourceLayout(sourceRoots);
         String artifacts = classpathArtifacts(classpathEntries);
         String canonical = "anatomist-index-environment-v1\n"
@@ -30,6 +42,8 @@ public final class IndexEnvironmentFingerprint {
                 + "mode=" + safe(classpathMode) + "\n"
                 + "override=" + safe(classpathOverride) + "\n"
                 + "springXml=" + springXml + "\n"
+                + "dataflow=" + dataflow + "\n"
+                + "implicitTaint=" + implicitTaint + "\n"
                 + "artifacts=" + artifacts + "\n";
         return new Snapshot(
                 FileCacheService.sha256OfString(canonical),

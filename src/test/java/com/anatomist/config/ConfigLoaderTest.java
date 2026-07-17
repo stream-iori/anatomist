@@ -13,6 +13,13 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConfigLoaderTest {
 
     @Test
+    void javaVersionIsAbsentUntilExplicitlyConfigured() {
+        ProjectConfig config = new ProjectConfig();
+        assertFalse(config.hasJavaVersion());
+        assertNull(config.javaVersion());
+    }
+
+    @Test
     void defaultExcludePatternsBlockJavaLang() {
         ProjectConfig config = new ProjectConfig();
         assertTrue(config.isExternalExcluded("java.lang.String"));

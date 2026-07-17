@@ -4,9 +4,6 @@ import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
 import com.anatomist.model.SemanticAnnotation;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 /**
  * Post-index semantic enrichment. Reads ExtractionResult.{nodes, annotations}
  * and fills ExtractionResult.semanticAnnotations with:
@@ -19,8 +16,6 @@ public class SemanticPostProcessor {
     public void process(ExtractionResult result) {
         applyJavadocRules(result);
     }
-
-    private static final Pattern JAVADOC_TAG = Pattern.compile("(?m)^\\s*@\\w+");
 
     private void applyJavadocRules(ExtractionResult result) {
         for (Node n : result.nodes) {
@@ -40,12 +35,37 @@ public class SemanticPostProcessor {
     static String firstBlankLineOrTag(String javadoc) {
         if (javadoc == null) return "";
         int blank = javadoc.indexOf("\n\n");
-        Matcher m = JAVADOC_TAG.matcher(javadoc);
-        int tag = m.find() ? m.start() : -1;
+        int tag = findJavadocTag(javadoc);
         int cut = javadoc.length();
         if (blank >= 0) cut = Math.min(cut, blank);
         if (tag   >= 0) cut = Math.min(cut, tag);
         return javadoc.substring(0, cut).trim();
+    }
+
+    private static int findJavadocTag(String javadoc) {
+        for (int i = 0; i < javadoc.length(); i++) {
+            if (i > 0 && javadoc.charAt(i - 1) != '\n' && javadoc.charAt(i - 1) != '\r') {
+                continue;
+            }
+            int tag = i;
+            while (tag < javadoc.length()
+                    && (javadoc.charAt(tag) == ' ' || javadoc.charAt(tag) == '\t')) {
+                tag++;
+            }
+            if (tag + 1 < javadoc.length()
+                    && javadoc.charAt(tag) == '@'
+                    && isAsciiWord(javadoc.charAt(tag + 1))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean isAsciiWord(char character) {
+        return character >= 'a' && character <= 'z'
+                || character >= 'A' && character <= 'Z'
+                || character >= '0' && character <= '9'
+                || character == '_';
     }
 
     private static SemanticAnnotation write(String nodeId, String category, String source, String confidence) {

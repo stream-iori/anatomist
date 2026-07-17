@@ -63,10 +63,8 @@ public class SearchCommand extends QueryCommand {
         Disclosure.putPaging(env, total, limit, offset);
         Disclosure.putBudget(env, "rows", results.size(), total);
         if ((Boolean) env.stats.get("truncated")) {
-            List<String> continuation = new java.util.ArrayList<>();
-            continuation.add(buildQueryString().replaceAll(" --offset \\d+", "")
-                    + " --offset " + env.stats.get("next_offset"));
-            env.nextQueries = List.of(continuation.get(0) + " "
+            int nextOffset = ((Number) env.stats.get("next_offset")).intValue();
+            env.nextQueries = List.of(buildQueryString(nextOffset, true) + " "
                     + Disclosure.renderCommand(List.of("--index", IndexPath.resolve(index).toString())));
         }
         // FTS hits can match the package path rather than the class name; surface how many
@@ -82,16 +80,32 @@ public class SearchCommand extends QueryCommand {
     }
 
     private String buildQueryString() {
-        StringBuilder sb = new StringBuilder("search");
-        if (term != null) sb.append(" ").append(term);
-        if (name != null) sb.append(" --name ").append(name);
-        if (byAnnotation) sb.append(" --by-annotation");
-        if (kind != null) sb.append(" --kind ").append(kind);
-        if (count) sb.append(" --count");
-        if (limit != 20) sb.append(" --limit ").append(limit);
-        if (offset != 0) sb.append(" --offset ").append(offset);
-        if (module != null && !module.isBlank()) sb.append(" --module ").append(module);
-        if (scope != null && !scope.isBlank()) sb.append(" --scope ").append(scope);
-        return sb.toString();
+        return buildQueryString(offset, false);
+    }
+
+    private String buildQueryString(int effectiveOffset, boolean offsetLast) {
+        List<String> args = new java.util.ArrayList<>();
+        args.add("search");
+        if (term != null) args.add(term);
+        if (name != null) {
+            args.add("--name");
+            args.add(name);
+        }
+        Disclosure.addFlag(args, byAnnotation, "--by-annotation");
+        if (kind != null) {
+            args.add("--kind");
+            args.add(kind);
+        }
+        Disclosure.addFlag(args, count, "--count");
+        if (limit != 20) Disclosure.addOption(args, "--limit", limit);
+        if (effectiveOffset != 0 && !offsetLast) {
+            Disclosure.addOption(args, "--offset", effectiveOffset);
+        }
+        Disclosure.addOption(args, "--module", module);
+        Disclosure.addOption(args, "--scope", scope);
+        if (effectiveOffset != 0 && offsetLast) {
+            Disclosure.addOption(args, "--offset", effectiveOffset);
+        }
+        return String.join(" ", args);
     }
 }

@@ -27,6 +27,27 @@ public class DoctorCommand implements Callable<Integer> {
     @Option(names = "--strict-health", description = "Return exit code 3 unless index health is healthy.")
     boolean strictHealth;
 
+    @Option(names = "--diagnostic-file", description = "Filter diagnostics by source-file substring.")
+    String diagnosticFile;
+
+    @Option(names = "--diagnostic-code", description = "Filter diagnostics by exact reason/code.")
+    String diagnosticCode;
+
+    @Option(names = "--diagnostic-scope", description = "Filter diagnostics by source scope.")
+    String diagnosticScope;
+
+    @Option(names = "--diagnostic-module", description = "Filter diagnostics by module.")
+    String diagnosticModule;
+
+    @Option(names = "--diagnostic-phase", description = "Filter diagnostics by extraction phase.")
+    String diagnosticPhase;
+
+    @Option(names = "--offset", description = "Diagnostic result offset.", defaultValue = "0")
+    int offset;
+
+    @Option(names = "--limit", description = "Maximum diagnostics returned.", defaultValue = "100")
+    int limit;
+
     @Override
     public Integer call() {
         Path defaultPath = DefaultIndexPath.forQueryRead(Path.of("").toAbsolutePath());
@@ -49,11 +70,13 @@ public class DoctorCommand implements Callable<Integer> {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline",
-                "annotate", "doctor"));
+                "flow-of", "flow-path", "taint-path", "exception-flow", "guards-of",
+                "flow-summary", "annotate", "doctor"));
         out.put("capabilities", List.of(
                 "json-query-output", "index-json-summary",
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
-                "branch-context-slices", "source-snapshot-fingerprint"));
+                "branch-context-slices", "source-snapshot-fingerprint",
+                "cfg", "def-use", "interprocedural-flow", "exception-flow", "taint-flow"));
 
         if (exists) {
             try (SqliteStore store = new SqliteStore(db)) {
@@ -66,6 +89,8 @@ public class DoctorCommand implements Callable<Integer> {
                             "actual", store.schemaVersion())));
                 } else {
                     store.readProjectMeta("java_version").ifPresent(v -> out.put("java_version", v));
+                    store.readProjectMeta("java_version_source")
+                            .ifPresent(v -> out.put("java_version_source", v));
                     store.readProjectMeta("classpath_mode").ifPresent(v -> out.put("classpath_mode", v));
                     store.readProjectMeta("spring_xml")
                             .ifPresent(v -> out.put("spring_xml", Boolean.parseBoolean(v)));
@@ -98,10 +123,25 @@ public class DoctorCommand implements Callable<Integer> {
                     }
                     com.anatomist.core.IndexHealthReport health =
                             com.anatomist.core.IndexHealthService.read(store);
+                    List<com.anatomist.core.IndexDiagnostic> filtered = health.diagnostics().stream()
+                            .filter(this::matchesDiagnostic)
+                            .toList();
+                    int safeOffset = Math.max(0, offset);
+                    int safeLimit = Math.max(1, Math.min(limit, 1000));
+                    List<com.anatomist.core.IndexDiagnostic> page = filtered.stream()
+                            .skip(safeOffset).limit(safeLimit).toList();
+                    com.anatomist.core.IndexHealthReport displayed =
+                            new com.anatomist.core.IndexHealthReport(health.status(), page);
                     out.put("health", health.status().name().toLowerCase());
-                    out.put("diagnostics", health.toMaps());
-                    out.put("warnings", health.warnings());
-                    out.put("errors", health.errors());
+                    out.put("diagnostics", displayed.toMaps());
+                    out.put("warnings", displayed.warnings());
+                    out.put("errors", displayed.errors());
+                    out.put("diagnostic_stats", Map.of(
+                            "total", health.diagnostics().size(),
+                            "matched", filtered.size(),
+                            "offset", safeOffset,
+                            "limit", safeLimit,
+                            "truncated", safeOffset + page.size() < filtered.size()));
                 }
             } catch (RuntimeException ex) {
                 out.put("status", "degraded");
@@ -110,6 +150,24 @@ public class DoctorCommand implements Callable<Integer> {
         }
 
         return emit(out, db, exists);
+    }
+
+    private boolean matchesDiagnostic(com.anatomist.core.IndexDiagnostic diagnostic) {
+        return contains(diagnostic.sourceFile(), diagnosticFile)
+                && equalsIgnoreCase(diagnostic.code(), diagnosticCode)
+                && equalsIgnoreCase(diagnostic.scope(), diagnosticScope)
+                && equalsIgnoreCase(diagnostic.module(), diagnosticModule)
+                && equalsIgnoreCase(diagnostic.phase(), diagnosticPhase);
+    }
+
+    private static boolean contains(String actual, String filter) {
+        return filter == null || filter.isBlank()
+                || actual != null && actual.contains(filter);
+    }
+
+    private static boolean equalsIgnoreCase(String actual, String filter) {
+        return filter == null || filter.isBlank()
+                || actual != null && actual.equalsIgnoreCase(filter);
     }
 
     private int emit(Map<String, Object> out, Path db, boolean exists) {

@@ -10,7 +10,18 @@ public final class IndexHealthService {
     private IndexHealthService() {}
 
     public static IndexHealthReport fromResult(IndexResult result) {
-        return fromCounts(result.unresolvedCount(), result.droppedDanglingEdges());
+        List<IndexDiagnostic> diagnostics = new ArrayList<>(
+                fromCounts(result.unresolvedCount(), result.droppedDanglingEdges()).diagnostics());
+        if (result.diagnostics() != null) diagnostics.addAll(result.diagnostics());
+        ParseInventory parse = result.parseInventory();
+        if (parse != null && parse.failedFiles() > 0) {
+            parse.failures().forEach((file, problems) ->
+                    diagnostics.add(new IndexDiagnostic(
+                            "warning", "JAVA_PARSE_FAILED", "PARSING",
+                            file.toString(), null, null, null, 1,
+                            problems.isEmpty() ? "parser produced no compilation unit" : problems.get(0))));
+        }
+        return IndexHealthReport.of(diagnostics);
     }
 
     public static IndexHealthReport fromCounts(long unresolved, long dropped) {

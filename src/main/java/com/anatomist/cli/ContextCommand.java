@@ -136,8 +136,7 @@ public class ContextCommand implements Callable<Integer> {
                 if (membersTruncated) {
                     int nextOffset = safeOffset + membersLimit;
                     env.stats.put("members_next_offset", nextOffset);
-                    env.nextQueries = List.of(buildQueryString().replaceAll(" --members-offset \\d+", "")
-                            + " --members-offset " + nextOffset + " "
+                    env.nextQueries = List.of(buildQueryString(nextOffset, true) + " "
                             + Disclosure.renderCommand(List.of("--index", db.toString())));
                 }
                 Disclosure.putBudget(env, "members", r.members.size(), membersTotal);
@@ -172,19 +171,37 @@ public class ContextCommand implements Callable<Integer> {
     }
 
     private String buildQueryString() {
-        StringBuilder sb = new StringBuilder("context");
-        if (enrich) sb.append(" --enrich");
-        if (target != null) sb.append(" ").append(target);
-        if (pkg != null) sb.append(" --package ").append(pkg);
-        if (withCallees != null) sb.append(" --with-callees=").append(withCallees);
-        if (format != null) sb.append(" --format ").append(format);
-        if (membersLimit > 0) sb.append(" --members-limit ").append(membersLimit);
-        if (membersOffset > 0) sb.append(" --members-offset ").append(membersOffset);
-        if (methodsOnly) sb.append(" --methods-only");
-        if (fieldsOnly) sb.append(" --fields-only");
-        if (withDocs) sb.append(" --with-docs");
-        if (module != null && !module.isBlank()) sb.append(" --module ").append(module);
-        if (scope != null && !scope.isBlank()) sb.append(" --scope ").append(scope);
-        return sb.toString();
+        return buildQueryString(membersOffset, false);
+    }
+
+    private String buildQueryString(int effectiveMembersOffset, boolean offsetLast) {
+        List<String> args = new java.util.ArrayList<>();
+        args.add("context");
+        Disclosure.addFlag(args, enrich, "--enrich");
+        if (target != null) args.add(target);
+        if (pkg != null) {
+            args.add("--package");
+            args.add(pkg);
+        }
+        if (withCallees != null) args.add("--with-callees=" + withCallees);
+        if (format != null) {
+            args.add("--format");
+            args.add(format);
+        }
+        if (membersLimit > 0) {
+            Disclosure.addOption(args, "--members-limit", membersLimit);
+        }
+        if (effectiveMembersOffset > 0 && !offsetLast) {
+            Disclosure.addOption(args, "--members-offset", effectiveMembersOffset);
+        }
+        Disclosure.addFlag(args, methodsOnly, "--methods-only");
+        Disclosure.addFlag(args, fieldsOnly, "--fields-only");
+        Disclosure.addFlag(args, withDocs, "--with-docs");
+        Disclosure.addOption(args, "--module", module);
+        Disclosure.addOption(args, "--scope", scope);
+        if (effectiveMembersOffset > 0 && offsetLast) {
+            Disclosure.addOption(args, "--members-offset", effectiveMembersOffset);
+        }
+        return String.join(" ", args);
     }
 }

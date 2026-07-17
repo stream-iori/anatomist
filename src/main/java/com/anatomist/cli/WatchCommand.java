@@ -134,6 +134,13 @@ public class WatchCommand implements Callable<Integer> {
             description = "Treat DEGRADED or UNHEALTHY index results as auto-index failures.")
     boolean strictHealth;
 
+    @Option(names = "--dataflow", description = "Keep optional CFG/def-use facts current.")
+    boolean dataflow;
+
+    @Option(names = "--implicit-taint",
+            description = "Propagate taint through control dependencies. Implies --dataflow.")
+    boolean implicitTaint;
+
     @Option(names = "--full-policy", defaultValue = "background",
             description = "When watch needs a full rebuild: background (default), inline, or manual.")
     String fullPolicy;
@@ -597,6 +604,8 @@ public class WatchCommand implements Callable<Integer> {
         if (javaVersion != null) { args.add("--java-version"); args.add(String.valueOf(javaVersion)); }
         args.add("--output"); args.add(outputPath.toString());
         if (springXml) args.add("--spring-xml");
+        if (dataflow || implicitTaint) args.add("--dataflow");
+        if (implicitTaint) args.add("--implicit-taint");
         if (strictHealth) args.add("--strict-health");
         if (timings) args.add("--timings");
         args.add("--full");
@@ -660,6 +669,8 @@ public class WatchCommand implements Callable<Integer> {
                 if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
                 args.add("--output"); args.add(dbPath.toString());
                 if (springXml) args.add("--spring-xml");
+                if (dataflow || implicitTaint) args.add("--dataflow");
+                if (implicitTaint) args.add("--implicit-taint");
                 if (strictHealth) args.add("--strict-health");
                 if (timings) args.add("--timings");
                 args.add("--full");
@@ -682,6 +693,8 @@ public class WatchCommand implements Callable<Integer> {
             args.add("--output"); args.add(dbPath.toString());
             args.add("--incremental");
             if (springXml) args.add("--spring-xml");
+            if (dataflow || implicitTaint) args.add("--dataflow");
+            if (implicitTaint) args.add("--implicit-taint");
             if (strictHealth) args.add("--strict-health");
             if (timings) args.add("--timings");
             args.add("--max-realign-files"); args.add(String.valueOf(maxRealignFiles));
@@ -710,8 +723,25 @@ public class WatchCommand implements Callable<Integer> {
     }
 
     private static String conciseDiagnostic(IncrementalParseException failure) {
-        String singleLine = failure.firstDiagnostic().replaceAll("\\s+", " ").trim();
+        String singleLine = collapseAsciiRegexWhitespace(failure.firstDiagnostic()).trim();
         return singleLine.length() <= 240 ? singleLine : singleLine.substring(0, 237) + "...";
+    }
+
+    private static String collapseAsciiRegexWhitespace(String value) {
+        StringBuilder out = new StringBuilder(value.length());
+        boolean whitespace = false;
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
+            if (character == ' ' || character == '\t' || character == '\n'
+                    || character == '\u000B' || character == '\f' || character == '\r') {
+                whitespace = true;
+            } else {
+                if (whitespace && !out.isEmpty()) out.append(' ');
+                out.append(character);
+                whitespace = false;
+            }
+        }
+        return out.toString();
     }
 
     @FunctionalInterface
@@ -839,7 +869,11 @@ public class WatchCommand implements Callable<Integer> {
                     prior = store.readProjectMeta();
                 }
             }
-            boolean changed = !current.hash().equals(prior.get(IndexEnvironmentFingerprint.META_KEY));
+            boolean flowProfileChanged =
+                    !String.valueOf(dataflow || implicitTaint).equals(prior.get("dataflow"))
+                    || !String.valueOf(implicitTaint).equals(prior.get("implicit_taint"));
+            boolean changed = !current.hash().equals(
+                    prior.get(IndexEnvironmentFingerprint.META_KEY)) || flowProfileChanged;
             if (changed) {
                 List<String> reasons = new ArrayList<>();
                 if (!current.sourceLayoutHash().equals(prior.get("source_layout_hash"))) {
@@ -856,6 +890,7 @@ public class WatchCommand implements Callable<Integer> {
                 if (!String.valueOf(springXml).equals(prior.get("spring_xml"))) {
                     reasons.add("spring_xml");
                 }
+                if (flowProfileChanged) reasons.add("dataflow");
                 if (reasons.isEmpty()) reasons.add("environment_fingerprint");
                 System.out.println("Build environment changed: " + String.join(",", reasons));
             } else {

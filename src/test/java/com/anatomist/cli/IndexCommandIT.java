@@ -29,6 +29,104 @@ import static org.junit.jupiter.api.Assertions.*;
 class IndexCommandIT {
 
     @Test
+    void fullIndexReportsParseCompletenessAndSkipsFailedFileCache(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path broken = project.resolve("src/main/java/p/Broken.java");
+        Files.writeString(broken, "package p; class Broken {");
+        Path db = tmp.resolve("partial.db");
+
+        RunResult result = CliTestSupport.runIndex(project,
+                "--no-classpath", "--java-version", "17",
+                "--output", db.toString(), "--format", "json");
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        assertTrue(result.stdout().contains("\"scanned_files\" : 2"), result.stdout());
+        assertTrue(result.stdout().contains("\"parsed_files\" : 1"), result.stdout());
+        assertTrue(result.stdout().contains("\"failed_files\" : 1"), result.stdout());
+        assertTrue(result.stdout().contains("\"completeness\" : \"partial\""), result.stdout());
+        assertTrue(result.stdout().contains("\"health\" : \"degraded\""), result.stdout());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st, "SELECT count(*) FROM file_cache"));
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM index_diagnostics WHERE code='JAVA_PARSE_FAILED'"));
+        }
+    }
+
+    @Test
+    void strictFullParseFailurePreservesCommittedGraph(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("strict.db");
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "17",
+                "--output", db.toString(), "--format", "json");
+        int nodesBefore;
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            nodesBefore = scalar(st, "SELECT count(*) FROM nodes");
+        }
+        Files.writeString(project.resolve("src/main/java/p/A.java"), "package p; class A {");
+
+        RunResult rejected = CliTestSupport.runIndex(project,
+                "--no-classpath", "--java-version", "17", "--strict-health",
+                "--output", db.toString(), "--format", "json");
+
+        assertEquals(3, rejected.exitCode(), rejected.stderr());
+        assertTrue(rejected.stdout().contains("\"failed_files\" : 1"), rejected.stdout());
+        assertTrue(rejected.stdout().contains("\"status\" : \"error\""), rejected.stdout());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(nodesBefore, scalar(st, "SELECT count(*) FROM nodes"));
+            assertEquals(1, scalar(st, "SELECT count(*) FROM file_cache"));
+        }
+    }
+
+    @Test
+    void unsupportedDetectedJavaVersionReturnsThreeBeforeIndexing(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Files.writeString(project.resolve("pom.xml"), """
+                <project><properties>
+                  <maven.compiler.release>18</maven.compiler.release>
+                </properties></project>
+                """);
+        Path db = tmp.resolve("unsupported.db");
+
+        RunResult result = CliTestSupport.runIndex(project,
+                "--no-classpath", "--output", db.toString(), "--format", "json");
+
+        assertEquals(3, result.exitCode(), result.stderr());
+        assertTrue(result.stderr().contains("JAVA_VERSION_UNSUPPORTED"), result.stderr());
+        assertFalse(Files.exists(db));
+    }
+
+    @Test
+    void incrementalDetectsBuildDeclaredJavaVersionChangeWithoutSourceEdit(
+            @TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("version-change.db");
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--output", db.toString(), "--format", "json");
+        Files.writeString(project.resolve("pom.xml"), """
+                <project><properties>
+                  <maven.compiler.release>17</maven.compiler.release>
+                </properties></project>
+                """);
+
+        RunResult result = CliTestSupport.runIndex(project,
+                "--no-classpath", "--incremental",
+                "--output", db.toString(), "--format", "json");
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        assertTrue(result.stderr().contains("java version changed"), result.stderr());
+        assertTrue(result.stdout().contains("\"java_version\" : 17"), result.stdout());
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            assertEquals("17", scalarString(statement,
+                    "SELECT value FROM project_meta WHERE key='java_version'"));
+        }
+    }
+
+    @Test
     void timingsAreOptInAndIncludedInIncrementalJson(@TempDir Path tmp) throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
         Path db = tmp.resolve("index.db");

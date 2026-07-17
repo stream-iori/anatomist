@@ -102,6 +102,16 @@ class DefaultIndexPathTest {
     }
 
     @Test
+    void repoKeySanitizesNonAsciiAndSpacesWithoutChangingAllowedCharacters(
+            @TempDir Path tmp) {
+        Path project = tmp.resolve("my app-服务_1.0");
+        ensureDir(project);
+
+        assertTrue(DefaultIndexPath.repoKeyOf(project)
+                .matches("my_app-___1\\.0-[0-9a-f]{12}"));
+    }
+
+    @Test
     void symlinkAndRealCheckoutShareKey(@TempDir Path home,
                                         @TempDir Path tmp) throws Exception {
         Path project = tmp.resolve("my-app");

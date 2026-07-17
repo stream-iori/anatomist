@@ -2,6 +2,7 @@ package com.anatomist.core;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -12,6 +13,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
@@ -419,5 +421,117 @@ class ClasspathDetectorTest {
     @Test
     void detectJavaVersion_noPomReturnsEmpty(@TempDir Path tmp) {
         assertEquals(OptionalInt.empty(), new ClasspathDetector().detectJavaVersion(tmp));
+    }
+
+    @Test
+    void detectJavaVersion_readsReleaseAndPluginPropertyReference(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), """
+                <project>
+                  <properties>
+                    <java.level>17</java.level>
+                    <maven.compiler.release>${java.level}</maven.compiler.release>
+                  </properties>
+                  <build><plugins><plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration><release>${maven.compiler.release}</release></configuration>
+                  </plugin></plugins></build>
+                </project>
+                """);
+
+        JavaVersionDetection result =
+                new ClasspathDetector().detectJavaVersionDetailed(tmp);
+
+        assertEquals(17, result.version());
+        assertEquals(JavaVersionDetection.Source.MAVEN, result.source());
+        assertTrue(result.evidenceExpression().contains("release"));
+    }
+
+    @Test
+    void detectJavaVersion_inheritsLocalParentProperties(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"), """
+                <project>
+                  <properties><java.level>11</java.level></properties>
+                  <modules><module>child</module></modules>
+                </project>
+                """);
+        Path child = Files.createDirectories(tmp.resolve("child"));
+        Files.writeString(child.resolve("pom.xml"), """
+                <project>
+                  <parent><relativePath>../pom.xml</relativePath></parent>
+                  <properties><maven.compiler.release>${java.level}</maven.compiler.release></properties>
+                </project>
+                """);
+
+        assertEquals(OptionalInt.of(11), new ClasspathDetector().detectJavaVersion(tmp));
+    }
+
+    @Test
+    void detectJavaVersion_readsGradleGroovyToolchain(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("build.gradle"), """
+                java {
+                    toolchain {
+                        languageVersion = JavaLanguageVersion.of(17)
+                    }
+                }
+                """);
+
+        JavaVersionDetection result =
+                new ClasspathDetector().detectJavaVersionDetailed(tmp);
+
+        assertEquals(17, result.version());
+        assertEquals(JavaVersionDetection.Source.GRADLE, result.source());
+    }
+
+    @Test
+    void detectJavaVersion_readsGradleKotlinProperty(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("gradle.properties"), "javaTarget=11\n");
+        Files.writeString(tmp.resolve("build.gradle.kts"), """
+                java {
+                    toolchain {
+                        languageVersion.set(JavaLanguageVersion.of(property("javaTarget")))
+                    }
+                }
+                """);
+
+        assertEquals(OptionalInt.of(11), new ClasspathDetector().detectJavaVersion(tmp));
+    }
+
+    @Test
+    void detectJavaVersion_readsAssignmentAfterWhitespaceOnlyLines(@TempDir Path tmp)
+            throws Exception {
+        Files.writeString(tmp.resolve("build.gradle"),
+                "\n".repeat(2_000) + "\t  options.release = 17\n");
+
+        assertEquals(OptionalInt.of(17), new ClasspathDetector().detectJavaVersion(tmp));
+    }
+
+    @Test
+    @Tag("regex-performance")
+    void detectJavaVersion_largeWhitespaceGradleFileIsBounded(@TempDir Path tmp)
+            throws Exception {
+        Files.writeString(tmp.resolve("build.gradle"),
+                "\n".repeat(100_000) + "sourceCompatibility = JavaVersion.VERSION_17\n");
+
+        assertTimeout(Duration.ofSeconds(3), () ->
+                assertEquals(OptionalInt.of(17),
+                        new ClasspathDetector().detectJavaVersion(tmp)));
+    }
+
+    @Test
+    void detectJavaVersion_reportsDynamicGradleExpression(@TempDir Path tmp) throws Exception {
+        Files.writeString(tmp.resolve("build.gradle"), """
+                java {
+                    toolchain {
+                        languageVersion = JavaLanguageVersion.of(computeVersion())
+                    }
+                }
+                """);
+
+        JavaVersionDetection result =
+                new ClasspathDetector().detectJavaVersionDetailed(tmp);
+
+        assertFalse(result.found());
+        assertTrue(result.diagnostics().stream()
+                .anyMatch(diagnostic -> "JAVA_VERSION_AMBIGUOUS".equals(diagnostic.code())));
     }
 }

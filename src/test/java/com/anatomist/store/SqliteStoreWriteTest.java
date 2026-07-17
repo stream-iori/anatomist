@@ -1,5 +1,6 @@
 package com.anatomist.store;
 
+import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
@@ -14,6 +15,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -24,6 +26,27 @@ class SqliteStoreWriteTest {
     @AfterEach
     void tearDown() {
         if (store != null) store.close();
+    }
+
+    @Test
+    void incrementalDiagnosticsRefreshGlobalUnresolvedAggregate(@TempDir Path tmp) {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+        store.replaceIndexDiagnostics(List.of(
+                diagnostic("UNRESOLVED_SYMBOLS", null, 9),
+                diagnostic("METHOD_NOT_FOUND", "A.java", 5),
+                diagnostic("FIELD_NOT_FOUND", "B.java", 4)));
+
+        store.replaceIndexDiagnosticsForFiles(
+                List.of("A.java"), List.of(diagnostic("METHOD_NOT_FOUND", "A.java", 2)));
+
+        List<IndexDiagnostic> diagnostics = store.readIndexDiagnostics();
+        assertEquals(6, diagnostics.stream()
+                .filter(d -> "UNRESOLVED_SYMBOLS".equals(d.code()))
+                .mapToLong(IndexDiagnostic::count).sum());
+        assertEquals(4, diagnostics.stream()
+                .filter(d -> "B.java".equals(d.sourceFile()))
+                .mapToLong(IndexDiagnostic::count).sum());
     }
 
     @Test
@@ -100,6 +123,11 @@ class SqliteStoreWriteTest {
         n.sourceFile = "X.java";
         n.scope = "MAIN";
         return n;
+    }
+
+    private static IndexDiagnostic diagnostic(String code, String sourceFile, long count) {
+        return new IndexDiagnostic("info", code, "RESOLUTION", sourceFile,
+                ".", "MAIN", null, count, null);
     }
 
     private static Edge containsEdge(String src, String tgt) {

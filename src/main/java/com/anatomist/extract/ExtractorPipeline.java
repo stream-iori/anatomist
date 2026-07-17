@@ -10,6 +10,7 @@ import java.util.List;
 
 public class ExtractorPipeline {
 
+    private final ExtractionContext ctx;
     private final List<TimedExtractor> extractors;
     private final List<JavaAstAnalyzer> analyzers;
     private final IndexTimings timings;
@@ -25,6 +26,7 @@ public class ExtractorPipeline {
     public ExtractorPipeline(ExtractionContext ctx,
                              List<JavaAstAnalyzer> analyzers,
                              IndexTimings timings) {
+        this.ctx = ctx;
         this.extractors = List.of(
                 new TimedExtractor("full_extract_type", new TypeExtractor(ctx)),
                 new TimedExtractor("full_extract_field", new FieldExtractor(ctx)),
@@ -40,10 +42,12 @@ public class ExtractorPipeline {
     }
 
     public void extractAll(CompilationUnit unit, ExtractionResult result) {
+        ctx.enterFile(unit);
         int nodeStart = result.nodes.size();
         int edgeStart = result.edges.size();
         int annotationStart = result.annotations.size();
         for (TimedExtractor timed : extractors) {
+            ctx.enterResolutionPhase(timed.phase());
             if (timings == null) {
                 timed.extractor().extract(unit, result);
             } else {
@@ -53,9 +57,11 @@ public class ExtractorPipeline {
             }
         }
         if (timings == null) {
+            ctx.enterResolutionPhase("full_extract_java_analyzers");
             for (JavaAstAnalyzer analyzer : analyzers) analyzer.analyze(unit, result);
         } else {
             long started = timings.start();
+            ctx.enterResolutionPhase("full_extract_java_analyzers");
             for (JavaAstAnalyzer analyzer : analyzers) analyzer.analyze(unit, result);
             timings.stop("full_extract_java_analyzers", started);
         }

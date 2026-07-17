@@ -36,7 +36,7 @@ public class ExtractionContext {
     private final String module;
     private final String scope;
     private final ProjectConfig projectConfig;
-    private final AtomicLong unresolved = new AtomicLong();
+    private final ResolutionTracker resolutionTracker;
 
     /** Opt-in diagnostic: when {@code -Danatomist.sampleUnresolved=true}, every
      *  unresolved symbol's name is aggregated by frequency so an index run can
@@ -68,6 +68,7 @@ public class ExtractionContext {
         this.module = module;
         this.scope = scope == null ? "MAIN" : scope;
         this.projectConfig = projectConfig != null ? projectConfig : new ProjectConfig();
+        this.resolutionTracker = new ResolutionTracker(projectRoot, this.sourcePaths);
     }
 
     public Path projectRoot() { return projectRoot; }
@@ -81,14 +82,14 @@ public class ExtractionContext {
         return projectConfig.isExternalExcluded(fqn);
     }
 
-    public long unresolvedCount() { return unresolved.get(); }
+    public long unresolvedCount() { return resolutionTracker.unresolvedCount(); }
     public void incrementUnresolved() { incrementUnresolved(null); }
 
     /** Count one unresolved symbol; when sampling is enabled and {@code cause}
      *  carries a symbol name (e.g. {@link UnsolvedSymbolException}), aggregate it.
      *  Under {@code --debug} each failure is also logged verbatim. */
     public void incrementUnresolved(Throwable cause) {
-        unresolved.incrementAndGet();
+        resolutionTracker.record(cause);
         if (cause != null && AnatomistLog.isDebugEnabled()) {
             AnatomistLog.debug("unresolved: " + cause.getClass().getSimpleName()
                     + ": " + cause.getMessage());
@@ -109,7 +110,20 @@ public class ExtractionContext {
         return unresolvedSamples == null ? Map.of() : Map.copyOf(unresolvedSamples);
     }
 
-    private static String sampleKey(Throwable t) {
+    public void enterFile(com.github.javaparser.ast.CompilationUnit unit) {
+        resolutionTracker.enterFile(unit);
+    }
+
+    public void enterResolutionPhase(String phase) {
+        resolutionTracker.enterPhase(phase);
+    }
+
+    public ResolutionSummary resolutionSummary(boolean noClasspath) {
+        return resolutionTracker.snapshot(noClasspath);
+    }
+
+    static String sampleKey(Throwable t) {
+        if (t == null) return "[unknown]";
         String name = null;
         if (t instanceof UnsolvedSymbolException u) {
             name = u.getName();

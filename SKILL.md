@@ -35,6 +35,7 @@ Index rules:
 | Multi-module Maven | Let default discovery find module `src/main/java` roots. |
 | Spring annotations matter | Avoid `--no-classpath` when possible. |
 | Spring XML matters | Add `--spring-xml` so XML beans and property/map/list/ref config trees become facts. |
+| Def-use, return, exception, guard, or taint evidence matters | Build/rebuild with `--dataflow`; add `--implicit-taint` only when control-dependent taint is required. |
 | Re-index current work | Prefer `--incremental` against the same DB. |
 | Keep index fresh while editing | Use `watch --auto-index` with the same explicit `--output` (if any), `--project-source`, `--include-tests`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
 | Stale or risky DB | Use `--recreate`. |
@@ -86,6 +87,7 @@ architecture, inspect framework wiring, and verify evidence freshness.
 | Local context | "What is in this class/method?" | `context <type-or-method>`; add `--with-callees=N` when useful | Summarize members, annotations, and nearby calls; read source for literals and branches. |
 | Forward trace | "What does this call next / until DB?" | `callees-of <method> --depth N`; `call-path <from> <to> --depth N` | Static path means possible code path, not runtime certainty. |
 | Branch/control-flow slice | "What happens inside this if/else/branch?" | `branches-of <method> --source-window=3`; `callees-of <method> --in-branch --source-window=3`; `field-access <Owner>#<field> --in-branch` | Branch filters use static edge context; they locate branch-contained calls/accesses, not full condition semantics or runtime execution proof. |
+| Data/exception/taint flow | "Where does this value/exception/input reach?" | `flow-of <method>`; `flow-path <from> <to>`; `exception-flow <method>`; `taint-path '*' '*'` | Requires a `--dataflow` index. Results are conservative static possibilities, not runtime proof. |
 | Reverse impact | "Who uses/calls this repo/type/method?" | `callers-of <method> --depth N`; `used-by <type>` | Separate direct callers from higher-level facade/message entries. |
 | Type relation | "This extends what / who implements it?" | `hierarchy <type>`; `implementors-of <type>`; `implementors-of <type> --recursive` | `hierarchy` is upward only; child/subtype expansion uses `implementors-of`. |
 | Field relation | "Who holds Foo / who reads this field?" | `used-by <Foo>` filtered to `context=field_type`; `field-access <Owner>#<field>` | Composition and READS/WRITES are different facts. |
@@ -147,8 +149,25 @@ Boundary:
 | Source window | Evidence for the condition and surrounding code; the Agent must read it. |
 | Missing result | No indexed edge matched the branch filter; it does not prove no runtime branch exists. |
 
-Do not claim anatomist has built a complete CFG. Current branch support is edge
-filtering by lightweight control context, not a branch/condition graph.
+Without `--dataflow`, branch support is only edge filtering by lightweight
+control context. With `--dataflow`, `guards-of` and `flow-of` use the optional
+lightweight CFG/reaching-definitions graph; it is conservative and does not
+prove path feasibility.
+
+### Data, exception, and taint flow
+
+```bash
+anatomist flow-of <method> --depth 8 --index <db>
+anatomist flow-path <source> <target> --depth 20 --index <db>
+anatomist flow-summary <method> --index <db>
+anatomist guards-of <method> --index <db>
+anatomist exception-flow <method> --index <db>
+anatomist taint-path '*' '*' --depth 30 --index <db>
+```
+
+Treat `POSSIBLE` and `INFERRED` edges as conservative evidence. Arrays are
+whole-object abstractions; heap aliases, reflection, dynamic proxies, implicit
+runtime exceptions, and SAT/path feasibility remain outside the guarantee.
 
 ### Type relation
 

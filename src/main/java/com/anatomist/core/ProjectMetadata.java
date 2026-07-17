@@ -45,6 +45,12 @@ public final class ProjectMetadata {
         values.put("dropped_dangling_edges", String.valueOf(dropped));
         values.put("rebound_external_edges", String.valueOf(rebound));
         values.put("wiring_resolved_edges", String.valueOf(wired));
+        values.put("dataflow", String.valueOf(cfg.dataflow()));
+        values.put("implicit_taint", String.valueOf(cfg.implicitTaint()));
+        if (cfg.javaVersionDetection() != null) {
+            values.put("java_version_source",
+                    cfg.javaVersionDetection().source().name().toLowerCase());
+        }
         phaseStarted = System.nanoTime();
         store.upsertProjectMeta(values);
         addTiming(timings, "metadata_write", phaseStarted);
@@ -161,7 +167,7 @@ public final class ProjectMetadata {
         values.put("index_version", String.valueOf(FileCacheService.CURRENT_SCHEMA_VERSION));
         IndexEnvironmentFingerprint.Snapshot environment = IndexEnvironmentFingerprint.snapshot(
                 sourceRoots, javaVersion, classpathMode, classpathEntries,
-                classpathOverride, springXml);
+                classpathOverride, springXml, false, false);
         values.put(IndexEnvironmentFingerprint.META_KEY, environment.hash());
         values.put(IndexEnvironmentFingerprint.CLASSPATH_ARTIFACTS_KEY,
                 environment.classpathArtifactsHash());

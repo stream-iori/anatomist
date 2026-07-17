@@ -3,7 +3,10 @@ package com.anatomist.semantic;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
 import com.anatomist.model.SemanticAnnotation;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -52,6 +55,22 @@ class SemanticPostProcessorTest {
 
         assertTrue(r.semanticAnnotations.stream().noneMatch(s -> "JAVADOC".equals(s.source)),
                 "no JAVADOC for null-javadoc node");
+    }
+
+    @Test
+    void javadocTagSupportsCrLfAndHorizontalIndentation() {
+        assertEquals("Summary\r\ncontinued",
+                SemanticPostProcessor.firstBlankLineOrTag(
+                        "Summary\r\ncontinued\r\n\t  @param value input"));
+    }
+
+    @Test
+    @Tag("regex-performance")
+    void javadocTagScanIsBoundedForManyBlankLines() {
+        String javadoc = "\n".repeat(100_000) + "@param value input";
+
+        assertTimeout(Duration.ofSeconds(3), () ->
+                assertEquals("", SemanticPostProcessor.firstBlankLineOrTag(javadoc)));
     }
 
     @Test

@@ -17,5 +17,9 @@ public record IndexConfig(
         String classpathOverride,
         boolean noClasspath,
         boolean debug,
-        List<SourceRoot> sourceRoots
+        List<SourceRoot> sourceRoots,
+        boolean strictHealth,
+        JavaVersionDetection javaVersionDetection,
+        boolean dataflow,
+        boolean implicitTaint
 ) {}

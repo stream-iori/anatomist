@@ -18,6 +18,11 @@ import com.anatomist.core.WiringResolver;
 import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.framework.spring.SpringXmlAnalyzer;
+import com.anatomist.flow.FlowAnalyzer;
+import com.anatomist.flow.FlowPersistence;
+import com.anatomist.flow.FlowResult;
+import com.anatomist.flow.InterproceduralFlowLinker;
+import com.anatomist.flow.TaintRules;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
@@ -55,6 +60,8 @@ public class IncrementalIndexer {
     private final List<Path> springXmlInventory;
     private final IndexTimings timings;
     private final IncrementalSessionState sessionState;
+    private final boolean dataflow;
+    private final boolean implicitTaint;
 
     public IncrementalIndexer(Path projectRoot,
                               List<Path> sourcePaths,
@@ -127,6 +134,25 @@ public class IncrementalIndexer {
                               List<Path> springXmlInventory,
                               IndexTimings timings,
                               IncrementalSessionState sessionState) {
+        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
+                springXml, projectConfig, sourceRoots, springXmlInventory, timings,
+                sessionState, false, false);
+    }
+
+    public IncrementalIndexer(Path projectRoot,
+                              List<Path> sourcePaths,
+                              JavaParserFactory parserFactory,
+                              SqliteStore store,
+                              int javaVersion,
+                              int maxRealignFiles,
+                              boolean springXml,
+                              ProjectConfig projectConfig,
+                              List<SourceRoot> sourceRoots,
+                              List<Path> springXmlInventory,
+                              IndexTimings timings,
+                              IncrementalSessionState sessionState,
+                              boolean dataflow,
+                              boolean implicitTaint) {
         this.projectRoot = projectRoot;
         this.sourcePaths = sourcePaths;
         this.parserFactory = parserFactory;
@@ -139,6 +165,8 @@ public class IncrementalIndexer {
         this.springXmlInventory = springXmlInventory == null ? null : List.copyOf(springXmlInventory);
         this.timings = timings;
         this.sessionState = sessionState;
+        this.dataflow = dataflow;
+        this.implicitTaint = implicitTaint;
         this.parserFactory.setTimings(timings);
     }
 
@@ -154,6 +182,9 @@ public class IncrementalIndexer {
         public int reparsedFiles;
         public long unresolvedSymbols;
         public int droppedDanglingFacts;
+        public int flowNodes;
+        public int flowEdges;
+        public int flowSummaries;
         public boolean degradedToFull;
         public String degradationReason;
     }
@@ -207,6 +238,8 @@ public class IncrementalIndexer {
         stopTiming("known_ids", knownIdsStarted);
         Map<String, FileCacheEntry> priorFileCache = store.readFileCache();
         Map<String, String> contractHashes = new LinkedHashMap<>();
+        List<com.anatomist.core.IndexDiagnostic> resolutionDiagnostics = new ArrayList<>();
+        FlowResult flowResult = new FlowResult();
         boolean javaContractChanged = !deletedJavaPaths.isEmpty();
         SourceIdentityResolver identities = sourceRoots.isEmpty()
                 ? new SourceIdentityResolver(projectRoot, sourcePaths)
@@ -276,6 +309,8 @@ public class IncrementalIndexer {
                     .process(batch.result(), postProcessIds);
             s.droppedDanglingFacts += post.droppedDanglingFacts();
             s.unresolvedSymbols += batch.unresolvedSymbols();
+            resolutionDiagnostics.addAll(batch.resolutionDiagnostics());
+            flowResult.addAll(batch.flowResult());
             stopTiming("parse_extract", parseStarted);
 
             long deltaStarted = startTiming();
@@ -351,6 +386,16 @@ public class IncrementalIndexer {
         s.writtenEdges = promoted.writtenEdges();
         if (sessionState != null) sessionState.replaceKnownNodeIds(knownIds);
 
+        if (dataflow) {
+            InterproceduralFlowLinker.link(flowResult);
+            FlowPersistence.replaceFiles(store, affectedFiles, flowResult);
+            FlowPersistence.relinkInterprocedural(store);
+            s.flowNodes = flowResult.nodes.size();
+            s.flowEdges = flowResult.edges.size();
+            s.flowSummaries = flowResult.summaries.size();
+            resolutionDiagnostics.addAll(flowResult.diagnostics);
+        }
+
         Map<String, FileCacheService.SourceFileStats> perFile = staging.sourceFileStats();
         String now = Instant.now().toString();
         LinkedHashSet<String> cacheTargets = new LinkedHashSet<>(toReparse);
@@ -364,8 +409,7 @@ public class IncrementalIndexer {
         for (Path xml : rebuiltXml) dependencyFiles.add(relativePath(xml));
         store.refreshFileDependencies(new ArrayList<>(dependencyFiles));
         stopTiming("file_dependencies", dependenciesStarted);
-        store.replaceIndexDiagnostics(com.anatomist.core.IndexHealthService
-                .fromCounts(s.unresolvedSymbols, s.droppedDanglingFacts).diagnostics());
+        store.replaceIndexDiagnosticsForFiles(affectedFiles, resolutionDiagnostics);
         return s;
         }
     }
@@ -403,7 +447,7 @@ public class IncrementalIndexer {
         missing.removeAll(parsed);
         if (!missing.isEmpty()) {
             return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
-                    Map.of(), false);
+                    Map.of(), false, List.of(), new FlowResult());
         }
 
         Map<String, String> batchContractHashes = new LinkedHashMap<>();
@@ -442,8 +486,28 @@ public class IncrementalIndexer {
             cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
             pipeline.extractAll(cu, result);
         }
+        FlowResult batchFlow = new FlowResult();
+        if (dataflow) {
+            TaintRules rules = TaintRules.load(projectRoot);
+            batchFlow.diagnostics.addAll(rules.diagnostics());
+            FlowAnalyzer analyzer = new FlowAnalyzer(projectRoot, sourcePaths, sourceRoots,
+                    rules, implicitTaint);
+            for (var cu : parsedBatch.compilationUnits()) {
+                try {
+                    analyzer.analyze(cu, batchFlow);
+                } catch (RuntimeException failure) {
+                    String file = cu.getStorage().map(storage ->
+                            relativePath(storage.getPath())).orElse(null);
+                    batchFlow.diagnostics.add(new com.anatomist.core.IndexDiagnostic(
+                            "warning", "FLOW_ANALYSIS_FAILED", "FLOW",
+                            file, null, null, null, 1, failure.getMessage()));
+                }
+            }
+        }
+        boolean noClasspath = "none".equals(store.readProjectMeta("classpath_mode").orElse(""));
         return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
-                Map.copyOf(batchContractHashes), !contractChangedPaths.isEmpty());
+                Map.copyOf(batchContractHashes), !contractChangedPaths.isEmpty(),
+                ctx.resolutionSummary(noClasspath).diagnostics(), batchFlow);
     }
 
     private Set<String> impactedSourceFiles(SymbolGraphDelta.Impact impact) {
@@ -482,7 +546,9 @@ public class IncrementalIndexer {
                                    long unresolvedSymbols,
                                    Map<String, List<String>> parseProblems,
                                    Map<String, String> contractHashes,
-                                   boolean contractChanged) {}
+                                   boolean contractChanged,
+                                   List<com.anatomist.core.IndexDiagnostic> resolutionDiagnostics,
+                                   FlowResult flowResult) {}
 
     private long startTiming() {
         return timings == null ? 0L : timings.start();

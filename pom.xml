@@ -25,6 +25,8 @@
         <junit.version>5.10.2</junit.version>
         <surefire.version>3.2.5</surefire.version>
         <native.version>0.10.3</native.version>
+        <anatomist.test.groups></anatomist.test.groups>
+        <anatomist.test.excludedGroups>regex-performance</anatomist.test.excludedGroups>
     </properties>
 
     <dependencies>
@@ -125,6 +127,8 @@
                 <version>${surefire.version}</version>
                 <configuration>
                     <argLine>@{argLine} --enable-native-access=ALL-UNNAMED</argLine>
+                    <groups>${anatomist.test.groups}</groups>
+                    <excludedGroups>${anatomist.test.excludedGroups}</excludedGroups>
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*IT.java</include>
@@ -182,6 +186,13 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>regex-perf</id>
+            <properties>
+                <anatomist.test.groups>regex-performance</anatomist.test.groups>
+                <anatomist.test.excludedGroups></anatomist.test.excludedGroups>
+            </properties>
+        </profile>
         <!--
           mvn -Pnative -DskipTests package
             => target/anatomist (single binary)

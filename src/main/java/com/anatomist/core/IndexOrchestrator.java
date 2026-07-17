@@ -7,6 +7,11 @@ import com.anatomist.extract.TypeExtractor;
 import com.anatomist.framework.AnalysisContext;
 import com.anatomist.framework.AnalyzerRegistry;
 import com.anatomist.framework.spring.SpringXmlAnalyzer;
+import com.anatomist.flow.FlowAnalyzer;
+import com.anatomist.flow.FlowPersistence;
+import com.anatomist.flow.FlowResult;
+import com.anatomist.flow.InterproceduralFlowLinker;
+import com.anatomist.flow.TaintRules;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
@@ -62,9 +67,17 @@ public class IndexOrchestrator {
                 ? new SourceIdentityResolver(cfg.projectRoot(), cfg.sourcePaths())
                 : SourceIdentityResolver.fromRoots(cfg.projectRoot(), cfg.sourceRoots());
         ExtractionResult result = new ExtractionResult();
+        FlowResult flowResult = new FlowResult();
+        TaintRules taintRules = TaintRules.load(cfg.projectRoot());
+        FlowAnalyzer flowAnalyzer = cfg.dataflow()
+                ? new FlowAnalyzer(cfg.projectRoot(), cfg.sourcePaths(), cfg.sourceRoots(),
+                taintRules, cfg.implicitTaint())
+                : null;
         Map<String, String> contractHashes = new java.util.LinkedHashMap<>();
+        List<Path> parsedJavaFiles = new ArrayList<>();
         StagedGraphStore.PromotionStats promotion;
         List<Path> xmlFiles = Collections.emptyList();
+        ParseInventory parseInventory;
 
         try (StagedGraphStore staging = new StagedGraphStore(cfg.dbPath(), identityResolver)) {
             Progress progress = new Progress(cfg.sourceFiles().size());
@@ -72,12 +85,22 @@ public class IndexOrchestrator {
             long[] extractNanos = {0L};
             long[] stageNanos = {0L};
             int[] batchFiles = {0};
-            factory.parseAll((filePath, cu) -> {
+            parseInventory = factory.parseInventory(cfg.sourceFiles(), (filePath, cu) -> {
                 long extractStarted = startTiming(timings);
                 String relative = filePath == null ? null : relativize(cfg.projectRoot(), filePath);
                 if (relative != null) cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
                 if (relative != null) contractHashes.put(relative, JavaContractFingerprint.of(cu));
+                if (filePath != null) parsedJavaFiles.add(filePath.toAbsolutePath().normalize());
                 pipeline.extractAll(cu, result);
+                if (flowAnalyzer != null) {
+                    try {
+                        flowAnalyzer.analyze(cu, flowResult);
+                    } catch (RuntimeException failure) {
+                        flowResult.diagnostics.add(new IndexDiagnostic(
+                                "warning", "FLOW_ANALYSIS_FAILED", "FLOW",
+                                relative, null, null, null, 1, failure.getMessage()));
+                    }
+                }
                 if (timings != null) extractNanos[0] += System.nanoTime() - extractStarted;
                 batchFiles[0]++;
                 if (batchFiles[0] >= STAGE_FILE_BATCH || result.factCount() >= STAGE_FACT_BATCH) {
@@ -86,6 +109,8 @@ public class IndexOrchestrator {
                 }
                 progress.tick();
             });
+            parseInventory = relativeInventory(parseInventory, cfg.projectRoot());
+            for (int i = 0; i < parseInventory.failedFiles(); i++) progress.tick();
             stageNanos[0] += flushRawBatch(staging, result, timings);
             progress.done();
             if (timings != null) {
@@ -94,6 +119,10 @@ public class IndexOrchestrator {
                 timings.addNanos("full_extract", extractNanos[0]);
                 timings.addNanos("full_parse", Math.max(0L,
                         parseExtractNanos - extractNanos[0] - stageNanos[0]));
+            }
+
+            if (cfg.strictHealth() && !parseInventory.complete()) {
+                throw new StrictHealthException(parseInventory);
             }
 
             phaseStarted = startTiming(timings);
@@ -142,9 +171,19 @@ public class IndexOrchestrator {
                     + "(extractor gaps) for " + cfg.projectRoot());
         }
 
-        List<Path> cachedFiles = cfg.sourceFiles();
+        phaseStarted = startTiming(timings);
+        if (cfg.dataflow()) {
+            InterproceduralFlowLinker.link(flowResult);
+            FlowPersistence.replaceAll(store, flowResult);
+            FlowPersistence.relinkInterprocedural(store);
+        } else {
+            FlowPersistence.replaceAll(store, new FlowResult());
+        }
+        stopTiming(timings, "full_flow_write", phaseStarted);
+
+        List<Path> cachedFiles = parsedJavaFiles;
         if (!xmlFiles.isEmpty()) {
-            cachedFiles = new ArrayList<>(cfg.sourceFiles());
+            cachedFiles = new ArrayList<>(parsedJavaFiles);
             cachedFiles.addAll(xmlFiles);
         }
         phaseStarted = startTiming(timings);
@@ -168,6 +207,14 @@ public class IndexOrchestrator {
                 ? toSamplesMap(ctx, projectPackagesOf(store))
                 : null;
 
+        ResolutionSummary resolution = ctx.resolutionSummary(cfg.noClasspath());
+        List<IndexDiagnostic> detailedDiagnostics = new ArrayList<>();
+        if (cfg.javaVersionDetection() != null) {
+            detailedDiagnostics.addAll(cfg.javaVersionDetection().diagnostics());
+        }
+        detailedDiagnostics.addAll(resolution.diagnostics());
+        detailedDiagnostics.addAll(taintRules.diagnostics());
+        detailedDiagnostics.addAll(flowResult.diagnostics);
         IndexResult indexResult = new IndexResult(
                 store.queryKindCounts(),
                 store.queryRelationCounts(),
@@ -179,7 +226,12 @@ public class IndexOrchestrator {
                 elapsed,
                 cfg.springXml(),
                 unresolvedSamples,
-                ctx.samplingEnabled()
+                ctx.samplingEnabled(),
+                parseInventory,
+                detailedDiagnostics,
+                flowResult.nodes.size(),
+                flowResult.edges.size(),
+                flowResult.summaries.size()
         );
         store.replaceIndexDiagnostics(IndexHealthService.fromResult(indexResult).diagnostics());
         stopTiming(timings, "full_stats_health", phaseStarted);
@@ -238,6 +290,14 @@ public class IndexOrchestrator {
         } catch (IllegalArgumentException e) {
             return file.toString();
         }
+    }
+
+    private static ParseInventory relativeInventory(ParseInventory inventory, Path root) {
+        Map<Path, List<String>> failures = new java.util.LinkedHashMap<>();
+        inventory.failures().forEach((path, problems) ->
+                failures.put(Path.of(relativize(root, path)), problems));
+        return new ParseInventory(inventory.scannedFiles(), inventory.attemptedFiles(),
+                inventory.parsedFiles(), failures);
     }
 
     private static Set<String> projectPackagesOf(SqliteStore store) {

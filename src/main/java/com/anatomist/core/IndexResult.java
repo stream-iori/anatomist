@@ -13,5 +13,10 @@ public record IndexResult(
         long elapsedMs,
         boolean springXml,
         Map<String, Object> unresolvedSamples,
-        boolean samplingEnabled
+        boolean samplingEnabled,
+        ParseInventory parseInventory,
+        java.util.List<IndexDiagnostic> diagnostics,
+        int flowNodes,
+        int flowEdges,
+        int flowSummaries
 ) {}

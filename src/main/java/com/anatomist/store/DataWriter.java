@@ -543,28 +543,76 @@ public class DataWriter {
             try (Statement st = c.createStatement()) {
                 st.execute("DELETE FROM index_diagnostics");
             }
-            if (diagnostics == null || diagnostics.isEmpty()) return;
-            String sql = "INSERT INTO index_diagnostics(severity,code,phase,source_file,module,scope,symbol,occurrence_count,sample)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?)";
-            try (PreparedStatement ps = c.prepareStatement(sql)) {
-                int emitted = 0;
-                for (IndexDiagnostic d : diagnostics) {
-                    if (emitted++ >= 5000) break;
-                    ps.setString(1, d.severity());
-                    ps.setString(2, d.code());
-                    ps.setString(3, d.phase());
-                    setNullableString(ps, 4, d.sourceFile());
-                    setNullableString(ps, 5, d.module());
-                    setNullableString(ps, 6, d.scope());
-                    setNullableString(ps, 7, d.symbol());
-                    ps.setLong(8, d.count());
-                    setNullableString(ps, 9, d.sample() == null ? null
-                            : d.sample().substring(0, Math.min(500, d.sample().length())));
-                    ps.addBatch();
-                }
-                ps.executeBatch();
-            }
+            insertIndexDiagnostics(c, diagnostics);
         });
+    }
+
+    public void replaceIndexDiagnosticsForFiles(List<String> sourceFiles,
+                                                List<IndexDiagnostic> diagnostics) {
+        if (sourceFiles == null || sourceFiles.isEmpty()) return;
+        inTransaction(c -> {
+            String placeholders = String.join(",", java.util.Collections.nCopies(
+                    sourceFiles.size(), "?"));
+            try (PreparedStatement delete = c.prepareStatement(
+                    "DELETE FROM index_diagnostics WHERE source_file IN (" + placeholders + ")")) {
+                for (int i = 0; i < sourceFiles.size(); i++) {
+                    delete.setString(i + 1, sourceFiles.get(i));
+                }
+                delete.executeUpdate();
+            }
+            insertIndexDiagnostics(c, diagnostics);
+            refreshUnresolvedAggregate(c);
+        });
+    }
+
+    private static void refreshUnresolvedAggregate(Connection c) throws SQLException {
+        try (PreparedStatement delete = c.prepareStatement(
+                "DELETE FROM index_diagnostics WHERE code='UNRESOLVED_SYMBOLS'")) {
+            delete.executeUpdate();
+        }
+        String reasons = "'INTERNAL_SYMBOL_MISSING','THIRDPARTY_SYMBOL_MISSING',"
+                + "'JDK_SYMBOL_MISMATCH','METHOD_NOT_FOUND','FIELD_NOT_FOUND',"
+                + "'GENERIC_INFERENCE_FAILED','AMBIGUOUS_OVERLOAD',"
+                + "'UNSUPPORTED_RESOLUTION','OTHER_INFERENCE','DIAGNOSTIC_LIMIT_REACHED'";
+        long unresolved;
+        try (Statement statement = c.createStatement();
+             java.sql.ResultSet result = statement.executeQuery(
+                     "SELECT COALESCE(SUM(occurrence_count),0) FROM index_diagnostics "
+                             + "WHERE code IN (" + reasons + ")")) {
+            unresolved = result.next() ? result.getLong(1) : 0L;
+        }
+        if (unresolved > 0) {
+            insertIndexDiagnostics(c, List.of(new IndexDiagnostic(
+                    "info", "UNRESOLVED_SYMBOLS", "RESOLUTION",
+                    null, null, null, null, unresolved,
+                    "Aggregate of persisted file/reason/scope resolution diagnostics.")));
+        }
+    }
+
+    private static void insertIndexDiagnostics(Connection c,
+                                               List<IndexDiagnostic> diagnostics)
+            throws SQLException {
+        if (diagnostics == null || diagnostics.isEmpty()) return;
+        String sql = "INSERT INTO index_diagnostics(severity,code,phase,source_file,module,scope,symbol,occurrence_count,sample)"
+                + " VALUES (?,?,?,?,?,?,?,?,?)";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            int emitted = 0;
+            for (IndexDiagnostic d : diagnostics) {
+                if (emitted++ >= 5000) break;
+                ps.setString(1, d.severity());
+                ps.setString(2, d.code());
+                ps.setString(3, d.phase());
+                setNullableString(ps, 4, d.sourceFile());
+                setNullableString(ps, 5, d.module());
+                setNullableString(ps, 6, d.scope());
+                setNullableString(ps, 7, d.symbol());
+                ps.setLong(8, d.count());
+                setNullableString(ps, 9, d.sample() == null ? null
+                        : d.sample().substring(0, Math.min(500, d.sample().length())));
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
     }
 
     // ── Package-private insert methods (used by SqliteStore.write()) ──

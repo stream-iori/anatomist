@@ -23,6 +23,8 @@ public final class IndexApplicationService {
         }
         try {
             return IndexOutcome.success(work.run(request.projectPath().toRealPath().normalize()));
+        } catch (JavaVersionException e) {
+            return IndexOutcome.failure(e.exitCode(), e.getMessage());
         } catch (Exception e) {
             return IndexOutcome.failure(e);
         }

@@ -127,6 +127,28 @@ class JavaParserFactoryTest {
     }
 
     @Test
+    void parseInventoryAccountsForEveryScannedFile(@TempDir Path tmp) throws Exception {
+        Path src = Files.createDirectories(tmp.resolve("src"));
+        Path valid = src.resolve("Valid.java");
+        Path invalid = src.resolve("Broken.java");
+        Files.writeString(valid, "class Valid {}");
+        Files.writeString(invalid, "class Broken {");
+        JavaParserFactory factory = new JavaParserFactory(
+                17, List.of(), List.of(src), true);
+        List<Path> parsed = new ArrayList<>();
+
+        ParseInventory inventory =
+                factory.parseInventory(List.of(valid, invalid), (file, unit) -> parsed.add(file));
+
+        assertEquals(2, inventory.scannedFiles());
+        assertEquals(2, inventory.attemptedFiles());
+        assertEquals(1, inventory.parsedFiles());
+        assertEquals(1, inventory.failedFiles());
+        assertFalse(inventory.complete());
+        assertEquals(List.of(valid.toAbsolutePath().normalize()), parsed);
+    }
+
+    @Test
     void watchSessionInvalidatesChangedSourceAst(@TempDir Path tmp) throws Exception {
         Path src = Files.createDirectories(tmp.resolve("src"));
         Path pkg = Files.createDirectories(src.resolve("p"));
