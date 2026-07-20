@@ -19,13 +19,18 @@ Check `doctor --format json` before treating Maven output as all-or-nothing:
 
 | `classpath_detection.status` | Meaning |
 |---|---|
-| `full` / `cache_hit` / `explicit` | Requested dependency inputs are available |
+| `full` / `cache_hit` / `explicit` | Requested dependency inputs are available; use `origin` to distinguish Maven, classpath cache, and explicit input |
+| `index_metadata` | Incremental parsing reused the classpath recorded by the prior DB; this is not a new Maven detection |
 | `partial` | Maven failed, but usable module output/classpath entries were recovered |
 | `unavailable` | Maven failed and no usable entries were recovered |
 | `not_requested` | Classpath detection was disabled or not applicable |
 
 `partial` and `unavailable` degrade external-resolution coverage. They do not
 fail `--health-policy integrity`, but do fail `--strict-health`.
+
+When POM/settings/Maven-JDK inputs change, or an older DB has no recorded
+classpath input hash, the next `index --incremental` automatically performs a
+full rebuild before reusing any graph facts.
 
 ## Watch reports a Java parse failure
 

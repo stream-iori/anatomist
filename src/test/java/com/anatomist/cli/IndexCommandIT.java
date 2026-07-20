@@ -452,7 +452,7 @@ class IndexCommandIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             st.execute("DELETE FROM project_meta WHERE key IN "
-                    + "('classpath_mode','classpath_entries','classpath_override')");
+                    + "('classpath_mode','classpath_entries','classpath_override','classpath_input_hash')");
         }
 
         Path source = project.resolve("src/main/java/p/A.java");
@@ -463,6 +463,8 @@ class IndexCommandIT {
         RunResult result = CliTestSupport.runIndex(project, "--incremental", "--output", db.toString());
 
         assertEquals(0, result.exitCode(), result.stderr());
+        assertTrue(result.stderr().contains("incremental degraded to full (classpath inputs not recorded)"),
+                "missing classpath input metadata must rebuild the graph; stderr:\n" + result.stderr());
         assertTrue(result.stderr().contains("Detecting classpath via Maven"),
                 "old metadata should fall back once to Maven detection; stderr:\n" + result.stderr());
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
@@ -471,6 +473,8 @@ class IndexCommandIT {
                     "SELECT value FROM project_meta WHERE key='classpath_mode'"));
             assertNotNull(scalarString(st,
                     "SELECT value FROM project_meta WHERE key='classpath_entries'"));
+            assertNotNull(scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='classpath_input_hash'"));
         }
     }
 

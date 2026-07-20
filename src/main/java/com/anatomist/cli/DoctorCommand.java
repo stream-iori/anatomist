@@ -113,6 +113,8 @@ public class DoctorCommand implements Callable<Integer> {
                     Map<String, Object> classpathDetection = new java.util.LinkedHashMap<>();
                     store.readProjectMeta("classpath_detection_status")
                             .ifPresent(v -> classpathDetection.put("status", v));
+                    store.readProjectMeta("classpath_detection_status")
+                            .ifPresent(v -> classpathDetection.put("origin", classpathOrigin(v)));
                     putIntegerMeta(store, classpathDetection,
                             "classpath_detection_entries", "entries");
                     putIntegerMeta(store, classpathDetection,
@@ -135,6 +137,7 @@ public class DoctorCommand implements Callable<Integer> {
                     store.readProjectMeta("source_root").ifPresent(v -> out.put("source_root", v));
                     store.readProjectMeta(com.anatomist.core.ProjectMetadata.SNAPSHOT_FINGERPRINT_KEY)
                             .ifPresent(v -> out.put("source_snapshot_fingerprint", v));
+                    addSnapshotStatus(out, store);
                     if (store.readProjectMeta("source_git_commit").isPresent()
                             && out.get("source_root") instanceof String sourceRoot) {
                         com.anatomist.core.ProjectMetadata.GitUntrackedCache cache =
@@ -176,6 +179,7 @@ public class DoctorCommand implements Callable<Integer> {
                             new com.anatomist.core.IndexHealthReport(health.status(), page);
                     out.put("health", health.status().name().toLowerCase());
                     out.put("health_dimensions", health.dimensions());
+                    out.put("resolution_diagnostic_counts", resolutionCounts(health.diagnostics()));
                     out.put("gate", health.gate(policy).toMap());
                     out.put("diagnostics", displayed.toMaps());
                     out.put("warnings", displayed.warnings());
@@ -223,6 +227,46 @@ public class DoctorCommand implements Callable<Integer> {
                 out.put(outputKey, value);
             }
         });
+    }
+
+    private static String classpathOrigin(String status) {
+        if (status == null) return "unknown";
+        return switch (status.toLowerCase(java.util.Locale.ROOT)) {
+            case "index_metadata" -> "index_metadata";
+            case "cache_hit" -> "classpath_cache";
+            case "full", "partial" -> "maven";
+            case "explicit" -> "explicit";
+            case "not_requested" -> "none";
+            default -> "unknown";
+        };
+    }
+
+    private static void addSnapshotStatus(Map<String, Object> out, SqliteStore store) {
+        String root = store.readProjectMeta("source_root").orElse("");
+        String indexed = store.readProjectMeta("source_git_commit").orElse("");
+        String indexedAt = store.readProjectMeta("indexed_at").orElse("");
+        Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        if (!indexed.isBlank()) snapshot.put("indexed_git_commit", indexed);
+        if (!indexedAt.isBlank()) snapshot.put("indexed_at", indexedAt);
+        String current = root.isBlank() ? null
+                : com.anatomist.core.ProjectMetadata.currentGitCommit(Path.of(root));
+        if (current != null && !current.isBlank()) snapshot.put("current_git_commit", current);
+        snapshot.put("match", !indexed.isBlank() && current != null && !current.isBlank()
+                ? indexed.equals(current) : null);
+        if (!snapshot.isEmpty()) out.put("source_snapshot", snapshot);
+    }
+
+    private static Map<String, Long> resolutionCounts(
+            List<com.anatomist.core.IndexDiagnostic> diagnostics) {
+        Map<String, Long> counts = new java.util.TreeMap<>();
+        for (com.anatomist.core.IndexDiagnostic diagnostic : diagnostics) {
+            if (diagnostic.code().contains("SYMBOL") || diagnostic.code().contains("RESOLUTION")
+                    || diagnostic.code().contains("METHOD_NOT_FOUND")
+                    || diagnostic.code().contains("FIELD_NOT_FOUND")) {
+                counts.merge(diagnostic.code(), diagnostic.count(), Long::sum);
+            }
+        }
+        return counts;
     }
 
     private static void addHealth(Map<String, Object> out,

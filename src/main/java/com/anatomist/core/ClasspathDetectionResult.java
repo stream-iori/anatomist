@@ -15,6 +15,8 @@ public record ClasspathDetectionResult(
     public enum Status {
         NOT_REQUESTED,
         EXPLICIT,
+        /** Reused from the prior SQLite index rather than re-detected. */
+        INDEX_METADATA,
         CACHE_HIT,
         FULL,
         PARTIAL,
@@ -40,6 +42,11 @@ public record ClasspathDetectionResult(
     public static ClasspathDetectionResult cacheHit(List<String> entries) {
         return new ClasspathDetectionResult(
                 Status.CACHE_HIT, entries, null, 0, null, List.of());
+    }
+
+    public static ClasspathDetectionResult indexMetadata(List<String> entries) {
+        return new ClasspathDetectionResult(
+                Status.INDEX_METADATA, entries, null, 0, null, List.of());
     }
 
     public String wireStatus() {

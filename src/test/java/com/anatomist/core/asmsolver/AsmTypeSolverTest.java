@@ -24,6 +24,18 @@ class AsmTypeSolverTest {
     }
 
     @Test
+    void sourceNestedName_resolvesBinaryNestedClass() {
+        AsmTypeSolver solver = new AsmTypeSolver(new InMemoryClassFileSource(Map.of(
+                "com.x.Outer$Inner$Deep", miniClass("com.x.Outer$Inner$Deep"))));
+
+        var resolved = solver.tryToSolveType("com.x.Outer.Inner.Deep");
+
+        assertTrue(resolved.isSolved());
+        assertEquals("com.x.Outer$Inner$Deep",
+                resolved.getCorrespondingDeclaration().getQualifiedName());
+    }
+
+    @Test
     void knownFqn_returnsSolvedReference() {
         byte[] bytes = miniClass("com.x.Foo");
         AsmTypeSolver solver = new AsmTypeSolver(

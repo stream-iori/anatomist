@@ -4,6 +4,8 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -16,6 +18,8 @@ final class ResolutionTracker {
 
     private final Path projectRoot;
     private final SourceIdentityResolver identities;
+    private final List<Path> sourcePaths;
+    private final Map<String, Boolean> sourceTypes = new LinkedHashMap<>();
     private final AtomicLong unresolved = new AtomicLong();
     private final Map<Key, Bucket> groups = new LinkedHashMap<>();
 
@@ -29,6 +33,8 @@ final class ResolutionTracker {
     ResolutionTracker(Path projectRoot, java.util.List<Path> sourcePaths) {
         this.projectRoot = projectRoot.toAbsolutePath().normalize();
         this.identities = new SourceIdentityResolver(projectRoot, sourcePaths);
+        this.sourcePaths = sourcePaths == null ? List.of() : sourcePaths.stream()
+                .map(path -> path.toAbsolutePath().normalize()).toList();
     }
 
     void enterFile(CompilationUnit unit) {
@@ -125,9 +131,6 @@ final class ResolutionTracker {
         if (normalizedPhase.contains("CALL")) return "METHOD_NOT_FOUND";
         if (normalizedPhase.contains("FIELD_ACCESS")) return "FIELD_NOT_FOUND";
         if (cause instanceof UnsolvedSymbolException) {
-            if (imported != null && !sameProjectNamespace(imported)) {
-                return "THIRDPARTY_SYMBOL_MISSING";
-            }
             return isLikelyInternal(sample)
                     ? "INTERNAL_SYMBOL_MISSING"
                     : "THIRDPARTY_SYMBOL_MISSING";
@@ -138,9 +141,21 @@ final class ResolutionTracker {
     private boolean isLikelyInternal(String symbol) {
         if (symbol == null || symbol.isBlank() || symbol.startsWith("[")) return false;
         String imported = importedType(symbol);
-        if (imported != null) return sameProjectNamespace(imported);
-        if (!packageName.isBlank() && symbol.startsWith(packageName + ".")) return true;
-        return symbol.indexOf('.') < 0 && Character.isUpperCase(symbol.charAt(0));
+        if (imported != null) return isSourceType(imported);
+        if (!packageName.isBlank() && symbol.indexOf('.') < 0
+                && Character.isUpperCase(symbol.charAt(0))) {
+            return isSourceType(packageName + "." + symbol);
+        }
+        return isSourceType(symbol);
+    }
+
+    /** A shared package prefix is not evidence that a type belongs to this checkout. */
+    private boolean isSourceType(String fqn) {
+        if (fqn == null || fqn.isBlank()) return false;
+        return sourceTypes.computeIfAbsent(fqn, candidate -> {
+            String relative = candidate.replace('.', '/') + ".java";
+            return sourcePaths.stream().anyMatch(root -> Files.isRegularFile(root.resolve(relative)));
+        });
     }
 
     private String importedType(String symbol) {
@@ -151,17 +166,6 @@ final class ResolutionTracker {
         int generic = simple.indexOf('<');
         if (generic >= 0) simple = simple.substring(0, generic);
         return explicitImports.get(simple);
-    }
-
-    private boolean sameProjectNamespace(String qualifiedName) {
-        if (qualifiedName == null || packageName.isBlank()) return false;
-        return namespacePrefix(qualifiedName).equals(namespacePrefix(packageName));
-    }
-
-    private static String namespacePrefix(String qualifiedName) {
-        String[] parts = qualifiedName.split("\\.");
-        int length = Math.min(2, parts.length);
-        return String.join(".", java.util.Arrays.copyOf(parts, length));
     }
 
     private static boolean isJdkType(String qualifiedName) {

@@ -357,6 +357,18 @@ class ClasspathDetectorTest {
         assertEquals(1, attempts.get());
     }
 
+    @Test
+    void classpathInputFingerprintChangesWhenPomChanges(@TempDir Path tmp) throws Exception {
+        Path pom = tmp.resolve("pom.xml");
+        Files.writeString(pom, "<project><version>1</version></project>");
+        ClasspathDetector detector = new ClasspathDetector();
+        String before = detector.classpathInputFingerprint(tmp);
+
+        Files.writeString(pom, "<project><version>2</version></project>");
+
+        assertNotEquals(before, detector.classpathInputFingerprint(tmp));
+    }
+
     private static ClasspathDetector detectorWithEnvironment(Map<String, String> env, Path userHome) {
         return new ClasspathDetector() {
             @Override protected String environment(String name) { return env.get(name); }

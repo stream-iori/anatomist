@@ -39,7 +39,7 @@ Index rules:
 | Re-index current work | Prefer `--incremental` against the same DB. |
 | Keep index fresh while editing | Use `watch --auto-index` with the same explicit `--output` (if any), `--project-source`, `--include-tests`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
 | Stale or risky DB | Use `--recreate`. |
-| Need exact snapshot | Inspect `doctor` / `project_meta` for `source_root`, `source_snapshot_fingerprint`, index profile, `indexed_at`, `source_git_commit`, `source_git_dirty`. |
+| Need exact snapshot | Inspect `doctor.source_snapshot.match` plus `source_root`, `source_snapshot_fingerprint`, index profile, `indexed_at`, `source_git_commit`, and `source_git_dirty`. |
 | Incremental `metadata_git` is slow | Inspect `doctor.git_untracked_cache`; recommend `git config core.untrackedCache true`, but never run it without user authorization. |
 | High-fanout Java file changed | Stable symbols keep incoming edges; only removed/contract-changed symbols expand through exact callers. A `symbol impact N>limit` message means the precise set crossed `--max-realign-files`. |
 
@@ -82,7 +82,7 @@ Read the JSON contracts as separate signals:
 | `index_state=committed` | A complete snapshot was promoted |
 | `health_dimensions.parse` / `graph_integrity` | Whether structural facts are safe to query |
 | `health_dimensions.resolution` | Which internal/external/JDK lookups are partial |
-| `classpath_detection.status` | Whether Maven classpath input is full, partial, unavailable, cached, or explicit |
+| `classpath_detection.status` / `origin` | Whether classpath input is full, partial, unavailable, cached, explicit, or reused from DB, and where it came from |
 | `gate` | Which policy was applied and why it passed/failed |
 
 Every JSON query exposes `evidence`. Returned positive facts remain usable when

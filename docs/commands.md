@@ -98,6 +98,7 @@ keys for Agents are:
 | `source_git_dirty` | Whether the source worktree had uncommitted changes |
 | `source_git_commit_time` | Commit timestamp, when available |
 | `source_git_remote_origin_url` | Origin URL, when available |
+| `classpath_input_hash` | Maven POM/settings/JDK input identity; a changed or missing value forces the next incremental index to rebuild with a fresh classpath |
 
 ### `doctor`
 Report CLI capabilities, schema version, and index health.
@@ -117,13 +118,14 @@ JSON includes:
 | `schema_version` | Current writer schema |
 | `default_index_path` / `index_path` | Resolved index locations |
 | `index_exists` | Whether the target DB exists |
-| `source_root` / `source_snapshot_fingerprint` | Local checkout ownership and portable indexed-source identity |
+| `source_root` / `source_snapshot_fingerprint` / `source_snapshot` | Local checkout ownership, portable indexed-source identity, and indexed-vs-current Git commit match when available |
 | `java_version` / `classpath_mode` / `spring_xml` | Index profile used to build the current facts |
-| `classpath_detection` | `full`, `partial`, `unavailable`, `cache_hit`, `explicit`, or `not_requested`, plus Maven exit/sample/counts |
+| `classpath_detection` | Detection status plus `origin`: `maven`, `classpath_cache`, `index_metadata`, `explicit`, or `none` |
 | `commands` | Supported subcommands for Agent self-discovery |
 | `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
 | `index_state` | `committed`, `empty`, `incompatible`, `missing`, or `unknown` |
 | `health` / `health_dimensions` / `gate` | Legacy summary, dimension detail, and selected policy result |
+| `resolution_diagnostic_counts` | Occurrences grouped by resolution diagnostic code, independent of diagnostic page size |
 | `diagnostics` | Persisted findings shared with `index` and `survey-baseline` |
 | `diagnostic_stats` | Total/matched/page counts for bounded diagnostic output |
 | `git_untracked_cache` | Repository Git setting: `enabled`, `disabled`, or `unknown` |

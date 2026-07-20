@@ -240,7 +240,7 @@ public class ClasspathDetector {
     }
 
     private Path classpathCacheFile(Path projectRoot) {
-        String key = classpathCacheKey(projectRoot);
+        String key = classpathInputFingerprint(projectRoot);
         Path root = classpathCacheRoot();
         return key == null || root == null ? null : root.resolve(key + ".txt");
     }
@@ -257,7 +257,12 @@ public class ClasspathDetector {
                 : Path.of(home, ".anatomist", "cache", "classpath");
     }
 
-    private String classpathCacheKey(Path projectRoot) {
+    /**
+     * Stable fingerprint of Maven inputs that determine the detected classpath.
+     * It deliberately excludes Java source files so normal incremental indexing
+     * can reuse its parser environment without invoking Maven.
+     */
+    public String classpathInputFingerprint(Path projectRoot) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             Path normalized = projectRoot.toAbsolutePath().normalize();

@@ -79,18 +79,40 @@ public class AsmTypeSolver implements TypeSolver, AutoCloseable {
         AsmClassDeclaration cached = cache.getIfPresent(name);
         if (cached != null) return SymbolReference.solved(cached);
 
-        AsmTypeMetadata metadata = metadataCache == null ? null : metadataCache.get(name);
-        Optional<byte[]> bytes = metadata == null ? source.find(name) : Optional.empty();
-        if (metadata == null && bytes.isEmpty()) return SymbolReference.unsolved();
+        Lookup lookup = lookup(name);
+        if (lookup == null) return SymbolReference.unsolved();
 
-        AsmClassDeclaration existing = cache.getIfPresent(name);
+        AsmClassDeclaration existing = cache.getIfPresent(lookup.binaryName());
         if (existing != null) return SymbolReference.solved(existing);
-        AsmClassDeclaration decl = metadata != null
-                ? new AsmClassDeclaration(metadata, this)
-                : new AsmClassDeclaration(name, bytes.get(), this);
-        cache.put(name, decl);
+        AsmClassDeclaration decl = lookup.metadata() != null
+                ? new AsmClassDeclaration(lookup.metadata(), this)
+                : new AsmClassDeclaration(lookup.binaryName(), lookup.bytes(), this);
+        cache.put(lookup.binaryName(), decl);
+        if (!name.equals(lookup.binaryName())) cache.put(name, decl);
         return SymbolReference.solved(decl);
     }
+
+    /**
+     * Java source uses {@code Outer.Inner}; class files use {@code Outer$Inner}.
+     * Keep exact lookup first, then replace separators from right to left so
+     * package dots are never guessed before a valid classfile proves the split.
+     */
+    private Lookup lookup(String requested) {
+        if (requested == null || requested.isBlank()) return null;
+        String candidate = requested;
+        while (true) {
+            AsmTypeMetadata metadata = metadataCache == null ? null : metadataCache.get(candidate);
+            Optional<byte[]> bytes = metadata == null ? source.find(candidate) : Optional.empty();
+            if (metadata != null || bytes.isPresent()) {
+                return new Lookup(candidate, metadata, bytes.orElse(null));
+            }
+            int separator = candidate.lastIndexOf('.');
+            if (separator < 0) return null;
+            candidate = candidate.substring(0, separator) + "$" + candidate.substring(separator + 1);
+        }
+    }
+
+    private record Lookup(String binaryName, AsmTypeMetadata metadata, byte[] bytes) {}
 
     @Override
     public SymbolReference<ResolvedReferenceTypeDeclaration> tryToSolveTypeInModule(

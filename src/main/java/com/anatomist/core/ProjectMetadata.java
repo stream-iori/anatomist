@@ -284,6 +284,11 @@ public final class ProjectMetadata {
         return GitUntrackedCache.UNKNOWN;
     }
 
+    /** Best-effort current checkout identity for read-only diagnostics. */
+    public static String currentGitCommit(Path projectRoot) {
+        return GitSnapshot.git(projectRoot, "rev-parse", "HEAD");
+    }
+
     public enum GitUntrackedCache {
         ENABLED, DISABLED, UNKNOWN;
 

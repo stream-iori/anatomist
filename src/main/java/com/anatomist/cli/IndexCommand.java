@@ -358,6 +358,16 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
+                String classpathRefreshReason = classpathRefreshReason(cd, projectRoot, store);
+                if (classpathRefreshReason != null) {
+                    System.err.println("INFO: incremental degraded to full (" + classpathRefreshReason + ")");
+                    if (deferFullFallback) throw new FullRebuildRequiredException(classpathRefreshReason);
+                    IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
+                            sourceFilesForFull(scanner, sourcePaths, sourceFiles),
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
+                            phaseTimings, totalStarted);
+                }
                 com.anatomist.core.ProjectMetadata.GitSnapshotTask gitTask =
                         com.anatomist.core.ProjectMetadata.startIncrementalGitRead(
                                 projectRoot, store.readProjectMeta(), fingerprintCache());
@@ -420,7 +430,7 @@ public class IndexCommand implements Callable<Integer> {
                             cache, fingerprintCache(), phaseTimings, gitTask);
                     phaseTimings.stop("metadata", phaseStarted);
                     maybeAdviseGitCache(projectRoot, metadataResult);
-                    persistClasspathDetection(store);
+                    persistClasspathDetection(store, cd, projectRoot);
                     store.upsertProjectMeta(java.util.Map.of(
                             "dataflow", String.valueOf(dataflow),
                             "dataflow_mode", flowProfile.mode().name().toLowerCase(),
@@ -472,7 +482,7 @@ public class IndexCommand implements Callable<Integer> {
                         classpath, springXml, after, fingerprintCache(), phaseTimings, gitTask);
                 phaseTimings.stop("metadata", phaseStarted);
                 maybeAdviseGitCache(projectRoot, metadataResult);
-                persistClasspathDetection(store);
+                persistClasspathDetection(store, cd, projectRoot);
                 store.upsertProjectMeta(java.util.Map.of(
                         "dataflow", String.valueOf(dataflow),
                         "dataflow_mode", flowProfile.mode().name().toLowerCase(),
@@ -560,7 +570,7 @@ public class IndexCommand implements Callable<Integer> {
                     }
                     return 3;
                 }
-                persistClasspathDetection(store);
+                persistClasspathDetection(store, new ClasspathDetector(), projectRoot);
                 phaseTimings.stop("full_index", fullIndexStarted);
                 PerformanceHistory.recordFull(store,
                         phaseTimings.millis().getOrDefault("full_index", 0L),
@@ -734,7 +744,7 @@ public class IndexCommand implements Callable<Integer> {
                             + " is outside the supported analysis range 8..17");
         }
         List<Path> cachedClasspath = parsePathList(store.readProjectMeta("classpath_entries").orElse(""));
-        currentClasspathDetection = com.anatomist.core.ClasspathDetectionResult.cacheHit(
+        currentClasspathDetection = com.anatomist.core.ClasspathDetectionResult.indexMetadata(
                 cachedClasspath.stream().map(Path::toString).toList());
         JavaParserFactory factory = new JavaParserFactory(
                 cachedJavaVersion, cachedClasspath, sourcePaths, vmClasspath,
@@ -901,7 +911,18 @@ public class IndexCommand implements Callable<Integer> {
                 .map(Path::of).collect(Collectors.toList());
     }
 
-    private void persistClasspathDetection(SqliteStore store) {
+    private String classpathRefreshReason(ClasspathDetector detector, Path projectRoot,
+                                          SqliteStore store) {
+        if (noClasspath || (classpath != null && !classpath.isBlank())) return null;
+        String current = detector.classpathInputFingerprint(projectRoot);
+        String previous = store.readProjectMeta("classpath_input_hash").orElse("");
+        if (current == null || current.isBlank()) return null;
+        if (previous.isBlank()) return "classpath inputs not recorded";
+        return current.equals(previous) ? null : "classpath inputs changed";
+    }
+
+    private void persistClasspathDetection(SqliteStore store, ClasspathDetector detector,
+                                           Path projectRoot) {
         if (store == null || currentClasspathDetection == null) return;
         if (currentClasspathDetection.status()
                 == com.anatomist.core.ClasspathDetectionResult.Status.NOT_REQUESTED
@@ -920,6 +941,10 @@ public class IndexCommand implements Callable<Integer> {
         values.put("classpath_detection_error_sample",
                 currentClasspathDetection.errorSample() == null
                         ? "" : currentClasspathDetection.errorSample());
+        String inputHash = detector.classpathInputFingerprint(projectRoot);
+        if (inputHash != null && !inputHash.isBlank()) {
+            values.put("classpath_input_hash", inputHash);
+        }
         store.upsertProjectMeta(values);
     }
 

@@ -70,6 +70,9 @@ class AgentContractIT {
                 .matches("sha256:[0-9a-f]{64}"));
         assertEquals("none", json.get("classpath_mode"));
         assertEquals(Boolean.FALSE, json.get("spring_xml"));
+        assertEquals("none", ((Map<?, ?>) json.get("classpath_detection")).get("origin"));
+        assertTrue(((Map<?, ?>) json.get("source_snapshot")).containsKey("match"));
+        assertNotNull(json.get("resolution_diagnostic_counts"));
     }
 
     @Test

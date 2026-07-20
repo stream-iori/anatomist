@@ -53,10 +53,35 @@ class ResolutionTrackerTest {
         assertEquals(2, summary.unresolved());
         assertEquals(1, summary.diagnostics().size());
         IndexDiagnostic diagnostic = summary.diagnostics().get(0);
-        assertEquals("INTERNAL_SYMBOL_MISSING", diagnostic.code());
+        assertEquals("THIRDPARTY_SYMBOL_MISSING", diagnostic.code());
         assertEquals("src/main/java/p/A.java", diagnostic.sourceFile());
         assertEquals("MAIN", diagnostic.scope());
         assertEquals(2, diagnostic.count());
         assertTrue(diagnostic.phase().contains("reference"));
+    }
+
+    @Test
+    void classifiesImportedSourceTypeAsInternalAndSamePrefixSdkAsThirdParty(@TempDir Path tmp)
+            throws Exception {
+        Path root = Files.createDirectories(tmp.resolve("src/main/java"));
+        Path source = Files.createDirectories(root.resolve("com/ipay/app")).resolve("A.java");
+        Files.writeString(source, """
+                package com.ipay.app;
+                import com.ipay.app.LocalType;
+                import com.ipay.sdk.RemoteType;
+                class A {}
+                """);
+        Files.writeString(source.getParent().resolve("LocalType.java"),
+                "package com.ipay.app; class LocalType {}");
+        CompilationUnit unit = new JavaParser().parse(source).getResult().orElseThrow();
+        ResolutionTracker tracker = new ResolutionTracker(tmp, List.of(root));
+        tracker.enterFile(unit);
+        tracker.enterPhase("full_extract_reference");
+        tracker.record(new UnsolvedSymbolException("LocalType"));
+        tracker.record(new UnsolvedSymbolException("RemoteType"));
+
+        var codes = tracker.snapshot(false).diagnostics().stream()
+                .map(IndexDiagnostic::code).collect(java.util.stream.Collectors.toSet());
+        assertEquals(java.util.Set.of("INTERNAL_SYMBOL_MISSING", "THIRDPARTY_SYMBOL_MISSING"), codes);
     }
 }
