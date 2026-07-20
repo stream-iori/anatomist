@@ -50,7 +50,10 @@ native:
     source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
     sdk use java 25.0.3-graal || true
     set -e
-    mvn -Pnative -DskipTests package
+    # A native executable embeds classes and the filtered version resource.
+    # Do not reuse target/: it can otherwise publish a binary from an older
+    # source/schema revision when Maven considers source timestamps current.
+    mvn -Pnative -DskipTests clean package
     echo
     file {{NATIVE_BIN}}
     ls -lh {{NATIVE_BIN}}
@@ -410,7 +413,9 @@ release-native VERSION:
         exit 1
     fi
 
-    mvn -Pnative -DskipTests -Drevision="${REL_VERSION}" -Dchangelist= package
+    # A release candidate must be rebuilt from a clean target directory; see
+    # the same invariant in `native` above.
+    mvn -Pnative -DskipTests -Drevision="${REL_VERSION}" -Dchangelist= clean package
     {{NATIVE_BIN}} --version | grep -Fx "anatomist ${REL_VERSION}"
     echo
     file {{NATIVE_BIN}}
@@ -492,7 +497,7 @@ release VERSION="":
 
     # Build release-version native.
     echo "  Building native binary..."
-    mvn -Pnative -DskipTests -Drevision="${REL_VERSION}" -Dchangelist= package -q
+    mvn -Pnative -DskipTests -Drevision="${REL_VERSION}" -Dchangelist= clean package -q
     {{NATIVE_BIN}} --version | grep -Fx "anatomist ${REL_VERSION}"
 
     # Copy to release-dist
