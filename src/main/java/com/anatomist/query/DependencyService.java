@@ -41,15 +41,19 @@ public class DependencyService {
 
     public List<EdgeRow> usedBy(String typeRef) {
         List<String> targets = expandTypeToMembers(typeRef);
-        if (targets.isEmpty()) return Collections.emptyList();
-        String ph = qmarks(targets.size());
-        String sql = "SELECT " + RowMappers.edgeColsFlat("1")
-                + RowMappers.EDGE_FROM_JOINS
-                + " WHERE e.target_id IN (" + ph + ") "
-                + "   AND e.is_external = 0 "
-                + "   AND e.relation IN (" + sqlIn(GraphConstants.DEPENDENCY_RELATIONS) + ") "
-                + " ORDER BY e.relation, e.source_id";
-        return runEdgeQuery(conn, sql, new ArrayList<>(targets));
+        List<EdgeRow> result = new ArrayList<>();
+        if (!targets.isEmpty()) {
+            String ph = qmarks(targets.size());
+            String sql = "SELECT " + RowMappers.edgeColsFlat("1")
+                    + RowMappers.EDGE_FROM_JOINS
+                    + " WHERE e.target_id IN (" + ph + ") "
+                    + "   AND e.is_external = 0 "
+                    + "   AND e.relation IN (" + sqlIn(GraphConstants.DEPENDENCY_RELATIONS) + ") "
+                    + " ORDER BY e.relation, e.source_id";
+            result.addAll(runEdgeQuery(conn, sql, new ArrayList<>(targets)));
+        }
+        result.addAll(externalUsedBy(typeRef));
+        return result;
     }
 
     public PagedResult<EdgeRow> usedByPaged(String typeRef, int limit, int offset, String filter) {
@@ -115,6 +119,30 @@ public class DependencyService {
         List<Object> args = new ArrayList<>(fieldIds);
         args.add(relation);
         return runEdgeQuery(conn, sql, args);
+    }
+
+    /**
+     * External declarations deliberately have no {@code nodes} row.  A type-level
+     * reverse lookup therefore has to match both the declaration FQN itself
+     * (for REFERENCES) and its member prefix (for CALLS / field references).
+     */
+    private List<EdgeRow> externalUsedBy(String typeRef) {
+        if (typeRef == null || typeRef.isBlank()) return Collections.emptyList();
+        String typeFqn = typeRef.contains("#") ? typeRef.substring(0, typeRef.indexOf('#')) : typeRef;
+        if (!typeFqn.contains(".")) return Collections.emptyList();
+
+        String sql = "SELECT " + RowMappers.edgeColsFlat("1")
+                + RowMappers.EDGE_FROM_JOINS
+                + " WHERE e.is_external = 1 "
+                + "   AND e.relation IN (" + sqlIn(GraphConstants.DEPENDENCY_RELATIONS) + ") "
+                + "   AND (e.external_target_fqn = ? "
+                + "        OR e.external_target_fqn LIKE ? ESCAPE '\\') "
+                + " ORDER BY e.relation, e.source_id";
+        return runEdgeQuery(conn, sql, List.of(typeFqn, likePrefix(typeFqn + "#")));
+    }
+
+    private static String likePrefix(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
     private List<String> expandTypeToMembers(String typeRef) {

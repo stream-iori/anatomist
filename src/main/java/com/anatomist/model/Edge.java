@@ -11,6 +11,7 @@ public class Edge {
     public String relation;
     public String callKind;
     public String confidence;
+    public String resolution;
     public String context;
     public boolean isExternal;
     public String sourceFile;
@@ -40,6 +41,7 @@ public class Edge {
         e.confidence = EXTRACTED;
         e.sourceLocation = sourceLocation;
         e.isExternal = true;
+        e.resolution = GraphConstants.Resolution.CLASSPATH;
         return e;
     }
 

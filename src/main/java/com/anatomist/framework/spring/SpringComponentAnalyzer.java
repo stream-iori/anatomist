@@ -161,6 +161,7 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
         } else {
             e.externalTargetFqn = td.getQualifiedName();
             e.isExternal = true;
+            e.resolution = GraphConstants.Resolution.CLASSPATH;
         }
         result.edges.add(e);
     }

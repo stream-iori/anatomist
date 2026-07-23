@@ -17,10 +17,10 @@ import java.util.concurrent.Callable;
 
 @Command(name = "used-by",
         mixinStandardHelpOptions = true,
-        description = "Incoming CALLS + REFERENCES to a type (and its methods) — impact analysis.")
+        description = "Incoming project CALLS + REFERENCES to a project type or an already-indexed external type — impact analysis.")
 public class UsedByCommand implements Callable<Integer> {
 
-    @Parameters(index = "0", description = "Type FQN or short label.")
+    @Parameters(index = "0", description = "Type FQN or short label; use an external type FQN for classpath targets.")
     String type;
 
     @Option(names = "--index") Path index;

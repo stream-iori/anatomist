@@ -152,8 +152,8 @@ final class DatabaseWiringResolver {
                 + "AND target_id=? AND external_target_fqn IS ? AND call_kind IS ? "
                 + "AND source_location IS ? LIMIT 1";
         String insertSql = "INSERT INTO edges(source_id,target_id,external_target_fqn,relation,"
-                + "call_kind,confidence,context,is_external,source_file,source_location,metadata) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?)";
+                + "call_kind,confidence,resolution,context,is_external,source_file,source_location,metadata) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
         int written = 0;
         try (PreparedStatement exists = connection.prepareStatement(existsSql);
              PreparedStatement insert = connection.prepareStatement(insertSql)) {
@@ -173,11 +173,13 @@ final class DatabaseWiringResolver {
                 insert.setString(4, edge.relation);
                 insert.setString(5, edge.callKind);
                 insert.setString(6, edge.confidence);
-                insert.setString(7, edge.context);
-                insert.setInt(8, edge.isExternal ? 1 : 0);
-                insert.setString(9, edge.sourceFile);
-                insert.setString(10, edge.sourceLocation);
-                insert.setString(11, edge.metadata);
+                insert.setString(7, edge.isExternal
+                        ? (edge.resolution == null ? GraphConstants.Resolution.CLASSPATH : edge.resolution) : null);
+                insert.setString(8, edge.context);
+                insert.setInt(9, edge.isExternal ? 1 : 0);
+                insert.setString(10, edge.sourceFile);
+                insert.setString(11, edge.sourceLocation);
+                insert.setString(12, edge.metadata);
                 insert.addBatch();
                 written++;
             }

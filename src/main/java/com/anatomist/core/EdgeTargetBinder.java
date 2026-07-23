@@ -53,6 +53,7 @@ public final class EdgeTargetBinder {
             e.targetId = target;
             e.externalTargetFqn = null;
             e.isExternal = false;
+            e.resolution = null;
             changed++;
         }
         return changed;

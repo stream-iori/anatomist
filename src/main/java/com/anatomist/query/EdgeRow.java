@@ -19,6 +19,9 @@ public class EdgeRow {
     public String relation;
     public String callKind;
     public String confidence;
+    public String resolution;
+    /** Present only when this row targets a classpath or configuration external target. */
+    public Boolean externalTarget;
     public Boolean isExternal;
     public Integer depth;
     public String sourceFile;

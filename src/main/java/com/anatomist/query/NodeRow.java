@@ -1,5 +1,6 @@
 package com.anatomist.query;
 
+import java.util.Map;
 
 /** Tabular projection of a {@code nodes} row used by search / list results. */
 public class NodeRow {
@@ -13,4 +14,10 @@ public class NodeRow {
     public String module;
     public String scope;
     public String javadoc;
+    /** True for a query-only aggregation of external edges, never a source node. */
+    public Boolean externalTarget;
+    public Long externalEdgeCount;
+    public Map<String, Long> relationCounts;
+    public Map<String, Long> resolutionCounts;
+    public Map<String, Long> confidenceCounts;
 }

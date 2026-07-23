@@ -14,13 +14,13 @@ import java.util.List;
 
 @Command(name = "callers-of",
         mixinStandardHelpOptions = true,
-        description = "Incoming CALLS to a method (impact analysis), optionally recursive (--depth N).",
+        description = "Incoming CALLS to a project or already-indexed external method (impact analysis), optionally recursive (--depth N).",
         footer = "%nExamples:%n  callers-of com.example.OrderService#create --depth 2"
                 + "%n  callers-of OrderService#create --source-window=3"
                 + "%n  callers-of OrderService#create --in-loop")
 public class CallersOfCommand extends QueryCommand {
 
-    @Parameters(index = "0", description = "Method FQN (Class#method or pkg.Class.method).")
+    @Parameters(index = "0", description = "Method FQN (Class#method or pkg.Class.method); external full signatures match exactly.")
     String method;
 
     @Option(names = "--depth", description = "Recursive depth (1..20). Default 1.")

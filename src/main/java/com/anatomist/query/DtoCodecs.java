@@ -75,6 +75,11 @@ public final class DtoCodecs {
             put(m, "module", n.module);
             put(m, "scope", n.scope);
             putNullable(m, "javadoc", n.javadoc);
+            put(m, "external_target", n.externalTarget);
+            put(m, "external_edge_count", n.externalEdgeCount);
+            put(m, "relation_counts", n.relationCounts);
+            put(m, "resolution_counts", n.resolutionCounts);
+            put(m, "confidence_counts", n.confidenceCounts);
             return m;
         }
         @Override public NodeRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -98,6 +103,8 @@ public final class DtoCodecs {
             put(m, "relation", e.relation);
             put(m, "call_kind", e.callKind);
             put(m, "confidence", e.confidence);
+            put(m, "resolution", e.resolution);
+            put(m, "external_target", e.externalTarget);
             put(m, "is_external", e.isExternal);
             put(m, "depth", e.depth);
             put(m, "source_file", e.sourceFile);
@@ -135,6 +142,9 @@ public final class DtoCodecs {
             putNullable(m, "depth", e.depth);
             putNullable(m, "is_external", e.isExternal);
             putNullable(m, "external_target_fqn", e.externalTargetFqn);
+            putNullable(m, "external_target", e.externalTarget);
+            putNullable(m, "resolution", e.resolution);
+            putNullable(m, "confidence", e.confidence);
             return m;
         }
         @Override public HierarchyResult.Entry fromTree(Object tree) { throw new UnsupportedOperationException(); }

@@ -692,6 +692,8 @@ public final class StagedGraphStore implements AutoCloseable {
         statement.setString(i++, edge.externalTargetFqn); statement.setString(i++, edge.relation);
         statement.setString(i++, edge.callKind); statement.setString(i++, edge.confidence == null
                 ? GraphConstants.Confidence.EXTRACTED : edge.confidence);
+        statement.setString(i++, edge.isExternal
+                ? (edge.resolution == null ? GraphConstants.Resolution.CLASSPATH : edge.resolution) : null);
         statement.setString(i++, edge.context); statement.setInt(i++, edge.isExternal ? 1 : 0);
         statement.setString(i++, edge.sourceFile); statement.setString(i++, edge.sourceLocation);
         statement.setString(i++, edge.metadata); statement.setString(i++, identity.module());
@@ -791,8 +793,8 @@ public final class StagedGraphStore implements AutoCloseable {
 
     private static void insertFactsFromStage(Statement statement) throws SQLException {
         statement.executeUpdate("INSERT INTO edges(source_id,target_id,external_target_fqn,relation,call_kind,"
-                + "confidence,context,is_external,source_file,source_location,metadata) SELECT resolved_source,"
-                + "resolved_target,external_target_fqn,relation,call_kind,confidence,context,is_external,source_file,"
+                + "confidence,resolution,context,is_external,source_file,source_location,metadata) SELECT resolved_source,"
+                + "resolved_target,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,source_file,"
                 + "source_location,metadata FROM " + ALIAS + ".stage_edges ORDER BY seq");
         statement.executeUpdate("INSERT INTO annotations(node_id,annotation_fqn,attributes) SELECT resolved_node,"
                 + "annotation_fqn,attributes FROM " + ALIAS + ".stage_annotations ORDER BY seq");
@@ -871,9 +873,9 @@ public final class StagedGraphStore implements AutoCloseable {
             + "source_file=excluded.source_file,source_location=excluded.source_location,module=excluded.module,"
             + "scope=excluded.scope,javadoc=excluded.javadoc,metadata=excluded.metadata,arity_key=excluded.arity_key";
     private static final String EDGE_INSERT = "INSERT INTO stage_edges(source_ref,target_ref,external_target_fqn,"
-            + "relation,call_kind,confidence,context,is_external,source_file,source_location,metadata,source_module,"
+            + "relation,call_kind,confidence,resolution,context,is_external,source_file,source_location,metadata,source_module,"
             + "source_scope,source_is_key,target_is_key,resolved_source,resolved_target,target_arity_key) "
-            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String ANNOTATION_INSERT = "INSERT INTO stage_annotations(node_ref,annotation_fqn,attributes,"
             + "source_file,source_module,source_scope,node_is_key,resolved_node) VALUES (?,?,?,?,?,?,?,?)";
     private static final String SEMANTIC_INSERT = "INSERT INTO stage_semantic_annotations(node_ref,doc_id,category,"
@@ -922,7 +924,7 @@ public final class StagedGraphStore implements AutoCloseable {
             "CREATE INDEX stage_nodes_candidate ON stage_nodes(symbol_id,source_file,module,scope)",
             "CREATE INDEX stage_nodes_arity ON stage_nodes(arity_key)",
             "CREATE TABLE stage_edges(seq INTEGER PRIMARY KEY AUTOINCREMENT,source_ref TEXT,target_ref TEXT,"
-                    + "external_target_fqn TEXT,relation TEXT,call_kind TEXT,confidence TEXT,context TEXT,"
+                    + "external_target_fqn TEXT,relation TEXT,call_kind TEXT,confidence TEXT,resolution TEXT,context TEXT,"
                     + "is_external INTEGER,source_file TEXT,source_location TEXT,metadata TEXT,source_module TEXT,"
                     + "source_scope TEXT,source_is_key INTEGER,target_is_key INTEGER,resolved_source TEXT,"
                     + "resolved_target TEXT,target_arity_key TEXT)",

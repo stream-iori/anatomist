@@ -37,7 +37,11 @@ public class CallGraphService {
     }
 
     public List<EdgeRow> callersOf(String methodRef, int depth, boolean throughCallbacks) {
-        return callsTo(resolver.resolveMethodIds(methodRef), Math.max(1, depth), throughCallbacks);
+        int depthCap = Math.min(Math.max(1, depth), MAX_DEPTH);
+        List<EdgeRow> result = new ArrayList<>(
+                callsTo(resolver.resolveMethodIds(methodRef), depthCap, throughCallbacks));
+        result.addAll(callsToExternal(methodRef, depthCap, throughCallbacks));
+        return dedup(result);
     }
 
     List<EdgeRow> callsFrom(List<String> seedIds, int depth) {
@@ -160,6 +164,30 @@ public class CallGraphService {
                 }
             }
         }
+        return dedup(result);
+    }
+
+    /**
+     * Reverse-trace an external method that is represented only by
+     * {@code edges.external_target_fqn}.  The external edge is the first hop;
+     * later hops stay inside the project graph and reuse normal caller traversal.
+     */
+    private List<EdgeRow> callsToExternal(String methodRef, int depth, boolean throughCallbacks) {
+        ExternalMethodSelector selector = ExternalMethodSelector.parse(methodRef);
+        if (selector == null) return Collections.emptyList();
+
+        List<EdgeRow> result = queryExternalCallsIn(selector, 1);
+        if (throughCallbacks) rewriteCallbackSources(result);
+        if (depth <= 1 || result.isEmpty()) return result;
+
+        List<String> directCallers = result.stream()
+                .map(edge -> edge.source)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        List<EdgeRow> upstream = callsTo(directCallers, depth - 1, throughCallbacks);
+        upstream.forEach(edge -> edge.depth = edge.depth + 1);
+        result.addAll(upstream);
         return dedup(result);
     }
 
@@ -325,6 +353,43 @@ public class CallGraphService {
         return all;
     }
 
+    private List<EdgeRow> queryExternalCallsIn(ExternalMethodSelector selector, int d) {
+        String predicate = selector.exact ? "e.external_target_fqn = ?"
+                : "e.external_target_fqn LIKE ? ESCAPE '\\'";
+        String sql = "SELECT " + RowMappers.edgeColsFlat("?")
+                + RowMappers.EDGE_FROM_JOINS
+                + " WHERE e.relation = '" + GraphConstants.Relation.CALLS + "'"
+                + " AND e.is_external = 1 AND " + predicate
+                + " ORDER BY e.source_id, e.external_target_fqn";
+        return runEdgeQuery(conn, sql, List.of(d, selector.sqlValue()));
+    }
+
+    private static final class ExternalMethodSelector {
+        final String value;
+        final boolean exact;
+
+        private ExternalMethodSelector(String value, boolean exact) {
+            this.value = value;
+            this.exact = exact;
+        }
+
+        static ExternalMethodSelector parse(String methodRef) {
+            if (methodRef == null || methodRef.isBlank()) return null;
+            int hash = methodRef.indexOf('#');
+            if (hash <= 0 || hash == methodRef.length() - 1) return null;
+            return new ExternalMethodSelector(methodRef, methodRef.indexOf('(', hash) >= 0);
+        }
+
+        String sqlValue() {
+            if (exact) return value;
+            return likePrefix(value + "(");
+        }
+
+        private static String likePrefix(String value) {
+            return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        }
+    }
+
     private Map<String, List<String>> batchOverrideImpls(Collection<String> methodIds) {
         Map<String, List<String>> result = new HashMap<>();
         if (methodIds == null || methodIds.isEmpty()) return result;
@@ -428,6 +493,8 @@ public class CallGraphService {
             EdgeRow r = it.next();
             String key = r.source + "→" + (r.target != null ? r.target : r.externalTargetFqn)
                     + "@" + r.depth
+                    + "@" + r.relation
+                    + "@" + r.sourceLocation
                     + (GraphConstants.CallKind.REFLECTION.equals(r.callKind)
                     ? ":" + GraphConstants.CallKind.REFLECTION : "");
             if (!seen.add(key)) it.remove();

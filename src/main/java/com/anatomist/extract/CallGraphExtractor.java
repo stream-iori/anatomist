@@ -136,6 +136,7 @@ public class CallGraphExtractor implements Extractor {
         } else {
             e.externalTargetFqn = methodTargetFqn(target);
             e.isExternal = true;
+            e.resolution = GraphConstants.Resolution.CLASSPATH;
         }
         result.edges.add(e);
     }
@@ -183,6 +184,7 @@ public class CallGraphExtractor implements Extractor {
             } else {
                 e.externalTargetFqn = methodTargetFqn(target);
                 e.isExternal = true;
+                e.resolution = GraphConstants.Resolution.CLASSPATH;
             }
             result.edges.add(e);
         }
@@ -453,6 +455,7 @@ public class CallGraphExtractor implements Extractor {
             } else {
                 e.externalTargetFqn = astMethodId(owner, target);
                 e.isExternal = true;
+                e.resolution = GraphConstants.Resolution.AST_FALLBACK;
             }
             result.edges.add(e);
         }
@@ -482,6 +485,7 @@ public class CallGraphExtractor implements Extractor {
         e.externalTargetFqn = typeFqn + "#" + call.getNameAsString()
                 + "(" + fallbackParameterList(call) + ")";
         e.isExternal = true;
+        e.resolution = GraphConstants.Resolution.TYPE_FALLBACK;
         result.edges.add(e);
         return true;
     }
@@ -524,6 +528,7 @@ public class CallGraphExtractor implements Extractor {
         e.externalTargetFqn = typeFqn + "#" + call.getNameAsString()
                 + "(" + fallbackParameterList(call) + ")";
         e.isExternal = true;
+        e.resolution = GraphConstants.Resolution.STATIC_NAME_FALLBACK;
         result.edges.add(e);
     }
 

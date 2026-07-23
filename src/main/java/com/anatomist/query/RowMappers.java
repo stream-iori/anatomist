@@ -32,13 +32,13 @@ final class RowMappers {
      *  anchor and {@code , c.depth + 1} for the recursive member. */
     static final String CHAIN_CTE_COLS =
             "e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-          + " e.call_kind, e.confidence, e.is_external, e.source_file, e.source_location, e.context, e.metadata";
+          + " e.call_kind, e.confidence, e.resolution, e.is_external, e.source_file, e.source_location, e.context, e.metadata";
 
     /** Final projection off a {@code chain} CTE aliased {@code c}, joined to src/tgt nodes.
      *  Column order matches {@link #mapEdge}. */
     static final String EDGE_COLS_CHAIN =
             "c.source_id, c.target_id, c.external_target_fqn, c.relation, c.call_kind, c.confidence,"
-          + " c.is_external, c.source_file, c.source_location, c.depth,"
+          + " c.resolution, c.is_external, c.source_file, c.source_location, c.depth,"
           + " src.label AS src_label, tgt.label AS tgt_label, tgt.qualified_name AS tgt_q, c.context, c.metadata,"
           + " src.symbol_id, src.module, src.scope, tgt.symbol_id, tgt.module, tgt.scope";
 
@@ -46,7 +46,7 @@ final class RowMappers {
      *  {@code "1"} or a bind placeholder {@code "?"}. Column order matches {@link #mapEdge}. */
     static String edgeColsFlat(String depthExpr) {
         return "e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
-             + " e.confidence, e.is_external, e.source_file, e.source_location, " + depthExpr + " AS depth,"
+             + " e.confidence, e.resolution, e.is_external, e.source_file, e.source_location, " + depthExpr + " AS depth,"
              + " src.label, tgt.label, tgt.qualified_name, e.context, e.metadata,"
              + " src.symbol_id, src.module, src.scope, tgt.symbol_id, tgt.module, tgt.scope";
     }
@@ -74,21 +74,23 @@ final class RowMappers {
         r.relation = rs.getString(4);
         r.callKind = rs.getString(5);
         r.confidence = rs.getString(6);
-        r.isExternal = rs.getInt(7) == 1;
-        r.sourceFile = rs.getString(8);
-        r.sourceLocation = rs.getString(9);
-        r.depth = rs.getInt(10);
-        r.sourceLabel = rs.getString(11);
-        r.targetLabel = rs.getString(12);
-        r.targetQualifiedName = rs.getString(13);
-        r.context = rs.getString(14);
-        r.metadata = rs.getString(15);
-        r.sourceSymbolId = rs.getString(16);
-        r.sourceModule = rs.getString(17);
-        r.sourceScope = rs.getString(18);
-        r.targetSymbolId = rs.getString(19);
-        r.targetModule = rs.getString(20);
-        r.targetScope = rs.getString(21);
+        r.resolution = rs.getString(7);
+        r.isExternal = rs.getInt(8) == 1;
+        r.externalTarget = r.isExternal ? Boolean.TRUE : null;
+        r.sourceFile = rs.getString(9);
+        r.sourceLocation = rs.getString(10);
+        r.depth = rs.getInt(11);
+        r.sourceLabel = rs.getString(12);
+        r.targetLabel = rs.getString(13);
+        r.targetQualifiedName = rs.getString(14);
+        r.context = rs.getString(15);
+        r.metadata = rs.getString(16);
+        r.sourceSymbolId = rs.getString(17);
+        r.sourceModule = rs.getString(18);
+        r.sourceScope = rs.getString(19);
+        r.targetSymbolId = rs.getString(20);
+        r.targetModule = rs.getString(21);
+        r.targetScope = rs.getString(22);
         return r;
     }
 }

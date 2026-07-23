@@ -43,7 +43,7 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node Identity (schema v11)
+## Node Identity (schema v12)
 
 Every node stores both a logical symbol and a globally unique storage key:
 
@@ -186,6 +186,7 @@ XML_*:                  parent XML id + segment + source location      → bean:
 | `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO |
 | `call_kind` | TEXT | CALLS only: INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE/REFLECTION |
 | `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for derived dispatch/reflection bridges |
+| `resolution` | TEXT | External only: `classpath`, `ast_fallback`, `type_fallback`, `static_name_fallback`, `source_fallback`, `reflection`, or `xml`; NULL for internal edges |
 | `context` | TEXT | CALLS/READS/WRITES: lightweight control path such as `for@L4>if-then@L5`; REFERENCES: field_type/parameter_type/return_type/generic_arg |
 | `is_external` | INTEGER | 0=internal, 1=external |
 | `source_file` | TEXT | Relative source file path when known |
@@ -197,6 +198,16 @@ XML_*:                  parent XML id + segment + source location      → bean:
 **Composite indexes**: `(relation, is_external, target_id)` and `(relation, is_external, external_target_fqn)`.
 
 **Target split rationale**: Prevents name collision between internal node ID and external FQN text; schema enforces correctness without runtime checks.
+
+**External reverse-query contract**: External targets intentionally have no row in
+`nodes`. `callers-of Type#method(signature)` therefore reads incoming external
+`CALLS` from `external_target_fqn`; `used-by Type` reads both the exact type FQN
+and its `Type#…` member prefix. `search Type` synthesizes an `EXTERNAL_CLASS`
+row from these edges; it is a query result, not a row in `nodes`. It aggregates
+`external_edge_count`, `relation_counts`, `resolution_counts`, and
+`confidence_counts`. External edge results include `external_target=true`,
+`is_external=true`, `external_target_fqn`, `resolution`, and `confidence` so
+consumers do not mistake an external fact for a project-source declaration.
 
 ## Project Meta
 
@@ -258,7 +269,7 @@ originate anywhere.
 | `details_truncated` | Whether detail samples were truncated |
 
 Query safety is derived from this table, not from the bounded
-`index_diagnostics` sample. Schema v11 has no migration path; older indexes
+`index_diagnostics` sample. Schema v12 has no migration path; older indexes
 must be rebuilt.
 
 ## Core reflection facts

@@ -149,6 +149,7 @@ public class FieldAccessExtractor implements Extractor {
             if (ctx.isExternalExcluded(fqn)) return;
             edge.externalTargetFqn = fqn;
             edge.isExternal = true;
+            edge.resolution = GraphConstants.Resolution.CLASSPATH;
         }
         result.edges.add(edge);
     }

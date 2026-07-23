@@ -33,6 +33,7 @@ CREATE TABLE edges (
     relation TEXT NOT NULL,
     call_kind TEXT,
     confidence TEXT NOT NULL DEFAULT 'EXTRACTED',
+    resolution TEXT,
     context TEXT,
     is_external INTEGER NOT NULL DEFAULT 0,
     source_file TEXT,
@@ -55,6 +56,7 @@ CREATE INDEX idx_edges_source_relation ON edges(source_id, relation);
 CREATE INDEX idx_edges_target_relation ON edges(target_id, relation);
 CREATE INDEX idx_edges_relation_external_target ON edges(relation, is_external, target_id);
 CREATE INDEX idx_edges_relation_external_fqn ON edges(relation, is_external, external_target_fqn);
+CREATE INDEX idx_edges_external_resolution ON edges(is_external, resolution);
 CREATE INDEX idx_edges_source_relation_external ON edges(source_id, relation, is_external);
 
 CREATE TABLE annotations (

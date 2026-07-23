@@ -607,6 +607,7 @@ public final class ReflectionExtractor implements Extractor {
         } else {
             edge.externalTargetFqn = target.symbol();
             edge.isExternal = true;
+            edge.resolution = GraphConstants.Resolution.REFLECTION;
         }
 
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -641,6 +642,7 @@ public final class ReflectionExtractor implements Extractor {
         } else {
             edge.externalTargetFqn = target.fqn();
             edge.isExternal = true;
+            edge.resolution = GraphConstants.Resolution.REFLECTION;
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("via", GraphConstants.MetadataVia.REFLECTION);

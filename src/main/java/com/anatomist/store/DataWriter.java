@@ -80,8 +80,8 @@ public class DataWriter {
                     + " metadata=excluded.metadata";
     private static final String SQL_INSERT_EDGE =
             "INSERT INTO edges"
-                    + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,context,is_external,source_file,source_location,metadata)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?)";
+                    + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,source_file,source_location,metadata)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_ANNOTATION =
             "INSERT INTO annotations(node_id,annotation_fqn,attributes) VALUES (?,?,?)";
 
@@ -704,11 +704,13 @@ public class DataWriter {
                 ps.setString(4, e.relation);
                 setNullableString(ps, 5, e.callKind);
                 ps.setString(6, e.confidence == null ? GraphConstants.Confidence.EXTRACTED : e.confidence);
-                setNullableString(ps, 7, e.context);
-                ps.setInt(8, e.isExternal ? 1 : 0);
-                ps.setString(9, e.sourceFile);
-                ps.setString(10, e.sourceLocation);
-                ps.setString(11, e.metadata);
+                setNullableString(ps, 7, e.isExternal
+                        ? (e.resolution == null ? GraphConstants.Resolution.CLASSPATH : e.resolution) : null);
+                setNullableString(ps, 8, e.context);
+                ps.setInt(9, e.isExternal ? 1 : 0);
+                ps.setString(10, e.sourceFile);
+                ps.setString(11, e.sourceLocation);
+                ps.setString(12, e.metadata);
                 ps.addBatch();
             }
             ps.executeBatch();

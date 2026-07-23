@@ -28,7 +28,7 @@ public class DataReader {
 
     private static final String SQL_SELECT_WIRING_SOURCE_EDGES = """
             SELECT source_id, target_id, external_target_fqn, relation, call_kind,
-                   confidence, context, is_external, source_file, source_location, metadata
+                   confidence, resolution, context, is_external, source_file, source_location, metadata
             FROM edges
             WHERE relation IN (?, ?, ?, ?)
               AND (metadata IS NULL
@@ -377,7 +377,7 @@ public class DataReader {
         String placeholders = String.join(",", Collections.nCopies(sourceFiles.size(), "?"));
         String sql = """
                 SELECT source_id, target_id, external_target_fqn, relation, call_kind,
-                       confidence, context, is_external, source_file, source_location, metadata
+                       confidence, resolution, context, is_external, source_file, source_location, metadata
                 FROM edges
                 WHERE relation IN (?, ?, ?, ?)
                   AND (metadata IS NULL OR (metadata NOT LIKE ? AND metadata NOT LIKE ?))
@@ -447,11 +447,12 @@ public class DataReader {
         e.relation = rs.getString(4);
         e.callKind = rs.getString(5);
         e.confidence = rs.getString(6);
-        e.context = rs.getString(7);
-        e.isExternal = rs.getInt(8) != 0;
-        e.sourceFile = rs.getString(9);
-        e.sourceLocation = rs.getString(10);
-        e.metadata = rs.getString(11);
+        e.resolution = rs.getString(7);
+        e.context = rs.getString(8);
+        e.isExternal = rs.getInt(9) != 0;
+        e.sourceFile = rs.getString(10);
+        e.sourceLocation = rs.getString(11);
+        e.metadata = rs.getString(12);
         return e;
     }
 

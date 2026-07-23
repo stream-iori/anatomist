@@ -138,7 +138,7 @@ pair and reuses the saved SHA; this avoids reading every source file. Use
 | Standalone incremental, size/mtime stable | Reuses cached hash. |
 | Standalone incremental with `--verify-content` | Hashes every source. |
 
-Opening an older schema database with the v11 binary intentionally reports
+Opening an older schema database with the v12 binary intentionally reports
 `incremental degraded to full (schema_version mismatch)` once. The rebuild is
 required because old rows have no lossless capability coverage aggregate and
 anonymous-class IDs do not include columns. There is no compatibility migration.

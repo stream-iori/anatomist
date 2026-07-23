@@ -25,5 +25,8 @@ public class HierarchyResult {
         public int depth;
         public Boolean isExternal;
         public String externalTargetFqn;
+        public Boolean externalTarget;
+        public String resolution;
+        public String confidence;
     }
 }

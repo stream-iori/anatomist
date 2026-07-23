@@ -126,6 +126,7 @@ public class ReferenceExtractor implements Extractor {
                 if (ctx.isExternalExcluded(fqn)) return;
                 e.externalTargetFqn = fqn;
                 e.isExternal = true;
+                e.resolution = GraphConstants.Resolution.CLASSPATH;
             }
             result.edges.add(e);
         });

@@ -358,6 +358,7 @@ public class MethodExtractor implements Extractor {
                 } else {
                     call.externalTargetFqn = NodeIdGenerator.externalMethodFqn(target);
                     call.isExternal = true;
+                    call.resolution = GraphConstants.Resolution.CLASSPATH;
                 }
                 result.edges.add(call);
             } catch (RuntimeException e) {

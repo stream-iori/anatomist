@@ -72,6 +72,7 @@ public final class GraphIdentityRewriter {
                     edge.targetId = resolved.key();
                     edge.externalTargetFqn = null;
                     edge.isExternal = false;
+                    edge.resolution = null;
                 }
             }
             if (!edge.isExternal && edge.targetId != null && !NodeKeyFactory.isKey(edge.targetId)) {
@@ -80,6 +81,7 @@ public final class GraphIdentityRewriter {
                 edge.targetId = null;
                 edge.isExternal = true;
                 edge.confidence = GraphConstants.Confidence.AMBIGUOUS;
+                edge.resolution = GraphConstants.Resolution.SOURCE_FALLBACK;
             }
         }
     }

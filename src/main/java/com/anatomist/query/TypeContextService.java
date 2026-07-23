@@ -133,7 +133,7 @@ public class TypeContextService {
         }
 
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT external_target_fqn FROM edges "
+                "SELECT external_target_fqn,resolution,confidence FROM edges "
               + " WHERE source_id = ? AND relation = '" + GraphConstants.Relation.INHERITS + "' AND is_external = 1")) {
             ps.setString(1, seed);
             try (ResultSet rs = ps.executeQuery()) {
@@ -142,9 +142,12 @@ public class TypeContextService {
                     e.role = "extends";
                     e.depth = h.extendsChain.size();
                     e.isExternal = true;
+                    e.externalTarget = true;
                     e.externalTargetFqn = rs.getString(1);
                     e.qualifiedName = rs.getString(1);
                     e.label = shortName(rs.getString(1));
+                    e.resolution = rs.getString(2);
+                    e.confidence = rs.getString(3);
                     h.extendsChain.add(e);
                 }
             }
@@ -153,7 +156,7 @@ public class TypeContextService {
         }
 
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT n.id, n.label, n.qualified_name, e.is_external, e.external_target_fqn "
+                "SELECT n.id, n.label, n.qualified_name, e.is_external, e.external_target_fqn, e.resolution, e.confidence "
               + " FROM edges e LEFT JOIN nodes n ON e.target_id = n.id "
               + " WHERE e.source_id = ? AND e.relation = '" + GraphConstants.Relation.IMPLEMENTS + "'")) {
             ps.setString(1, seed);
@@ -165,9 +168,12 @@ public class TypeContextService {
                     e.depth = 1;
                     if (external) {
                         e.isExternal = true;
+                        e.externalTarget = true;
                         e.externalTargetFqn = rs.getString(5);
                         e.qualifiedName = e.externalTargetFqn;
                         e.label = shortName(e.externalTargetFqn);
+                        e.resolution = rs.getString(6);
+                        e.confidence = rs.getString(7);
                     } else {
                         e.id = rs.getString(1);
                         e.label = rs.getString(2);

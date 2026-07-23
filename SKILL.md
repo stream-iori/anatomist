@@ -137,6 +137,27 @@ anatomist call-path <from-method> <to-method> --depth 8 --source-window=2 --inde
 If a path crosses a lambda, anonymous class, template, or callback body, use
 `--through-callbacks` when available and mention `via` when present.
 
+### External classpath targets
+
+External dependency declarations are not source nodes by default. They are still
+queryable when project edges already reference them:
+
+```bash
+anatomist search SafeFastjsonParser --kind EXTERNAL_CLASS --index <db>
+anatomist used-by com.vendor.json.SafeFastjsonParser --index <db>
+anatomist callers-of com.vendor.json.SafeFastjsonParser#parseObject(java.lang.String) --depth 2 --index <db>
+```
+
+| Result field | Meaning |
+|---|---|
+| `external_target=true` | Query-only external target, not a project declaration. |
+| `resolution` | How the fact was found (`classpath`, fallback, `reflection`, or `xml`). |
+| `confidence` | Extraction certainty; interpret it together with `resolution`. |
+| `EXTERNAL_CLASS` counts | Aggregated direct-edge relation/resolution/confidence counts. |
+
+Use a full external FQN for `used-by`. A full external method signature is exact
+for `callers-of`; omit only its parameter list to aggregate indexed overloads.
+
 ### Branch and control-flow slices
 
 When the user asks about if/else, branch-only behavior, conditional writes, or

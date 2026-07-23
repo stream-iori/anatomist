@@ -37,6 +37,8 @@ public final class GraphConstants {
         public static final String CLASS = "CLASS";
         public static final String CONSTRUCTOR = "CONSTRUCTOR";
         public static final String ENUM = "ENUM";
+        /** Query-only aggregation of external edges; never persisted in nodes. */
+        public static final String EXTERNAL_CLASS = "EXTERNAL_CLASS";
         public static final String FIELD = "FIELD";
         public static final String INTERFACE = "INTERFACE";
         public static final String LAMBDA = "LAMBDA";
@@ -84,6 +86,19 @@ public final class GraphConstants {
         public static final String INFERRED = "INFERRED";
 
         private Confidence() {}
+    }
+
+    /** How an external target was resolved. Persisted only for external edges. */
+    public static final class Resolution {
+        public static final String CLASSPATH = "classpath";
+        public static final String AST_FALLBACK = "ast_fallback";
+        public static final String TYPE_FALLBACK = "type_fallback";
+        public static final String STATIC_NAME_FALLBACK = "static_name_fallback";
+        public static final String SOURCE_FALLBACK = "source_fallback";
+        public static final String REFLECTION = "reflection";
+        public static final String XML = "xml";
+
+        private Resolution() {}
     }
 
     public static final class CallKind {

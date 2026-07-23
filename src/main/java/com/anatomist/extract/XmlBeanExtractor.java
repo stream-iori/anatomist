@@ -87,7 +87,7 @@ public final class XmlBeanExtractor {
             Edge def = baseEdge(GraphConstants.Relation.DEFINED_BY, sourceFile, b.line());
             def.sourceId = beanId;
             if (classKnown) { def.targetId = cls; def.isExternal = false; }
-            else { def.externalTargetFqn = cls; def.isExternal = true; }
+            else { def.externalTargetFqn = cls; def.isExternal = true; def.resolution = GraphConstants.Resolution.XML; }
             result.edges.add(def);
 
             List<XmlConfigNode> refs = new ArrayList<>();
@@ -169,7 +169,7 @@ public final class XmlBeanExtractor {
             Edge w = baseEdge(GraphConstants.Relation.WIRES, sourceFile, line);
             w.sourceId = ownerClass;
             if (knownIds.contains(targetClass)) { w.targetId = targetClass; w.isExternal = false; }
-            else { w.externalTargetFqn = targetClass; w.isExternal = true; }
+            else { w.externalTargetFqn = targetClass; w.isExternal = true; w.resolution = GraphConstants.Resolution.XML; }
             result.edges.add(w);
         }
     }
@@ -193,6 +193,7 @@ public final class XmlBeanExtractor {
         } else {
             e.externalTargetFqn = ref.bean;
             e.isExternal = true;
+            e.resolution = GraphConstants.Resolution.XML;
         }
         return e;
     }

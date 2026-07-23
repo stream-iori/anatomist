@@ -103,6 +103,7 @@ public class HierarchyExtractor implements Extractor {
         } else {
             e.externalTargetFqn = target.getQualifiedName();
             e.isExternal = true;
+            e.resolution = GraphConstants.Resolution.CLASSPATH;
         }
         return e;
     }
@@ -172,6 +173,7 @@ public class HierarchyExtractor implements Extractor {
         } else {
             e.externalTargetFqn = NodeIdGenerator.externalMethodFqn(sup);
             e.isExternal = true;
+            e.resolution = GraphConstants.Resolution.CLASSPATH;
         }
         return e;
     }
@@ -224,6 +226,7 @@ public class HierarchyExtractor implements Extractor {
         if (looksExternal(targetType)) {
             e.externalTargetFqn = targetType;
             e.isExternal = true;
+            e.resolution = GraphConstants.Resolution.SOURCE_FALLBACK;
         } else {
             e.targetId = targetType;
             e.isExternal = false;

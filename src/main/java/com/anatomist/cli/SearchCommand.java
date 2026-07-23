@@ -11,14 +11,14 @@ import java.util.List;
 
 @Command(name = "search",
         mixinStandardHelpOptions = true,
-        description = "Find nodes by name (FTS5), by precise simple-name (--name), or by annotation (--by-annotation).",
-        footer = "%nExamples:%n  search OrderService%n  search --name '*Plugin' --kind CLASS%n  search Facade --count%n  search @Deprecated --by-annotation")
+        description = "Find project nodes plus virtual EXTERNAL_CLASS targets already referenced by this project; --name and --by-annotation remain supported.",
+        footer = "%nExamples:%n  search OrderService%n  search SafeFastjsonParser%n  search --kind EXTERNAL_CLASS SafeFastjsonParser%n  search --name '*Plugin' --kind CLASS%n  search Facade --count%n  search @Deprecated --by-annotation")
 public class SearchCommand extends QueryCommand {
 
     @Parameters(index = "0", arity = "0..1", description = "Search term (e.g. OrderService, @Deprecated). Omit when using --name.")
     String term;
 
-    @Option(names = "--kind", description = "Filter by node kind (CLASS, METHOD, ...).")
+    @Option(names = "--kind", description = "Filter by node kind (CLASS, METHOD, ..., EXTERNAL_CLASS for virtual classpath targets).")
     String kind;
 
     @Option(names = "--limit", description = "Max results. Default 20.")
@@ -27,7 +27,7 @@ public class SearchCommand extends QueryCommand {
     @Option(names = "--offset", description = "Skip N results for pagination. Default 0.")
     int offset = 0;
 
-    @Option(names = "--name", description = "Precise simple-name match against label (glob: * ?, e.g. '*Plugin'). Bypasses FTS.")
+    @Option(names = "--name", description = "Precise simple-name match against label (glob: * ?, e.g. '*Plugin'); includes virtual external types unless another kind is selected.")
     String name;
 
     @Option(names = "--count", description = "Return only the total count (results omitted), independent of --limit.")

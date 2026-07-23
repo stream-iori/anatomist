@@ -355,16 +355,19 @@ Explicit data flow is the default.
 `--implicit-taint` also adds possible taint flow through control guards.
 
 ### `search`
-Find nodes by name (FTS5), precise simple-name, or annotation.
+Find project nodes and query-only external classpath types by name (FTS5), precise simple-name, or annotation.
 
 ```bash
 anatomist search <term> [--kind CLASS|METHOD|...] [--limit 20] [--by-annotation] --index <db>
+anatomist search SafeFastjsonParser --kind EXTERNAL_CLASS --index <db>
 anatomist search <term> --limit 20 --offset 20 --index <db>
 anatomist search --name '<glob>' [--kind CLASS|INTERFACE|...] [--count] --index <db>
 anatomist search <term> --count --index <db>
 ```
 
 - Default `<term>`: FTS5 match over qualified name / label / javadoc — **also matches package path tokens** (e.g. `search Facade` matches everything under a `.facade.` package). FTS results carry a `stats.label_matches` count: how many returned rows actually match the simple name, so an inflated `total` is easy to spot.
+- Default name/FTS search also appends matching virtual `EXTERNAL_CLASS` rows derived from project external edges. Use `--kind EXTERNAL_CLASS` to return only those rows. They carry `external_target=true`, `external_edge_count`, and relation/resolution/confidence count maps; Anatomist does not create a source node or index the dependency JAR.
+- `--by-annotation` searches only project nodes because dependency annotations are not indexed.
 - `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*Plugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
 - `--count`: return only the true total (results omitted), **independent of `--limit`**. Works with `--name` or FTS.
 - Search output always reports `stats.total`, `stats.limit`, `stats.offset`, `stats.truncated`, and `budget`, including the first page. Continue with `next_queries` when `stats.truncated=true`.
@@ -429,9 +432,19 @@ Incoming call chain (impact analysis).
 anatomist callers-of <method-fqn> [--depth N] [--through-callbacks] [--source-window[=N]] [--blocks=class|package] --index <db>
 anatomist callers-of <method-fqn> --depth 3 --limit 50 --offset 50 --filter <keyword> --index <db>
 anatomist callers-of <method-fqn> --depth 2 --source-window=3 --index <db>
+# Query an already-indexed external target without indexing its dependency JAR.
+anatomist callers-of com.vendor.json.SafeFastjsonParser#parseObject(java.lang.String) --depth 2 --index <db>
 ```
 
 - Pierces interface/abstract dispatch via OVERRIDES (interface method → implementors).
+- External method target: if `<method-fqn>` is absent from `nodes`, Anatomist also
+  looks up external `CALLS` edges by `external_target_fqn`. A full signature is an
+  exact match; `com.vendor.Type#method` matches all indexed overloads of that method.
+  The external edge is depth 1, and `--depth N` continues upward only through
+  project-internal callers. It does not index or traverse the dependency JAR.
+- External edge identity is explicit in JSON: `external_target=true`, `is_external=true`,
+  `external_target_fqn`, `resolution`, and the extractor's `confidence`. Do not treat it as a
+  project declaration (`target` and `target_symbol_id` are null).
 - `--through-callbacks`: when an incoming call originates inside an anonymous-class / lambda body, attribute it to the enclosing real method (tagged `via=<body-id>`, `call_kind=CALLBACK`) instead of reporting the synthetic `$anon@…#process()` node — so impact analysis reaches the actual caller.
 - `--source-window[=N]`: attach numbered source snippets to returned caller edges. Good for impact reports where each caller needs file/line evidence.
 - `--limit` / `--offset` / `--filter`: page wide impact graphs and continue with `stats.next_offset`. JSON always includes paging stats and `budget`, including the first page.
@@ -492,7 +505,16 @@ Incoming dependencies (impact analysis), including Spring MVC route handlers and
 
 ```bash
 anatomist used-by <type> [--limit 50] [--offset 0] [--filter <keyword>] --index <db>
+# Includes project callers/references to an external class already present in the index.
+anatomist used-by com.vendor.json.SafeFastjsonParser --index <db>
 ```
+
+- For an external type FQN, matches `external_target_fqn = <type>` (for example a
+  type reference) and `<type>#…` (its indexed methods/fields). This returns direct
+  project `CALLS` and `REFERENCES` without creating an external CLASS node.
+- External result rows expose `external_target=true`, `resolution`, and `confidence`.
+- Use the full type FQN for external lookup. A short name such as
+  `SafeFastjsonParser` remains a node-name lookup and is intentionally not guessed.
 
 ### `field-access`
 Who reads/writes a field.
