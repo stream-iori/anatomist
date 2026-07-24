@@ -2,6 +2,7 @@ package com.anatomist.core;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
@@ -60,10 +61,12 @@ class IndexHealthReportTest {
 
     @Test
     void immediateHealthUsesSameBoundedRetentionAsPersistence() {
-        List<IndexDiagnostic> diagnostics = IntStream.range(0, 5_101)
+        List<IndexDiagnostic> diagnostics = new ArrayList<>(IntStream.range(0, 5_100)
                 .mapToObj(i -> diagnostic("info", "METHOD_NOT_FOUND",
                         "full_extract_call_graph", 1))
-                .toList();
+                .toList());
+        diagnostics.add(diagnostic("info", "THIRDPARTY_SYMBOL_MISSING",
+                "full_extract_call_graph", 1));
 
         IndexHealthReport report = IndexHealthReport.of(diagnostics);
 
@@ -73,6 +76,10 @@ class IndexHealthReportTest {
                         && d.count() == 102));
         assertEquals(IndexHealthReport.Status.HEALTHY, report.status());
         assertFalse(report.gate(HealthPolicy.COMPLETE).passed());
+        Map<?, ?> external = (Map<?, ?>) ((Map<?, ?>) report.dimensions()
+                .get("resolution")).get("external");
+        assertEquals("partial", external.get("status"));
+        assertEquals(1L, external.get("occurrences"));
     }
 
     private static IndexDiagnostic diagnostic(String severity, String code,

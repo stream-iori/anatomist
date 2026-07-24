@@ -1,9 +1,14 @@
 package com.anatomist.core;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 /** Shared bounded-retention contract for persisted and immediately emitted diagnostics. */
 public final class IndexDiagnosticRetention {
@@ -24,9 +29,35 @@ public final class IndexDiagnosticRetention {
                         Comparator.nullsLast(String::compareTo))
                 .thenComparing(IndexDiagnostic::sourceFile,
                         Comparator.nullsLast(String::compareTo)));
-        int omitted = ordered.size() - (LIMIT - 1);
-        List<IndexDiagnostic> retained =
-                new ArrayList<>(ordered.subList(0, LIMIT - 1));
+        int capacity = LIMIT - 1;
+        int omitted = ordered.size() - capacity;
+
+        // Keep at least one representative of every code before filling the
+        // remaining slots by priority/count. Otherwise a high-volume reason
+        // can hide a low-volume category and make health dimensions claim it
+        // is complete even though the lossless aggregates say otherwise.
+        Map<String, IndexDiagnostic> representatives = new LinkedHashMap<>();
+        for (IndexDiagnostic diagnostic : ordered) {
+            representatives.putIfAbsent(diagnostic.code(), diagnostic);
+        }
+        List<IndexDiagnostic> retained = new ArrayList<>(capacity);
+        Set<IndexDiagnostic> selected = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (IndexDiagnostic representative : representatives.values()) {
+            if (retained.size() == capacity) break;
+            retained.add(representative);
+            selected.add(representative);
+        }
+        for (IndexDiagnostic diagnostic : ordered) {
+            if (retained.size() == capacity) break;
+            if (selected.add(diagnostic)) retained.add(diagnostic);
+        }
+        retained.sort(Comparator
+                .comparingInt(IndexDiagnosticRetention::priority)
+                .thenComparing(Comparator.comparingLong(IndexDiagnostic::count).reversed())
+                .thenComparing(IndexDiagnostic::code,
+                        Comparator.nullsLast(String::compareTo))
+                .thenComparing(IndexDiagnostic::sourceFile,
+                        Comparator.nullsLast(String::compareTo)));
         retained.add(new IndexDiagnostic(
                 "info", "DIAGNOSTIC_STORAGE_TRUNCATED", "RESOLUTION",
                 null, null, null, null, omitted,
