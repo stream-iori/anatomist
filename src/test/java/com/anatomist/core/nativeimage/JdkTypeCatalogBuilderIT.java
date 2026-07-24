@@ -63,4 +63,13 @@ class JdkTypeCatalogBuilderIT {
         assertNotNull(e);
         assertNotEquals(0, e.flags & JdkType.FLAG_ENUM, "RetentionPolicy is an enum");
     }
+
+    @Test
+    void buildFromJrtFs_varargsMethodDetected() {
+        JdkType path = new JdkTypeCatalogBuilder().buildFromCurrentJdk().find("java.nio.file.Path");
+        assertNotNull(path);
+        assertTrue(path.methods.stream().anyMatch(method -> method.name.equals("of")
+                && method.descriptor.equals("(Ljava/lang/String;[Ljava/lang/String;)Ljava/nio/file/Path;")
+                && (method.flags & JdkType.FLAG_VARARGS) != 0));
+    }
 }

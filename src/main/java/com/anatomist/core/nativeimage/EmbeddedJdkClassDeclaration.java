@@ -11,6 +11,7 @@ import com.github.javaparser.resolution.declarations.ResolvedAnnotationMemberDec
 import com.github.javaparser.resolution.declarations.ResolvedClassDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedEnumDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedEnumConstantDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedInterfaceDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -42,6 +43,7 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
         ResolvedClassDeclaration,
         ResolvedInterfaceDeclaration,
         ResolvedAnnotationDeclaration,
+        ResolvedEnumDeclaration,
         MethodResolutionCapability,
         MethodUsageResolutionCapability {
 
@@ -119,7 +121,19 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
     @Override
     @SuppressWarnings("unchecked")
     public ResolvedEnumDeclaration asEnum() {
-        throw new UnsupportedOperationException(this + " is not an enum");
+        if (!isEnum()) throw new UnsupportedOperationException(this + " is not an enum");
+        return this;
+    }
+
+    @Override
+    public List<ResolvedEnumConstantDeclaration> getEnumConstants() {
+        List<ResolvedEnumConstantDeclaration> out = new ArrayList<>();
+        for (JdkType.FieldEntry entry : type.fields) {
+            if ((entry.flags & JdkType.FLAG_ENUM) == 0) continue;
+            EmbeddedJdkFieldDeclaration field = new EmbeddedJdkFieldDeclaration(entry, this, solver);
+            out.add(new EmbeddedJdkEnumConstantDeclaration(field));
+        }
+        return out;
     }
 
     // ── hierarchy ──

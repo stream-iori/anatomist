@@ -210,7 +210,9 @@ public class JdkTypeCatalogBuilder {
             if (skipped) return null;
             if ((access & Opcodes.ACC_SYNTHETIC) != 0) return null;
             if ((access & Opcodes.ACC_BRIDGE) != 0) return null;
-            methods.add(new JdkType.MethodEntry(name, descriptor, translateFlags(access, true), signature));
+            int flags = translateFlags(access, true);
+            if ((access & Opcodes.ACC_VARARGS) != 0) flags |= JdkType.FLAG_VARARGS;
+            methods.add(new JdkType.MethodEntry(name, descriptor, flags, signature));
             return null;
         }
 

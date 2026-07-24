@@ -24,4 +24,5 @@ public final class AccessFlags {
     public static boolean isRecord(int access)    { return (access & Opcodes.ACC_RECORD) != 0; }
     public static boolean isSynthetic(int access) { return (access & Opcodes.ACC_SYNTHETIC) != 0; }
     public static boolean isBridge(int access)    { return (access & Opcodes.ACC_BRIDGE) != 0; }
+    public static boolean isVarArgs(int access)   { return (access & Opcodes.ACC_VARARGS) != 0; }
 }

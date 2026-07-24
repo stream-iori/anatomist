@@ -19,7 +19,8 @@ class JdkTypeCatalogTest {
                 List.of(
                         new JdkType.MethodEntry("length", "()I", JdkType.FLAG_PUBLIC),
                         new JdkType.MethodEntry("substring", "(I)Ljava/lang/String;", JdkType.FLAG_PUBLIC),
-                        new JdkType.MethodEntry("substring", "(II)Ljava/lang/String;", JdkType.FLAG_PUBLIC)
+                        new JdkType.MethodEntry("substring", "(II)Ljava/lang/String;",
+                                JdkType.FLAG_PUBLIC | JdkType.FLAG_VARARGS)
                 ));
 
         JdkTypeCatalog cat = new JdkTypeCatalog(21);
@@ -41,6 +42,8 @@ class JdkTypeCatalogTest {
         assertEquals(3, got.methods.size());
         long substringCount = got.methods.stream().filter(m -> m.name.equals("substring")).count();
         assertEquals(2, substringCount);
+        assertTrue(got.methods.stream().anyMatch(m ->
+                m.name.equals("substring") && (m.flags & JdkType.FLAG_VARARGS) != 0));
     }
 
     @Test

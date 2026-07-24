@@ -13,6 +13,7 @@ public final class JdkType {
     public static final int FLAG_ANNOTATION  = 1 << 6;
     public static final int FLAG_CLASS       = 1 << 7;
     public static final int FLAG_RECORD      = 1 << 8;
+    public static final int FLAG_VARARGS     = 1 << 9;
 
     public final String fqn;
     public final String superFqn;

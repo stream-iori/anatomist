@@ -38,7 +38,9 @@ public class EmbeddedJdkMethodDeclaration implements ResolvedMethodDeclaration {
 
     @Override
     public ResolvedParameterDeclaration getParam(int i) {
-        return new EmbeddedJdkParameterDeclaration(resolver.paramTypes().get(i), i);
+        boolean variadic = i == getNumberOfParams() - 1
+                && (entry.flags & JdkType.FLAG_VARARGS) != 0;
+        return new EmbeddedJdkParameterDeclaration(resolver.paramTypes().get(i), i, variadic);
     }
 
     @Override

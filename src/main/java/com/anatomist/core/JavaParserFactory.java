@@ -123,7 +123,8 @@ public class JavaParserFactory {
         CombinedTypeSolver ts = new CombinedTypeSolver(
                 exception -> false, List.<TypeSolver>of(), boundedCache(combinedTypeCacheSize()));
         ParserConfiguration sourceConfiguration = new ParserConfiguration()
-                .setLanguageLevel(toLanguageLevel(javaVersion));
+                .setLanguageLevel(toLanguageLevel(javaVersion))
+                .setSymbolResolver(new JavaSymbolSolver(ts));
         // Source paths first — project types should resolve before JDK/classpath
         for (Path src : sourcePaths) {
             if (src != null && Files.isDirectory(src)) {
@@ -451,7 +452,8 @@ public class JavaParserFactory {
                 exception -> false, List.<TypeSolver>of(), combinedTypes);
         Map<Path, ReloadableSourceSolver> sourceSolvers = new LinkedHashMap<>();
         ParserConfiguration sourceConfiguration = new ParserConfiguration()
-                .setLanguageLevel(toLanguageLevel(javaVersion));
+                .setLanguageLevel(toLanguageLevel(javaVersion))
+                .setSymbolResolver(new JavaSymbolSolver(ts));
         for (Path src : sourcePaths) {
             if (src == null || !Files.isDirectory(src)) continue;
             Path normalized = src.toAbsolutePath().normalize();

@@ -31,7 +31,10 @@ final class AsmParameterDeclaration implements ResolvedParameterDeclaration {
 
     @Override
     public boolean isVariadic() {
-        return false; // ACC_VARARGS lives on the method, not on the descriptor
+        int access = owner instanceof AsmMethodDeclaration method ? method.access()
+                : owner instanceof AsmConstructorDeclaration constructor ? constructor.access()
+                : 0;
+        return index == owner.getNumberOfParams() - 1 && AccessFlags.isVarArgs(access);
     }
 
     @Override

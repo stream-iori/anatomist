@@ -77,6 +77,18 @@ class AsmClassDeclarationTest {
                 enumBytes("com.x.MyEnum"));
         assertTrue(d.isEnum(), "ACC_ENUM bit must surface");
         assertFalse(d.isInterface());
+        assertSame(d, d.asEnum());
+        assertEquals(List.of("A"), d.getEnumConstants().stream().map(c -> c.getName()).toList());
+    }
+
+    @Test
+    void methodVarargsFlagSurfacesOnLastParameter() {
+        AsmClassDeclaration d = solve("com.x.Api", classWithVarargsMethod("com.x.Api"));
+        var method = d.getDeclaredMethods().stream()
+                .filter(candidate -> candidate.getName().equals("join"))
+                .findFirst().orElseThrow();
+        assertFalse(method.getParam(0).isVariadic());
+        assertTrue(method.getParam(1).isVariadic());
     }
 
     @Test
@@ -240,6 +252,18 @@ class AsmClassDeclarationTest {
         cw.visit(Opcodes.V21,
                 Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_ENUM,
                 fqn.replace('.', '/'), null, "java/lang/Enum", null);
+        cw.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL | Opcodes.ACC_ENUM,
+                "A", "L" + fqn.replace('.', '/') + ";", null, null).visitEnd();
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    static byte[] classWithVarargsMethod(String fqn) {
+        ClassWriter cw = new ClassWriter(0);
+        cw.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, fqn.replace('.', '/'),
+                null, "java/lang/Object", null);
+        cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_VARARGS, "join",
+                "(I[I)V", null, null).visitEnd();
         cw.visitEnd();
         return cw.toByteArray();
     }

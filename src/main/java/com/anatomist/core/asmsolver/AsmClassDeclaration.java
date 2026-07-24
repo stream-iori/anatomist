@@ -6,6 +6,8 @@ import com.github.javaparser.resolution.TypeSolver;
 import com.github.javaparser.resolution.declarations.ResolvedAnnotationDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedAnnotationMemberDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedEnumConstantDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedEnumDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
@@ -32,6 +34,7 @@ import java.util.Set;
 /** ASM-backed implementation of {@link ResolvedReferenceTypeDeclaration}. */
 public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
         ResolvedAnnotationDeclaration,
+        ResolvedEnumDeclaration,
         MethodResolutionCapability {
 
     private final String fqn;
@@ -147,6 +150,22 @@ public class AsmClassDeclaration implements ResolvedReferenceTypeDeclaration,
 
     @Override
     public boolean isType() { return true; }
+
+    @Override
+    public ResolvedEnumDeclaration asEnum() {
+        if (!isEnum()) throw new UnsupportedOperationException(this + " is not an enum");
+        return this;
+    }
+
+    @Override
+    public List<ResolvedEnumConstantDeclaration> getEnumConstants() {
+        ensureParsed();
+        return declaredFields.stream()
+                .filter(field -> AccessFlags.isEnum(field.access()))
+                .map(AsmEnumConstantDeclaration::new)
+                .map(ResolvedEnumConstantDeclaration.class::cast)
+                .toList();
+    }
 
     // ── members ──
 

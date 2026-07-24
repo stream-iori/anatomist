@@ -17,7 +17,9 @@ class LocalJdkCatalogResolverTest {
         assertNotNull(first.find("java.lang.String"));
         long cached;
         try (var files = java.nio.file.Files.list(tmp)) {
-            cached = files.filter(p -> p.getFileName().toString().endsWith(".bin")).count();
+            java.util.List<Path> paths = files.filter(p -> p.getFileName().toString().endsWith(".bin")).toList();
+            cached = paths.size();
+            assertTrue(paths.get(0).getFileName().toString().contains("-r2-"));
         }
         assertEquals(1, cached);
         JdkTypeCatalog second = LocalJdkCatalogResolver.resolve(home, release, tmp);

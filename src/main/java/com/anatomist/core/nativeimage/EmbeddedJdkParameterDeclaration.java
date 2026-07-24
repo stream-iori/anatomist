@@ -9,10 +9,12 @@ final class EmbeddedJdkParameterDeclaration implements ResolvedParameterDeclarat
 
     private final ResolvedType type;
     private final int index;
+    private final boolean variadic;
 
-    EmbeddedJdkParameterDeclaration(ResolvedType type, int index) {
+    EmbeddedJdkParameterDeclaration(ResolvedType type, int index, boolean variadic) {
         this.type = type;
         this.index = index;
+        this.variadic = variadic;
     }
 
     @Override
@@ -22,7 +24,7 @@ final class EmbeddedJdkParameterDeclaration implements ResolvedParameterDeclarat
     public ResolvedType getType() { return type; }
 
     @Override
-    public boolean isVariadic() { return false; }
+    public boolean isVariadic() { return variadic; }
 
     @Override
     public boolean isParameter() { return true; }

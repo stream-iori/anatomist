@@ -16,6 +16,7 @@ import java.util.HexFormat;
  * below the Anatomist home. It deliberately has no network behavior. */
 public final class LocalJdkCatalogResolver {
     public static final String ENV_JDK_HOME = "ANATOMIST_JDK_HOME";
+    private static final int CATALOG_GENERATION = 2;
 
     private LocalJdkCatalogResolver() {}
 
@@ -101,7 +102,8 @@ public final class LocalJdkCatalogResolver {
                     }
                 });
             }
-            return "jdk" + release + "-" + HexFormat.of().formatHex(digest.digest()).substring(0, 16) + ".bin";
+            return "jdk" + release + "-r" + CATALOG_GENERATION + "-"
+                    + HexFormat.of().formatHex(digest.digest()).substring(0, 16) + ".bin";
         } catch (CatalogFingerprintException | IOException e) {
             throw new IllegalArgumentException("failed to fingerprint JDK home " + home, e);
         } catch (NoSuchAlgorithmException e) {

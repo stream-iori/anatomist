@@ -1,6 +1,7 @@
 package com.anatomist.core;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -69,6 +70,43 @@ class JavaParserFactoryTest {
         // resolve() should not throw with the SymbolResolver attached
         cus.get(0).findAll(com.github.javaparser.ast.body.MethodDeclaration.class)
                 .forEach(m -> assertDoesNotThrow(m::resolve));
+    }
+
+    @Test
+    void sourceTypeSolverAstUsesTheCombinedSymbolResolver(@TempDir Path tmp) throws Exception {
+        Path src = Files.createDirectories(tmp.resolve("src/p"));
+        Path dep = src.resolve("Dep.java");
+        Files.writeString(dep, """
+                package p;
+                import java.util.Optional;
+                class Dep { Optional<String> value() { return Optional.empty(); } }
+                """);
+        JavaParserFactory factory = new JavaParserFactory(
+                25, List.of(), List.of(tmp.resolve("src")), true);
+
+        var declaration = factory.newTypeSolver().solveType("p.Dep");
+        var ast = ((com.github.javaparser.symbolsolver.javaparsermodel.declarations
+                .JavaParserClassDeclaration) declaration).getWrappedNode();
+        MethodCallExpr empty = ast.findFirst(MethodCallExpr.class).orElseThrow();
+
+        assertEquals("java.util.Optional", empty.resolve().declaringType().getQualifiedName());
+    }
+
+    @Test
+    void watchSessionSourceSolverAstUsesTheCombinedSymbolResolver(@TempDir Path tmp) throws Exception {
+        Path src = Files.createDirectories(tmp.resolve("src/p"));
+        Path dep = src.resolve("Dep.java");
+        Path use = src.resolve("Use.java");
+        Files.writeString(dep, "package p; class Dep { String value() { return \"ok\"; } }");
+        Files.writeString(use, "package p; class Use { String run() { return new Dep().value(); } }");
+
+        try (JavaParserFactory.SessionCache sessions = new JavaParserFactory.SessionCache()) {
+            JavaParserFactory factory = new JavaParserFactory(
+                    25, List.of(), List.of(tmp.resolve("src")), true, sessions);
+            CompilationUnit unit = factory.parseFiles(List.of(use)).get(0);
+            MethodCallExpr call = unit.findFirst(MethodCallExpr.class).orElseThrow();
+            assertEquals("p.Dep", call.resolve().declaringType().getQualifiedName());
+        }
     }
 
     @Test

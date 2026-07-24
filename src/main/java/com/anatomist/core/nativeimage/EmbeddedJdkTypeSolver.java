@@ -62,18 +62,39 @@ public class EmbeddedJdkTypeSolver implements TypeSolver {
         }
         if (cached != null) return SymbolReference.solved(cached);
 
-        JdkType t = catalog.find(name);
-        if (t == null) return SymbolReference.unsolved();
+        Lookup lookup = lookup(name);
+        if (lookup == null) return SymbolReference.unsolved();
 
         EmbeddedJdkClassDeclaration decl;
         synchronized (cache) {
-            EmbeddedJdkClassDeclaration existing = cache.get(name);
+            EmbeddedJdkClassDeclaration existing = cache.get(lookup.binaryName());
             if (existing != null) return SymbolReference.solved(existing);
-            decl = new EmbeddedJdkClassDeclaration(t, this);
-            cache.put(name, decl);
+            decl = new EmbeddedJdkClassDeclaration(lookup.type(), this);
+            cache.put(lookup.binaryName(), decl);
+            if (!name.equals(lookup.binaryName())) cache.put(name, decl);
         }
         return SymbolReference.solved(decl);
     }
+
+    /**
+     * Java source names nested types with dots ({@code Map.Entry}), while the
+     * class-file catalog stores their binary names ({@code Map$Entry}). Mirror
+     * the ASM classpath solver's exact-first, right-to-left lookup so package
+     * separators are only replaced after a catalog hit proves the boundary.
+     */
+    private Lookup lookup(String requested) {
+        if (requested == null || requested.isBlank()) return null;
+        String candidate = requested;
+        while (true) {
+            JdkType type = catalog.find(candidate);
+            if (type != null) return new Lookup(candidate, type);
+            int separator = candidate.lastIndexOf('.');
+            if (separator < 0) return null;
+            candidate = candidate.substring(0, separator) + "$" + candidate.substring(separator + 1);
+        }
+    }
+
+    private record Lookup(String binaryName, JdkType type) {}
 
     @Override
     public SymbolReference<ResolvedReferenceTypeDeclaration> tryToSolveTypeInModule(
