@@ -84,6 +84,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 
 | Doc | Purpose |
 |-----|---------|
+| [introduce.md](introduce.md) | Chinese introduction: capabilities, evidence boundaries, installation, and first workflow |
 | [docs/getting-started.md](docs/getting-started.md) | Installation, first index, first query |
 | [docs/commands.md](docs/commands.md) | Full CLI reference (all commands + flags) |
 | [docs/architecture.md](docs/architecture.md) | Package layout, data flow, design constraints |
