@@ -183,6 +183,19 @@ class JavaParserFactoryTest {
     }
 
     @Test
+    void toLanguageLevel_supportsJava25() {
+        assertEquals(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_25,
+                JavaParserFactory.toLanguageLevel(25));
+    }
+
+    @Test
+    void toLanguageLevel_rejectsVersionsOutsideSupportedRange() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> JavaParserFactory.toLanguageLevel(26));
+        assertTrue(error.getMessage().contains("8..25"));
+    }
+
+    @Test
     void toLanguageLevel_supportsJava16ForRecords() {
         assertEquals(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_16,
                 JavaParserFactory.toLanguageLevel(16));

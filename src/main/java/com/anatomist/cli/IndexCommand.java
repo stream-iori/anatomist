@@ -711,7 +711,8 @@ public class IndexCommand implements Callable<Integer> {
                     ? 2 : 3;
             throw new com.anatomist.core.JavaVersionException(exit,
                     "JAVA_VERSION_UNSUPPORTED: Java " + detected.version()
-                            + " is outside the supported analysis range 8..17"
+                            + " is outside the supported analysis range "
+                            + com.anatomist.core.JavaVersionDetection.supportedRange()
                             + (detected.evidenceFile() == null ? ""
                             : " (" + detected.evidenceFile() + ")"));
         }
@@ -744,10 +745,12 @@ public class IndexCommand implements Callable<Integer> {
         } catch (NumberFormatException ex) {
             return null;
         }
-        if (cachedJavaVersion < 8 || cachedJavaVersion > 17) {
+        if (cachedJavaVersion < com.anatomist.core.JavaVersionDetection.MIN_SUPPORTED_VERSION
+                || cachedJavaVersion > com.anatomist.core.JavaVersionDetection.MAX_SUPPORTED_VERSION) {
             throw new com.anatomist.core.JavaVersionException(3,
                     "JAVA_VERSION_UNSUPPORTED: cached Java " + cachedJavaVersion
-                            + " is outside the supported analysis range 8..17");
+                            + " is outside the supported analysis range "
+                            + com.anatomist.core.JavaVersionDetection.supportedRange());
         }
         List<Path> cachedClasspath = parsePathList(store.readProjectMeta("classpath_entries").orElse(""));
         currentClasspathDetection = com.anatomist.core.ClasspathDetectionResult.indexMetadata(

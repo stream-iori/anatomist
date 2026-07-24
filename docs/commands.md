@@ -35,7 +35,7 @@ anatomist index <project-path> [options]
 | `--health-policy none\|integrity\|complete` | Select the health gate; see the table below | none |
 | `--strict-health` | Compatibility alias for `--health-policy complete` | false |
 
-Target-project language support is Java 8–17. Detection precedence is
+Target-project language support is Java 8–25. Detection precedence is
 `--java-version` → `.anatomist/config.toml` → Maven/Gradle declarations → Java 8.
 Maven detection reads compiler `release`/`source`, plugin configuration, local
 parent properties, and property references. Gradle detection statically reads

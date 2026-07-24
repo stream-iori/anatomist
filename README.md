@@ -58,7 +58,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 - SymbolSolver-level call resolution (not naive label match) — distinguishes INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE
 - Stable IDs for lambdas, method refs, anonymous classes
 - Incremental re-index (only changed files)
-- Java 8–17 Maven/Gradle language-level detection with parse completeness health
+- Java 8–25 Maven/Gradle language-level detection with parse completeness health
 - Explainable resolution diagnostics by file, module, scope, phase, and reason
 - Lossless capability coverage aggregates independent of bounded diagnostic samples
 - Bounded Java core-reflection targets for `Class.forName`, method/constructor

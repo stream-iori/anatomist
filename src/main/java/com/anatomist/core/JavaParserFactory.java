@@ -535,6 +535,7 @@ public class JavaParserFactory {
 
     static LanguageLevel toLanguageLevel(int v) {
         return switch (v) {
+            case 8 -> LanguageLevel.JAVA_8;
             case 9 -> LanguageLevel.JAVA_9;
             case 10 -> LanguageLevel.JAVA_10;
             case 11 -> LanguageLevel.JAVA_11;
@@ -548,7 +549,13 @@ public class JavaParserFactory {
             case 19 -> LanguageLevel.JAVA_19;
             case 20 -> LanguageLevel.JAVA_20;
             case 21 -> LanguageLevel.JAVA_21;
-            default -> LanguageLevel.JAVA_8;
+            case 22 -> LanguageLevel.JAVA_22;
+            case 23 -> LanguageLevel.JAVA_23;
+            case 24 -> LanguageLevel.JAVA_24;
+            case 25 -> LanguageLevel.JAVA_25;
+            default -> throw new IllegalArgumentException(
+                    "Unsupported Java language version " + v + "; supported range is "
+                            + JavaVersionDetection.supportedRange());
         };
     }
 }

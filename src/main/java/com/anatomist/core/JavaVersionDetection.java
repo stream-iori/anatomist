@@ -11,6 +11,9 @@ public record JavaVersionDetection(
         String evidenceExpression,
         List<IndexDiagnostic> diagnostics
 ) {
+    public static final int MIN_SUPPORTED_VERSION = 8;
+    public static final int MAX_SUPPORTED_VERSION = 25;
+
     public enum Source { CLI, CONFIG, MAVEN, GRADLE, FALLBACK, UNKNOWN }
 
     public JavaVersionDetection {
@@ -23,7 +26,11 @@ public record JavaVersionDetection(
     }
 
     public boolean supported() {
-        return version >= 8 && version <= 17;
+        return version >= MIN_SUPPORTED_VERSION && version <= MAX_SUPPORTED_VERSION;
+    }
+
+    public static String supportedRange() {
+        return MIN_SUPPORTED_VERSION + ".." + MAX_SUPPORTED_VERSION;
     }
 
     public static JavaVersionDetection unknown(List<IndexDiagnostic> diagnostics) {

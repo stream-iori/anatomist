@@ -82,11 +82,36 @@ class IndexCommandIT {
     }
 
     @Test
+    void explicitJava25IndexesJava25Source(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Files.writeString(project.resolve("src/main/java/p/A.java"), """
+                package p;
+                import module java.base;
+                class A { void run() {} }
+                """);
+        Path db = tmp.resolve("java25.db");
+
+        RunResult result = CliTestSupport.runIndex(project,
+                "--no-classpath", "--java-version", "25",
+                "--output", db.toString(), "--format", "json");
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        assertTrue(result.stderr().contains("Parsing with Java 25"), result.stderr());
+        assertTrue(result.stdout().contains("\"java_version\" : 25"), result.stdout());
+        assertTrue(result.stdout().contains("\"parsed_files\" : 1"), result.stdout());
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            assertEquals("25", scalarString(statement,
+                    "SELECT value FROM project_meta WHERE key='java_version'"));
+        }
+    }
+
+    @Test
     void unsupportedDetectedJavaVersionReturnsThreeBeforeIndexing(@TempDir Path tmp) throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
         Files.writeString(project.resolve("pom.xml"), """
                 <project><properties>
-                  <maven.compiler.release>18</maven.compiler.release>
+                  <maven.compiler.release>26</maven.compiler.release>
                 </properties></project>
                 """);
         Path db = tmp.resolve("unsupported.db");
@@ -96,6 +121,7 @@ class IndexCommandIT {
 
         assertEquals(3, result.exitCode(), result.stderr());
         assertTrue(result.stderr().contains("JAVA_VERSION_UNSUPPORTED"), result.stderr());
+        assertTrue(result.stderr().contains("8..25"), result.stderr());
         assertFalse(Files.exists(db));
     }
 
