@@ -1,8 +1,8 @@
 {
   "budget" : {
-    "emitted" : 19,
+    "emitted" : 20,
     "mode" : "edges",
-    "total" : 19,
+    "total" : 20,
     "truncated" : false
   },
   "evidence" : {
@@ -17,9 +17,11 @@
     "call_kind" : "STATIC",
     "confidence" : "EXTRACTED",
     "depth" : 1,
+    "external_target" : true,
     "external_target_fqn" : "java.util.Objects#requireNonNull(java.lang.Object,java.lang.String)",
     "is_external" : true,
     "relation" : "CALLS",
+    "resolution" : "classpath",
     "source" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
     "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
     "source_label" : "createOrder",
@@ -56,6 +58,25 @@
     "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
     "source_label" : "createOrder",
     "source_location" : "L34",
+    "source_module" : "service",
+    "source_scope" : "MAIN",
+    "source_symbol_id" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target" : "domain::MAIN::com.example.shop.domain.dto.CreateOrderRequest#getItems()",
+    "target_label" : "getItems",
+    "target_module" : "domain",
+    "target_qualified_name" : "com.example.shop.domain.dto.CreateOrderRequest#getItems",
+    "target_scope" : "MAIN",
+    "target_symbol_id" : "com.example.shop.domain.dto.CreateOrderRequest#getItems()"
+  }, {
+    "call_kind" : "INSTANCE",
+    "confidence" : "EXTRACTED",
+    "depth" : 1,
+    "is_external" : false,
+    "relation" : "CALLS",
+    "source" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "source_label" : "createOrder",
+    "source_location" : "L36",
     "source_module" : "service",
     "source_scope" : "MAIN",
     "source_symbol_id" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
@@ -279,6 +300,7 @@
     "call_kind" : "CONSTRUCTOR",
     "confidence" : "AMBIGUOUS",
     "depth" : 1,
+    "external_target" : true,
     "external_target_fqn" : "com.example.shop.domain.dto.CreateOrderRequest#CreateOrderRequest()",
     "is_external" : true,
     "relation" : "CALLS",
@@ -362,7 +384,7 @@
     "limit" : 50,
     "max_depth" : 1,
     "offset" : 0,
-    "total" : 19,
+    "total" : 20,
     "truncated" : false
   }
 }
