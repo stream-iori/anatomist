@@ -51,6 +51,11 @@ public final class IndexEnvironmentFingerprint {
                 FileCacheService.sha256OfString(artifacts));
     }
 
+    /** Stable fingerprint of resolved classpath entries, independent of build-file bytes. */
+    public static String classpathArtifactsHash(List<Path> classpathEntries) {
+        return FileCacheService.sha256OfString(classpathArtifacts(classpathEntries));
+    }
+
     private static String sourceLayout(List<SourceRoot> roots) {
         if (roots == null || roots.isEmpty()) return "";
         return roots.stream()

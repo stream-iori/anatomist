@@ -26,7 +26,7 @@ class CallChainSlicerTest {
             s.execute("CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     + "source_id TEXT NOT NULL, target_id TEXT, external_target_fqn TEXT, "
                     + "relation TEXT NOT NULL, call_kind TEXT, "
-                    + "confidence TEXT NOT NULL DEFAULT 'EXTRACTED', context TEXT, "
+                    + "confidence TEXT NOT NULL DEFAULT 'EXTRACTED', resolution TEXT, context TEXT, "
                     + "is_external INTEGER NOT NULL DEFAULT 0, source_file TEXT, "
                     + "source_location TEXT, metadata TEXT)");
             s.execute("CREATE TABLE annotations (id INTEGER PRIMARY KEY AUTOINCREMENT, "

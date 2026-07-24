@@ -953,7 +953,17 @@ public class IndexCommand implements Callable<Integer> {
         String previous = store.readProjectMeta("classpath_input_hash").orElse("");
         if (current == null || current.isBlank()) return null;
         if (previous.isBlank()) return "classpath inputs not recorded";
-        return current.equals(previous) ? null : "classpath inputs changed";
+        if (current.equals(previous)) return null;
+
+        // A POM byte-level change requires Maven to refresh the classpath cache,
+        // but it does not by itself change symbol resolution. Rebuild only when
+        // the refreshed artifacts differ from the committed index environment.
+        List<Path> refreshedEntries = resolveClasspath(detector, projectRoot);
+        String refreshedArtifacts = com.anatomist.core.IndexEnvironmentFingerprint
+                .classpathArtifactsHash(refreshedEntries);
+        String previousArtifacts = store.readProjectMeta(
+                com.anatomist.core.IndexEnvironmentFingerprint.CLASSPATH_ARTIFACTS_KEY).orElse("");
+        return refreshedArtifacts.equals(previousArtifacts) ? null : "classpath artifacts changed";
     }
 
     private void persistClasspathDetection(SqliteStore store, ClasspathDetector detector,
