@@ -139,6 +139,8 @@ Key flags:
 - `--timings` — show per-phase costs without changing default output
 - `--health-policy integrity` — reject incomplete parse/graph snapshots while
   allowing disclosed third-party resolution gaps
+- `--jdk-home` — local JDK home for native-image catalog resolution; defaults
+  to `ANATOMIST_JDK_HOME` when set
 
 Maven dependency classpaths are cached under
 `$ANATOMIST_HOME/cache/classpath` using the project POM files and Maven
@@ -147,6 +149,15 @@ legacy reactor that inherits a `jdk.tools/tools.jar` system dependency,
 anatomist retries Maven with a local JDK 8. Set
 `ANATOMIST_MAVEN_JAVA_HOME=/path/to/jdk` to override the Maven runtime without
 changing the JVM that runs anatomist.
+
+The native binary bundles a real Java 8 type catalog and does not download
+catalogs. To resolve a Java 9–17 target against its local JDK API, pass a
+matching path once; the generated catalog is cached under
+`$ANATOMIST_HOME/catalogs`:
+
+```bash
+anatomist index /path/to/project --java-version 17 --jdk-home /path/to/jdk-17
+```
 
 To keep the index fresh while editing, use `watch --auto-index` with the same
 indexing shape as the initial command:
@@ -162,6 +173,8 @@ anatomist watch fixtures/mini-spring-shop \
 ```
 
 For Spring XML projects, add `--spring-xml` to both `index` and `watch`.
+Likewise, reuse `--jdk-home` for Watch auto-indexing when the native catalog is
+needed.
 `watch` keeps the static index current; it does not prove a runtime path
 actually executed.
 

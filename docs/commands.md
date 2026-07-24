@@ -20,6 +20,7 @@ anatomist index <project-path> [options]
 | `--no-classpath` | Skip classpath detection entirely | false |
 | `--vm-classpath` | Use JVM's own classloading for JDK types | true |
 | `--java-version <N>` | Target Java language level | auto-detect |
+| `--jdk-home <path>` | Local JDK used to build a native-image type catalog | `ANATOMIST_JDK_HOME`, else embedded JDK 8 catalog |
 | `--dataflow` | Build optional CFG, def-use, return, exception, guard, and interprocedural flow facts | false |
 | `--dataflow-mode off\|full\|summary\|scoped` | Choose full detail, summaries only, or selected detail. `--dataflow` remains an alias for `full`. | off |
 | `--dataflow-scope <kind:glob>` | Repeatable `package:`, `method:`, or `source:` selector; implies `scoped` when mode is omitted. | none |
@@ -57,6 +58,22 @@ the selected policy, pass/fail result, and blocking diagnostic codes.
 A failed gate returns exit code 3. `--strict-health` is exactly
 `--health-policy complete`; combining it with another policy is an argument
 error (exit code 2).
+
+### Local JDK catalogs
+
+Native Anatomist carries a verified JDK 8 catalog and never downloads JDK
+metadata. For a Java 9–17 target, point it at a matching installed JDK:
+
+```bash
+anatomist index . --java-version 17 --jdk-home /path/to/jdk-17
+# or: ANATOMIST_JDK_HOME=/path/to/jdk-17 anatomist index . --java-version 17
+```
+
+The JDK home must contain a matching `release` file and either JDK 8's
+`rt.jar` or JDK 9+'s `jmods/`. Anatomist builds a catalog once and caches it
+under `$ANATOMIST_HOME/catalogs`; the cache identity includes the JDK release
+and archive fingerprint. A mismatched path is rejected rather than silently
+using a different API surface. JVM runs continue to use ReflectionTypeSolver.
 
 Example:
 
@@ -212,6 +229,7 @@ For complex projects, pass the same indexing shape used for the initial index:
 | `--spring-xml` | Reuse it when Spring XML `<beans>` should stay indexed as `WIRES` facts and XML config trees. |
 | `--no-classpath` / `--classpath <jars>` | Reuse the same classpath policy so type resolution stays comparable. |
 | `--java-version <N>` | Reuse it when the project is not detected correctly. |
+| `--jdk-home <path>` | Reuse it so native catalog resolution stays on the same JDK API. |
 | `--source-root ...` | Reuse every explicit module/scope mapping. |
 | `--health-policy none\|integrity\|complete` | Apply the same health gate to auto-index results. |
 | `--strict-health` | Compatibility alias for complete health. |

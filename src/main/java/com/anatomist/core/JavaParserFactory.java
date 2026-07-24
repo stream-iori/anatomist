@@ -5,6 +5,7 @@ import com.anatomist.core.asmsolver.ClasspathClassFileSource;
 import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.core.nativeimage.EmbeddedJdkTypeSolver;
 import com.anatomist.core.nativeimage.JdkTypeCatalog;
+import com.anatomist.core.nativeimage.LocalJdkCatalogResolver;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ParserConfiguration;
@@ -61,6 +62,7 @@ public class JavaParserFactory {
     private final List<Path> classpathEntries;
     private final List<Path> sourcePaths;
     private final boolean includeRunningVmClasspath;
+    private final Path jdkHome;
     private final Session session;
     private IndexTimings timings;
 
@@ -68,10 +70,19 @@ public class JavaParserFactory {
                              List<Path> classpathEntries,
                              List<Path> sourcePaths,
                              boolean includeRunningVmClasspath) {
+        this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath, (Path) null);
+    }
+
+    public JavaParserFactory(int javaVersion,
+                             List<Path> classpathEntries,
+                             List<Path> sourcePaths,
+                             boolean includeRunningVmClasspath,
+                             Path jdkHome) {
         this.javaVersion = javaVersion;
         this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
         this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
         this.includeRunningVmClasspath = includeRunningVmClasspath;
+        this.jdkHome = jdkHome == null ? null : jdkHome.toAbsolutePath().normalize();
         this.session = null;
     }
 
@@ -80,12 +91,22 @@ public class JavaParserFactory {
                              List<Path> sourcePaths,
                              boolean includeRunningVmClasspath,
                              SessionCache sessions) {
+        this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath, sessions, null);
+    }
+
+    public JavaParserFactory(int javaVersion,
+                             List<Path> classpathEntries,
+                             List<Path> sourcePaths,
+                             boolean includeRunningVmClasspath,
+                             SessionCache sessions,
+                             Path jdkHome) {
         this.javaVersion = javaVersion;
         this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
         this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
         this.includeRunningVmClasspath = includeRunningVmClasspath;
+        this.jdkHome = jdkHome == null ? null : jdkHome.toAbsolutePath().normalize();
         this.session = sessions == null ? null : sessions.acquire(
-                javaVersion, this.classpathEntries, this.sourcePaths, includeRunningVmClasspath, this);
+                javaVersion, this.classpathEntries, this.sourcePaths, includeRunningVmClasspath, this.jdkHome, this);
     }
 
     /** Build the combined TypeSolver matching the configured environment. */
@@ -133,13 +154,15 @@ public class JavaParserFactory {
         return ts;
     }
 
-    /** Look up a pre-generated JDK catalog under
-     *  {@code META-INF/anatomist/jdkN-types.bin} matching the build target's
-     *  Java version (falling back to the runtime's version). Returns {@code null}
-     *  when no catalog ships with the current build — the caller then falls
-     *  back to {@link ReflectionTypeSolver}. */
+    /** In native images, use an explicitly configured local JDK catalog first,
+     * then the embedded JDK 8 baseline. Returns {@code null} when no matching
+     * catalog is available, so the caller can retain its existing fallback. */
     private TypeSolver tryLoadEmbeddedJdkSolver() {
         int targetRelease = Math.max(javaVersion, 8);
+        if (jdkHome != null) {
+            JdkTypeCatalog local = LocalJdkCatalogResolver.resolve(jdkHome, targetRelease);
+            return new EmbeddedJdkTypeSolver(local);
+        }
         // Try the requested target first, then walk DOWN to the highest catalog
         // we shipped that's ≤ target. Catalogs are forward-compatible enough for
         // anatomist's erased-type needs.
@@ -148,6 +171,7 @@ public class JavaParserFactory {
             try (InputStream in = JavaParserFactory.class.getResourceAsStream(res)) {
                 if (in == null) continue;
                 JdkTypeCatalog cat = JdkTypeCatalog.readFrom(in);
+                if (cat.jdkRelease() != v) continue;
                 return new EmbeddedJdkTypeSolver(cat);
             } catch (IOException ignore) {
                 // try next version
@@ -305,11 +329,12 @@ public class JavaParserFactory {
         private String signature;
 
         private synchronized Session acquire(int javaVersion,
-                                             List<Path> classpathEntries,
-                                             List<Path> sourcePaths,
-                                             boolean vmClasspath,
-                                             JavaParserFactory factory) {
-            String next = javaVersion + "|" + vmClasspath + "|" + sourcePaths + "|" + classpathEntries;
+                                              List<Path> classpathEntries,
+                                              List<Path> sourcePaths,
+                                              boolean vmClasspath,
+                                              Path jdkHome,
+                                              JavaParserFactory factory) {
+            String next = javaVersion + "|" + vmClasspath + "|" + jdkHome + "|" + sourcePaths + "|" + classpathEntries;
             if (session == null || !next.equals(signature)) {
                 close();
                 session = factory.openSession(watchSourceCacheSize());

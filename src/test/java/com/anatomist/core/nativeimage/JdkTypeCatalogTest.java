@@ -96,4 +96,18 @@ class JdkTypeCatalogTest {
         JdkTypeCatalog re = JdkTypeCatalog.readFrom(new ByteArrayInputStream(out.toByteArray()));
         assertNull(re.find("does.not.Exist"));
     }
+
+    @Test
+    void embeddedJdk8CatalogHasMatchingHeader() throws Exception {
+        try (var in = JdkTypeCatalogTest.class.getResourceAsStream(
+                "/META-INF/anatomist/jdk8-types.bin")) {
+            assertNotNull(in, "embedded JDK 8 catalog missing");
+            JdkTypeCatalog catalog = JdkTypeCatalog.readFrom(in);
+            assertEquals(8, catalog.jdkRelease());
+            assertNotNull(catalog.find("java.lang.String"));
+        }
+        assertNull(JdkTypeCatalogTest.class.getResource(
+                "/META-INF/anatomist/jdk17-types.bin"),
+                "only the JDK 8 baseline catalog should ship by default");
+    }
 }

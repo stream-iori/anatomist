@@ -9,6 +9,7 @@ import org.objectweb.asm.Opcodes;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.io.BufferedInputStream;
 import java.net.URI;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -17,6 +18,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /** Build-time tool that scans the running JDK's {@code jrt:/} module image
  *  and produces a {@link JdkTypeCatalog} for {@code META-INF/anatomist/jdkN-types.bin}. */
@@ -31,6 +34,78 @@ public class JdkTypeCatalogBuilder {
             return buildFrom(jrt, release);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Build a catalog from an installed JDK without requiring Anatomist to
+     * run on that JDK. JDK 8 exposes {@code rt.jar}; JDK 9+ exposes module
+     * archives under {@code jmods/}. */
+    public JdkTypeCatalog buildFromJdkHome(Path jdkHome) {
+        Path home = jdkHome.toAbsolutePath().normalize();
+        int release = releaseOf(home);
+        try {
+            Path rtJar = Files.isRegularFile(home.resolve("jre/lib/rt.jar"))
+                    ? home.resolve("jre/lib/rt.jar") : home.resolve("lib/rt.jar");
+            if (Files.isRegularFile(rtJar)) {
+                JdkTypeCatalog catalog = new JdkTypeCatalog(release);
+                addZipClasses(catalog, rtJar, 0, "");
+                return catalog;
+            }
+            Path jmods = home.resolve("jmods");
+            if (!Files.isDirectory(jmods)) {
+                throw new IllegalArgumentException("JDK home has neither rt.jar nor jmods: " + home);
+            }
+            JdkTypeCatalog catalog = new JdkTypeCatalog(release);
+            try (Stream<Path> entries = Files.list(jmods)) {
+                for (Path jmod : (Iterable<Path>) entries::iterator) {
+                    String name = jmod.getFileName().toString();
+                    if (!name.endsWith(".jmod")) continue;
+                    String module = name.substring(0, name.length() - ".jmod".length());
+                    if (includeModule(module)) addZipClasses(catalog, jmod, 4, "classes/");
+                }
+            }
+            return catalog;
+        } catch (IOException e) {
+            throw new UncheckedIOException("failed to read JDK home " + home, e);
+        }
+    }
+
+    public static int releaseOf(Path jdkHome) {
+        Path releaseFile = jdkHome.resolve("release");
+        try {
+            String release = Files.readString(releaseFile);
+            java.util.regex.Matcher matcher = java.util.regex.Pattern
+                    .compile("(?m)^JAVA_VERSION=\"([^\"]+)\"").matcher(release);
+            if (!matcher.find()) throw new IllegalArgumentException("JDK release file has no JAVA_VERSION: " + releaseFile);
+            String value = matcher.group(1);
+            String feature = value.startsWith("1.") ? value.substring(2).split("[._+-]", 2)[0]
+                    : value.split("[._+-]", 2)[0];
+            return Integer.parseInt(feature);
+        } catch (IOException e) {
+            throw new UncheckedIOException("failed to read JDK release file " + releaseFile, e);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("invalid JAVA_VERSION in " + releaseFile, e);
+        }
+    }
+
+    private void addZipClasses(JdkTypeCatalog catalog, Path archive, int prefixBytes,
+                               String entryPrefix) throws IOException {
+        try (InputStream raw = new BufferedInputStream(Files.newInputStream(archive))) {
+            if (prefixBytes > 0) raw.skipNBytes(prefixBytes);
+            try (ZipInputStream zip = new ZipInputStream(raw)) {
+                for (ZipEntry entry; (entry = zip.getNextEntry()) != null; ) {
+                    String name = entry.getName();
+                    if (entry.isDirectory() || !name.startsWith(entryPrefix) || !name.endsWith(".class")) continue;
+                    String simpleName = name.substring(entryPrefix.length());
+                    if (simpleName.equals("module-info.class") || simpleName.equals("package-info.class")) continue;
+                    try {
+                        JdkType type = parseClass(zip);
+                        if (type != null) catalog.add(type);
+                    } catch (IOException ignored) {
+                        // A partial JDK archive must not make indexing unusable.
+                    }
+                }
+            }
         }
     }
 

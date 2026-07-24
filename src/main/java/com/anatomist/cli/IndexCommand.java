@@ -48,6 +48,10 @@ public class IndexCommand implements Callable<Integer> {
     @Option(names = "--java-version", description = "Target Java language version (default: 8).")
     Integer javaVersion;
 
+    @Option(names = "--jdk-home", description = "Local target JDK home for native catalog resolution. "
+            + "Defaults to ANATOMIST_JDK_HOME when set.")
+    Path jdkHome;
+
     @Option(names = "--exclude", description = "Comma-separated directory names to exclude.")
     String exclude;
 
@@ -662,10 +666,11 @@ public class IndexCommand implements Callable<Integer> {
         }
         currentJavaVersionDetection = detected;
         int jv = detected.version();
+        Path configuredJdkHome = validatedJdkHome(jv);
         System.err.println("Parsing with Java " + jv);
         JavaParserFactory factory = new JavaParserFactory(
                 jv, classpathEntries, sourcePaths, vmClasspath,
-                executionHints == null ? null : executionHints.parserSessions());
+                executionHints == null ? null : executionHints.parserSessions(), configuredJdkHome);
         return new IndexRuntime(classpathEntries, jv, factory, classpathMode());
     }
 
@@ -726,7 +731,8 @@ public class IndexCommand implements Callable<Integer> {
     }
 
     private IndexRuntime cachedDetectedRuntime(Path projectRoot, List<Path> sourcePaths, SqliteStore store) {
-        if (noClasspath || (classpath != null && !classpath.isEmpty()) || javaVersion != null) return null;
+        if (noClasspath || (classpath != null && !classpath.isEmpty()) || javaVersion != null
+                || resolveJdkHome() != null) return null;
         if (!"detected".equals(store.readProjectMeta("classpath_mode").orElse(null))) return null;
         String expectedRoot = projectRoot.toAbsolutePath().normalize().toString();
         if (!expectedRoot.equals(store.readProjectMeta("source_root").orElse(null))) return null;
@@ -748,7 +754,7 @@ public class IndexCommand implements Callable<Integer> {
                 cachedClasspath.stream().map(Path::toString).toList());
         JavaParserFactory factory = new JavaParserFactory(
                 cachedJavaVersion, cachedClasspath, sourcePaths, vmClasspath,
-                executionHints == null ? null : executionHints.parserSessions());
+                executionHints == null ? null : executionHints.parserSessions(), resolveJdkHome());
         currentJavaVersionDetection = new com.anatomist.core.JavaVersionDetection(
                 cachedJavaVersion, com.anatomist.core.JavaVersionDetection.Source.MAVEN,
                 null, "project_meta.java_version=" + cachedJavaVersion, java.util.List.of());
@@ -759,6 +765,35 @@ public class IndexCommand implements Callable<Integer> {
         if (noClasspath) return "none";
         if (classpath != null && !classpath.isBlank()) return "explicit";
         return "detected";
+    }
+
+    private Path resolveJdkHome() {
+        Path configured = jdkHome;
+        if (configured == null) {
+            String fromEnvironment = System.getenv(com.anatomist.core.nativeimage.LocalJdkCatalogResolver.ENV_JDK_HOME);
+            if (fromEnvironment == null || fromEnvironment.isBlank()) return null;
+            configured = Path.of(fromEnvironment);
+        }
+        return configured.toAbsolutePath().normalize();
+    }
+
+    private Path validatedJdkHome(int targetRelease) {
+        Path configured = resolveJdkHome();
+        if (configured == null) return null;
+        try {
+            int actual = com.anatomist.core.nativeimage.JdkTypeCatalogBuilder.releaseOf(configured);
+            if (actual != targetRelease) {
+                throw new com.anatomist.core.JavaVersionException(2,
+                        "JDK_HOME_RELEASE_MISMATCH: expected Java " + targetRelease
+                                + " but " + configured + " is Java " + actual);
+            }
+            return configured;
+        } catch (com.anatomist.core.JavaVersionException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new com.anatomist.core.JavaVersionException(2,
+                    "JDK_HOME_INVALID: " + configured + " (" + e.getMessage() + ")");
+        }
     }
 
     private static String joinPaths(List<Path> paths) {

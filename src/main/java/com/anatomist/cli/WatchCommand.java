@@ -120,6 +120,10 @@ public class WatchCommand implements Callable<Integer> {
             description = "Target Java language version (default: 8 or detected).")
     Integer javaVersion;
 
+    @Option(names = "--jdk-home", description = "Local target JDK home for native catalog resolution. "
+            + "Defaults to ANATOMIST_JDK_HOME when set.")
+    Path jdkHome;
+
     @Option(names = "--max-realign-files",
             description = "Hard safety cap on the symbol-impact file set; above it, incremental degrades to full.",
             defaultValue = "1000")
@@ -439,7 +443,7 @@ public class WatchCommand implements Callable<Integer> {
                         Map<String, String> rebuildAttempt = backgroundAttempt;
                         long rebuildGeneration = dirtyGeneration;
                         backgroundFull = fullRebuildWorker.submit(() -> rebuildInBackground(projectRoot,
-                                classpath, noClasspath, vmClasspath, javaVersion, dbPath, rebuildAttempt,
+                                classpath, noClasspath, vmClasspath, javaVersion, jdkHome, dbPath, rebuildAttempt,
                                 rebuildGeneration));
                         buffered.clear();
                         buildFileTouched = false;
@@ -454,7 +458,7 @@ public class WatchCommand implements Callable<Integer> {
                         result = FlushResult.success();
                     } else {
                         result = flush(projectRoot, sourcePaths, classpath, noClasspath,
-                                vmClasspath, javaVersion, dbPath, attempt, forceFull, autoIndex,
+                                vmClasspath, javaVersion, jdkHome, dbPath, attempt, forceFull, autoIndex,
                                 resolvedRoots, new ArrayList<>(springXmlInventory), parserSessions,
                                 fingerprintCache, incrementalSession, completeEvents, eventFlushDue);
                     }
@@ -575,7 +579,7 @@ public class WatchCommand implements Callable<Integer> {
 
     private FlushResult rebuildInBackground(Path projectRoot, String classpathOverride,
                                             boolean noClasspath, boolean vmClasspath,
-                                            Integer javaVersion, Path liveDb,
+                                            Integer javaVersion, Path jdkHome, Path liveDb,
                                             Map<String, String> dirtyFiles, long dirtyGeneration) {
         Path temporary = liveDb.resolveSibling(liveDb.getFileName() + ".rebuild-"
                 + UUID.randomUUID() + ".db");
@@ -584,7 +588,7 @@ public class WatchCommand implements Callable<Integer> {
         try (IndexOperationLock ignored = IndexOperationLock.forWrite(liveDb)) {
             System.out.println("Full re-index (background)");
             IndexCommand command = configuredFullCommand(projectRoot, classpathOverride,
-                    noClasspath, vmClasspath, javaVersion, temporary, liveDb);
+                    noClasspath, vmClasspath, javaVersion, jdkHome, temporary, liveDb);
             FlushResult result = classifyOutcome(command, indexCommandRunner.run(command));
             if (result.status() != FlushStatus.SUCCESS) {
                 IndexStateStore.write(liveDb, IndexStateStore.State.FAILED,
@@ -612,7 +616,7 @@ public class WatchCommand implements Callable<Integer> {
 
     private IndexCommand configuredFullCommand(Path projectRoot, String classpathOverride,
                                                 boolean noClasspath, boolean vmClasspath,
-                                                Integer javaVersion, Path outputPath, Path liveDb) {
+                                                Integer javaVersion, Path jdkHome, Path outputPath, Path liveDb) {
         IndexCommand command = new IndexCommand();
         List<String> args = new ArrayList<>();
         args.add(projectRoot.toString());
@@ -623,6 +627,7 @@ public class WatchCommand implements Callable<Integer> {
         if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
         args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
         if (javaVersion != null) { args.add("--java-version"); args.add(String.valueOf(javaVersion)); }
+        if (jdkHome != null) { args.add("--jdk-home"); args.add(jdkHome.toString()); }
         args.add("--output"); args.add(outputPath.toString());
         if (springXml) args.add("--spring-xml");
         appendFlowArgs(args);
@@ -691,7 +696,7 @@ public class WatchCommand implements Callable<Integer> {
     }
 
     private FlushResult flush(Path projectRoot, List<Path> sourcePaths, String classpathOverride,
-                              boolean noClasspath, boolean vmClasspath, Integer jvOverride,
+                              boolean noClasspath, boolean vmClasspath, Integer jvOverride, Path jdkHome,
                               Path dbPath, Map<String, String> buffered, boolean buildFileTouched,
                               boolean autoIndex, List<SourceRoot> resolvedRoots,
                               List<Path> springXmlInventory,
@@ -724,6 +729,7 @@ public class WatchCommand implements Callable<Integer> {
                 if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
                 args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
                 if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
+                if (jdkHome != null) { args.add("--jdk-home"); args.add(jdkHome.toString()); }
                 args.add("--output"); args.add(dbPath.toString());
                 if (springXml) args.add("--spring-xml");
                 appendFlowArgs(args);
@@ -746,6 +752,7 @@ public class WatchCommand implements Callable<Integer> {
             if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
             args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
             if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
+            if (jdkHome != null) { args.add("--jdk-home"); args.add(jdkHome.toString()); }
             args.add("--output"); args.add(dbPath.toString());
             args.add("--incremental");
             if (springXml) args.add("--spring-xml");

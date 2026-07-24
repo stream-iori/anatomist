@@ -37,7 +37,7 @@ Index rules:
 | Spring XML matters | Add `--spring-xml` so XML beans and property/map/list/ref config trees become facts. |
 | Def-use, return, exception, guard, or taint evidence matters | Build/rebuild with `--dataflow`; add `--implicit-taint` only when control-dependent taint is required. |
 | Re-index current work | Prefer `--incremental` against the same DB. |
-| Keep index fresh while editing | Use `watch --auto-index` with the same explicit `--output` (if any), `--project-source`, `--include-tests`, classpath policy, `--java-version`, and `--spring-xml` as the initial index. |
+| Keep index fresh while editing | Use `watch --auto-index` with the same explicit `--output` (if any), `--project-source`, `--include-tests`, classpath policy, `--java-version`, `--jdk-home`, and `--spring-xml` as the initial index. |
 | Stale or risky DB | Use `--recreate`. |
 | Need exact snapshot | Inspect `doctor.source_snapshot.match` plus `source_root`, `source_snapshot_fingerprint`, index profile, `indexed_at`, `source_git_commit`, and `source_git_dirty`. |
 | Incremental `metadata_git` is slow | Inspect `doctor.git_untracked_cache`; recommend `git config core.untrackedCache true`, but never run it without user authorization. |
@@ -59,7 +59,7 @@ anatomist index <project-root> --incremental --health-policy integrity --format 
 | Normal local checkout | `index --incremental --health-policy integrity` before every independent query session. It rejects parse/graph-integrity gaps but allows disclosed external-resolution gaps. A no-change pass checks file metadata but does not run Maven detection, JavaParser, or graph replacement. |
 | Completeness-sensitive task | Use `--strict-health` (alias of `--health-policy complete`) only when any warning must block the query. |
 | Content may have been rewritten with restored size/mtime | Add `--verify-content`; it hashes every indexed source but still does not reparse or rewrite an unchanged graph. |
-| First index used non-default source/classpath flags | Reuse the same `--project-source` or every `--source-root`, `--include-tests`, `--spring-xml`, classpath policy, and `--java-version`. |
+| First index used non-default source/classpath flags | Reuse the same `--project-source` or every `--source-root`, `--include-tests`, `--spring-xml`, classpath policy, `--java-version`, and `--jdk-home`. |
 | Gate exits non-zero | Do not issue a code query or present old-index facts as current. Report the failed index/health result instead. |
 
 `doctor` is read-only. `freshness_state=idle` means the last watcher operation

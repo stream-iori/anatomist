@@ -2,6 +2,8 @@ package com.anatomist.core.nativeimage;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Integration test: build a catalog from the running JDK's jrt-fs and verify
@@ -33,6 +35,15 @@ class JdkTypeCatalogBuilderIT {
         long substringCount = str.methods.stream()
                 .filter(m -> m.name.equals("substring")).count();
         assertTrue(substringCount >= 2, "expected >=2 substring overloads; got " + substringCount);
+    }
+
+    @Test
+    void buildFromJdkHome_readsInstalledJmods() {
+        Path home = Path.of(System.getProperty("java.home"));
+        JdkTypeCatalog cat = new JdkTypeCatalogBuilder().buildFromJdkHome(home);
+        assertEquals(JdkTypeCatalogBuilder.releaseOf(home), cat.jdkRelease());
+        assertNotNull(cat.find("java.lang.String"));
+        assertTrue(cat.size() > 5_000, "expected thousands of JDK types; got " + cat.size());
     }
 
     @Test
