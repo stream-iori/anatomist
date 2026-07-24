@@ -16,9 +16,10 @@ class IndexHealthReportTest {
     @Test
     void integrityAllowsResolutionGapsButCompleteRejectsThem() {
         IndexHealthReport report = IndexHealthReport.of(List.of(
-                diagnostic("warning", "THIRDPARTY_SYMBOL_MISSING",
+                diagnostic("info", "THIRDPARTY_SYMBOL_MISSING",
                         "full_extract_call_graph", 8)));
 
+        assertEquals(IndexHealthReport.Status.HEALTHY, report.status());
         assertTrue(report.gate(HealthPolicy.INTEGRITY).passed());
         assertFalse(report.gate(HealthPolicy.COMPLETE).passed());
         Map<?, ?> external = (Map<?, ?>) ((Map<?, ?>) report.dimensions()
@@ -70,6 +71,7 @@ class IndexHealthReportTest {
         assertTrue(report.diagnostics().stream()
                 .anyMatch(d -> "DIAGNOSTIC_STORAGE_TRUNCATED".equals(d.code())
                         && d.count() == 102));
+        assertEquals(IndexHealthReport.Status.HEALTHY, report.status());
         assertFalse(report.gate(HealthPolicy.COMPLETE).passed());
     }
 

@@ -179,7 +179,10 @@ public class DoctorCommand implements Callable<Integer> {
                             new com.anatomist.core.IndexHealthReport(health.status(), page);
                     out.put("health", health.status().name().toLowerCase());
                     out.put("health_dimensions", health.dimensions());
-                    out.put("resolution_diagnostic_counts", resolutionCounts(health.diagnostics()));
+                    Map<String, Long> coverageCounts = store.readResolutionDiagnosticCounts();
+                    out.put("resolution_diagnostic_counts", coverageCounts.isEmpty()
+                            ? resolutionCounts(health.diagnostics()) : coverageCounts);
+                    out.put("resolution_diagnostic_groups", resolutionGroups(health.diagnostics()));
                     out.put("gate", health.gate(policy).toMap());
                     out.put("diagnostics", displayed.toMaps());
                     out.put("warnings", displayed.warnings());
@@ -260,13 +263,24 @@ public class DoctorCommand implements Callable<Integer> {
             List<com.anatomist.core.IndexDiagnostic> diagnostics) {
         Map<String, Long> counts = new java.util.TreeMap<>();
         for (com.anatomist.core.IndexDiagnostic diagnostic : diagnostics) {
-            if (diagnostic.code().contains("SYMBOL") || diagnostic.code().contains("RESOLUTION")
-                    || diagnostic.code().contains("METHOD_NOT_FOUND")
-                    || diagnostic.code().contains("FIELD_NOT_FOUND")) {
+            if (com.anatomist.core.ResolutionDiagnostics.isReasonCode(diagnostic.code())
+                    || "UNRESOLVED_SYMBOLS".equals(diagnostic.code())) {
                 counts.merge(diagnostic.code(), diagnostic.count(), Long::sum);
             }
         }
         return counts;
+    }
+
+    private static Map<String, Long> resolutionGroups(
+            List<com.anatomist.core.IndexDiagnostic> diagnostics) {
+        Map<String, Long> groups = new java.util.TreeMap<>();
+        for (com.anatomist.core.IndexDiagnostic diagnostic : diagnostics) {
+            if (com.anatomist.core.ResolutionDiagnostics.isReasonCode(diagnostic.code())
+                    || "UNRESOLVED_SYMBOLS".equals(diagnostic.code())) {
+                groups.merge(diagnostic.code(), 1L, Long::sum);
+            }
+        }
+        return groups;
     }
 
     private static void addHealth(Map<String, Object> out,

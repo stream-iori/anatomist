@@ -151,7 +151,7 @@ anatomist retries Maven with a local JDK 8. Set
 changing the JVM that runs anatomist.
 
 The native binary bundles a real Java 8 type catalog and does not download
-catalogs. To resolve a Java 9–17 target against its local JDK API, pass a
+catalogs. To resolve a Java 9–25 target against its local JDK API, pass a
 matching path once; the generated catalog is cached under
 `$ANATOMIST_HOME/catalogs`:
 

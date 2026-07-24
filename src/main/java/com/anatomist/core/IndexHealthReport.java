@@ -52,7 +52,8 @@ public record IndexHealthReport(Status status, List<IndexDiagnostic> diagnostics
                     case NONE -> false;
                     case INTEGRITY -> INTEGRITY_CODES.contains(diagnostic.code());
                     case COMPLETE -> "warning".equalsIgnoreCase(diagnostic.severity())
-                            || "error".equalsIgnoreCase(diagnostic.severity());
+                            || "error".equalsIgnoreCase(diagnostic.severity())
+                            || ResolutionDiagnostics.blocksComplete(diagnostic.code());
                 })
                 .map(IndexDiagnostic::code)
                 .distinct()

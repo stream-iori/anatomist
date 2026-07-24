@@ -70,7 +70,7 @@ public class CallGraphExtractor implements Extractor {
                     String callKind = CallKindClassifier.classify(target, n);
                     emit(n, target, callKind, result);
                 } catch (RuntimeException e) {
-                    ctx.incrementUnresolved(e);
+                    ctx.incrementUnresolved(e, n, n.getNameAsString());
                     emitFallback(n, result);
                 }
                 super.visit(n, arg);
@@ -88,7 +88,11 @@ public class CallGraphExtractor implements Extractor {
                 }
                 ResolvedConstructorDeclaration target;
                 try { target = n.resolve(); }
-                catch (RuntimeException e) { ctx.incrementUnresolved(e); super.visit(n, arg); return; }
+                catch (RuntimeException e) {
+                    ctx.incrementUnresolved(e, n, n.getTypeAsString());
+                    super.visit(n, arg);
+                    return;
+                }
                 emit(n, target, GraphConstants.CallKind.CONSTRUCTOR, result);
                 super.visit(n, arg);
             }
@@ -122,7 +126,7 @@ public class CallGraphExtractor implements Extractor {
 
         ResolvedTypeDeclaration decl;
         try { decl = target.declaringType(); }
-        catch (RuntimeException ex) { ctx.incrementUnresolved(ex); return; }
+        catch (RuntimeException ex) { ctx.incrementUnresolved(ex, callNode, target.getName()); return; }
 
         if (ctx.isProjectInternal(decl)) {
             if (target instanceof ResolvedMethodDeclaration m) {
@@ -177,7 +181,10 @@ public class CallGraphExtractor implements Extractor {
             e.metadata = metadata;
             ResolvedTypeDeclaration decl;
             try { decl = target.declaringType(); }
-            catch (RuntimeException ex) { ctx.incrementUnresolved(ex); continue; }
+            catch (RuntimeException ex) {
+                ctx.incrementUnresolved(ex, call, target.getName());
+                continue;
+            }
             if (ctx.isProjectInternal(decl)) {
                 e.targetId = methodTargetId(target);
                 e.isExternal = false;
@@ -288,7 +295,9 @@ public class CallGraphExtractor implements Extractor {
 
     private String methodId(MethodDeclaration method) {
         try { return CallableIdFactory.forMethod(ctx.idGenerator(), method); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+        catch (RuntimeException e) {
+            ctx.incrementUnresolved(e, method, method.getNameAsString());
+        }
 
         Optional<TypeDeclaration> typeOpt = method.findAncestor(TypeDeclaration.class);
         if (typeOpt.isEmpty()) return null;
@@ -321,7 +330,7 @@ public class CallGraphExtractor implements Extractor {
         try {
             declOpt = scopeType.asReferenceType().getTypeDeclaration();
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e);
+            ctx.incrementUnresolved(e, call, call.getNameAsString());
             return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result);
         }
         if (declOpt.isEmpty()) return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result);
@@ -333,7 +342,7 @@ public class CallGraphExtractor implements Extractor {
         try {
             solved = capability.solveMethod(call.getNameAsString(), argumentTypes(call), false);
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e);
+            ctx.incrementUnresolved(e, call, call.getNameAsString());
             solved = SymbolReference.unsolved(ResolvedMethodDeclaration.class);
         }
         if (solved.isSolved() && !unreliableSignature(solved.getCorrespondingDeclaration())) {
@@ -474,7 +483,7 @@ public class CallGraphExtractor implements Extractor {
         try {
             typeFqn = NodeIdGenerator.erasedTypeDescribe(scopeType);
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e);
+            ctx.incrementUnresolved(e, call, call.getNameAsString());
             return false;
         }
         if (typeFqn == null || typeFqn.isBlank() || "<unresolved>".equals(typeFqn)) return false;
@@ -502,7 +511,7 @@ public class CallGraphExtractor implements Extractor {
                 candidates.add(m);
             }
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e);
+            ctx.incrementUnresolved(e, call, call.getNameAsString());
             return List.of();
         }
         if (candidates.size() <= 1) {

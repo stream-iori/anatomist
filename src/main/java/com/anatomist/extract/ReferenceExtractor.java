@@ -44,10 +44,16 @@ public class ReferenceExtractor implements Extractor {
                         ResolvedValueDeclaration v = var.resolve();
                         if (!(v instanceof ResolvedFieldDeclaration field)) continue;
                         fieldId = ctx.idGenerator().forField(field);
-                    } catch (RuntimeException e) { ctx.incrementUnresolved(e); continue; }
+                    } catch (RuntimeException e) {
+                        ctx.incrementUnresolved(e, var, var.getNameAsString());
+                        continue;
+                    }
                     ResolvedType type;
                     try { type = var.getType().resolve(); }
-                    catch (RuntimeException e) { ctx.incrementUnresolved(e); continue; }
+                    catch (RuntimeException e) {
+                        ctx.incrementUnresolved(e, var.getType(), var.getTypeAsString());
+                        continue;
+                    }
                     emitTypeRef(fieldId, type, "field_type", result, 0);
                 }
                 super.visit(n, arg);
@@ -57,20 +63,27 @@ public class ReferenceExtractor implements Extractor {
             public void visit(MethodDeclaration n, Void arg) {
                 String methodId;
                 try { methodId = CallableIdFactory.forMethod(ctx.idGenerator(), n); }
-                catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+                catch (RuntimeException e) {
+                    ctx.incrementUnresolved(e, n, n.getNameAsString());
+                    return;
+                }
 
                 // Return type
                 try {
                     if (!"void".equals(n.getTypeAsString())) {
                         emitTypeRef(methodId, n.getType().resolve(), "return_type", result, 0);
                     }
-                } catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+                } catch (RuntimeException e) {
+                    ctx.incrementUnresolved(e, n.getType(), n.getTypeAsString());
+                }
 
                 // Parameters
                 for (Parameter p : n.getParameters()) {
                     try {
                         emitTypeRef(methodId, p.getType().resolve(), "parameter_type", result, 0);
-                    } catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+                    } catch (RuntimeException e) {
+                        ctx.incrementUnresolved(e, p.getType(), p.getTypeAsString());
+                    }
                 }
                 super.visit(n, arg);
             }
@@ -83,7 +96,9 @@ public class ReferenceExtractor implements Extractor {
                         if (p.getType() instanceof UnknownType) continue;
                         try {
                             emitTypeRef(lambdaId, p.getType().resolve(), "parameter_type", result, 0);
-                        } catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+                        } catch (RuntimeException e) {
+                            ctx.incrementUnresolved(e, p.getType(), p.getTypeAsString());
+                        }
                     }
                     try {
                         ResolvedType functional = n.calculateResolvedType();
@@ -92,7 +107,9 @@ public class ReferenceExtractor implements Extractor {
                             // We can't easily isolate it without resolving the SAM, but we
                             // already cover parameter_type which is the common signal.
                         }
-                    } catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+                    } catch (RuntimeException e) {
+                        ctx.incrementUnresolved(e, n, "lambda-return");
+                    }
                 }
                 super.visit(n, arg);
             }

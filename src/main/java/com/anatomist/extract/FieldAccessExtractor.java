@@ -119,7 +119,9 @@ public class FieldAccessExtractor implements Extractor {
                 return v instanceof ResolvedFieldDeclaration f ? f : null;
             }
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            String symbol = expr instanceof NameExpr name ? name.getNameAsString()
+                    : expr instanceof FieldAccessExpr field ? field.getNameAsString() : null;
+            ctx.incrementUnresolved(e, expr, symbol);
         }
         return null;
     }
@@ -132,7 +134,7 @@ public class FieldAccessExtractor implements Extractor {
                       Node at, ExtractionResult result) {
         ResolvedTypeDeclaration decl;
         try { decl = field.declaringType(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e, at, field.getName()); return; }
 
         Edge edge = new Edge();
         edge.sourceId = callerId;

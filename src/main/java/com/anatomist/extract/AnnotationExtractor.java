@@ -96,7 +96,7 @@ public class AnnotationExtractor implements Extractor {
         if (decl.getAnnotations().isEmpty()) return;
         String nodeId;
         try { nodeId = ctx.idGenerator().forType(decl.resolve()); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e, decl, decl.getNameAsString()); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
         }
@@ -105,7 +105,7 @@ public class AnnotationExtractor implements Extractor {
     private void emitMethodAnnotations(MethodDeclaration decl, ExtractionResult result) {
         String nodeId;
         try { nodeId = CallableIdFactory.forMethod(ctx.idGenerator(), decl); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e, decl, decl.getNameAsString()); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
         }
@@ -115,7 +115,7 @@ public class AnnotationExtractor implements Extractor {
     private void emitConstructorAnnotations(ConstructorDeclaration decl, ExtractionResult result) {
         String nodeId;
         try { nodeId = CallableIdFactory.forConstructor(ctx.idGenerator(), decl); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e, decl, decl.getNameAsString()); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
         }
@@ -126,7 +126,7 @@ public class AnnotationExtractor implements Extractor {
                                                    ExtractionResult result) {
         String nodeId;
         try { nodeId = CallableIdFactory.forCompactConstructor(ctx.idGenerator(), decl); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e, decl, decl.getNameAsString()); return; }
         for (AnnotationExpr ann : decl.getAnnotations()) {
             collectOne(nodeId, ann, null, result);
         }
@@ -154,7 +154,10 @@ public class AnnotationExtractor implements Extractor {
                 ResolvedValueDeclaration v = var.resolve();
                 if (!(v instanceof com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration field)) continue;
                 nodeId = ctx.idGenerator().forField(field);
-            } catch (RuntimeException e) { ctx.incrementUnresolved(e); continue; }
+            } catch (RuntimeException e) {
+                ctx.incrementUnresolved(e, var, var.getNameAsString());
+                continue;
+            }
             for (AnnotationExpr ann : decl.getAnnotations()) {
                 collectOne(nodeId, ann, null, result);
             }
@@ -167,7 +170,7 @@ public class AnnotationExtractor implements Extractor {
         try {
             fqn = ann.resolve().getQualifiedName();
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, ann, ann.getNameAsString());
             return;
         }
         Annotation a = new Annotation();

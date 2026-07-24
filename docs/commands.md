@@ -53,7 +53,7 @@ the selected policy, pass/fail result, and blocking diagnostic codes.
 |---|---|---|
 | `none` | Nothing; health is disclosure only | Interactive inspection |
 | `integrity` | Parse failure, dangling facts, schema/empty/promotion failure | Normal Agent code-analysis gate |
-| `complete` | Every warning or error, including third-party resolution gaps | Completeness-sensitive automation |
+| `complete` | Every warning/error and every disclosed resolution gap, including informational third-party gaps | Completeness-sensitive automation |
 
 A failed gate returns exit code 3. `--strict-health` is exactly
 `--health-policy complete`; combining it with another policy is an argument
@@ -62,7 +62,7 @@ error (exit code 2).
 ### Local JDK catalogs
 
 Native Anatomist carries a verified JDK 8 catalog and never downloads JDK
-metadata. For a Java 9–17 target, point it at a matching installed JDK:
+metadata. For a Java 9–25 target, point it at a matching installed JDK:
 
 ```bash
 anatomist index . --java-version 17 --jdk-home /path/to/jdk-17
@@ -71,8 +71,8 @@ anatomist index . --java-version 17 --jdk-home /path/to/jdk-17
 
 The JDK home must contain a matching `release` file and either JDK 8's
 `rt.jar` or JDK 9+'s `jmods/`. Anatomist builds a catalog once and caches it
-under `$ANATOMIST_HOME/catalogs`; the cache identity includes the JDK release
-and archive fingerprint. A mismatched path is rejected rather than silently
+under `$ANATOMIST_HOME/catalogs`; the cache identity includes the catalog
+generation, JDK release, and archive fingerprint. A mismatched path is rejected rather than silently
 using a different API surface. JVM runs continue to use ReflectionTypeSolver.
 
 Example:
@@ -143,6 +143,7 @@ JSON includes:
 | `index_state` | `committed`, `empty`, `incompatible`, `missing`, or `unknown` |
 | `health` / `health_dimensions` / `gate` | Legacy summary, dimension detail, and selected policy result |
 | `resolution_diagnostic_counts` | Occurrences grouped by resolution diagnostic code, independent of diagnostic page size |
+| `resolution_diagnostic_groups` | Retained distinct file/phase/code/symbol/source-site groups; unlike counts, this is bounded by diagnostic retention |
 | `diagnostics` | Persisted findings shared with `index` and `survey-baseline` |
 | `diagnostic_stats` | Total/matched/page counts for bounded diagnostic output |
 | `git_untracked_cache` | Repository Git setting: `enabled`, `disabled`, or `unknown` |
@@ -157,8 +158,14 @@ Anatomist never runs this command automatically. With `--timings`, a slow
 incremental Git status check prints the same advice once per Watch process.
 
 Use `--health-policy integrity` for the normal Agent gate. Use
-`--strict-health` only when any persisted warning must fail the command.
+`--strict-health` when warnings or any disclosed resolution gap must fail the command.
 Without a policy, health is reported but does not change the exit code.
+
+`UNRESOLVED_SYMBOLS` is the aggregate of the individual resolution reason
+counts; do not add it to those reasons a second time. Informational third-party
+gaps can coexist with top-level `health=healthy`: inspect
+`health_dimensions.resolution.external` or the complete gate when exhaustive
+negative conclusions matter.
 
 The default DB stays under the tool-owned `$ANATOMIST_HOME` cache (default
 `~/.anatomist`) so repositories are not polluted with generated SQLite files.

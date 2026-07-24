@@ -73,6 +73,7 @@ class AgentContractIT {
         assertEquals("none", ((Map<?, ?>) json.get("classpath_detection")).get("origin"));
         assertTrue(((Map<?, ?>) json.get("source_snapshot")).containsKey("match"));
         assertNotNull(json.get("resolution_diagnostic_counts"));
+        assertNotNull(json.get("resolution_diagnostic_groups"));
     }
 
     @Test

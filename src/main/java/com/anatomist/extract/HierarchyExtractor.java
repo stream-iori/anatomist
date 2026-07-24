@@ -57,7 +57,7 @@ public class HierarchyExtractor implements Extractor {
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
         catch (RuntimeException e) {
-            ctx.incrementUnresolved(e);
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             if (decl instanceof ClassOrInterfaceDeclaration cid) {
                 emitTypeAncestryFallback(cid, result);
             }
@@ -75,7 +75,9 @@ public class HierarchyExtractor implements Extractor {
                         .filter(s -> !"java.lang.Enum".equals(s.getQualifiedName()))
                         .ifPresent(s -> result.edges.add(
                                 hierarchyEdge(sourceId, s, GraphConstants.Relation.INHERITS)));
-            } catch (RuntimeException ignore) { ctx.incrementUnresolved(ignore); }
+            } catch (RuntimeException ignore) {
+                ctx.incrementUnresolved(ignore, decl, decl.getNameAsString());
+            }
         }
 
         // Direct interfaces / parent interfaces.
@@ -87,7 +89,9 @@ public class HierarchyExtractor implements Extractor {
                 String relation = isInterface ? GraphConstants.Relation.INHERITS : GraphConstants.Relation.IMPLEMENTS;
                 result.edges.add(hierarchyEdge(sourceId, i, relation));
             }
-        } catch (RuntimeException ignore) { ctx.incrementUnresolved(ignore); }
+        } catch (RuntimeException ignore) {
+            ctx.incrementUnresolved(ignore, decl, decl.getNameAsString());
+        }
     }
 
     private Edge hierarchyEdge(String sourceId, ResolvedReferenceType target, String relation) {
@@ -113,7 +117,7 @@ public class HierarchyExtractor implements Extractor {
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
         catch (RuntimeException e) {
-            ctx.incrementUnresolved(e);
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             emitInterfaceOverridesFallback(decl, result);
             return;
         }
@@ -128,7 +132,7 @@ public class HierarchyExtractor implements Extractor {
                               && !m.isStatic())
                     .collect(Collectors.toList());
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             emitInterfaceOverridesFallback(decl, result);
             return;
         }
@@ -136,7 +140,10 @@ public class HierarchyExtractor implements Extractor {
         for (MethodDeclaration md : decl.getMethods()) {
             ResolvedMethodDeclaration sub;
             try { sub = md.resolve(); }
-            catch (RuntimeException e) { ctx.incrementUnresolved(e); continue; }
+            catch (RuntimeException e) {
+                ctx.incrementUnresolved(e, md, md.getNameAsString());
+                continue;
+            }
 
             String subSig = methodSignatureKey(sub);
             Set<String> seenTargets = new HashSet<>();
@@ -236,7 +243,9 @@ public class HierarchyExtractor implements Extractor {
 
     private String methodIdFallback(MethodDeclaration method, String sourceType) {
         try { return CallableIdFactory.forMethod(ctx.idGenerator(), method); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+        catch (RuntimeException e) {
+            ctx.incrementUnresolved(e, method, method.getNameAsString());
+        }
         return sourceType + "#" + method.getNameAsString()
                 + "(" + methodSignatureKey(method) + ")";
     }
@@ -252,7 +261,9 @@ public class HierarchyExtractor implements Extractor {
 
     private String typeIdFallback(ClassOrInterfaceDeclaration decl) {
         try { return ctx.idGenerator().forType(decl.resolve()); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); }
+        catch (RuntimeException e) {
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
+        }
         Optional<CompilationUnit> cuOpt = decl.findCompilationUnit();
         String pkg = cuOpt.flatMap(CompilationUnit::getPackageDeclaration)
                 .map(p -> p.getNameAsString() + ".")

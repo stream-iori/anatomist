@@ -1,6 +1,8 @@
 package com.anatomist.store;
 
 import com.anatomist.core.IndexDiagnostic;
+import com.anatomist.core.ResolutionDiagnostics;
+import com.anatomist.json.Json;
 import com.anatomist.model.Edge;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.GraphConstants;
@@ -527,6 +529,31 @@ public class DataReader {
             return out;
         } catch (SQLException e) {
             throw new RuntimeException("Failed to read index diagnostics", e);
+        }
+    }
+
+    /** Lossless resolution occurrence counts from analysis_coverage. */
+    public Map<String, Long> readResolutionDiagnosticCounts() {
+        Map<String, Long> out = new java.util.TreeMap<>();
+        String sql = "SELECT code_counts FROM analysis_coverage WHERE capability='AGGREGATE'";
+        try (Statement st = conn().createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                Object tree = Json.parseTree(rs.getString(1));
+                if (!(tree instanceof Map<?, ?> counts)) continue;
+                counts.forEach((code, value) -> {
+                    String key = String.valueOf(code);
+                    if (ResolutionDiagnostics.isReasonCode(key) && value instanceof Number number) {
+                        out.merge(key, number.longValue(), Long::sum);
+                    }
+                });
+            }
+            if (!out.isEmpty()) {
+                long aggregate = out.values().stream().mapToLong(Long::longValue).sum();
+                out.put("UNRESOLVED_SYMBOLS", aggregate);
+            }
+            return out;
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read resolution diagnostic coverage", e);
         }
     }
 

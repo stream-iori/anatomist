@@ -1,6 +1,7 @@
 package com.anatomist.store;
 
 import com.anatomist.core.AnalysisCoverage;
+import com.anatomist.core.ResolutionDiagnostics;
 import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Document;
@@ -625,10 +626,9 @@ public class DataWriter {
                 "DELETE FROM index_diagnostics WHERE code='UNRESOLVED_SYMBOLS'")) {
             delete.executeUpdate();
         }
-        String reasons = "'INTERNAL_SYMBOL_MISSING','THIRDPARTY_SYMBOL_MISSING',"
-                + "'JDK_SYMBOL_MISMATCH','METHOD_NOT_FOUND','FIELD_NOT_FOUND',"
-                + "'GENERIC_INFERENCE_FAILED','AMBIGUOUS_OVERLOAD',"
-                + "'UNSUPPORTED_RESOLUTION','OTHER_INFERENCE','DIAGNOSTIC_LIMIT_REACHED'";
+        String reasons = ResolutionDiagnostics.REASON_CODES.stream().sorted()
+                .map(code -> "'" + code + "'")
+                .collect(java.util.stream.Collectors.joining(","));
         long unresolved;
         try (Statement statement = c.createStatement();
              java.sql.ResultSet result = statement.executeQuery(

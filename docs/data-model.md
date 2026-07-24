@@ -239,12 +239,14 @@ same rows drive `index`, `doctor`, and `survey-baseline` health output.
 | Finding | `none` | `integrity` | `complete` / `--strict-health` |
 |---|---:|---:|---:|
 | no findings | 0 | 0 | 0 |
-| external/JDK resolution warning | 0 | 0 | 3 |
+| external/JDK resolution gap (including informational third-party gaps) | 0 | 0 | 3 |
 | parse or graph-integrity finding | 0 | 3 | 3 |
 | other error | 0 | 0 unless integrity-classified | 3 |
 
 Resolution diagnostics are grouped by `source_file`, `module`, `scope`, `phase`,
-and reason. Stable reasons include `INTERNAL_SYMBOL_MISSING`,
+reason, symbol, and source line. `occurrence_count` is the number of failed
+operations at that site; it is not a count of unique source expressions.
+Stable reasons include `INTERNAL_SYMBOL_MISSING`,
 `THIRDPARTY_SYMBOL_MISSING`, `JDK_SYMBOL_MISMATCH`, `METHOD_NOT_FOUND`,
 `FIELD_NOT_FOUND`, `GENERIC_INFERENCE_FAILED`, `AMBIGUOUS_OVERLOAD`, and
 `UNSUPPORTED_RESOLUTION`. Parsing failures use `JAVA_PARSE_FAILED`.

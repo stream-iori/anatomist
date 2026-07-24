@@ -7,6 +7,7 @@ import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParse
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserEnumDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserInterfaceDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserRecordDeclaration;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
@@ -89,10 +90,18 @@ public class ExtractionContext {
      *  carries a symbol name (e.g. {@link UnsolvedSymbolException}), aggregate it.
      *  Under {@code --debug} each failure is also logged verbatim. */
     public void incrementUnresolved(Throwable cause) {
-        resolutionTracker.record(cause);
+        incrementUnresolved(cause, null, null);
+    }
+
+    /** Count a failed resolution attempt with its exact AST site and target symbol. */
+    public void incrementUnresolved(Throwable cause, Node site, String symbol) {
+        resolutionTracker.record(cause, site, symbol);
         if (cause != null && AnatomistLog.isDebugEnabled()) {
-            AnatomistLog.debug("unresolved: " + cause.getClass().getSimpleName()
-                    + ": " + cause.getMessage());
+            String line = site == null ? "" : site.getBegin()
+                    .map(position -> " L" + position.line).orElse("");
+            String target = symbol == null || symbol.isBlank() ? "" : " " + symbol;
+            AnatomistLog.debug("unresolved:" + line + target + " "
+                    + cause.getClass().getSimpleName() + ": " + cause.getMessage());
         }
         if (unresolvedSamples == null || cause == null) return;
         String key = sampleKey(cause);

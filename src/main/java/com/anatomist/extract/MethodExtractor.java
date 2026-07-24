@@ -86,7 +86,7 @@ public class MethodExtractor implements Extractor {
         try {
             r = decl.resolve();
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             emitAnonymousMethodFallback(decl, sourceFile, result);
             return;
         }
@@ -103,7 +103,7 @@ public class MethodExtractor implements Extractor {
                     ? stableAnonymousOwner
                     : ctx.idGenerator().forType(declType);
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             emitAnonymousMethodFallback(decl, sourceFile, result);
             return;
         }
@@ -166,7 +166,7 @@ public class MethodExtractor implements Extractor {
         try {
             r = decl.resolve();
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             return;
         }
         ResolvedTypeDeclaration declType;
@@ -178,7 +178,7 @@ public class MethodExtractor implements Extractor {
             methodId = CallableIdFactory.forConstructor(ctx.idGenerator(), r);
             classId = ctx.idGenerator().forType(declType);
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             return;
         }
 
@@ -224,7 +224,7 @@ public class MethodExtractor implements Extractor {
             }
             methodId = CallableIdFactory.forCompactConstructor(ctx.idGenerator(), decl);
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e);
+            ctx.incrementUnresolved(e, decl, "compact-constructor");
             return;
         }
 
@@ -255,7 +255,10 @@ public class MethodExtractor implements Extractor {
     private void emitLambda(LambdaExpr lambda, String sourceFile, ExtractionResult result) {
         String parentId;
         try { parentId = enclosing.ownerIdOf(lambda); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) {
+            ctx.incrementUnresolved(e, lambda, "$lambda");
+            return;
+        }
         if (parentId == null) return;
 
         int line = lambda.getBegin().map(p -> p.line).orElse(0);
@@ -265,7 +268,10 @@ public class MethodExtractor implements Extractor {
         boolean bindingResolved = true;
         String returnType = null;
         try { returnType = NodeIdGenerator.erasedTypeDescribe(lambda.calculateResolvedType()); }
-        catch (RuntimeException e) { bindingResolved = false; ctx.incrementUnresolved(e); }
+        catch (RuntimeException e) {
+            bindingResolved = false;
+            ctx.incrementUnresolved(e, lambda, "$lambda");
+        }
 
         List<Map<String, String>> params = new ArrayList<>();
         for (com.github.javaparser.ast.body.Parameter p : lambda.getParameters()) {
@@ -309,7 +315,10 @@ public class MethodExtractor implements Extractor {
     private void emitMethodRef(MethodReferenceExpr ref, String sourceFile, ExtractionResult result) {
         String parentId;
         try { parentId = enclosing.ownerIdOf(ref); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) {
+            ctx.incrementUnresolved(e, ref, ref.getIdentifier());
+            return;
+        }
         if (parentId == null) return;
 
         int line = ref.getBegin().map(p -> p.line).orElse(0);
@@ -322,7 +331,7 @@ public class MethodExtractor implements Extractor {
             target = ref.resolve();
             bindingResolved = true;
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, ref, ref.getIdentifier());
         }
 
         Map<String, Object> meta = new LinkedHashMap<>();
@@ -362,7 +371,7 @@ public class MethodExtractor implements Extractor {
                 }
                 result.edges.add(call);
             } catch (RuntimeException e) {
-                ctx.incrementUnresolved();
+                ctx.incrementUnresolved(e, ref, ref.getIdentifier());
             }
         }
     }

@@ -1,6 +1,7 @@
 package com.anatomist.core;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
 
 import java.nio.file.Path;
@@ -72,14 +73,23 @@ final class ResolutionTracker {
     }
 
     void record(Throwable cause) {
+        record(cause, null, null);
+    }
+
+    void record(Throwable cause, Node site, String attemptedSymbol) {
         unresolved.incrementAndGet();
-        String sample = ExtractionContext.sampleKey(cause);
-        String reason = classify(cause, sample);
-        Key key = new Key(sourceFile, module, scope, phase, reason);
+        String causeSymbol = ExtractionContext.sampleKey(cause);
+        String symbol = normalizeSymbol(attemptedSymbol, causeSymbol);
+        int line = site == null ? 0 : site.getBegin().map(position -> position.line).orElse(0);
+        String expression = site == null ? null : normalizeText(site.toString(), 220);
+        String sample = sample(cause, line, expression);
+        String reason = classify(cause, symbol, expression, causeSymbol);
+        Key key = new Key(sourceFile, module, scope, phase, reason, symbol, line);
         Bucket bucket = groups.get(key);
         if (bucket == null) {
             if (groups.size() >= MAX_GROUPS) {
-                key = new Key(null, ".", "MAIN", "RESOLUTION", "DIAGNOSTIC_LIMIT_REACHED");
+                key = new Key(null, ".", "MAIN", "RESOLUTION",
+                        "DIAGNOSTIC_LIMIT_REACHED", null, 0);
                 bucket = groups.computeIfAbsent(key, ignored -> new Bucket());
             } else {
                 bucket = new Bucket();
@@ -103,16 +113,17 @@ final class ResolutionTracker {
                 key.sourceFile(),
                 key.module(),
                 key.scope(),
-                null,
+                key.symbol(),
                 bucket.count,
                 bucket.sample)));
         long failed = unresolved.get();
         return new ResolutionSummary(failed, 0, failed, diagnostics);
     }
 
-    private String classify(Throwable cause, String sample) {
+    private String classify(Throwable cause, String symbol, String expression, String causeSymbol) {
+        String context = String.join(" ", value(symbol), value(expression), value(causeSymbol));
         String message = ((cause == null ? "" : cause.getClass().getSimpleName() + " "
-                + cause.getMessage()) + " " + sample).toLowerCase(Locale.ROOT);
+                + cause.getMessage()) + " " + context).toLowerCase(Locale.ROOT);
         if (cause instanceof UnsupportedOperationException || message.contains("unsupported")) {
             return "UNSUPPORTED_RESOLUTION";
         }
@@ -120,18 +131,49 @@ final class ResolutionTracker {
             return "AMBIGUOUS_OVERLOAD";
         }
         if (message.contains("generic") || message.contains("inference")
-                || message.contains("type variable")) {
+                || message.contains("type variable") || message.contains("typeparametersmap")
+                || message.contains("type parameter")
+                || message.contains("asmtypesolver")
+                || message.contains("solving ")
+                || expression != null && (expression.contains("->") || expression.contains("::"))
+                || expression != null && (expression.contains("<>") || expression.contains(".<"))
+                || expression != null && message.contains("constructor declaration corresponding")
+                        && expression.contains(".of(")
+                || causeSymbol != null && (causeSymbol.contains("->") || causeSymbol.contains("::"))
+                || causeSymbol != null && causeSymbol.length() == 1
+                        && Character.isLowerCase(causeSymbol.charAt(0))) {
             return "GENERIC_INFERENCE_FAILED";
         }
-        String imported = importedType(sample);
-        if (isJdkType(sample) || isJdkType(imported)) {
+        String normalizedPhase = phase.toUpperCase(Locale.ROOT);
+        // FieldAccessExtractor deliberately probes every NameExpr/FieldAccessExpr.
+        // Type and package qualifiers fail value resolution by design, so this
+        // phase must not promote those probes into internal/JDK coverage warnings.
+        if (normalizedPhase.contains("FIELD_ACCESS")) return "FIELD_NOT_FOUND";
+        if (normalizedPhase.contains("CALL") && isUnqualifiedCall(expression)) {
+            return "METHOD_NOT_FOUND";
+        }
+        // A solved receiver whose member lookup fails is a member-resolution
+        // limitation, not proof that the receiver's internal/JDK type is absent.
+        if (message.contains("cannot be resolved in context")
+                || message.contains("unable to find the method declaration corresponding")) {
+            return "METHOD_NOT_FOUND";
+        }
+        String imported = importedType(causeSymbol);
+        if (imported == null) imported = importedType(symbol);
+        if (imported == null) imported = importedType(expression);
+        if (isJdkType(symbol) || isJdkType(expression) || isJdkType(causeSymbol)
+                || isJdkType(imported)) {
             return "JDK_SYMBOL_MISMATCH";
         }
-        String normalizedPhase = phase.toUpperCase(Locale.ROOT);
+        if (cause instanceof UnsolvedSymbolException && isLikelyInternal(symbol)) {
+            return "INTERNAL_SYMBOL_MISSING";
+        }
+        if (cause instanceof UnsolvedSymbolException && looksLikeTypeSymbol(symbol)) {
+            return "THIRDPARTY_SYMBOL_MISSING";
+        }
         if (normalizedPhase.contains("CALL")) return "METHOD_NOT_FOUND";
-        if (normalizedPhase.contains("FIELD_ACCESS")) return "FIELD_NOT_FOUND";
         if (cause instanceof UnsolvedSymbolException) {
-            return isLikelyInternal(sample)
+            return isLikelyInternal(symbol)
                     ? "INTERNAL_SYMBOL_MISSING"
                     : "THIRDPARTY_SYMBOL_MISSING";
         }
@@ -160,7 +202,17 @@ final class ResolutionTracker {
 
     private String importedType(String symbol) {
         if (symbol == null || symbol.isBlank()) return null;
-        String simple = symbol;
+        String simple = symbol.strip();
+        int call = simple.indexOf('(');
+        if (call >= 0) simple = simple.substring(0, call);
+        int space = simple.indexOf(' ');
+        if (space >= 0) simple = simple.substring(0, space);
+        int leadingSeparator = simple.indexOf('.');
+        if (leadingSeparator > 0) {
+            String leading = simple.substring(0, leadingSeparator);
+            String imported = explicitImports.get(leading);
+            if (imported != null) return imported;
+        }
         int separator = simple.lastIndexOf('.');
         if (separator >= 0) simple = simple.substring(separator + 1);
         int generic = simple.indexOf('<');
@@ -176,16 +228,64 @@ final class ResolutionTracker {
     private static String severity(String reason, boolean noClasspath) {
         return switch (reason) {
             case "INTERNAL_SYMBOL_MISSING", "JDK_SYMBOL_MISMATCH" -> "warning";
-            case "THIRDPARTY_SYMBOL_MISSING" -> noClasspath ? "info" : "warning";
             default -> "info";
         };
     }
 
     private record Key(String sourceFile, String module, String scope,
-                       String phase, String reason) {}
+                       String phase, String reason, String symbol, int line) {}
 
     private static final class Bucket {
         long count;
         String sample;
+    }
+
+    private static String normalizeSymbol(String attempted, String fallback) {
+        String value = attempted == null || attempted.isBlank() ? fallback : attempted;
+        if (value == null || value.isBlank() || value.startsWith("[")) return null;
+        return normalizeText(value, 200);
+    }
+
+    private static String sample(Throwable cause, int line, String expression) {
+        StringBuilder out = new StringBuilder();
+        if (line > 0) out.append('L').append(line).append(": ");
+        if (expression != null && !expression.isBlank()) out.append(expression).append(" — ");
+        if (cause == null) {
+            out.append("resolution returned no binding");
+        } else {
+            out.append(cause.getClass().getSimpleName());
+            if (cause.getMessage() != null && !cause.getMessage().isBlank()) {
+                out.append(": ").append(cause.getMessage().strip());
+            }
+        }
+        return normalizeText(out.toString(), 500);
+    }
+
+    private static String normalizeText(String value, int limit) {
+        if (value == null) return null;
+        String normalized = value.replaceAll("\\s+", " ").strip();
+        return normalized.length() <= limit ? normalized : normalized.substring(0, limit);
+    }
+
+    private static boolean looksLikeTypeSymbol(String symbol) {
+        if (symbol == null || symbol.isBlank()) return false;
+        String simple = symbol;
+        int separator = Math.max(simple.lastIndexOf('.'), simple.lastIndexOf('$'));
+        if (separator >= 0 && separator + 1 < simple.length()) simple = simple.substring(separator + 1);
+        int generic = simple.indexOf('<');
+        if (generic >= 0) simple = simple.substring(0, generic);
+        return !simple.isBlank() && Character.isUpperCase(simple.charAt(0))
+                && simple.indexOf('(') < 0;
+    }
+
+    private static boolean isUnqualifiedCall(String expression) {
+        if (expression == null || expression.isBlank() || expression.startsWith("new ")) return false;
+        int call = expression.indexOf('(');
+        if (call <= 0) return false;
+        return expression.substring(0, call).indexOf('.') < 0;
+    }
+
+    private static String value(String value) {
+        return value == null ? "" : value;
     }
 }

@@ -17,6 +17,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -48,6 +49,22 @@ class SqliteStoreWriteTest {
         assertEquals(4, diagnostics.stream()
                 .filter(d -> "B.java".equals(d.sourceFile()))
                 .mapToLong(IndexDiagnostic::count).sum());
+    }
+
+    @Test
+    void resolutionCoveragePreservesAllReasonCounts(@TempDir Path tmp) {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+        store.replaceIndexDiagnostics(List.of(
+                diagnostic("METHOD_NOT_FOUND", "A.java", 2),
+                diagnostic("AMBIGUOUS_OVERLOAD", "B.java", 3),
+                diagnostic("GENERIC_INFERENCE_FAILED", "C.java", 4)));
+
+        Map<String, Long> counts = store.readResolutionDiagnosticCounts();
+        assertEquals(2L, counts.get("METHOD_NOT_FOUND"));
+        assertEquals(3L, counts.get("AMBIGUOUS_OVERLOAD"));
+        assertEquals(4L, counts.get("GENERIC_INFERENCE_FAILED"));
+        assertEquals(9L, counts.get("UNRESOLVED_SYMBOLS"));
     }
 
     @Test

@@ -82,7 +82,7 @@ public class TypeExtractor implements Extractor {
         try {
             rt = decl.resolve();
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             return;
         }
         Node n = new Node();

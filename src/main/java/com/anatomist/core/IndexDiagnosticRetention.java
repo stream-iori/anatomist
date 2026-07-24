@@ -28,7 +28,7 @@ public final class IndexDiagnosticRetention {
         List<IndexDiagnostic> retained =
                 new ArrayList<>(ordered.subList(0, LIMIT - 1));
         retained.add(new IndexDiagnostic(
-                "warning", "DIAGNOSTIC_STORAGE_TRUNCATED", "RESOLUTION",
+                "info", "DIAGNOSTIC_STORAGE_TRUNCATED", "RESOLUTION",
                 null, null, null, null, omitted,
                 "Detailed resolution diagnostics exceeded the persisted limit; "
                         + "coverage for resolution-dependent negative queries is unknown."));

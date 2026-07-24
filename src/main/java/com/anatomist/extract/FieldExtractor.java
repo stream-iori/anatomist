@@ -64,7 +64,7 @@ public class FieldExtractor implements Extractor {
     private void emitRecordComponents(RecordDeclaration decl, String sourceFile, ExtractionResult result) {
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
-        catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
+        catch (RuntimeException e) { ctx.incrementUnresolved(e, decl, decl.getNameAsString()); return; }
         String classId = ctx.idGenerator().forType(rt);
         StringBuilder ctorParams = new StringBuilder();
         for (com.github.javaparser.ast.body.Parameter p : decl.getParameters()) {
@@ -191,7 +191,7 @@ public class FieldExtractor implements Extractor {
             if (!(v instanceof ResolvedFieldDeclaration field)) return;
             r = field;
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, var, var.getNameAsString());
             return;
         }
         ResolvedTypeDeclaration declType;
@@ -199,7 +199,7 @@ public class FieldExtractor implements Extractor {
             declType = r.declaringType();
             if (skipDeclaringType(declType)) return;
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, var, var.getNameAsString());
             return;
         }
         String classId = ctx.idGenerator().forType(declType);
@@ -228,7 +228,7 @@ public class FieldExtractor implements Extractor {
         try {
             r = decl.resolve();
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             return;
         }
         // ResolvedEnumConstantDeclaration only exposes the type FQN via getType().
@@ -236,7 +236,7 @@ public class FieldExtractor implements Extractor {
         try {
             enumFqn = r.getType().describe();
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved();
+            ctx.incrementUnresolved(e, decl, decl.getNameAsString());
             return;
         }
         String id = enumFqn + "#" + decl.getNameAsString();
