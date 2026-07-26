@@ -19,6 +19,43 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FlowAnalysisIT {
 
     @Test
+    void flowQueriesDiscloseLimitAndDepthBoundaries(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Files.writeString(project.resolve("src/main/java/p/A.java"), """
+                package p;
+                class A {
+                    String copy(String value) {
+                        String first = value;
+                        String second = first;
+                        String third = second;
+                        return third;
+                    }
+                }
+                """);
+        Path db = tmp.resolve("flow-bounds.db");
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "17", "--dataflow",
+                "--output", db.toString(), "--format", "json");
+
+        RunResult limited = runCli("flow-of", "p.A#copy", "--depth", "8",
+                "--limit", "1", "--index", db.toString());
+        assertEquals(0, limited.exitCode(), limited.stderr());
+        assertTrue(limited.stdout().contains("\"limit_truncated\" : true"), limited.stdout());
+        assertTrue(limited.stdout().contains("--limit 2"), limited.stdout());
+        assertTrue(limited.stdout().contains("\"negative_conclusion_safe\" : false"),
+                limited.stdout());
+
+        RunResult shallow = runCli("flow-path", "p.A#copy", "p.A#copy",
+                "--from-slot", "arg:0", "--to-slot", "return", "--depth", "1",
+                "--index", db.toString());
+        assertEquals(0, shallow.exitCode(), shallow.stderr());
+        assertTrue(shallow.stdout().contains("\"found\" : false"), shallow.stdout());
+        assertTrue(shallow.stdout().contains("\"depth_truncated\" : true"), shallow.stdout());
+        assertTrue(shallow.stdout().contains("QUERY_DEPTH_TRUNCATED"), shallow.stdout());
+        assertTrue(shallow.stdout().contains("--depth 2"), shallow.stdout());
+    }
+
+    @Test
     void invalidTaintRuleDoesNotDisableValidRules(@TempDir Path tmp) throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
         Files.writeString(project.resolve("src/main/java/p/A.java"), """
@@ -178,6 +215,14 @@ class FlowAnalysisIT {
                 "--depth", "30", "--index", flow.toString());
         assertEquals(0, taint.exitCode(), taint.stderr());
         assertTrue(taint.stdout().contains("\"found\" : true"), taint.stdout());
+
+        RunResult shallowTaint = runCli("taint-path", "*", "*",
+                "--depth", "1", "--index", flow.toString());
+        assertEquals(0, shallowTaint.exitCode(), shallowTaint.stderr());
+        assertTrue(shallowTaint.stdout().contains("\"found\" : false"), shallowTaint.stdout());
+        assertTrue(shallowTaint.stdout().contains("\"depth_truncated\" : true"),
+                shallowTaint.stdout());
+        assertTrue(shallowTaint.stdout().contains("--depth 2"), shallowTaint.stdout());
     }
 
     @Test

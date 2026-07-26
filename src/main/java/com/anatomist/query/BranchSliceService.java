@@ -34,12 +34,24 @@ public class BranchSliceService {
                                         int depth,
                                         boolean throughCallbacks,
                                         Integer sourceWindowLines) {
+        return branchesTraversal(methodRef, depth, throughCallbacks, sourceWindowLines).items();
+    }
+
+    public TraversalResult<BranchSlice> branchesTraversal(String methodRef,
+                                                           int depth,
+                                                           boolean throughCallbacks,
+                                                           Integer sourceWindowLines) {
         List<String> seedIds = resolver.resolveMethodIds(methodRef);
-        if (seedIds.isEmpty()) return List.of();
+        int effectiveDepth = Math.min(Math.max(1, depth), CallGraphService.MAX_DEPTH);
+        if (seedIds.isEmpty()) {
+            return new TraversalResult<>(List.of(), depth, effectiveDepth,
+                    0, false, 0, false);
+        }
 
         LinkedHashSet<String> ownerIds = new LinkedHashSet<>(seedIds);
-        List<EdgeRow> chain = callGraph.calleesOf(methodRef, Math.max(1, depth), throughCallbacks);
-        for (EdgeRow edge : chain) {
+        TraversalResult<EdgeRow> chain = callGraph.calleesTraversal(
+                methodRef, depth, throughCallbacks);
+        for (EdgeRow edge : chain.items()) {
             if (edge.source != null) ownerIds.add(edge.source);
             if (!edge.isExternal && edge.target != null) ownerIds.add(edge.target);
         }
@@ -53,7 +65,9 @@ public class BranchSliceService {
             BranchSlice slice = grouped.computeIfAbsent(key, ignored -> newSlice(row, owner, sourceWindowLines));
             addEdge(slice, row);
         }
-        return new ArrayList<>(grouped.values());
+        return new TraversalResult<>(new ArrayList<>(grouped.values()), depth,
+                chain.effectiveDepth(), chain.reachedDepth(), chain.depthTruncated(),
+                chain.frontierCount(), false);
     }
 
     private List<EdgeRow> branchEdges(List<String> ownerIds) {

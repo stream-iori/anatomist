@@ -240,8 +240,11 @@ Every query outputs a JSON envelope:
 ```
 
 - `total` — full result count before pagination
-- `truncated` — whether there are more results
-- Use `--offset N` to paginate, `--filter <keyword>` to narrow results
+- `truncated` — whether there are more results on the current depth/page, or a
+  `flow-of` traversal budget was spent
+- `depth_truncated` — whether graph traversal can continue beyond the requested depth
+- Use `next_queries` to paginate, enlarge `--limit`, or increase `--depth`; follow
+  every applicable suggestion before treating results as exhaustive
 
 ## Next steps
 

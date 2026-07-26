@@ -56,6 +56,11 @@
     "target_symbol_id" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)"
   } ],
   "stats" : {
+    "depth_effective" : 1,
+    "depth_limit_reached" : false,
+    "depth_requested" : 1,
+    "depth_truncated" : false,
+    "frontier_count" : 0,
     "limit" : 50,
     "max_depth" : 1,
     "offset" : 0,

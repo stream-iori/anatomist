@@ -4,6 +4,7 @@ import com.anatomist.query.EdgeRow;
 import com.anatomist.query.ContextFilter;
 import com.anatomist.query.PagedResult;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.TraversalResult;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +38,81 @@ final class Disclosure {
         env.budget.put("emitted", emitted);
         env.budget.put("total", total);
         env.budget.put("truncated", emitted < total);
+    }
+
+    static void putTraversal(QueryEnvelope env, TraversalResult<?> traversal, int maximumDepth) {
+        env.stats.put("depth_requested", traversal.requestedDepth());
+        env.stats.put("depth_effective", traversal.effectiveDepth());
+        env.stats.put("max_depth", traversal.reachedDepth());
+        env.stats.put("depth_truncated", traversal.depthTruncated());
+        env.stats.put("frontier_count", traversal.frontierCount());
+        env.stats.put("depth_limit_reached",
+                traversal.depthTruncated() && traversal.effectiveDepth() >= maximumDepth);
+        if (traversal.limitTruncated()) env.stats.put("limit_truncated", true);
+    }
+
+    static Integer nextDepth(TraversalResult<?> traversal, int maximumDepth) {
+        if (!traversal.depthTruncated() || traversal.effectiveDepth() >= maximumDepth) return null;
+        return Math.min(maximumDepth,
+                Math.max(traversal.effectiveDepth() + 1, traversal.effectiveDepth() * 2));
+    }
+
+    static Integer nextDepth(QueryEnvelope env, int maximumDepth) {
+        if (!Boolean.TRUE.equals(env.stats.get("depth_truncated"))) return null;
+        int effective = number(env.stats.get("depth_effective"));
+        if (effective >= maximumDepth) return null;
+        return Math.min(maximumDepth, Math.max(effective + 1, effective * 2));
+    }
+
+    static void addNextQuery(QueryEnvelope env, String query) {
+        if (query == null || query.isBlank()) return;
+        List<String> next = env.nextQueries == null
+                ? new ArrayList<>() : new ArrayList<>(env.nextQueries);
+        if (!next.contains(query)) next.add(query);
+        env.nextQueries = List.copyOf(next);
+    }
+
+    static List<String> withOption(List<String> args, String name, Object value) {
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < args.size(); i++) {
+            if (name.equals(args.get(i))) {
+                if (i + 1 < args.size()) i++;
+                continue;
+            }
+            out.add(args.get(i));
+        }
+        addOption(out, name, value);
+        return out;
+    }
+
+    static void applyBoundedEvidence(QueryEnvelope env, boolean limitIsTraversalBudget) {
+        boolean depth = Boolean.TRUE.equals(env.stats.get("depth_truncated"));
+        boolean truncated = Boolean.TRUE.equals(env.stats.get("truncated"));
+        boolean page = !limitIsTraversalBudget && (truncated
+                || number(env.stats.get("offset")) > 0);
+        boolean limit = limitIsTraversalBudget && truncated;
+        if (!depth && !page && !limit) return;
+
+        env.evidence.put("negative_conclusion_safe", false);
+        List<String> dimensions = new ArrayList<>();
+        Object existing = env.evidence.get("affected_dimensions");
+        if (existing instanceof List<?> values) {
+            values.stream().map(String::valueOf).forEach(dimensions::add);
+        }
+        if (page && !dimensions.contains("query_page")) dimensions.add("query_page");
+        if (depth && !dimensions.contains("query_depth")) dimensions.add("query_depth");
+        if (limit && !dimensions.contains("query_limit")) dimensions.add("query_limit");
+        env.evidence.put("affected_dimensions", dimensions.stream().sorted().toList());
+
+        if ("confirmed_empty".equals(env.evidence.get("status"))) {
+            env.evidence.put("status", "indeterminate");
+            env.evidence.put("code", depth ? "QUERY_DEPTH_TRUNCATED"
+                    : limit ? "QUERY_LIMIT_TRUNCATED" : "QUERY_PAGE_INCOMPLETE");
+        }
+    }
+
+    private static int number(Object value) {
+        return value instanceof Number number ? number.intValue() : 0;
     }
 
     static boolean matches(EdgeRow e, String filter) {

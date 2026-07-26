@@ -6,6 +6,7 @@ import com.anatomist.query.EdgeRow;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.TraversalResult;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -23,7 +24,7 @@ public class CallersOfCommand extends QueryCommand {
     @Parameters(index = "0", description = "Method FQN (Class#method or pkg.Class.method); external full signatures match exactly.")
     String method;
 
-    @Option(names = "--depth", description = "Recursive depth (1..20). Default 1.")
+    @Option(names = "--depth", description = "Traversal depth (1..20, default 1); check stats.depth_truncated before treating results as exhaustive.")
     int depth = 1;
 
     @Option(names = "--through-callbacks",
@@ -41,7 +42,7 @@ public class CallersOfCommand extends QueryCommand {
             description = "Slice chain into blocks: class | package (default: package).")
     String blocks;
 
-    @Option(names = "--limit", description = "Max call-chain edges to emit (default 50, 0=all).")
+    @Option(names = "--limit", description = "Max edges emitted after depth traversal (default 50, 0=all); page when stats.truncated=true.")
     int limit = 50;
 
     @Option(names = "--offset", description = "Skip N call-chain edges for pagination.")
@@ -67,7 +68,8 @@ public class CallersOfCommand extends QueryCommand {
 
     @Override
     protected QueryEnvelope execute(QueryService q) {
-        List<EdgeRow> rows = ContextFilter.apply(q.callersOf(method, depth, throughCallbacks), inLoop, inBranch);
+        TraversalResult<EdgeRow> traversal = q.callersTraversal(method, depth, throughCallbacks);
+        List<EdgeRow> rows = ContextFilter.apply(traversal.items(), inLoop, inBranch);
         if (filter != null && !filter.isBlank()) {
             rows = rows.stream().filter(e -> Disclosure.matches(e, filter)).toList();
         }
@@ -88,8 +90,7 @@ public class CallersOfCommand extends QueryCommand {
         Disclosure.addOption(queryArgs, "--scope", scope);
         String query = Disclosure.renderCommand(queryArgs);
         QueryEnvelope env = new QueryEnvelope(query, page);
-        int maxDepth = rows.stream().mapToInt(r -> r.depth == null ? 0 : r.depth).max().orElse(0);
-        env.stats.put("max_depth", maxDepth);
+        Disclosure.putTraversal(env, traversal, QueryService.MAX_DEPTH);
         Disclosure.putPaging(env, total, limit > 0 ? limit : Math.max(total, 1), offset);
         Disclosure.putBudget(env, "edges", page.size(), total);
         if ((Boolean) env.stats.get("truncated")) {
@@ -97,7 +98,14 @@ public class CallersOfCommand extends QueryCommand {
             Disclosure.addOption(next, "--index", IndexPath.resolve(index));
             Disclosure.addOption(next, "--limit", env.stats.get("limit"));
             Disclosure.addOption(next, "--offset", env.stats.get("next_offset"));
-            env.nextQueries = List.of(Disclosure.renderCommand(next));
+            Disclosure.addNextQuery(env, Disclosure.renderCommand(next));
+        }
+        Integer nextDepth = Disclosure.nextDepth(traversal, QueryService.MAX_DEPTH);
+        if (nextDepth != null) {
+            List<String> next = Disclosure.withOption(queryArgs, "--depth", nextDepth);
+            Disclosure.addOption(next, "--index", IndexPath.resolve(index));
+            Disclosure.addOption(next, "--limit", limit);
+            Disclosure.addNextQuery(env, Disclosure.renderCommand(next));
         }
         if (blocks != null) {
             CallChainSlicer slicer = new CallChainSlicer(q.connection());

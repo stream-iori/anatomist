@@ -29,7 +29,12 @@ public class CallGraphService {
     }
 
     public List<EdgeRow> calleesOf(String methodRef, int depth, boolean throughCallbacks) {
-        return callsFrom(resolver.resolveMethodIds(methodRef), Math.max(1, depth), throughCallbacks);
+        return calleesTraversal(methodRef, depth, throughCallbacks).items();
+    }
+
+    public TraversalResult<EdgeRow> calleesTraversal(String methodRef, int depth,
+                                                      boolean throughCallbacks) {
+        return callsFromTraversal(resolver.resolveMethodIds(methodRef), depth, throughCallbacks);
     }
 
     public List<EdgeRow> callersOf(String methodRef, int depth) {
@@ -37,11 +42,24 @@ public class CallGraphService {
     }
 
     public List<EdgeRow> callersOf(String methodRef, int depth, boolean throughCallbacks) {
-        int depthCap = Math.min(Math.max(1, depth), MAX_DEPTH);
-        List<EdgeRow> result = new ArrayList<>(
-                callsTo(resolver.resolveMethodIds(methodRef), depthCap, throughCallbacks));
-        result.addAll(callsToExternal(methodRef, depthCap, throughCallbacks));
-        return dedup(result);
+        return callersTraversal(methodRef, depth, throughCallbacks).items();
+    }
+
+    public TraversalResult<EdgeRow> callersTraversal(String methodRef, int depth,
+                                                      boolean throughCallbacks) {
+        int effectiveDepth = effectiveDepth(depth, 1);
+        TraversalResult<EdgeRow> internal = callsToTraversal(
+                resolver.resolveMethodIds(methodRef), depth, throughCallbacks);
+        TraversalResult<EdgeRow> external = callsToExternalTraversal(
+                methodRef, depth, throughCallbacks);
+        List<EdgeRow> combined = new ArrayList<>(internal.items());
+        combined.addAll(external.items());
+        List<EdgeRow> rows = dedup(combined);
+        int reachedDepth = rows.stream().mapToInt(row -> row.depth == null ? 0 : row.depth)
+                .max().orElse(0);
+        return new TraversalResult<>(rows, depth, effectiveDepth, reachedDepth,
+                internal.depthTruncated() || external.depthTruncated(),
+                internal.frontierCount() + external.frontierCount(), false);
     }
 
     List<EdgeRow> callsFrom(List<String> seedIds, int depth) {
@@ -49,8 +67,13 @@ public class CallGraphService {
     }
 
     List<EdgeRow> callsFrom(List<String> seedIds, int depth, boolean throughCallbacks) {
-        if (seedIds.isEmpty()) return Collections.emptyList();
-        int depthCap = Math.min(depth, MAX_DEPTH);
+        return callsFromTraversal(seedIds, depth, throughCallbacks).items();
+    }
+
+    private TraversalResult<EdgeRow> callsFromTraversal(List<String> seedIds, int depth,
+                                                         boolean throughCallbacks) {
+        int depthCap = effectiveDepth(depth, 1);
+        if (seedIds.isEmpty()) return emptyTraversal(depth, depthCap);
 
         List<EdgeRow> result = new ArrayList<>();
         Set<String> visited = new HashSet<>(seedIds);
@@ -108,7 +131,13 @@ public class CallGraphService {
                 }
             }
         }
-        return dedup(result);
+        List<EdgeRow> rows = dedup(result);
+        int reachedDepth = rows.stream().mapToInt(row -> row.depth == null ? 0 : row.depth)
+                .max().orElse(0);
+        int frontierCount = outgoingFrontierCount(new ArrayList<>(frontier), visited,
+                throughCallbacks, depthCap + 1);
+        return new TraversalResult<>(rows, depth, depthCap, reachedDepth,
+                frontierCount > 0, frontierCount, false);
     }
 
     List<EdgeRow> callsTo(List<String> seedIds, int depth) {
@@ -116,8 +145,13 @@ public class CallGraphService {
     }
 
     List<EdgeRow> callsTo(List<String> seedIds, int depth, boolean throughCallbacks) {
-        if (seedIds.isEmpty()) return Collections.emptyList();
-        int depthCap = Math.min(depth, MAX_DEPTH);
+        return callsToTraversal(seedIds, depth, throughCallbacks).items();
+    }
+
+    private TraversalResult<EdgeRow> callsToTraversal(List<String> seedIds, int depth,
+                                                       boolean throughCallbacks) {
+        int depthCap = effectiveDepth(depth, 1);
+        if (seedIds.isEmpty()) return emptyTraversal(depth, depthCap);
 
         List<EdgeRow> result = new ArrayList<>();
         Set<String> visited = new HashSet<>(seedIds);
@@ -164,7 +198,13 @@ public class CallGraphService {
                 }
             }
         }
-        return dedup(result);
+        List<EdgeRow> rows = dedup(result);
+        int reachedDepth = rows.stream().mapToInt(row -> row.depth == null ? 0 : row.depth)
+                .max().orElse(0);
+        int frontierCount = incomingFrontierCount(new ArrayList<>(frontier), visited,
+                throughCallbacks, depthCap + 1);
+        return new TraversalResult<>(rows, depth, depthCap, reachedDepth,
+                frontierCount > 0, frontierCount, false);
     }
 
     /**
@@ -172,23 +212,37 @@ public class CallGraphService {
      * {@code edges.external_target_fqn}.  The external edge is the first hop;
      * later hops stay inside the project graph and reuse normal caller traversal.
      */
-    private List<EdgeRow> callsToExternal(String methodRef, int depth, boolean throughCallbacks) {
+    private TraversalResult<EdgeRow> callsToExternalTraversal(String methodRef, int depth,
+                                                               boolean throughCallbacks) {
+        int effectiveDepth = effectiveDepth(depth, 1);
         ExternalMethodSelector selector = ExternalMethodSelector.parse(methodRef);
-        if (selector == null) return Collections.emptyList();
+        if (selector == null) return emptyTraversal(depth, effectiveDepth);
 
         List<EdgeRow> result = queryExternalCallsIn(selector, 1);
         if (throughCallbacks) rewriteCallbackSources(result);
-        if (depth <= 1 || result.isEmpty()) return result;
+        if (result.isEmpty()) return emptyTraversal(depth, effectiveDepth);
 
         List<String> directCallers = result.stream()
                 .map(edge -> edge.source)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
-        List<EdgeRow> upstream = callsTo(directCallers, depth - 1, throughCallbacks);
-        upstream.forEach(edge -> edge.depth = edge.depth + 1);
-        result.addAll(upstream);
-        return dedup(result);
+        if (effectiveDepth == 1) {
+            int frontierCount = incomingFrontierCount(directCallers,
+                    new HashSet<>(directCallers), throughCallbacks, 2);
+            return new TraversalResult<>(dedup(result), depth, effectiveDepth, 1,
+                    frontierCount > 0, frontierCount, false);
+        }
+        TraversalResult<EdgeRow> upstream = callsToTraversal(
+                directCallers, effectiveDepth - 1, throughCallbacks);
+        List<EdgeRow> shifted = new ArrayList<>(upstream.items());
+        shifted.forEach(edge -> edge.depth = edge.depth + 1);
+        result.addAll(shifted);
+        List<EdgeRow> rows = dedup(result);
+        int reachedDepth = rows.stream().mapToInt(row -> row.depth == null ? 0 : row.depth)
+                .max().orElse(1);
+        return new TraversalResult<>(rows, depth, effectiveDepth, reachedDepth,
+                upstream.depthTruncated(), upstream.frontierCount(), false);
     }
 
     /**
@@ -228,16 +282,22 @@ public class CallGraphService {
 
     public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef,
                                   int maxDepth, boolean throughCallbacks) {
+        return callPathTraversal(fromMethodRef, toMethodRef, maxDepth, throughCallbacks).items();
+    }
+
+    public TraversalResult<EdgeRow> callPathTraversal(String fromMethodRef, String toMethodRef,
+                                                       int maxDepth, boolean throughCallbacks) {
         List<String> froms = resolver.resolveMethodIds(fromMethodRef);
         List<String> tos   = resolver.resolveMethodIds(toMethodRef);
-        if (froms.isEmpty() || tos.isEmpty()) return Collections.emptyList();
-        int depthCap = Math.min(maxDepth > 0 ? maxDepth : 5, MAX_DEPTH);
+        int depthCap = effectiveDepth(maxDepth, 5);
+        if (froms.isEmpty() || tos.isEmpty()) return emptyTraversal(maxDepth, depthCap);
 
         Map<String, String> parent = new LinkedHashMap<>();
         Map<String, EdgeRow> hopRows = new HashMap<>();
         Map<String, Integer> depth = new HashMap<>();
         Set<String> visitedCallbackBodies = new HashSet<>();
         Deque<String> bfsFrontier = new ArrayDeque<>();
+        Set<String> boundary = new LinkedHashSet<>();
         for (String f : froms) { depth.put(f, 0); bfsFrontier.add(f); }
 
         String hit = null;
@@ -245,7 +305,10 @@ public class CallGraphService {
         while (!bfsFrontier.isEmpty() && hit == null) {
             String cur = bfsFrontier.pollFirst();
             int d = depth.get(cur);
-            if (d >= depthCap) continue;
+            if (d >= depthCap) {
+                boundary.add(cur);
+                continue;
+            }
 
             for (EdgeRow edge : pathOutgoingCalls(cur, d + 1, throughCallbacks, visitedCallbackBodies)) {
                 String next = edge.target;
@@ -268,7 +331,13 @@ public class CallGraphService {
                 }
             }
         }
-        if (hit == null) return Collections.emptyList();
+        int reachedDepth = depth.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        if (hit == null) {
+            int frontierCount = pathFrontierCount(boundary, depth.keySet(), throughCallbacks,
+                    visitedCallbackBodies, depthCap + 1);
+            return new TraversalResult<>(List.of(), maxDepth, depthCap, reachedDepth,
+                    frontierCount > 0, frontierCount, false);
+        }
 
         List<String> chain = new ArrayList<>();
         String cur = hit;
@@ -287,7 +356,85 @@ public class CallGraphService {
                 rows.add(row);
             }
         }
-        return rows;
+        return new TraversalResult<>(rows, maxDepth, depthCap, rows.size(),
+                false, 0, false);
+    }
+
+    private int outgoingFrontierCount(List<String> frontier,
+                                      Set<String> visited,
+                                      boolean throughCallbacks,
+                                      int depth) {
+        if (frontier.isEmpty()) return 0;
+        Set<String> owners = new LinkedHashSet<>();
+        List<EdgeRow> calls = queryCallsOut(frontier, depth);
+        calls.forEach(edge -> owners.add(edge.source));
+        Set<String> dispatchCandidates = new LinkedHashSet<>(frontier);
+        calls.stream().map(edge -> edge.target).filter(Objects::nonNull)
+                .forEach(dispatchCandidates::add);
+        if (throughCallbacks) {
+            Map<String, List<String>> bodies = callbackBodies.collect(frontier, new HashSet<>(visited));
+            for (Map.Entry<String, List<String>> entry : bodies.entrySet()) {
+                if (!entry.getValue().isEmpty()
+                        && !queryCallsOut(entry.getValue(), depth).isEmpty()) {
+                    owners.add(entry.getKey());
+                }
+            }
+        }
+        batchOverrideImpls(dispatchCandidates).forEach((source, targets) -> {
+            if (!targets.isEmpty()) owners.add(source);
+        });
+        return owners.size();
+    }
+
+    private int incomingFrontierCount(List<String> frontier,
+                                      Set<String> visited,
+                                      boolean throughCallbacks,
+                                      int depth) {
+        if (frontier.isEmpty()) return 0;
+        Set<String> owners = new LinkedHashSet<>();
+        List<EdgeRow> calls = queryCallsIn(frontier, depth);
+        if (throughCallbacks) rewriteCallbackSources(calls);
+        calls.stream().map(edge -> edge.source).filter(Objects::nonNull).forEach(owners::add);
+        Map<String, List<String>> interfaces = batchOverriddenIface(frontier);
+        List<String> bridged = interfaces.values().stream().flatMap(Collection::stream)
+                .filter(id -> !visited.contains(id)).distinct().toList();
+        owners.addAll(bridged);
+        if (!bridged.isEmpty()) {
+            List<EdgeRow> bridgedCalls = queryCallsIn(bridged, depth);
+            if (throughCallbacks) rewriteCallbackSources(bridgedCalls);
+            bridgedCalls.stream().map(edge -> edge.source).filter(Objects::nonNull)
+                    .forEach(owners::add);
+        }
+        return owners.size();
+    }
+
+    private int pathFrontierCount(Collection<String> boundary,
+                                  Set<String> visited,
+                                  boolean throughCallbacks,
+                                  Set<String> visitedCallbackBodies,
+                                  int depth) {
+        int count = 0;
+        for (String node : boundary) {
+            boolean hidden = pathOutgoingCalls(node, depth, throughCallbacks,
+                    new HashSet<>(visitedCallbackBodies)).stream()
+                    .map(edge -> edge.target)
+                    .anyMatch(target -> target != null && !visited.contains(target));
+            if (!hidden) {
+                hidden = overrideImpls(node).stream().anyMatch(target -> !visited.contains(target));
+            }
+            if (hidden) count++;
+        }
+        return count;
+    }
+
+    private static int effectiveDepth(int requested, int defaultDepth) {
+        int positive = requested > 0 ? requested : defaultDepth;
+        return Math.min(Math.max(1, positive), MAX_DEPTH);
+    }
+
+    private static <T> TraversalResult<T> emptyTraversal(int requestedDepth, int effectiveDepth) {
+        return new TraversalResult<>(List.of(), requestedDepth, effectiveDepth,
+                0, false, 0, false);
     }
 
     private List<EdgeRow> pathOutgoingCalls(String methodId, int depth,

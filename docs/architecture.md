@@ -64,7 +64,10 @@ Built-ins are registered in `AnalyzerRegistry`. Keep shared relations generic (`
 - **Index and Query are separate.** Query-side code must never import `com.github.javaparser.*`.
 - **No architecture role inference.** The index stores code facts and lightweight semantic annotations. Higher-level architecture judgment belongs to the calling Agent.
 - **JavaDoc stored as summary only.** Extracted via `JavadocSummary.extract()` (strips @tags, first sentence rule).
-- **Query output is Agent-bounded.** callees-of/callers-of: MAX_DEPTH=20 + BFS dedup; enrich: 200 lines; deps-of/used-by/field-access: default --limit 50 + pagination; overview --deps-only: default 30.
+- **Query output is Agent-bounded and discloses each bound.** Call traversals use
+  MAX_DEPTH=20 + BFS dedup and report `depth_truncated`; pageable commands report
+  `truncated`; `flow-of` reports its traversal-limit truncation. Agents must
+  follow the corresponding `next_queries` before making exhaustive claims.
 - **Spring Boot basics are static facts.** `BEAN`, `ROUTE`, `INJECTS`, and `HANDLES` are configured/static evidence, not proof of the exact runtime object under profiles, conditions, or AOP.
 - **`WIRES` edges originate from CLASS nodes, not BEAN nodes.** XML WIRES must drop explicitly on XML incremental rebuild; annotation BEAN nodes must not be deleted by XML cleanup.
 

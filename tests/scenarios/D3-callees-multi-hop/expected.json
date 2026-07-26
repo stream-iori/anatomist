@@ -601,6 +601,11 @@
     "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save"
   } ],
   "stats" : {
+    "depth_effective" : 5,
+    "depth_limit_reached" : false,
+    "depth_requested" : 5,
+    "depth_truncated" : false,
+    "frontier_count" : 0,
     "limit" : 50,
     "max_depth" : 3,
     "offset" : 0,

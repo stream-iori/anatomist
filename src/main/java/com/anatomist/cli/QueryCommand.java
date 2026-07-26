@@ -26,6 +26,7 @@ public abstract class QueryCommand implements Callable<Integer> {
             env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
                     coverageCapability(), coverageAnchors(), module, scope,
                     hasPositiveEvidence(env), aggregateEvidence()).toMap());
+            Disclosure.applyBoundedEvidence(env, false);
             JsonFormatter.emit(System.out, env);
             return 0;
         }

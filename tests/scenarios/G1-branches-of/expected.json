@@ -12,7 +12,7 @@
     "negative_conclusion_safe" : true,
     "status" : "positive"
   },
-  "query" : "branches-of com.example.shop.repository.InMemoryOrderRepository#save --depth 1",
+  "query" : "branches-of 'com.example.shop.repository.InMemoryOrderRepository#save' --depth 1 --source-window 1 --scope MAIN",
   "results" : [ {
     "branch_kind" : "if-then",
     "branch_line" : 19,
@@ -88,6 +88,11 @@
     "writes" : [ ]
   } ],
   "stats" : {
+    "depth_effective" : 1,
+    "depth_limit_reached" : false,
+    "depth_requested" : 1,
+    "depth_truncated" : false,
+    "frontier_count" : 0,
     "limit" : 50,
     "max_depth" : 1,
     "offset" : 0,

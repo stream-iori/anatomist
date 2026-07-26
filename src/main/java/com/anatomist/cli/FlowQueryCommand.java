@@ -32,6 +32,8 @@ abstract class FlowQueryCommand implements Callable<Integer> {
                         result.stats.get("total") instanceof Number total
                                 && total.longValue() > 0,
                         false).toMap());
+                Disclosure.applyBoundedEvidence(
+                        result, result.stats.containsKey("limit_truncated"));
                 JsonFormatter.emit(System.out, result);
                 return 0;
             } catch (FlowCoverageException coverage) {

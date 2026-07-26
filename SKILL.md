@@ -84,11 +84,15 @@ Read the JSON contracts as separate signals:
 | `health_dimensions.resolution` | Which internal/external/JDK lookups are partial |
 | `classpath_detection.status` / `origin` | Whether classpath input is full, partial, unavailable, cached, explicit, or reused from DB, and where it came from |
 | `gate` | Which policy was applied and why it passed/failed |
+| `stats.truncated` | The current result page or `flow-of` traversal budget is incomplete; follow `next_queries`. |
+| `stats.depth_truncated` | The traversal found an expandable frontier beyond `depth_effective`; increase `--depth` using `next_queries`. |
+| `stats.depth_limit_reached` | The engine's hard maximum depth was reached with hidden traversal results; do not claim exhaustiveness. |
 
 Every JSON query exposes `evidence`. Returned positive facts remain usable when
 coverage is partial, but are not exhaustive. A zero-result answer is safe only
 when `evidence.status=confirmed_empty` and
-`negative_conclusion_safe=true`. If status is `indeterminate`, report the
+`negative_conclusion_safe=true`. For paged or bounded graph queries, also require
+`stats.truncated=false` and `stats.depth_truncated=false`. If status is `indeterminate`, report the
 coverage gap instead of saying the code path/type/caller does not exist.
 
 ## IDEA task routing
@@ -136,6 +140,13 @@ anatomist call-path <from-method> <to-method> --depth 8 --source-window=2 --inde
 
 If a path crosses a lambda, anonymous class, template, or callback body, use
 `--through-callbacks` when available and mention `via` when present.
+
+Treat `--limit` and `--depth` as independent bounds. `callees-of`, `callers-of`,
+and `branches-of` finish the requested-depth traversal before paging: continue
+with the pagination query when `stats.truncated=true`, and separately increase
+depth when `stats.depth_truncated=true`. For `call-path`, an empty result is not
+proof of absence while `stats.depth_truncated=true`. If both bounds are hit,
+follow both entries in `next_queries`; a deeper query restarts at offset 0.
 
 ### External classpath targets
 
@@ -224,6 +235,13 @@ feasibility remain outside the guarantee.
 the question requires them. Prefer exact slots (`arg:N`, `return`, `throw`) and
 full overloaded signatures; `FLOW_ENDPOINT_AMBIGUOUS` means the selector must
 be narrowed. Taint rules accept source/sanitizer `return` and sink `arg:N` or `this`; invalid slots are not silently applied.
+
+`flow-of --limit` is a traversal safety budget, not pagination. When
+`stats.limit_truncated=true`, rerun the suggested larger-limit query and do not
+make a completeness claim. For `flow-of`, `flow-path`, and `taint-path`, follow
+the larger-depth query whenever `stats.depth_truncated=true`. If
+`depth_limit_reached` or `limit_cap_reached` is true, report the hard analysis
+boundary because no larger supported follow-up is available.
 
 Evidence coverage comes from `analysis_coverage`, which preserves full
 file/module/scope/capability aggregates even when diagnostic samples are
@@ -355,7 +373,7 @@ anatomist returns static code facts. It does not decide business meaning.
 
 Report node ids, relation names, file/line, or `source_window` snippets when
 possible. Page large results with `stats.truncated`, `next_offset`, and
-`next_queries`.
+`next_queries`; expand bounded traversals when `stats.depth_truncated=true`.
 
 ## Anti-patterns
 
@@ -371,6 +389,7 @@ possible. Page large results with `stats.truncated`, `next_offset`, and
 | Paste long source files | Use source windows and cite exact file/line. |
 | Assume the DB matches current source | Run the integrity gate and inspect `index_state`. |
 | Treat any empty result as proof of absence | Require `evidence.status=confirmed_empty`. |
+| Treat `stats.truncated=false` as proof that a traversal is complete | Also require `stats.depth_truncated=false`; `flow-of` additionally requires `stats.limit_truncated=false`. |
 | Treat no static path as no runtime path | Mention static-analysis limits. |
 
 Runtime behavior can still be incomplete for unbounded reflection, profiles,

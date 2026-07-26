@@ -11,6 +11,7 @@ import java.sql.SQLException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -22,6 +23,10 @@ import java.util.Set;
 
 /** Read-only flow graph traversal and path queries. */
 public final class FlowQueryService implements AutoCloseable {
+
+    public static final int MAX_TRAVERSAL_DEPTH = 50;
+    public static final int MAX_PATH_DEPTH = 100;
+    public static final int MAX_LIMIT = 10_000;
 
     private static final Set<String> DATA_RELATIONS = Set.of(
             "DEF_USE", "ARGUMENT_FLOW", "RETURN_FLOW",
@@ -74,12 +79,17 @@ public final class FlowQueryService implements AutoCloseable {
                                 int limit) {
         requireDetailed(method);
         Set<String> starts = flowNodesFor(method);
-        Traversal traversal = traverse(starts, reverse, depth, limit, false);
+        TraversalResult<Map<String, Object>> traversal = traverse(
+                starts, reverse, depth, limit, false);
         QueryEnvelope envelope = new QueryEnvelope(
-                "flow-of " + method + (reverse ? " --reverse" : ""), traversal.rows());
+                "flow-of " + method + (reverse ? " --reverse" : ""), traversal.items());
         envelope.stats.put("start_nodes", starts.size());
-        envelope.stats.put("max_depth", traversal.maxDepth());
-        envelope.stats.put("truncated", traversal.truncated());
+        putTraversalStats(envelope, traversal, MAX_TRAVERSAL_DEPTH);
+        envelope.stats.put("limit", safeLimit(limit));
+        envelope.stats.put("truncated", traversal.limitTruncated());
+        envelope.stats.put("limit_truncated", traversal.limitTruncated());
+        envelope.stats.put("limit_cap_reached",
+                traversal.limitTruncated() && safeLimit(limit) >= MAX_LIMIT);
         return envelope;
     }
 
@@ -95,13 +105,14 @@ public final class FlowQueryService implements AutoCloseable {
                 options.taintOnly() ? "TAINT_SOURCE" : null, options.sourceSlot());
         Set<String> targets = endpointNodes(target,
                 options.taintOnly() ? "TAINT_SINK" : null, options.targetSlot());
-        List<Map<String, Object>> path = shortestPath(
+        TraversalResult<Map<String, Object>> traversal = shortestPath(
                 starts, targets, depth, options.taintOnly(), relations);
+        List<Map<String, Object>> path = traversal.items();
         QueryEnvelope envelope = new QueryEnvelope(
                 (options.taintOnly() ? "taint-path " : "flow-path ")
                         + source + " " + target, path);
         envelope.stats.put("found", !path.isEmpty());
-        envelope.stats.put("max_depth", Math.max(1, depth));
+        putTraversalStats(envelope, traversal, MAX_PATH_DEPTH);
         envelope.stats.put("source_candidates", starts.size());
         envelope.stats.put("target_candidates", targets.size());
         envelope.stats.put("source_slot", options.sourceSlot());
@@ -210,29 +221,33 @@ public final class FlowQueryService implements AutoCloseable {
         }
     }
 
-    private Traversal traverse(Set<String> starts,
-                               boolean reverse,
-                               int depth,
-                               int limit,
-                               boolean taintOnly) {
-        int maxDepth = Math.max(1, Math.min(depth, 50));
+    private TraversalResult<Map<String, Object>> traverse(Set<String> starts,
+                                                          boolean reverse,
+                                                          int depth,
+                                                          int limit,
+                                                          boolean taintOnly) {
+        int maxDepth = Math.max(1, Math.min(depth, MAX_TRAVERSAL_DEPTH));
         int maxRows = safeLimit(limit);
         Set<String> seenNodes = new LinkedHashSet<>(starts);
         Set<Long> seenEdges = new HashSet<>();
         Deque<NodeDepth> queue = new ArrayDeque<>();
         starts.forEach(node -> queue.add(new NodeDepth(node, 0)));
         List<Map<String, Object>> rows = new ArrayList<>();
+        Set<String> boundary = new LinkedHashSet<>();
         int reachedDepth = 0;
-        boolean truncated = false;
+        boolean limitTruncated = false;
         while (!queue.isEmpty()) {
             NodeDepth current = queue.removeFirst();
-            if (current.depth() >= maxDepth) continue;
+            if (current.depth() >= maxDepth) {
+                boundary.add(current.node());
+                continue;
+            }
             if (taintOnly && "SANITIZER".equals(nodeKind(current.node()))) continue;
             List<EdgeRecord> edges = edges(current.node(), reverse);
             for (EdgeRecord edge : edges) {
                 if (!seenEdges.add(edge.id())) continue;
                 if (rows.size() >= maxRows) {
-                    truncated = true;
+                    limitTruncated = true;
                     break;
                 }
                 rows.add(edgeMap(edge, current.depth() + 1));
@@ -240,22 +255,33 @@ public final class FlowQueryService implements AutoCloseable {
                 if (seenNodes.add(next)) queue.addLast(new NodeDepth(next, current.depth() + 1));
                 reachedDepth = Math.max(reachedDepth, current.depth() + 1);
             }
-            if (truncated) break;
+            if (limitTruncated) break;
         }
-        return new Traversal(rows, reachedDepth, truncated);
+        int frontierCount = limitTruncated ? 0
+                : flowFrontierCount(boundary, reverse, taintOnly);
+        return new TraversalResult<>(rows, depth, maxDepth, reachedDepth,
+                frontierCount > 0, frontierCount, limitTruncated);
     }
 
-    private List<Map<String, Object>> shortestPath(Set<String> starts,
-                                                   Set<String> targets,
-                                                   int depth,
-                                                   boolean taintOnly,
-                                                   Set<String> relations) {
-        if (starts.isEmpty() || targets.isEmpty()) return List.of();
-        int maxDepth = Math.max(1, Math.min(depth, 100));
+    private TraversalResult<Map<String, Object>> shortestPath(Set<String> starts,
+                                                               Set<String> targets,
+                                                               int depth,
+                                                               boolean taintOnly,
+                                                               Set<String> relations) {
+        int maxDepth = Math.max(1, Math.min(depth, MAX_PATH_DEPTH));
+        if (starts.isEmpty() || targets.isEmpty()) {
+            return new TraversalResult<>(List.of(), depth, maxDepth,
+                    0, false, 0, false);
+        }
         Deque<NodeDepth> queue = new ArrayDeque<>();
         Set<String> seen = new HashSet<>(starts);
         Map<String, EdgeRecord> previous = new HashMap<>();
-        starts.forEach(node -> queue.add(new NodeDepth(node, 0)));
+        Map<String, Integer> depths = new HashMap<>();
+        Set<String> boundary = new LinkedHashSet<>();
+        starts.forEach(node -> {
+            queue.add(new NodeDepth(node, 0));
+            depths.put(node, 0);
+        });
         String found = null;
         while (!queue.isEmpty() && found == null) {
             NodeDepth current = queue.removeFirst();
@@ -263,13 +289,17 @@ public final class FlowQueryService implements AutoCloseable {
                 found = current.node();
                 break;
             }
-            if (current.depth() >= maxDepth) continue;
+            if (current.depth() >= maxDepth) {
+                boundary.add(current.node());
+                continue;
+            }
             if (taintOnly && "SANITIZER".equals(nodeKind(current.node()))) continue;
             for (EdgeRecord edge : edges(current.node(), false)) {
                 if (!relations.contains(edge.relation())) continue;
                 if (taintOnly && !matchesTaintSinkSlot(edge)) continue;
                 if (seen.add(edge.target())) {
                     previous.put(edge.target(), edge);
+                    depths.put(edge.target(), current.depth() + 1);
                     if (targets.contains(edge.target())) {
                         found = edge.target();
                         break;
@@ -278,19 +308,69 @@ public final class FlowQueryService implements AutoCloseable {
                 }
             }
         }
-        if (found == null) return List.of();
+        int reachedDepth = depths.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        if (found == null) {
+            int frontierCount = flowPathFrontierCount(
+                    boundary, seen, taintOnly, relations);
+            return new TraversalResult<>(List.of(), depth, maxDepth, reachedDepth,
+                    frontierCount > 0, frontierCount, false);
+        }
         List<EdgeRecord> reversed = new ArrayList<>();
         String current = found;
         while (!starts.contains(current)) {
             EdgeRecord edge = previous.get(current);
-            if (edge == null) return List.of();
+            if (edge == null) {
+                return new TraversalResult<>(List.of(), depth, maxDepth, reachedDepth,
+                        false, 0, false);
+            }
             reversed.add(edge);
             current = edge.source();
         }
         Collections.reverse(reversed);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < reversed.size(); i++) rows.add(edgeMap(reversed.get(i), i + 1));
-        return rows;
+        return new TraversalResult<>(rows, depth, maxDepth, rows.size(),
+                false, 0, false);
+    }
+
+    private int flowFrontierCount(Collection<String> boundary,
+                                  boolean reverse,
+                                  boolean taintOnly) {
+        int count = 0;
+        for (String node : boundary) {
+            if (taintOnly && "SANITIZER".equals(nodeKind(node))) continue;
+            if (!edges(node, reverse).isEmpty()) count++;
+        }
+        return count;
+    }
+
+    private int flowPathFrontierCount(Collection<String> boundary,
+                                      Set<String> seen,
+                                      boolean taintOnly,
+                                      Set<String> relations) {
+        int count = 0;
+        for (String node : boundary) {
+            if (taintOnly && "SANITIZER".equals(nodeKind(node))) continue;
+            boolean hidden = edges(node, false).stream()
+                    .filter(edge -> relations.contains(edge.relation()))
+                    .filter(edge -> !taintOnly || matchesTaintSinkSlot(edge))
+                    .map(EdgeRecord::target)
+                    .anyMatch(target -> !seen.contains(target));
+            if (hidden) count++;
+        }
+        return count;
+    }
+
+    private static void putTraversalStats(QueryEnvelope envelope,
+                                          TraversalResult<?> traversal,
+                                          int maximumDepth) {
+        envelope.stats.put("depth_requested", traversal.requestedDepth());
+        envelope.stats.put("depth_effective", traversal.effectiveDepth());
+        envelope.stats.put("max_depth", traversal.reachedDepth());
+        envelope.stats.put("depth_truncated", traversal.depthTruncated());
+        envelope.stats.put("frontier_count", traversal.frontierCount());
+        envelope.stats.put("depth_limit_reached",
+                traversal.depthTruncated() && traversal.effectiveDepth() >= maximumDepth);
     }
 
     private List<Map<String, Object>> rowsForMethod(String method,
@@ -577,7 +657,7 @@ public final class FlowQueryService implements AutoCloseable {
     }
 
     private static int safeLimit(int limit) {
-        return limit <= 0 ? 1000 : Math.min(limit, 10_000);
+        return limit <= 0 ? 1000 : Math.min(limit, MAX_LIMIT);
     }
 
     @Override
@@ -589,7 +669,6 @@ public final class FlowQueryService implements AutoCloseable {
     }
 
     private record NodeDepth(String node, int depth) {}
-    private record Traversal(List<Map<String, Object>> rows, int maxDepth, boolean truncated) {}
     private record EdgeRecord(long id, String source, String target, String relation,
                               String method, String sourceFile, String confidence,
                               String context, String metadata,

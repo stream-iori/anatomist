@@ -6,12 +6,13 @@
     "truncated" : false
   },
   "evidence" : {
-    "affected_dimensions" : [ ],
+    "affected_dimensions" : [ "query_depth" ],
     "coverage" : "complete",
     "diagnostic_counts" : { },
-    "negative_conclusion_safe" : true,
+    "negative_conclusion_safe" : false,
     "status" : "positive"
   },
+  "next_queries" : [ "callees-of 'com.example.shop.service.OrderService#createOrder' --scope MAIN --depth 2 --index ${INDEX} --limit 50" ],
   "query" : "callees-of 'com.example.shop.service.OrderService#createOrder' --depth 1 --scope MAIN",
   "results" : [ {
     "call_kind" : "STATIC",
@@ -381,6 +382,11 @@
     "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save"
   } ],
   "stats" : {
+    "depth_effective" : 1,
+    "depth_limit_reached" : false,
+    "depth_requested" : 1,
+    "depth_truncated" : true,
+    "frontier_count" : 4,
     "limit" : 50,
     "max_depth" : 1,
     "offset" : 0,

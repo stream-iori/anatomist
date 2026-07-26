@@ -6,6 +6,7 @@ import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.TraversalResult;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -24,7 +25,7 @@ public class CallPathCommand implements Callable<Integer> {
     @Parameters(index = "0", description = "Source method ref.") String from;
     @Parameters(index = "1", description = "Target method ref.") String to;
 
-    @Option(names = "--depth", description = "Max BFS depth. Default 5.")
+    @Option(names = "--depth", description = "Max BFS traversal depth (1..20, default 5); an empty path may be depth-truncated.")
     int depth = 5;
 
     @Option(names = "--index") Path index;
@@ -46,15 +47,27 @@ public class CallPathCommand implements Callable<Integer> {
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
-            List<EdgeRow> rows = q.callPath(from, to, depth, throughCallbacks);
+            TraversalResult<EdgeRow> traversal = q.callPathTraversal(
+                    from, to, depth, throughCallbacks);
+            List<EdgeRow> rows = traversal.items();
             if (sourceWindow != null) {
                 q.attachSourceWindows(rows, Math.max(0, sourceWindow));
             }
-            QueryEnvelope env = new QueryEnvelope(
-                    "call-path " + from + " " + to + " --depth " + depth
-                            + (throughCallbacks ? " --through-callbacks" : ""), rows);
+            List<String> queryArgs = new java.util.ArrayList<>(List.of(
+                    "call-path", from, to, "--depth", String.valueOf(depth)));
+            Disclosure.addFlag(queryArgs, throughCallbacks, "--through-callbacks");
+            Disclosure.addOption(queryArgs, "--source-window", sourceWindow);
+            Disclosure.addOption(queryArgs, "--blocks", blocks);
+            QueryEnvelope env = new QueryEnvelope(Disclosure.renderCommand(queryArgs), rows);
             env.stats.put("path_length", rows.size());
             env.stats.put("found", !rows.isEmpty());
+            Disclosure.putTraversal(env, traversal, QueryService.MAX_DEPTH);
+            Integer nextDepth = Disclosure.nextDepth(traversal, QueryService.MAX_DEPTH);
+            if (nextDepth != null) {
+                List<String> next = Disclosure.withOption(queryArgs, "--depth", nextDepth);
+                Disclosure.addOption(next, "--index", db);
+                Disclosure.addNextQuery(env, Disclosure.renderCommand(next));
+            }
             if (blocks != null) {
                 CallChainSlicer slicer = new CallChainSlicer(q.connection());
                 CallChainSlicer.Level level = "class".equalsIgnoreCase(blocks)
@@ -64,6 +77,7 @@ public class CallPathCommand implements Callable<Integer> {
             env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
                     QueryCoverageService.Capability.CALL_PATH,
                     List.of(from, to), null, "MAIN", !rows.isEmpty(), false).toMap());
+            Disclosure.applyBoundedEvidence(env, false);
             JsonFormatter.emit(System.out, env);
             return rows.isEmpty() ? 2 : 0;
         }

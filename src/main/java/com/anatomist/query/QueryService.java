@@ -148,12 +148,22 @@ public class QueryService implements AutoCloseable {
         return callGraph.calleesOf(methodRef, depth, throughCallbacks);
     }
 
+    public TraversalResult<EdgeRow> calleesTraversal(String methodRef, int depth,
+                                                      boolean throughCallbacks) {
+        return callGraph.calleesTraversal(methodRef, depth, throughCallbacks);
+    }
+
     public List<EdgeRow> callersOf(String methodRef, int depth) {
         return callGraph.callersOf(methodRef, depth);
     }
 
     public List<EdgeRow> callersOf(String methodRef, int depth, boolean throughCallbacks) {
         return callGraph.callersOf(methodRef, depth, throughCallbacks);
+    }
+
+    public TraversalResult<EdgeRow> callersTraversal(String methodRef, int depth,
+                                                      boolean throughCallbacks) {
+        return callGraph.callersTraversal(methodRef, depth, throughCallbacks);
     }
 
     public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef, int maxDepth) {
@@ -165,6 +175,11 @@ public class QueryService implements AutoCloseable {
         return callGraph.callPath(fromMethodRef, toMethodRef, maxDepth, throughCallbacks);
     }
 
+    public TraversalResult<EdgeRow> callPathTraversal(String fromMethodRef, String toMethodRef,
+                                                       int maxDepth, boolean throughCallbacks) {
+        return callGraph.callPathTraversal(fromMethodRef, toMethodRef, maxDepth, throughCallbacks);
+    }
+
     public void attachSourceWindows(List<EdgeRow> rows, int contextLines) {
         sourceWindows.attachToEdges(rows, contextLines);
     }
@@ -174,6 +189,14 @@ public class QueryService implements AutoCloseable {
                                         boolean throughCallbacks,
                                         Integer sourceWindowLines) {
         return branchSlices.branchesOf(methodRef, depth, throughCallbacks, sourceWindowLines);
+    }
+
+    public TraversalResult<BranchSlice> branchesTraversal(String methodRef,
+                                                           int depth,
+                                                           boolean throughCallbacks,
+                                                           Integer sourceWindowLines) {
+        return branchSlices.branchesTraversal(
+                methodRef, depth, throughCallbacks, sourceWindowLines);
     }
 
     // ── Dependencies ────────────────────────────────────────────────────

@@ -230,11 +230,34 @@ class ProgressiveDisclosureIT {
         assertEquals(0, callees.exitCode, callees.stderr);
         assertTrue(callees.stdout.contains("--filter"));
         assertTrue(callees.stdout.contains("--source-window"));
+        assertTrue(callees.stdout.contains("check stats."));
+
+        RunResult callers = runCli("callers-of", "--help");
+        assertEquals(0, callers.exitCode, callers.stderr);
+        assertTrue(callers.stdout.contains("check stats."));
+
+        RunResult callPath = runCli("call-path", "--help");
+        assertEquals(0, callPath.exitCode, callPath.stderr);
+        assertTrue(callPath.stdout.contains("depth-truncated"));
 
         RunResult branches = runCli("branches-of", "--help");
         assertEquals(0, branches.exitCode, branches.stderr);
         assertTrue(branches.stdout.contains("--source-window"));
         assertTrue(branches.stdout.contains("--through-callbacks"));
+        assertTrue(branches.stdout.contains("stats.depth_truncated"));
+
+        RunResult flowOf = runCli("flow-of", "--help");
+        assertEquals(0, flowOf.exitCode, flowOf.stderr);
+        assertTrue(flowOf.stdout.contains("Traversal edge budget"));
+        assertTrue(flowOf.stdout.contains("stats.truncated"));
+
+        RunResult flowPath = runCli("flow-path", "--help");
+        assertEquals(0, flowPath.exitCode, flowPath.stderr);
+        assertTrue(flowPath.stdout.contains("depth-truncated"));
+
+        RunResult taintPath = runCli("taint-path", "--help");
+        assertEquals(0, taintPath.exitCode, taintPath.stderr);
+        assertTrue(taintPath.stdout.contains("depth-truncated"));
     }
 
     private static Path buildFixtureIndex(Path tmp) throws Exception {

@@ -6,10 +6,10 @@
     "truncated" : true
   },
   "evidence" : {
-    "affected_dimensions" : [ ],
+    "affected_dimensions" : [ "query_page" ],
     "coverage" : "complete",
     "diagnostic_counts" : { },
-    "negative_conclusion_safe" : true,
+    "negative_conclusion_safe" : false,
     "status" : "positive"
   },
   "next_queries" : [ "search OrderService --limit 5 --scope MAIN --offset 5 --index ${INDEX}" ],

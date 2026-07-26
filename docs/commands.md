@@ -344,6 +344,12 @@ anatomist taint-path '*' '*' --depth 30 --index <db>
 | `exception-flow` | Explicit throw, catch, and declared exception propagation |
 | `taint-path` | Configured source-to-sink path; sanitizer nodes stop traversal |
 
+Traversal output reports requested/effective/reached depth and whether an
+expandable frontier remains. `flow-of --limit` is a compute budget rather than
+an offset page: when `limit_truncated=true`, rerun its larger-limit
+`next_queries` entry. `flow-path` and `taint-path` empty results are conclusive
+only when `depth_truncated=false` and evidence permits a negative conclusion.
+
 Taint rules live in `.anatomist/taint-rules.json`:
 
 ```json
@@ -433,10 +439,15 @@ anatomist callees-of <method-fqn> --depth 2 --source-window=3 --index <db>
 ```
 
 - Max depth: 20. BFS with dedup (no infinite loops).
+- JSON reports `depth_requested`, `depth_effective`, `max_depth`,
+  `depth_truncated`, and `frontier_count`. When `depth_truncated=true`, follow
+  the larger-depth `next_queries` entry before treating the chain as exhaustive.
 - `--blocks`: slices chain into class or package blocks.
 - `--through-callbacks`: follow CALLS made inside anonymous-class / lambda bodies defined in the method (and nested), attributing them to the method. Essential for template-callback code (`SettleServiceTemplate#execute(callback)`, `TransactionTemplate.execute(...)`, stream lambdas) where the real downstream logic lives in the callback body. Synthesized edges are tagged `call_kind=CALLBACK` (when no original kind) and carry `via=<body-id>` pointing at the callback the call physically came from.
 - `--source-window[=N]`: attach a `source_window` object to each emitted edge, using `source_location` plus `project_meta.source_root`. Default context is 3 lines when the flag is present. Use it when an Agent answer needs source evidence without opening every file separately.
 - `--limit` / `--offset` / `--filter`: page wide call graphs and narrow by source/target/relation substring. JSON always includes paging stats and `budget`, including the first page.
+- `--limit` is applied after the requested-depth traversal. Paging recovers
+  omitted rows at that depth; it does not recover deeper rows.
 - Exact `Method.invoke` / `Constructor.newInstance` targets appear as
   `CALLS` with `call_kind=REFLECTION`, `confidence=INFERRED`, and
   `metadata.via=reflection`. The original JDK reflection API call remains visible.
@@ -473,6 +484,8 @@ anatomist callers-of com.vendor.json.SafeFastjsonParser#parseObject(java.lang.St
 - `--through-callbacks`: when an incoming call originates inside an anonymous-class / lambda body, attribute it to the enclosing real method (tagged `via=<body-id>`, `call_kind=CALLBACK`) instead of reporting the synthetic `$anon@…#process()` node — so impact analysis reaches the actual caller.
 - `--source-window[=N]`: attach numbered source snippets to returned caller edges. Good for impact reports where each caller needs file/line evidence.
 - `--limit` / `--offset` / `--filter`: page wide impact graphs and continue with `stats.next_offset`. JSON always includes paging stats and `budget`, including the first page.
+- Depth disclosure matches `callees-of`; an impact result is exhaustive only
+  when both `stats.truncated=false` and `stats.depth_truncated=false`.
 
 ### `call-path`
 Shortest path between two methods.
@@ -483,6 +496,8 @@ anatomist call-path <from-fqn> <to-fqn> [--depth N] [--through-callbacks] [--sou
 
 - `--through-callbacks`: allow the shortest-path BFS to traverse calls made inside anonymous-class / lambda callback bodies. Callback hops keep the outer method as `source` and record the physical body in `via`.
 - `--source-window[=N]`: attach source snippets to each hop. Use it when explaining a concrete end-to-end path.
+- An empty result with `stats.depth_truncated=true` means only that no path was
+  found within `depth_effective`; use the suggested larger-depth query.
 
 ### `branches-of`
 Group branch-contained `CALLS` / `READS` / `WRITES` for a method.
@@ -495,6 +510,8 @@ anatomist branches-of <method-fqn> --depth 3 --source-window=3 --index <db>
 - Reuses existing `edge.context` facts such as `if-then@L42` and `if-else@L42`; it does not build a full CFG.
 - `--source-window[=N]`: attach source snippets around the branch line so Agents can read the condition.
 - `--depth`: include downstream methods reached by the existing `callees-of` traversal.
+- Branch slices propagate the callee traversal's depth metadata and larger-depth
+  follow-up query.
 
 ### `hierarchy`
 Inheritance chain + interfaces for a type.
@@ -596,6 +613,12 @@ All subcommands support `--help` for self-discovery.
 | `--filter <keyword>` | Substring match on target label/FQN | none |
 
 JSON stats include `{"total": N, "limit": N, "offset": N, "truncated": bool}`. When more rows exist, outputs add `next_offset` and `next_queries`. Paged commands include top-level `budget` so Agents can distinguish emitted rows from total matches.
+
+`truncated` and `depth_truncated` are independent. The first means more rows or
+a spent `flow-of` traversal budget; the second means a graph frontier remains
+beyond `depth_effective`. Follow every applicable `next_queries` entry. Empty
+results support a negative conclusion only when neither bound is truncated and
+`evidence.negative_conclusion_safe=true`.
 
 ## Large Repository Workflow
 

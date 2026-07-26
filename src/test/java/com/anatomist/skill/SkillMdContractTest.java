@@ -48,7 +48,11 @@ class SkillMdContractTest {
                 "--in-branch",
                 "project_meta",
                 "source-window",
-                "through-callbacks")) {
+                "through-callbacks",
+                "stats.depth_truncated",
+                "stats.limit_truncated",
+                "depth_limit_reached",
+                "follow both entries in `next_queries`")) {
             assertTrue(text.contains(rule), "missing skill rule: " + rule);
         }
     }
