@@ -1,255 +1,120 @@
-# Anatomist：把 Java 项目变成可查询的工程事实
+# Anatomist：Java 代码库的可查询事实层
 
-Anatomist 是面向 Java 项目和代码 Agent 的命令行代码智能工具。它先把源码、类型关系、调用关系和框架配置索引到本地 SQLite，再用 JSON 查询回答问题。
+Anatomist 是面向 Java 项目和代码 Agent 的本地代码智能工具。
 
-它适合解决这类日常工程问题：**从哪里进入、下一步会调用什么、谁会受影响、某个字段在哪里读写、接口有哪些实现、Spring 是怎样装配的、项目直接调用了哪些三方类型。**
+它把源码、类型、调用、字段访问、框架装配和可选的数据流，整理成一份带源码位置和健康度的本地事实快照。人或 Agent 可以据此定位、追踪和评估影响，而不是反复从文件文本中猜答案。
 
-它不是运行时探针，也不内置大模型。它提供可追溯的静态代码事实；人或 Agent 再基于这些事实判断业务含义。
+它不执行代码，不替代日志、Trace 或测试，也不替你判断业务含义。它解决的是：**先把静态代码事实找全、找准、讲清证据。**
 
-![Java 源码经过本地索引，生成可查询的结构图、调用链与影响范围](docs/assets/anatomist-introduction-flow.png)
+## 它解决什么问题
 
-## 先看全貌
-
-```text
-Java 源码 + Maven/Gradle 依赖 + 可选 Spring XML
-                     │
-                     ▼
-       解析 AST，尝试按真实类型/方法解析符号
-                     │
-                     ▼
-   SQLite 快照：节点、边、全文索引、健康度、来源位置
-                     │
-       ┌─────────────┼──────────────┐
-       ▼             ▼              ▼
-   找定义/结构     调用与影响       配置与数据流
-```
-
-一次索引通常需要秒到分钟；随后查询只读取本地 SQLite，适合在大项目里反复追问，而不是每次都从头扫描源码。
-
-## 能力：能回答哪些问题
-
-| 你想解决的问题 | Anatomist 给出的静态事实 | 常用命令 |
+| 工程问题 | 没有结构化事实时 | Anatomist 提供的基础 |
 |---|---|---|
-| 类、方法、接口在哪里 | 类型、成员、注解、源码位置 | `search`、`context` |
-| 这个方法接下来会调用谁 | `CALLS` 出边，可按深度展开 | `callees-of`、`call-path` |
-| 改这个方法会影响谁 | 入站 `CALLS`、`REFERENCES` | `callers-of`、`used-by` |
-| 哪些类实现/继承了接口或父类 | `IMPLEMENTS`、`INHERITS` | `implementors-of`、`hierarchy` |
-| 字段在哪些地方被读写 | `READS`、`WRITES` 边 | `field-access` |
-| 某段 if/else 或循环里调用了什么 | 带控制上下文的调用/字段访问 | `branches-of`、`--in-branch`、`--in-loop` |
-| Spring 请求从哪里进入、Bean 如何注入 | `ROUTE`、`HANDLES`、`BEAN`、`INJECTS` | `search --kind ROUTE`、`deps-of` |
-| Spring XML 的 property/map/list/ref 如何配置 | XML 配置树和 `WIRES` 边 | `bean-config`、`--spring-xml` |
-| 项目调用了哪些外部 classpath 类型 | 以 `external_target_fqn` 保存的外部调用边 | `search --kind EXTERNAL_CLASS`、`used-by`、`callers-of` |
-| 某个值、异常或污点可能如何传播 | 可选 CFG、def-use、跨方法摘要 | `flow-of`、`flow-path`、`exception-flow`、`taint-path` |
-| 项目整体有哪些模块、包依赖和规模 | 节点/边计数、包依赖骨架 | `overview`、`survey-baseline` |
+| 请求或消息从哪里进入 | 靠包名、注解和关键词逐个猜 | 路由、处理器、注解与源码位置 |
+| 一个方法还会调用什么 | 手工展开代码，容易漏接口、回调或重载 | 调用图、调用路径与调用上下文 |
+| 改动会影响谁 | 只搜方法名，结果混入同名符号 | 精确调用方、引用方、实现类和字段访问 |
+| 某个字段在哪里被读写 | 全文搜索无法区分注释、同名变量和真实访问 | `READS`、`WRITES` 关系及来源行 |
+| Spring 到底怎样装配 | 在注解、XML 和配置间来回跳 | Bean、注入、路由和 XML 配置树事实 |
+| 外部库被项目怎么使用 | 依赖树很大，调用点难反查 | 已发生的外部类型和方法调用边 |
+| 结论能否相信 | “没搜到”常被误当成“没有” | 覆盖范围、解析诊断、健康度和证据状态 |
 
-### 一个典型排查过程
+## 为什么会有效
 
-需求是：“修改 `OrderService#createOrder` 会影响哪里？”
-
-```bash
-# 先建立或更新本地索引；integrity 保证解析和图完整性没有缺口
-anatomist index /path/to/project \
-  --incremental \
-  --health-policy integrity \
-  --format json \
-  --output /tmp/project.db
-
-# 再看直接及递归调用方
-anatomist callers-of \
-  com.example.order.OrderService#createOrder \
-  --depth 3 \
-  --source-window=2 \
-  --index /tmp/project.db
-```
-
-结果会给出调用方、模块、源码文件、行号、调用种类，以及可选的源码窗口。这样可以先定位“哪里受影响”，再回到源码确认业务规则，不需要从包名或全文搜索开始猜。
-
-## 为什么它会有效
-
-### 1. 不是只按名字搜，而是建立带语义的图
-
-普通全文搜索能找到字符串，却无法可靠区分同名类、重载方法、接口调用和构造器调用。Anatomist 从 Java AST 提取声明与使用关系，并在可解析时用 SymbolSolver 解析实际类型和方法。
-
-例如，调用关系会区分 `INSTANCE`、`STATIC`、`CONSTRUCTOR`、`SUPER`、`INTERFACE` 和受限的 `REFLECTION`；方法标识包含擦除后的完整参数签名：
+核心不是换一种搜索框，而是先把工程变成可查询的关系图。
 
 ```text
-com.example.OrderService#create(java.lang.String,java.util.List)
+Java 源码 + 构建依赖 + Spring 配置
+                │
+                ▼
+      AST 解析 + 类型/方法符号解析
+                │
+                ▼
+本地事实快照：类型、方法、字段、Bean、路由、关系、证据
+                │
+        ┌───────┼────────┐
+        ▼       ▼        ▼
+      定位定义  追踪链路  评估影响
 ```
 
-因此重载方法不会因为只看方法名而混在一起。多模块、主代码、测试代码和生成代码也使用独立的存储标识，减少同名符号碰撞。
+### 1. 关系按符号保存，不只按文本匹配
 
-### 2. 一次构图，多次查询
+同名类、重载方法、接口调用、构造器调用不是一回事。Anatomist 使用完整类型和方法签名保存关系，例如：
 
-索引把类型、方法、字段、Bean、路由等保存为节点，把 `CALLS`、`REFERENCES`、`READS`、`WRITES`、`INHERITS`、`IMPLEMENTS`、`INJECTS` 等保存为边，并使用 SQLite FTS5 支持名字检索。
+```text
+com.example.OrderService#create(java.lang.String, java.util.List)
+```
 
-这把“每个问题都重新解析工程”的成本，转化成“先构建一次快照，后续按图查询”。查询结果默认分页，调用链按深度限制，适合 Agent 在上下文有限时逐步展开。
+所以“谁调用它”指向真实的代码关系，不会把仅仅出现相同字符串的注释、日志或另一个重载混进来。
 
-### 3. 结果带证据和质量信息
+### 2. 一次理解工程，后续问题复用结果
 
-索引记录源码根目录、Git 快照、Java 版本、classpath 形态、诊断和健康度。查询 JSON 也带 `evidence`、`stats`、分页信息和来源位置。
+传统搜索每问一次都要重新扫描文件、拼接上下文。Anatomist 先建立本地快照，再从快照中按关系查询。
 
-这让使用者能区分下面两种情况：
+这很适合连续追问：先找到入口，再展开调用链，再反查数据库或外部依赖的调用方。每一步都沿着前一步的精确符号继续，而不是重新开始模糊搜索。
 
-| 情况 | 正确解读 |
+### 3. 结果带证据，也说明不确定性
+
+每个事实都能回到源码位置；快照还记录源码版本、Java 版本、classpath 形态、解析诊断和健康度。
+
+因此它能区分：
+
+| 结果 | 合理结论 |
 |---|---|
-| 找到了调用或依赖 | 这是有源码位置支撑的正向静态事实。 |
-| 没找到结果且 `evidence.status=confirmed_empty` | 在当前索引覆盖范围内，可以较有把握地认为没有匹配。 |
-| 没找到结果但证据为 `indeterminate` | 不能下“没有”的结论；可能受 classpath、解析失败或覆盖范围影响。 |
+| 找到调用或依赖 | 有具体源码位置支撑的静态事实。 |
+| 找不到，且覆盖完整 | 当前索引范围内没有匹配。 |
+| 找不到，但解析或依赖不完整 | 不能据此断言“没有”，需要补足 classpath 或其他证据。 |
 
-### 4. 外部依赖也可反查，但不强制展开全部 JAR
+这比“Agent 没有搜到，所以应该不存在”可靠得多。
 
-项目调用第三方类时，不需要先把全部 Maven 依赖都索引为源码节点。Anatomist 会把已有的外部调用事实写到 `edges.external_target_fqn`，并把它虚拟化为可查询的 `EXTERNAL_CLASS`。
+## 与 Agent + grep 的差别
 
-```bash
-# 查项目直接使用该外部类的地方
-anatomist used-by com.vendor.json.SafeFastjsonParser --index /tmp/project.db
+Agent 配合 grep 很灵活，适合不知道关键词、需要阅读业务语义或快速探索陌生文本时；它不是代码关系查询的替代品。
 
-# 按完整外部方法签名精确查调用方
-anatomist callers-of \
-  'com.vendor.json.SafeFastjsonParser#parseObject(java.lang.String)' \
-  --index /tmp/project.db
-```
-
-外部结果会标注 `external_target=true`、`resolution` 和 `confidence`，避免误把它当成本项目源码声明。这样既能做直接调用方反查，也不会把全部依赖 JAR 无限制展开成巨大图。
-
-## 它的边界：什么不能承诺
-
-Anatomist 是静态分析工具，下面的边界必须保留：
-
-| 不能直接证明的事 | 原因 | 应补充什么证据 |
+| 维度 | Agent + grep | Anatomist |
 |---|---|---|
-| 某条路径在生产环境一定执行过 | 静态调用关系表示“可能发生”，不是运行记录 | 日志、Trace、指标、压测或线上调用链 |
-| 动态代理、无限制反射、AOP 最终落到哪里 | 运行时目标可能由配置、字节码或数据决定 | 运行配置、代理实现、运行时证据 |
-| 所有第三方符号都已精确解析 | classpath 缺失或版本不匹配会降低外部解析度 | 保持 Maven/Gradle classpath 可用，检查 health/diagnostics |
-| 精确堆别名、任意路径可达性 | 工具不是全量 SAT/别名分析器 | 结合单测、调试和领域约束 |
+| 基本单位 | 文件、文本片段、关键词 | 类型、方法、字段、Bean、路由和关系 |
+| 同名与重载 | 需要 Agent 人工消歧 | 用完整符号与签名消歧 |
+| 调用链与影响面 | 多轮搜索和人工拼接 | 从 `CALLS`、`REFERENCES` 等关系直接展开 |
+| 字段读写 | 很容易混入局部变量或文本 | 区分真实 `READS` 与 `WRITES` |
+| 框架关系 | 靠猜注解、配置命名和目录习惯 | 保存路由、注入、Bean 和 XML 装配事实 |
+| “没有结果” | 通常无法判断搜索是否足够 | 结合覆盖范围和健康度判断能否作负结论 |
+| 连续追问成本 | 每次重新找文件、读上下文 | 在同一快照上逐层收敛 |
 
-最实用的原则是：**把它当作“可追溯的代码事实底座”，不要当作运行时真相或自动业务结论。**
+最好的组合不是二选一：**Anatomist 负责给 Agent 提供精确、可追溯的代码事实；Agent 负责阅读这些事实周边的业务规则、配置含义和运行时证据。**
+
+## 一般用于什么场景
+
+| 场景 | 它的价值 |
+|---|---|
+| 改动前影响评估 | 找直接和间接调用方、实现类、字段访问和依赖边，缩小回归范围。 |
+| 故障排查 | 从入口、异常处理、外部调用或持久化操作反向追代码路径。 |
+| 代码审查 | 验证改动是否改变公共调用链、Spring 装配、配置引用或数据传播范围。 |
+| 接手遗留系统 | 快速建立模块、包依赖、核心入口和关键链路的结构认知。 |
+| Agent 辅助研发 | 给 Agent 提供可验证的符号和关系，减少基于关键词的猜测与漏查。 |
+| 安全与治理排查 | 定位敏感 API、外部 SDK、反射入口及其直接使用位置。 |
+| 重构与迁移 | 识别接口实现、旧 API 使用点、跨模块依赖和潜在迁移影响。 |
 
 ## 安装
 
-当前预构建发布物面向 **macOS Apple Silicon（arm64）**。一条命令安装 native 二进制和常用 Agent 的 Anatomist skill：
+当前预构建发布物面向 **macOS Apple Silicon（arm64）**。执行下面的安装脚本即可安装原生二进制和常用 Agent 的 Anatomist skill：
 
 ```bash
 curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh
 ```
 
-安装位置默认为 `~/.local/bin/anatomist`。随后验证：
+默认安装到 `~/.local/bin/anatomist`。完成后可执行：
 
 ```bash
 anatomist --version
 ```
 
-如果 shell 找不到命令，把下面一行加入 `~/.zshrc` 或对应 shell 配置，再重启终端：
+## 边界
 
-```bash
-export PATH="$HOME/.local/bin:$PATH"
+Anatomist 的结论是静态代码事实，不是生产运行事实。
+
+```text
+静态关系：代码“可能如何发生”
+运行证据：线上“实际如何发生”
 ```
 
-### 自定义安装位置
-
-```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_INSTALL_DIR=/usr/local/bin sh
-```
-
-安装脚本默认会为 Codex 和 Qoder 安装 `SKILL.md`。只给 Codex 安装：
-
-```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_SKILL_CLIENTS="codex" sh
-```
-
-不希望安装 skill：
-
-```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_INSTALL_SKILL=0 sh
-```
-
-### 从源码构建
-
-适用于非 macOS arm64，或希望从当前源码构建的情况。
-
-前置条件：JDK 21+、Maven 3.9+；构建 native 二进制还需要 GraalVM 25+。`just` 是可选但更方便的任务运行器。
-
-```bash
-# JVM fat jar
-just jar
-
-# macOS 本机 native 二进制（需要 GraalVM）
-just native
-
-# 直接使用 JVM 版本
-java -jar target/anatomist.jar --version
-```
-
-## 五分钟上手
-
-下面用一个真实 Maven 项目示例。默认会发现多模块 `src/main/java`，并尝试探测项目 classpath：
-
-```bash
-# 1. 首次构建索引
-anatomist index /path/to/java-project \
-  --health-policy integrity \
-  --format json \
-  --output /tmp/java-project.db
-
-# 2. 找类或虚拟外部类型
-anatomist search OrderService --index /tmp/java-project.db
-
-# 3. 看类的成员、注解和局部调用
-anatomist context com.example.order.OrderService --index /tmp/java-project.db
-
-# 4. 正向追调用链
-anatomist callees-of \
-  com.example.order.OrderService#createOrder \
-  --depth 3 --index /tmp/java-project.db
-
-# 5. 反向评估影响面
-anatomist callers-of \
-  com.example.order.OrderService#createOrder \
-  --depth 2 --index /tmp/java-project.db
-```
-
-如果分析的是 Java 9–17 目标，native 二进制可按需读取本机匹配 JDK 并缓存 catalog：
-
-```bash
-anatomist index /path/to/java-project \
-  --java-version 17 \
-  --jdk-home /path/to/jdk-17 \
-  --output /tmp/java-project.db
-```
-
-如果需要 Spring XML，再在首次索引和后续 watch 中都加上 `--spring-xml`。如果使用 `--no-classpath`，索引会更快，但第三方类型解析和外部调用精度会下降。
-
-## 如何持续保持结果新鲜
-
-临时问一次问题时，先增量索引再查询：
-
-```bash
-anatomist index /path/to/java-project \
-  --incremental \
-  --health-policy integrity \
-  --format json \
-  --output /tmp/java-project.db \
-&& anatomist search OrderService --index /tmp/java-project.db
-```
-
-持续开发时可以启动 watcher：
-
-```bash
-anatomist watch /path/to/java-project \
-  --auto-index \
-  --output /tmp/java-project.db \
-  --full-policy background
-```
-
-首次索引用过的 `--project-source`、`--include-tests`、`--spring-xml`、classpath 策略、`--java-version` 和 `--jdk-home`，应在 watch 中保持一致。这样索引形态不会悄悄变化。
-
-## 下一步
-
-- 完整命令参数：[docs/commands.md](docs/commands.md)
-- 数据模型和关系语义：[docs/data-model.md](docs/data-model.md)
-- 架构与索引流水线：[docs/architecture.md](docs/architecture.md)
-- 常见问题和恢复方式：[docs/troubleshooting.md](docs/troubleshooting.md)
-- 面向 Agent 的查询使用约定：[SKILL.md](SKILL.md)
+遇到动态代理、无限制反射、AOP、运行时开关、数据驱动分支或生产行为时，应继续结合配置、日志、Trace、指标、调试和测试。这样既不会把静态分析说成运行时真相，也不会让代码排查停留在 grep 的猜测阶段。
