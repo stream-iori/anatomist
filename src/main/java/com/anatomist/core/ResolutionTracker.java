@@ -137,6 +137,7 @@ final class ResolutionTracker {
                 || message.contains("solving ")
                 || expression != null && (expression.contains("->") || expression.contains("::"))
                 || expression != null && (expression.contains("<>") || expression.contains(".<"))
+                || message.contains("->") || message.contains("::")
                 || expression != null && message.contains("constructor declaration corresponding")
                         && expression.contains(".of(")
                 || causeSymbol != null && (causeSymbol.contains("->") || causeSymbol.contains("::"))
@@ -158,6 +159,12 @@ final class ResolutionTracker {
                 || message.contains("unable to find the method declaration corresponding")) {
             return "METHOD_NOT_FOUND";
         }
+        // Constructor lookup is a member-resolution operation. Treating a missing
+        // generated constructor (for example, one created by Lombok) as a missing
+        // internal type incorrectly degrades the entire internal-resolution gate.
+        if (message.contains("unable to find the constructor declaration corresponding")) {
+            return "METHOD_NOT_FOUND";
+        }
         String imported = importedType(causeSymbol);
         if (imported == null) imported = importedType(symbol);
         if (imported == null) imported = importedType(expression);
@@ -165,15 +172,18 @@ final class ResolutionTracker {
                 || isJdkType(imported)) {
             return "JDK_SYMBOL_MISMATCH";
         }
-        if (cause instanceof UnsolvedSymbolException && isLikelyInternal(symbol)) {
+        String unresolvedSymbol = cause instanceof UnsolvedSymbolException
+                && looksLikeTypeSymbol(symbol) && looksLikeTypeSymbol(causeSymbol)
+                ? causeSymbol : symbol;
+        if (cause instanceof UnsolvedSymbolException && isLikelyInternal(unresolvedSymbol)) {
             return "INTERNAL_SYMBOL_MISSING";
         }
-        if (cause instanceof UnsolvedSymbolException && looksLikeTypeSymbol(symbol)) {
+        if (cause instanceof UnsolvedSymbolException && looksLikeTypeSymbol(unresolvedSymbol)) {
             return "THIRDPARTY_SYMBOL_MISSING";
         }
         if (normalizedPhase.contains("CALL")) return "METHOD_NOT_FOUND";
         if (cause instanceof UnsolvedSymbolException) {
-            return isLikelyInternal(symbol)
+            return isLikelyInternal(unresolvedSymbol)
                     ? "INTERNAL_SYMBOL_MISSING"
                     : "THIRDPARTY_SYMBOL_MISSING";
         }

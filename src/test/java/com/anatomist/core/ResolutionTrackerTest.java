@@ -181,4 +181,99 @@ class ResolutionTrackerTest {
         assertEquals("GENERIC_INFERENCE_FAILED",
                 tracker.snapshot(false).diagnostics().get(0).code());
     }
+
+    @Test
+    void generatedConstructorFailureIsMemberResolutionNotMissingInternalType(@TempDir Path tmp)
+            throws Exception {
+        Path root = Files.createDirectories(tmp.resolve("src/main/java"));
+        Path source = Files.createDirectories(root.resolve("p")).resolve("A.java");
+        Files.writeString(source, """
+                package p;
+                class A { B create() { return new B("value"); } }
+                class B { String value; }
+                """);
+        CompilationUnit unit = new JavaParser().parse(source).getResult().orElseThrow();
+        ObjectCreationExpr creation = unit.findFirst(ObjectCreationExpr.class).orElseThrow();
+        ResolutionTracker tracker = new ResolutionTracker(tmp, List.of(root));
+        tracker.enterFile(unit);
+        tracker.enterPhase("full_extract_call_graph");
+
+        tracker.record(new UnsolvedSymbolException(
+                "We are unable to find the constructor declaration corresponding to " + creation),
+                creation, "B");
+
+        assertEquals("METHOD_NOT_FOUND", tracker.snapshot(false).diagnostics().get(0).code());
+    }
+
+    @Test
+    void missingImportedParentUsesCauseSymbolInsteadOfAttemptedOwner(@TempDir Path tmp)
+            throws Exception {
+        Path root = Files.createDirectories(tmp.resolve("src/main/java"));
+        Path source = Files.createDirectories(root.resolve("p")).resolve("LocalPlugin.java");
+        Files.writeString(source, """
+                package p;
+                import org.example.PluginAdapter;
+                class LocalPlugin extends PluginAdapter {}
+                """);
+        CompilationUnit unit = new JavaParser().parse(source).getResult().orElseThrow();
+        ResolutionTracker tracker = new ResolutionTracker(tmp, List.of(root));
+        tracker.enterFile(unit);
+        tracker.enterPhase("full_extract_hierarchy");
+
+        tracker.record(new UnsolvedSymbolException("PluginAdapter"),
+                unit.getType(0), "LocalPlugin");
+
+        assertEquals("THIRDPARTY_SYMBOL_MISSING",
+                tracker.snapshot(false).diagnostics().get(0).code());
+    }
+
+    @Test
+    void builderMemberFailureDoesNotPromoteReceiverTypeToInternalMissing(@TempDir Path tmp)
+            throws Exception {
+        Path root = Files.createDirectories(tmp.resolve("src/main/java"));
+        Path source = Files.createDirectories(root.resolve("p")).resolve("A.java");
+        Files.writeString(source, """
+                package p;
+                class A { void run() { Builder.builder().name("value"); } }
+                class Builder { static Builder builder() { return new Builder(); } }
+                """);
+        CompilationUnit unit = new JavaParser().parse(source).getResult().orElseThrow();
+        MethodCallExpr call = unit.findAll(MethodCallExpr.class).stream()
+                .filter(item -> item.getNameAsString().equals("name"))
+                .findFirst().orElseThrow();
+        ResolutionTracker tracker = new ResolutionTracker(tmp, List.of(root));
+        tracker.enterFile(unit);
+        tracker.enterPhase("full_extract_call_graph");
+
+        tracker.record(new UnsolvedSymbolException(
+                "Unsolved symbol in Builder.builder().name(\"value\") : Builder.builder()"),
+                call, "name");
+
+        assertEquals("METHOD_NOT_FOUND", tracker.snapshot(false).diagnostics().get(0).code());
+    }
+
+    @Test
+    void lambdaConstructorFailureIsGenericInferenceNotInternalMissing(@TempDir Path tmp)
+            throws Exception {
+        Path root = Files.createDirectories(tmp.resolve("src/main/java"));
+        Path source = Files.createDirectories(root.resolve("p")).resolve("A.java");
+        Files.writeString(source, """
+                package p;
+                import java.util.List;
+                class A { void run() { List.of("value").forEach(value -> new B(value)); } }
+                class B { String value; }
+                """);
+        CompilationUnit unit = new JavaParser().parse(source).getResult().orElseThrow();
+        ObjectCreationExpr creation = unit.findFirst(ObjectCreationExpr.class).orElseThrow();
+        ResolutionTracker tracker = new ResolutionTracker(tmp, List.of(root));
+        tracker.enterFile(unit);
+        tracker.enterPhase("full_extract_call_graph");
+
+        tracker.record(new UnsolvedSymbolException(
+                "Unsolved symbol in List.of(\"value\").forEach(value -> new B(value))"),
+                creation, "B");
+
+        assertEquals("GENERIC_INFERENCE_FAILED",
+                tracker.snapshot(false).diagnostics().get(0).code());
+    }
 }

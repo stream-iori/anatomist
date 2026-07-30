@@ -1,12 +1,11 @@
 {
   "evidence" : {
-    "affected_dimensions" : [ "external_resolution", "internal_resolution", "other_resolution" ],
+    "affected_dimensions" : [ "external_resolution", "other_resolution" ],
     "coverage" : "partial",
     "diagnostic_counts" : {
       "FIELD_NOT_FOUND" : 7,
-      "INTERNAL_SYMBOL_MISSING" : 2,
       "METHOD_NOT_FOUND" : 4,
-      "THIRDPARTY_SYMBOL_MISSING" : 21,
+      "THIRDPARTY_SYMBOL_MISSING" : 23,
       "UNSUPPORTED_RESOLUTION" : 2
     },
     "diagnostic_query" : "anatomist doctor --format json --diagnostic-code FIELD_NOT_FOUND --index <same-index>",
