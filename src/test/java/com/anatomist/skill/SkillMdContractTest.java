@@ -52,7 +52,11 @@ class SkillMdContractTest {
                 "stats.depth_truncated",
                 "stats.limit_truncated",
                 "depth_limit_reached",
-                "follow both entries in `next_queries`")) {
+                "follow both entries in `next_queries`",
+                "## Checkout and index isolation (P0)",
+                "The index identity is the final DB path, not the Git branch.",
+                "Never pass `doctor.index_path` from a different checkout as `--output`.",
+                "persistent empty `.lock` file is not itself an owner")) {
             assertTrue(text.contains(rule), "missing skill rule: " + rule);
         }
     }

@@ -22,6 +22,24 @@ and is resolved by `doctor.index_path` under
 `$ANATOMIST_HOME/indexes/<repo-key>/index.db` (default home: `~/.anatomist`).
 Use `source_snapshot_fingerprint` when a portable source identity is needed.
 
+## Checkout and index isolation (P0)
+
+The index identity is the final DB path, not the Git branch. Run `doctor`,
+`index`, and queries from the exact checkout being analysed.
+
+| Case | Required action |
+|---|---|
+| Separate physical worktrees, no `--output` | Their canonical checkout paths select separate default DBs. Run `doctor` inside the target worktree. |
+| Symlink and its real checkout | They select the same default DB; treat them as one writer domain. |
+| Explicit `--output` / query `--index` | The path is a shared source snapshot and concurrency identity. Never reuse it across branches or worktrees. |
+| Checkout/branch changed | Run the query gate for that exact checkout before querying; an old DB may describe the prior branch. |
+| Another index writer owns the DB | Do not start a fallback index against the same path. Wait for it, inspect the owner, or choose a new output DB. |
+
+Never pass `doctor.index_path` from a different checkout as `--output`. A
+competing writer to the same DB waits for the lock timeout (currently 60s) and
+then fails; the persistent empty `.lock` file is not itself an owner. Do not
+delete it while a process may hold the lock.
+
 If no usable index exists:
 
 ```bash
