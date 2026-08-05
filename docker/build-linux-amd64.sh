@@ -43,6 +43,10 @@ fi
 # (host settings.xml may pin a macOS-only <localRepository>). The cache survives
 # across runs at .m2-cache/.
 mkdir -p "$ROOT/.m2-cache"
+# The image runs Maven as the fixed `anatomist` user (UID 1000), while CI
+# creates this bind-mounted directory as the runner user.  Make the cache
+# writable by both sides so Maven can initialize its repository.
+chmod 0777 "$ROOT/.m2-cache"
 docker run --rm --platform linux/amd64 \
     -v "$ROOT:/workspace" \
     -v "$ROOT/.m2-cache:/home/anatomist/.m2" \
