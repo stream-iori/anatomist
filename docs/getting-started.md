@@ -5,14 +5,14 @@
 One-line install for macOS Apple Silicon:
 
 ```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh
+curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh -s -- --components anatomist
 ```
 
 This downloads the native binary to `~/.local/bin/anatomist`. Custom install path:
 
 ```bash
 curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_INSTALL_DIR=/usr/local/bin sh
+  ANATOMIST_INSTALL_DIR=/usr/local/bin sh -s -- --components anatomist
 ```
 
 After install, ensure `~/.local/bin` is in your PATH (the script will remind you if not).
@@ -28,14 +28,14 @@ Install only selected clients:
 
 ```bash
 curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_SKILL_CLIENTS="codex" sh
+  DIORAMA_CLIENTS="codex" sh -s -- --components anatomist
 ```
 
 Skip skill install:
 
 ```bash
 curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_INSTALL_SKILL=0 sh
+  ANATOMIST_INSTALL_SKILL=0 sh -s -- --components anatomist
 ```
 
 ## Install from GitHub Releases
@@ -66,32 +66,18 @@ chmod +x anatomist
 ./anatomist --version
 ```
 
-## Manual skill install
+## Skill installation
 
-The skill is published next to `install.sh` under `anatomist/SKILL.md`.
-
-Download only:
-
-```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/anatomist/SKILL.md -o SKILL.md
-```
-
-Install for Codex manually:
+The versioned skill path is selected from the unified release manifest, so use
+the installer instead of the former flat `anatomist/SKILL.md` URL:
 
 ```bash
-mkdir -p ~/.codex/skills/anatomist
-curl -fsSL http://6.12.3.250:8100/dist-bin/anatomist/SKILL.md \
-  -o ~/.codex/skills/anatomist/SKILL.md
+curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
+  DIORAMA_CLIENTS="codex" sh -s -- --components anatomist
 ```
 
-If you use a custom mirror, use the same base as `ANATOMIST_MIRROR`:
-
-```bash
-ANATOMIST_MIRROR=http://your-mirror/dist-bin
-mkdir -p ~/.codex/skills/anatomist
-curl -fsSL "$ANATOMIST_MIRROR/anatomist/SKILL.md" \
-  -o ~/.codex/skills/anatomist/SKILL.md
-```
+For a custom mirror, use `--mirror http://your-mirror/dist-bin`. The manifest
+and the selected skill must come from the same mirror/version.
 
 The skill file must keep Codex-compatible YAML frontmatter:
 

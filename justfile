@@ -16,7 +16,6 @@ FIXTURE    := ROOT + "/fixtures/mini-spring-shop"
 SOURCES    := FIXTURE + "/api/src/main/java:" + FIXTURE + "/domain/src/main/java:" + FIXTURE + "/service/src/main/java"
 SMOKE_DB   := "/tmp/anatomist-smoke.db"
 NATIVE_BIN := ROOT + "/target/anatomist"
-INSTALL_SCRIPT := ROOT + "/install.sh"
 SKILL_FILE := ROOT + "/SKILL.md"
 INSTALL_DIR := env_var_or_default("ANATOMIST_INSTALL_DIR", env_var("HOME") + "/.local/bin")
 UPLOAD_BASE := env_var_or_default("ANATOMIST_UPLOAD_BASE", "http://6.12.3.250:8100/upload")
@@ -58,11 +57,12 @@ native:
     file {{NATIVE_BIN}}
     ls -lh {{NATIVE_BIN}}
 
-# Upload static files served from the same dist-bin mirror as install.sh.
+# The parent release repository owns dist-bin/install.sh.  This source project
+# only publishes its skill alongside its independently versioned binaries.
 upload-dist-files:
     #!/usr/bin/env bash
     set -euo pipefail
-    for asset in "{{INSTALL_SCRIPT}}:install.sh" "{{SKILL_FILE}}:anatomist/SKILL.md"; do
+    for asset in "{{SKILL_FILE}}:anatomist/SKILL.md"; do
       src="${asset%%:*}"
       name="${asset##*:}"
       test -f "$src"

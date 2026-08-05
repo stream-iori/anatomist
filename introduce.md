@@ -99,7 +99,7 @@ Agent 配合 grep 很灵活，适合不知道关键词、需要阅读业务语�
 当前预构建发布物面向 **macOS Apple Silicon（arm64）**。执行下面的安装脚本即可安装原生二进制和常用 Agent 的 Anatomist skill：
 
 ```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh
+curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh -s -- --components anatomist
 ```
 
 默认安装到 `~/.local/bin/anatomist`。完成后可执行：
