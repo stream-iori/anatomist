@@ -423,6 +423,16 @@ public class IncrementalIndexer {
             s.flowDetailedMethods = flowStats.detailedMethods();
             s.flowSummaryOnlyMethods = flowStats.summaryOnlyMethods();
             resolutionDiagnostics.addAll(flowResult.diagnostics);
+        } else {
+            // A progressive materialization may exist even when the configured profile is off.
+            // Never leave its facts attached to source that has just been structurally replaced.
+            FlowPersistence.Stats flowStats =
+                    FlowPersistence.replaceFiles(store, affectedFiles, new FlowResult(), timings);
+            s.flowNodes = flowStats.nodes();
+            s.flowEdges = flowStats.edges();
+            s.flowSummaries = flowStats.summaries();
+            s.flowDetailedMethods = flowStats.detailedMethods();
+            s.flowSummaryOnlyMethods = flowStats.summaryOnlyMethods();
         }
 
         Map<String, FileCacheService.SourceFileStats> perFile = staging.sourceFileStats();

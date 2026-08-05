@@ -46,4 +46,9 @@ public final class FlowPathCommand extends FlowQueryCommand {
     @Override protected java.util.List<String> coverageAnchors() {
         return java.util.List.of(source, target);
     }
+
+    @Override protected String coverageSuggestion() {
+        return "anatomist flow-materialize " + source + " " + target
+                + " --depth " + depth + " --index " + IndexPath.resolve(index);
+    }
 }

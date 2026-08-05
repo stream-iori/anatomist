@@ -52,6 +52,10 @@ public class DoctorCommand implements Callable<Integer> {
     @Option(names = "--limit", description = "Maximum diagnostics returned.", defaultValue = "100")
     int limit;
 
+    @Option(names = "--agent-preflight",
+            description = "Read-only Agent readiness report with blockers and suggested index commands.")
+    boolean agentPreflight;
+
     @Override
     public Integer call() {
         com.anatomist.core.HealthPolicy policy;
@@ -82,14 +86,15 @@ public class DoctorCommand implements Callable<Integer> {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline",
-                "flow-of", "flow-path", "taint-path", "exception-flow", "guards-of",
+                "flow-of", "flow-path", "flow-materialize", "taint-path", "exception-flow", "guards-of",
                 "flow-summary", "annotate", "doctor"));
         out.put("capabilities", List.of(
                 "json-query-output", "index-json-summary",
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
                 "branch-context-slices", "source-snapshot-fingerprint",
                 "core-reflection",
-                "cfg", "def-use", "interprocedural-flow", "exception-flow", "taint-flow"));
+                "cfg", "def-use", "interprocedural-flow", "exception-flow", "taint-flow",
+                "progressive-dataflow", "agent-preflight"));
 
         if (exists) {
             try (SqliteStore store = new SqliteStore(db)) {
@@ -163,6 +168,7 @@ public class DoctorCommand implements Callable<Integer> {
                                         "index schema exists but no committed graph is available");
                         addHealth(out, com.anatomist.core.IndexHealthReport.of(List.of(empty)),
                                 policy);
+                        addAgentPreflight(out, db, exists);
                         return emit(out, db, exists, policy);
                     }
                     out.put("index_state", "committed");
@@ -200,7 +206,87 @@ public class DoctorCommand implements Callable<Integer> {
             }
         }
 
+        addAgentPreflight(out, db, exists);
         return emit(out, db, exists, policy);
+    }
+
+    /** A deliberately read-only readiness contract for Agent query workflows. */
+    private void addAgentPreflight(Map<String, Object> out, Path db, boolean exists) {
+        if (!agentPreflight) return;
+        Map<String, Object> preflight = new java.util.LinkedHashMap<>();
+        java.util.List<String> blockers = new java.util.ArrayList<>();
+        java.util.List<String> warnings = new java.util.ArrayList<>();
+        java.util.List<String> next = new java.util.ArrayList<>();
+        String state = String.valueOf(out.get("index_state"));
+        String root = out.get("source_root") instanceof String value && !value.isBlank()
+                ? value : Path.of("").toAbsolutePath().normalize().toString();
+        if (!exists || "missing".equals(state)) {
+            blockers.add("INDEX_MISSING");
+            next.add(indexCommand(root, db, false));
+        } else if ("incompatible".equals(state) || "empty".equals(state)) {
+            blockers.add("incompatible".equals(state) ? "SCHEMA_MISMATCH" : "INDEX_EMPTY");
+            next.add(indexCommand(root, db, true));
+        } else {
+            if (out.get("source_snapshot") instanceof Map<?, ?> snapshot
+                    && Boolean.FALSE.equals(snapshot.get("match"))) {
+                blockers.add("INDEX_STALE");
+                next.add(indexCommand(root, db, false));
+            }
+            if (out.get("health_dimensions") instanceof Map<?, ?> dimensions) {
+                if (dimensions.get("parse") instanceof Map<?, ?> parse
+                        && !"complete".equals(parse.get("status"))) {
+                    blockers.add("PARSE_INCOMPLETE");
+                }
+                if (dimensions.get("graph_integrity") instanceof Map<?, ?> graph
+                        && !"healthy".equals(graph.get("status"))) {
+                    blockers.add("GRAPH_INTEGRITY_FAILED");
+                }
+            }
+            if (out.get("health_dimensions") instanceof Map<?, ?> dimensions
+                    && dimensions.get("resolution") instanceof Map<?, ?> resolution
+                    && !"complete".equals(resolution.get("status"))) {
+                warnings.add("RESOLUTION_PARTIAL");
+            }
+            if (out.get("gate") instanceof Map<?, ?> gate
+                    && Boolean.FALSE.equals(gate.get("passed"))
+                    && !"none".equals(gate.get("policy"))) {
+                blockers.add("INDEX_INTEGRITY_FAILED");
+            }
+        }
+        Map<String, Object> flow = new java.util.LinkedHashMap<>();
+        if (out.containsKey("dataflow_mode")) flow.put("configured_mode", out.get("dataflow_mode"));
+        if (exists && "committed".equals(state)) {
+            try (SqliteStore store = new SqliteStore(db)) {
+                com.anatomist.flow.FlowPersistence.Stats stats =
+                        com.anatomist.flow.FlowPersistence.stats(store);
+                flow.put("detailed_methods", stats.detailedMethods());
+                flow.put("summary_only_methods", stats.summaryOnlyMethods());
+                flow.put("progressive", "off".equals(out.get("dataflow_mode"))
+                        && stats.detailedMethods() > 0);
+                Map<String, com.anatomist.model.FileCacheEntry> cache = store.readFileCache();
+                List<Path> files = cache.keySet().stream().filter(path -> path.endsWith(".java"))
+                        .map(Path.of(root)::resolve).filter(Files::isRegularFile).toList();
+                com.anatomist.store.FileCacheService.CandidateScan scan =
+                        new com.anatomist.store.FileCacheService().detectChangesFast(
+                                Path.of(root), files, cache, false, null);
+                if (!scan.changes().isEmpty() && !blockers.contains("INDEX_STALE")) {
+                    blockers.add("INDEX_STALE");
+                    next.add(indexCommand(root, db, false));
+                }
+            }
+        }
+        preflight.put("status", !blockers.isEmpty() ? "REPAIR_REQUIRED"
+                : warnings.isEmpty() ? "READY" : "DEGRADED");
+        preflight.put("blockers", blockers);
+        preflight.put("warnings", warnings);
+        preflight.put("next_commands", next);
+        preflight.put("flow_coverage", flow);
+        out.put("agent_preflight", preflight);
+    }
+
+    private static String indexCommand(String root, Path db, boolean recreate) {
+        return "anatomist index " + root + (recreate ? " --recreate" : " --incremental")
+                + " --health-policy integrity --format json --output " + db;
     }
 
     private boolean matchesDiagnostic(com.anatomist.core.IndexDiagnostic diagnostic) {

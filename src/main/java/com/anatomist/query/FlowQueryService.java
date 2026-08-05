@@ -99,7 +99,12 @@ public final class FlowQueryService implements AutoCloseable {
     }
 
     public QueryEnvelope path(String source, String target, int depth, PathOptions options) {
-        requireFullCoverage();
+        boolean fullCoverage = "full".equals(flowMode());
+        if (options.taintOnly() && !fullCoverage) requireFullCoverage();
+        if (!options.taintOnly() && !fullCoverage) {
+            requireDetailed(source);
+            requireDetailed(target);
+        }
         Set<String> relations = pathRelations(options);
         Set<String> starts = endpointNodes(source,
                 options.taintOnly() ? "TAINT_SOURCE" : null, options.sourceSlot());
@@ -118,6 +123,7 @@ public final class FlowQueryService implements AutoCloseable {
         envelope.stats.put("source_slot", options.sourceSlot());
         envelope.stats.put("target_slot", options.targetSlot());
         envelope.stats.put("relations", relations.stream().sorted().toList());
+        envelope.stats.put("flow_coverage", fullCoverage ? "full" : "partial");
         return envelope;
     }
 

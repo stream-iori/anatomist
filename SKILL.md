@@ -229,9 +229,21 @@ Build the required flow profile before querying:
 |---|---|---|
 | Compact method dependency | Any enabled dataflow mode | Use `flow-summary` |
 | One method's local flow | `DETAIL` coverage for that method | Rebuild with `--dataflow` or a matching `--dataflow-scope` |
-| Source-to-target or taint path | `--dataflow` / `--dataflow-mode full` | `FLOW_COVERAGE_INCOMPLETE`; do not infer that no path exists |
+| Source-to-target flow path | `--dataflow` / `--dataflow-mode full`, or DETAIL coverage for both endpoints | Run `flow-materialize <source> <target>`; partial empty results are never absence proof |
+| Taint path | `--dataflow` / `--dataflow-mode full` | `FLOW_COVERAGE_INCOMPLETE`; do not infer that no path exists |
 
-Do not run `flow-path` or `taint-path` against `summary` or `scoped` indexes.
+Do not run `taint-path` against `summary` or `scoped` indexes. For a targeted
+data path without full indexing, materialize the bounded structural path first:
+
+```bash
+anatomist doctor --agent-preflight --format json --index <db>
+anatomist flow-materialize <source> <target> --depth 8 --index <db>
+anatomist flow-path <source> <target> --depth 20 --index <db>
+```
+
+`flow-materialize` writes to the index; it refuses stale or integrity-failed
+indexes and never broadens itself to a full analysis. A found partial path is a
+static possibility; a missing partial path is indeterminate.
 
 ```bash
 anatomist flow-of <method> --depth 8 --index <db>

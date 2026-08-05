@@ -26,7 +26,7 @@ class AgentContractIT {
         String[] commands = {
                 "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
-                "field-access", "call-path", "overview", "survey-baseline",
+                "field-access", "call-path", "flow-materialize", "overview", "survey-baseline",
                 "annotate", "doctor"
         };
         for (String cmd : commands) {
@@ -57,12 +57,14 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("commands")).contains("search"));
         assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
         assertTrue(((List<?>) json.get("commands")).contains("branches-of"));
+        assertTrue(((List<?>) json.get("commands")).contains("flow-materialize"));
         assertTrue(((List<?>) json.get("commands")).contains("bean-config"));
         assertFalse(((List<?>) json.get("commands")).contains("export"));
         assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
         assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));
         assertTrue(((List<?>) json.get("capabilities")).contains("source-snapshot-fingerprint"));
         assertTrue(((List<?>) json.get("capabilities")).contains("core-reflection"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("progressive-dataflow"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
         assertEquals(fixture().toRealPath().toString(), json.get("source_root"));
@@ -74,6 +76,52 @@ class AgentContractIT {
         assertTrue(((Map<?, ?>) json.get("source_snapshot")).containsKey("match"));
         assertNotNull(json.get("resolution_diagnostic_counts"));
         assertNotNull(json.get("resolution_diagnostic_groups"));
+    }
+
+    @Test
+    void doctorAgentPreflightIsReadOnlyAndSuppliesAgentContract(@TempDir Path tmp) throws Exception {
+        Path db = buildFixtureIndex(tmp, false);
+        long bytesBefore = Files.size(db);
+        RunResult result = runCli("doctor", "--agent-preflight", "--format", "json",
+                "--index", db.toString());
+        assertEquals(0, result.exitCode, result.stderr);
+        Map<?, ?> preflight = (Map<?, ?>) asObject(result.stdout).get("agent_preflight");
+        assertNotNull(preflight);
+        assertTrue(preflight.containsKey("status"));
+        assertTrue(preflight.containsKey("blockers"));
+        assertTrue(preflight.containsKey("next_commands"));
+        assertTrue(((Map<?, ?>) preflight.get("flow_coverage")).containsKey("detailed_methods"));
+        assertEquals(bytesBefore, Files.size(db), "preflight must not write the index");
+
+        Path missing = tmp.resolve("missing.db");
+        RunResult absent = runCli("doctor", "--agent-preflight", "--format", "json",
+                "--index", missing.toString());
+        Map<?, ?> absentPreflight = (Map<?, ?>) asObject(absent.stdout).get("agent_preflight");
+        assertEquals("REPAIR_REQUIRED", absentPreflight.get("status"));
+        assertTrue(String.valueOf(absentPreflight.get("next_commands")).contains("anatomist index"));
+
+        RunResult doctorHelp = runCli("doctor", "--help");
+        assertTrue(doctorHelp.stdout.contains("--agent-preflight"), doctorHelp.stdout);
+        RunResult materializeHelp = runCli("flow-materialize", "--help");
+        assertTrue(materializeHelp.stdout.contains("Static call-path depth"), materializeHelp.stdout);
+    }
+
+    @Test
+    void doctorAgentPreflightDetectsOfflineSourceEdits(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("preflight-stale.db");
+        RunResult indexed = runCli("index", project.toString(), "--no-classpath",
+                "--output", db.toString());
+        assertEquals(0, indexed.exitCode, indexed.stderr);
+        Files.writeString(project.resolve("src/main/java/p/A.java"), """
+                package p;
+                class A { String changed() { return "changed"; } }
+                """);
+        RunResult preflight = runCli("doctor", "--agent-preflight", "--format", "json",
+                "--index", db.toString());
+        Map<?, ?> contract = (Map<?, ?>) asObject(preflight.stdout).get("agent_preflight");
+        assertTrue(String.valueOf(contract.get("blockers")).contains("INDEX_STALE"), contract.toString());
+        assertTrue(String.valueOf(contract.get("next_commands")).contains("--incremental"), contract.toString());
     }
 
     @Test

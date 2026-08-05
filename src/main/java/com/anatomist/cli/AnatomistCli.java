@@ -52,6 +52,7 @@ import picocli.CommandLine.HelpCommand;
                 CallPathCommand.class,
                 FlowOfCommand.class,
                 FlowPathCommand.class,
+                FlowMaterializeCommand.class,
                 TaintPathCommand.class,
                 ExceptionFlowCommand.class,
                 GuardsOfFlowCommand.class,

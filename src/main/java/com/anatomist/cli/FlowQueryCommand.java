@@ -32,6 +32,15 @@ abstract class FlowQueryCommand implements Callable<Integer> {
                         result.stats.get("total") instanceof Number total
                                 && total.longValue() > 0,
                         false).toMap());
+                if ("partial".equals(result.stats.get("flow_coverage"))) {
+                    boolean positive = Boolean.TRUE.equals(result.stats.get("found"));
+                    result.evidence.put("coverage", "partial");
+                    result.evidence.put("negative_conclusion_safe", false);
+                    if (!positive) {
+                        result.evidence.put("status", "indeterminate");
+                        result.evidence.put("code", "FLOW_COVERAGE_INCOMPLETE");
+                    }
+                }
                 Disclosure.applyBoundedEvidence(
                         result, result.stats.containsKey("limit_truncated"));
                 JsonFormatter.emit(System.out, result);
@@ -41,6 +50,8 @@ abstract class FlowQueryCommand implements Callable<Integer> {
                 error.put("status", "error");
                 error.put("code", coverage.code());
                 error.put("message", coverage.getMessage());
+                String next = coverageSuggestion();
+                if (next != null) error.put("next_commands", java.util.List.of(next));
                 System.out.println(JsonFormatter.toJson(error));
                 return 2;
             }
@@ -51,5 +62,9 @@ abstract class FlowQueryCommand implements Callable<Integer> {
 
     protected java.util.List<String> coverageAnchors() {
         return java.util.List.of();
+    }
+
+    protected String coverageSuggestion() {
+        return null;
     }
 }

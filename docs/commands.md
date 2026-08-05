@@ -122,6 +122,7 @@ Report CLI capabilities, schema version, and index health.
 
 ```bash
 anatomist doctor --format json [--index <db>] \
+  [--agent-preflight] \
   [--diagnostic-file <path>] [--diagnostic-code <reason>] \
   [--diagnostic-scope MAIN] [--diagnostic-module <module>] \
   [--diagnostic-phase <phase>] [--offset 0] [--limit 100]
@@ -147,6 +148,7 @@ JSON includes:
 | `diagnostics` | Persisted findings shared with `index` and `survey-baseline` |
 | `diagnostic_stats` | Total/matched/page counts for bounded diagnostic output |
 | `git_untracked_cache` | Repository Git setting: `enabled`, `disabled`, or `unknown` |
+| `agent_preflight` | Present with `--agent-preflight`: read-only Agent readiness, blockers, flow coverage, and next commands |
 
 When Git untracked cache is not enabled, `doctor` reports non-mutating advice:
 
@@ -160,6 +162,10 @@ incremental Git status check prints the same advice once per Watch process.
 Use `--health-policy integrity` for the normal Agent gate. Use
 `--strict-health` when warnings or any disclosed resolution gap must fail the command.
 Without a policy, health is reported but does not change the exit code.
+
+Use `--agent-preflight` before an Agent starts a static investigation. It never
+re-indexes or changes configuration; `agent_preflight.next_commands` contains
+the required repair or index gate command.
 
 `UNRESOLVED_SYMBOLS` is the aggregate of the individual resolution reason
 counts; do not add it to those reasons a second time. Informational third-party
@@ -321,8 +327,10 @@ anatomist index . --dataflow-scope 'source:service/src/main/java/com/example/**'
 
 `flow-summary` works in every enabled mode. `flow-of`, `guards-of`, and
 `exception-flow` require detailed coverage for the selected method.
-`flow-path` and `taint-path` require `full`; scoped/summary indexes return
-`FLOW_COVERAGE_INCOMPLETE` instead of a misleading empty path.
+`taint-path` requires `full`. `flow-path` requires either `full` or DETAIL
+coverage for both endpoints; use `flow-materialize` to add DETAIL facts for one
+bounded static call path. A path found with partial coverage is usable positive
+static evidence; an empty partial result never proves absence.
 
 ```bash
 anatomist flow-of com.example.Service#run --depth 8 --index <db>
@@ -333,12 +341,14 @@ anatomist flow-summary com.example.Service#run --index <db>
 anatomist guards-of com.example.Service#run --index <db>
 anatomist exception-flow com.example.Service#run --index <db>
 anatomist taint-path '*' '*' --depth 30 --index <db>
+anatomist flow-materialize <source-method> <target-method> --depth 8 --index <db>
 ```
 
 | Command | Evidence |
 |---|---|
 | `flow-of` | CFG, def-use, argument, return, and cross-method edges |
 | `flow-path` | Shortest bounded static flow path; data edges only by default |
+| `flow-materialize` | Explicitly write DETAIL facts for source files on one shortest static call path |
 | `flow-summary` | `arg:n`/`this` to return or exception summaries |
 | `guards-of` | Condition dependencies and true/false guarded facts |
 | `exception-flow` | Explicit throw, catch, and declared exception propagation |
@@ -349,6 +359,9 @@ expandable frontier remains. `flow-of --limit` is a compute budget rather than
 an offset page: when `limit_truncated=true`, rerun its larger-limit
 `next_queries` entry. `flow-path` and `taint-path` empty results are conclusive
 only when `depth_truncated=false` and evidence permits a negative conclusion.
+`flow-materialize` writes only after the structural index passes its integrity
+and freshness checks. It does not write when the static call path is absent or
+depth-truncated; use its `next_commands` to increase depth or re-index first.
 
 Taint rules live in `.anatomist/taint-rules.json`:
 

@@ -276,7 +276,7 @@ class FlowAnalysisIT {
         RunResult incompletePath = runCli("flow-path", "p.A#copy", "p.A#wrapper",
                 "--index", scoped.toString());
         assertEquals(2, incompletePath.exitCode(), incompletePath.stdout());
-        assertTrue(incompletePath.stdout().contains("FLOW_COVERAGE_INCOMPLETE"),
+        assertTrue(incompletePath.stdout().contains("FLOW_DETAIL_NOT_INDEXED"),
                 incompletePath.stdout());
     }
 
@@ -399,6 +399,90 @@ class FlowAnalysisIT {
                 "--index", rightSlot.toString());
         assertEquals(0, found.exitCode(), found.stderr());
         assertTrue(found.stdout().contains("\"found\" : true"), found.stdout());
+    }
+
+    @Test
+    void materializesOneStructuralPathWithoutEnablingFullDataflow(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Files.writeString(project.resolve("src/main/java/p/A.java"), """
+                package p;
+                class A {
+                    String copy(String value) { String local = value; return local; }
+                    void sink(String value) {}
+                    void run(String value) { sink(copy(value)); }
+                }
+                """);
+        Path db = tmp.resolve("progressive.db");
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "17", "--output", db.toString(), "--format", "json");
+
+        RunResult before = runCli("flow-path", "p.A#copy", "p.A#copy",
+                "--from-slot", "arg:0", "--to-slot", "return", "--index", db.toString());
+        assertEquals(2, before.exitCode(), before.stdout());
+        assertTrue(before.stdout().contains("flow-materialize"), before.stdout());
+
+        RunResult materialized = runCli("flow-materialize", "p.A#run", "p.A#sink",
+                "--index", db.toString(), "--format", "json");
+        assertEquals(0, materialized.exitCode(), materialized.stderr());
+        assertTrue(materialized.stdout().contains("\"mode\" : \"progressive\""), materialized.stdout());
+
+        RunResult path = runCli("flow-path", "p.A#copy", "p.A#copy",
+                "--from-slot", "arg:0", "--to-slot", "return", "--index", db.toString());
+        assertEquals(0, path.exitCode(), path.stderr());
+        assertTrue(path.stdout().contains("\"found\" : true"), path.stdout());
+        assertTrue(path.stdout().contains("\"coverage\" : \"partial\""), path.stdout());
+    }
+
+    @Test
+    void incrementalPlainIndexInvalidatesProgressiveFlow(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path source = project.resolve("src/main/java/p/A.java");
+        Files.writeString(source, """
+                package p;
+                class A { void sink(String v) {} void run(String v) { sink(v); } }
+                """);
+        Path db = tmp.resolve("progressive-incremental.db");
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "17", "--output", db.toString());
+        assertEquals(0, runCli("flow-materialize", "p.A#run", "p.A#sink",
+                "--index", db.toString()).exitCode());
+        Files.writeString(source, """
+                package p;
+                class A { void sink(String v) {} void run(String v) { String copy = v; sink(copy); } }
+                """);
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "17", "--incremental", "--output", db.toString());
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM method_flow_coverage"));
+        }
+    }
+
+    @Test
+    void staleIndexRefusesMaterializationWithoutWritingFlow(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path source = project.resolve("src/main/java/p/A.java");
+        Files.writeString(source, """
+                package p;
+                class A { void sink(String v) {} void run(String v) { sink(v); } }
+                """);
+        Path db = tmp.resolve("stale-materialize.db");
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "17", "--output", db.toString());
+        Files.writeString(source, """
+                package p;
+                class A { void sink(String v) {} void run(String v) { String copy = v; sink(copy); } }
+                """);
+
+        RunResult result = runCli("flow-materialize", "p.A#run", "p.A#sink",
+                "--index", db.toString(), "--format", "json");
+        assertEquals(2, result.exitCode(), result.stdout());
+        assertTrue(result.stdout().contains("INDEX_STALE"), result.stdout());
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM flow_nodes"));
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM flow_edges"));
+        }
     }
 
     @Test
