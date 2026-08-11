@@ -47,12 +47,13 @@ public class ClasspathDetector {
         if (projectRoot == null || !isMavenProject(projectRoot)) {
             return ClasspathDetectionResult.notRequested();
         }
+        List<Path> buildOutputs = detectBuildOutputClasspath(projectRoot);
         List<String> cached = readClasspathCache(projectRoot);
         if (!cached.isEmpty()) {
             java.util.LinkedHashSet<String> union = new java.util.LinkedHashSet<>(cached);
-            detectBuildOutputClasspath(projectRoot).forEach(path -> union.add(path.toString()));
+            buildOutputs.forEach(path -> union.add(path.toString()));
             AnatomistLog.debug("classpath: cache hit with " + cached.size() + " dependency entries");
-            return ClasspathDetectionResult.cacheHit(new ArrayList<>(union));
+            return ClasspathDetectionResult.cacheHit(new ArrayList<>(union), buildOutputs.size());
         }
         // Clear any stragglers from a prior interrupted run so the union is clean.
         deleteClasspathFiles(projectRoot);
@@ -114,14 +115,14 @@ public class ClasspathDetector {
                         + failureOutputSuffix());
             }
             if (code == 0 && !union.isEmpty()) writeClasspathCache(projectRoot, union);
-            for (Path output : detectBuildOutputClasspath(projectRoot)) {
+            for (Path output : buildOutputs) {
                 union.add(output.toString());
             }
             AnatomistLog.debug("classpath: union total = " + union.size() + " entrie(s)");
             if (code == 0) {
                 return new ClasspathDetectionResult(
                         ClasspathDetectionResult.Status.FULL,
-                        new ArrayList<>(union), code, cpFiles.size(), null, List.of());
+                        new ArrayList<>(union), code, cpFiles.size(), buildOutputs.size(), null, List.of());
             }
             String sample = boundedMavenSample(lastMavenOutput);
             String diagnosticCode = union.isEmpty()
@@ -137,15 +138,17 @@ public class ClasspathDetector {
                     union.isEmpty()
                             ? ClasspathDetectionResult.Status.UNAVAILABLE
                             : ClasspathDetectionResult.Status.PARTIAL,
-                    new ArrayList<>(union), code, cpFiles.size(), sample,
+                    new ArrayList<>(union), code, cpFiles.size(), buildOutputs.size(), sample,
                     List.of(diagnostic));
         } catch (IOException | InterruptedException e) {
             warn("mvn classpath detection failed (" + e.getMessage() + "), proceeding with empty classpath");
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             String sample = boundedMavenSample(e.getMessage());
+            List<String> outputEntries = buildOutputs.stream().map(Path::toString).toList();
             return new ClasspathDetectionResult(
-                    ClasspathDetectionResult.Status.UNAVAILABLE,
-                    List.of(), null, 0, sample,
+                    outputEntries.isEmpty() ? ClasspathDetectionResult.Status.UNAVAILABLE
+                            : ClasspathDetectionResult.Status.PARTIAL,
+                    outputEntries, null, 0, buildOutputs.size(), sample,
                     List.of(new IndexDiagnostic(
                             "warning", "CLASSPATH_UNAVAILABLE", "CLASSPATH",
                             null, null, null, null, 1,

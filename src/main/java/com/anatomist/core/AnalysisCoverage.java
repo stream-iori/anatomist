@@ -130,7 +130,8 @@ public final class AnalysisCoverage {
             String code = diagnostic.code() == null ? "UNKNOWN" : diagnostic.code();
             codes.add(code);
             codeCounts.merge(code, count, Long::sum);
-            detailsTruncated |= "DIAGNOSTIC_STORAGE_TRUNCATED".equals(code);
+            detailsTruncated |= "DIAGNOSTIC_STORAGE_TRUNCATED".equals(code)
+                    || "DIAGNOSTIC_LIMIT_REACHED".equals(code);
         }
     }
 }

@@ -16,7 +16,7 @@ import java.util.HexFormat;
  * below the Anatomist home. It deliberately has no network behavior. */
 public final class LocalJdkCatalogResolver {
     public static final String ENV_JDK_HOME = "ANATOMIST_JDK_HOME";
-    private static final int CATALOG_GENERATION = 2;
+    private static final int CATALOG_GENERATION = 3;
 
     private LocalJdkCatalogResolver() {}
 

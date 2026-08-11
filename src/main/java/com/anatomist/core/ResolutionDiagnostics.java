@@ -5,6 +5,8 @@ import java.util.Set;
 /** Shared taxonomy for persisted symbol-resolution diagnostics. */
 public final class ResolutionDiagnostics {
 
+    public static final int DIAGNOSTIC_GROUP_LIMIT = 50_000;
+
     public static final Set<String> REASON_CODES = Set.of(
             "INTERNAL_SYMBOL_MISSING",
             "THIRDPARTY_SYMBOL_MISSING",

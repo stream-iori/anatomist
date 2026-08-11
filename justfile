@@ -490,9 +490,10 @@ release VERSION="":
 
     echo "=== Releasing v${REL_VERSION} ==="
 
-    # Record the release revision in the tagged commit. The default changelist
-    # stays -SNAPSHOT; release builds pass -Dchangelist= explicitly.
+    # Record an exact release version in the tagged commit. The following
+    # development commit restores the -SNAPSHOT changelist.
     perl -0pi -e "s|<revision>.*?</revision>|<revision>${REL_VERSION}</revision>|s" pom.xml
+    perl -0pi -e "s|<changelist>.*?</changelist>|<changelist></changelist>|s" pom.xml
     echo "  pom.xml revision -> ${REL_VERSION}"
 
     # Build release-version native.
@@ -521,6 +522,7 @@ release VERSION="":
     NEXT_VERSION="${MAJOR}.$((MINOR + 1)).0-SNAPSHOT"
     NEXT_REVISION="${MAJOR}.$((MINOR + 1)).0"
     perl -0pi -e "s|<revision>.*?</revision>|<revision>${NEXT_REVISION}</revision>|s" pom.xml
+    perl -0pi -e "s|<changelist>.*?</changelist>|<changelist>-SNAPSHOT</changelist>|s" pom.xml
     git add pom.xml
     git commit -m "chore: bump to ${NEXT_VERSION}"
     echo "  pom.xml revision -> ${NEXT_REVISION} (${NEXT_VERSION})"

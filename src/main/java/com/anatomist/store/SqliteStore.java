@@ -142,6 +142,9 @@ public class SqliteStore implements IndexWriter {
     public Map<String, Long> readResolutionDiagnosticCounts() {
         return reader.readResolutionDiagnosticCounts();
     }
+    public List<Map<String, Object>> readDiagnosticCoverage(String sourceFileFilter) {
+        return reader.readDiagnosticCoverage(sourceFileFilter);
+    }
     public Set<String> dependentsOf(List<String> seed) { return reader.dependentsOf(seed); }
     public Set<String> allNodeIds() { return reader.allNodeIds(); }
     public Map<String, Node> readNodesBySourceFiles(List<String> sourceFiles) {
