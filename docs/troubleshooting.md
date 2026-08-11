@@ -25,6 +25,12 @@ Check `doctor --format json` before treating Maven output as all-or-nothing:
 | `unavailable` | Maven failed and no usable entries were recovered |
 | `not_requested` | Classpath detection was disabled or not applicable |
 
+`module_output_files` is a deprecated compatibility name for the number of
+Maven `anatomist-classpath.txt` files. It never counted build output
+directories. Use `maven_classpath_files` for that value and
+`build_output_entries` to verify discovered `target/classes` and
+`target/test-classes`, including on cache hits.
+
 `partial` and `unavailable` degrade external-resolution coverage. They do not
 fail `--health-policy integrity`, but do fail `--strict-health`.
 

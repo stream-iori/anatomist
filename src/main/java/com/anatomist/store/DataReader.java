@@ -557,6 +557,40 @@ public class DataReader {
         }
     }
 
+    /** File-level lossless coverage, optionally filtered like doctor --diagnostic-file. */
+    public List<Map<String, Object>> readDiagnosticCoverage(String sourceFileFilter) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        String sql = "SELECT source_file,module,scope,capability,status,occurrences,groups_count,"
+                + "codes,code_counts,details_truncated FROM analysis_coverage"
+                + (sourceFileFilter == null || sourceFileFilter.isBlank()
+                ? "" : " WHERE source_file LIKE ?")
+                + " ORDER BY source_file,module,scope,capability";
+        try (PreparedStatement ps = conn().prepareStatement(sql)) {
+            if (sourceFileFilter != null && !sourceFileFilter.isBlank()) {
+                ps.setString(1, "%" + sourceFileFilter.replace('\\', '/') + "%");
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("source_file", rs.getString(1).replace('\\', '/'));
+                    row.put("module", rs.getString(2));
+                    row.put("scope", rs.getString(3));
+                    row.put("capability", rs.getString(4));
+                    row.put("status", rs.getString(5));
+                    row.put("occurrences", rs.getLong(6));
+                    row.put("groups", rs.getLong(7));
+                    row.put("codes", Json.parseTree(rs.getString(8)));
+                    row.put("code_counts", Json.parseTree(rs.getString(9)));
+                    row.put("details_truncated", rs.getInt(10) != 0);
+                    out.add(row);
+                }
+            }
+            return out;
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read diagnostic coverage", e);
+        }
+    }
+
     private int count(String sql) throws SQLException {
         try (Statement st = conn().createStatement();
              ResultSet rs = st.executeQuery(sql)) {

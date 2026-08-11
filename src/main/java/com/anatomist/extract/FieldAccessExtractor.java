@@ -13,6 +13,8 @@ import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.ast.CompilationUnit;
@@ -119,11 +121,50 @@ public class FieldAccessExtractor implements Extractor {
                 return v instanceof ResolvedFieldDeclaration f ? f : null;
             }
         } catch (RuntimeException e) {
+            if (isConfirmedQualifier(expr)) return null;
             String symbol = expr instanceof NameExpr name ? name.getNameAsString()
                     : expr instanceof FieldAccessExpr field ? field.getNameAsString() : null;
             ctx.incrementUnresolved(e, expr, symbol);
         }
         return null;
+    }
+
+    /**
+     * JavaParser resolves a class/package qualifier as a type, not as a value.
+     * The field extractor intentionally asks for values, so a failed value
+     * lookup must not become FIELD_NOT_FOUND when the surrounding scope chain
+     * is independently resolvable as a type/member expression.
+     */
+    private static boolean isConfirmedQualifier(Expression expression) {
+        if (!isMemberScope(expression)) return false;
+        Expression candidate = expression;
+        while (candidate.getParentNode().orElse(null) instanceof FieldAccessExpr parent
+                && parent.getScope() == candidate) {
+            candidate = parent;
+        }
+        try {
+            candidate.calculateResolvedType();
+            return true;
+        } catch (RuntimeException ignored) {
+            try {
+                expression.calculateResolvedType();
+                return true;
+            } catch (RuntimeException unresolved) {
+                return false;
+            }
+        }
+    }
+
+    private static boolean isMemberScope(Expression expression) {
+        Node parent = expression.getParentNode().orElse(null);
+        if (parent instanceof FieldAccessExpr field) return field.getScope() == expression;
+        if (parent instanceof MethodCallExpr call) {
+            return call.getScope().map(scope -> scope == expression).orElse(false);
+        }
+        if (parent instanceof MethodReferenceExpr reference) {
+            return reference.getScope() == expression;
+        }
+        return false;
     }
 
     private String enclosingId(Node node) {

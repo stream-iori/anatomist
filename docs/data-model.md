@@ -254,12 +254,20 @@ At most 5,000 rows are retained. When the input exceeds the bound, the final
 row is `DIAGNOSTIC_STORAGE_TRUNCATED` with the omitted count; error/warning
 rows are prioritized ahead of informational rows.
 
+`DIAGNOSTIC_LIMIT_REACHED` and `DIAGNOSTIC_STORAGE_TRUNCATED` are capacity
+metadata, not symbol-resolution reasons. They remain diagnostic rows for wire
+compatibility and still block `complete` health, but do not appear in
+`health_dimensions.resolution.other.codes`.
+
 Query JSON derives a capability-specific `evidence` object from these rows.
 Outgoing queries narrow file-scoped diagnostics to their anchor files;
 incoming/global queries remain conservative because an unresolved caller can
 originate anywhere.
 
-`analysis_coverage` stores the unbounded aggregate before diagnostic retention:
+`analysis_coverage` stores file-level aggregates before the 5,000-row storage
+retention step. The upstream resolution tracker still has a 50,000-group bound;
+when it is reached, `diagnostic_aggregation.truncated=true` discloses that
+later source-level detail is unavailable.
 
 | Column | Meaning |
 |---|---|

@@ -3,7 +3,7 @@
     "affected_dimensions" : [ "external_resolution", "other_resolution" ],
     "coverage" : "partial",
     "diagnostic_counts" : {
-      "FIELD_NOT_FOUND" : 7,
+      "FIELD_NOT_FOUND" : 3,
       "METHOD_NOT_FOUND" : 4,
       "THIRDPARTY_SYMBOL_MISSING" : 23,
       "UNSUPPORTED_RESOLUTION" : 2

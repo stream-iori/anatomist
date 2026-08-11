@@ -20,6 +20,52 @@ class FieldAccessExtractorTest {
             Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN");
 
     @Test
+    void importedTypeQualifiersDoNotBecomeFieldNotFound() {
+        ExtractionContext local = new ExtractionContext(
+                Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN");
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; import javax.crypto.Cipher; import javax.crypto.KeyGenerator;"
+                + "class A { void run() throws Exception {"
+                + "Cipher.getInstance(\"AES\"); KeyGenerator.getInstance(\"AES\");"
+                + "int mode = Cipher.ENCRYPT_MODE; } }");
+
+        ExtractionResult result = new ExtractionResult();
+        new FieldAccessExtractor(local).extract(cu, result);
+
+        assertEquals(0, local.unresolvedCount(),
+                "type qualifiers must not be tracked as missing fields: "
+                        + local.resolutionSummary(false).diagnostics());
+        assertTrue(result.edges.stream().anyMatch(edge -> "READS".equals(edge.relation)
+                && "javax.crypto.Cipher#ENCRYPT_MODE".equals(edge.externalTargetFqn)));
+    }
+
+    @Test
+    void fullyQualifiedTypeChainDoesNotBecomeFieldNotFound() {
+        ExtractionContext local = new ExtractionContext(
+                Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN");
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; class A { void run() throws Exception {"
+                + "javax.crypto.Cipher.getInstance(\"AES\"); } }");
+
+        new FieldAccessExtractor(local).extract(cu, new ExtractionResult());
+
+        assertEquals(0, local.unresolvedCount(),
+                "package/type scope chain must not be tracked as field access");
+    }
+
+    @Test
+    void realMissingReceiverStillProducesDiagnostic() {
+        ExtractionContext local = new ExtractionContext(
+                Path.of("."), List.of(), new NodeIdGenerator(), null, "MAIN");
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; class A { void run() { missing.value.toString(); } }");
+
+        new FieldAccessExtractor(local).extract(cu, new ExtractionResult());
+
+        assertTrue(local.unresolvedCount() > 0);
+    }
+
+    @Test
     void writePlainAssignment() {
         CompilationUnit cu = JavaParserTestSupport.parse(
                 "package pkg;\n"

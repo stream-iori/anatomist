@@ -983,6 +983,8 @@ public class IndexCommand implements Callable<Integer> {
                 String.valueOf(currentClasspathDetection.entries().size()));
         values.put("classpath_detection_module_outputs",
                 String.valueOf(currentClasspathDetection.moduleOutputFiles()));
+        values.put("classpath_detection_build_outputs",
+                String.valueOf(currentClasspathDetection.buildOutputEntries()));
         values.put("classpath_detection_maven_exit",
                 currentClasspathDetection.mavenExitCode() == null
                         ? "" : String.valueOf(currentClasspathDetection.mavenExitCode()));

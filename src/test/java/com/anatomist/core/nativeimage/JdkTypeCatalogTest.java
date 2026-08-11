@@ -108,6 +108,18 @@ class JdkTypeCatalogTest {
             JdkTypeCatalog catalog = JdkTypeCatalog.readFrom(in);
             assertEquals(8, catalog.jdkRelease());
             assertNotNull(catalog.find("java.lang.String"));
+            for (String type : List.of(
+                    "java.util.Optional",
+                    "javax.crypto.Cipher",
+                    "javax.crypto.KeyGenerator",
+                    "javax.crypto.spec.SecretKeySpec",
+                    "javax.crypto.spec.IvParameterSpec")) {
+                assertNotNull(catalog.find(type), type + " missing from embedded JDK 8 catalog");
+            }
+            assertTrue(catalog.find("java.util.Optional").methods.stream()
+                    .anyMatch(method -> "orElse".equals(method.name)));
+            assertTrue(catalog.find("javax.crypto.Cipher").methods.stream()
+                    .anyMatch(method -> "getInstance".equals(method.name)));
         }
         assertNull(JdkTypeCatalogTest.class.getResource(
                 "/META-INF/anatomist/jdk17-types.bin"),

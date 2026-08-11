@@ -9,6 +9,7 @@ public record ClasspathDetectionResult(
         List<String> entries,
         Integer mavenExitCode,
         int moduleOutputFiles,
+        int buildOutputEntries,
         String errorSample,
         List<IndexDiagnostic> diagnostics
 ) {
@@ -31,25 +32,30 @@ public record ClasspathDetectionResult(
 
     public static ClasspathDetectionResult notRequested() {
         return new ClasspathDetectionResult(
-                Status.NOT_REQUESTED, List.of(), null, 0, null, List.of());
+                Status.NOT_REQUESTED, List.of(), null, 0, 0, null, List.of());
     }
 
     public static ClasspathDetectionResult explicit(List<String> entries) {
         return new ClasspathDetectionResult(
-                Status.EXPLICIT, entries, null, 0, null, List.of());
+                Status.EXPLICIT, entries, null, 0, 0, null, List.of());
     }
 
-    public static ClasspathDetectionResult cacheHit(List<String> entries) {
+    public static ClasspathDetectionResult cacheHit(List<String> entries, int buildOutputEntries) {
         return new ClasspathDetectionResult(
-                Status.CACHE_HIT, entries, null, 0, null, List.of());
+                Status.CACHE_HIT, entries, null, 0, buildOutputEntries, null, List.of());
     }
 
     public static ClasspathDetectionResult indexMetadata(List<String> entries) {
         return new ClasspathDetectionResult(
-                Status.INDEX_METADATA, entries, null, 0, null, List.of());
+                Status.INDEX_METADATA, entries, null, 0, 0, null, List.of());
     }
 
     public String wireStatus() {
         return status.name().toLowerCase(Locale.ROOT);
+    }
+
+    /** Clear name for the legacy moduleOutputFiles component. */
+    public int mavenClasspathFiles() {
+        return moduleOutputFiles;
     }
 }

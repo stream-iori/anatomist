@@ -15,6 +15,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class IndexHealthReportTest {
 
     @Test
+    void diagnosticCapacityMetadataDoesNotPolluteOtherResolutionCodes() {
+        IndexHealthReport report = IndexHealthReport.of(List.of(
+                diagnostic("info", "DIAGNOSTIC_LIMIT_REACHED", "RESOLUTION", 12),
+                diagnostic("info", "DIAGNOSTIC_STORAGE_TRUNCATED", "RESOLUTION", 9),
+                diagnostic("warning", "FIELD_NOT_FOUND", "FIELD_ACCESS", 2)));
+
+        Map<?, ?> other = (Map<?, ?>) ((Map<?, ?>) report.dimensions()
+                .get("resolution")).get("other");
+        assertEquals(List.of("FIELD_NOT_FOUND"), List.copyOf((java.util.Set<?>) other.get("codes")));
+        assertFalse(report.gate(HealthPolicy.COMPLETE).passed());
+    }
+
+    @Test
     void integrityAllowsResolutionGapsButCompleteRejectsThem() {
         IndexHealthReport report = IndexHealthReport.of(List.of(
                 diagnostic("info", "THIRDPARTY_SYMBOL_MISSING",

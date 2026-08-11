@@ -65,6 +65,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("capabilities")).contains("source-snapshot-fingerprint"));
         assertTrue(((List<?>) json.get("capabilities")).contains("core-reflection"));
         assertTrue(((List<?>) json.get("capabilities")).contains("progressive-dataflow"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("file-resolution-coverage"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
         assertEquals(fixture().toRealPath().toString(), json.get("source_root"));
@@ -76,6 +77,49 @@ class AgentContractIT {
         assertTrue(((Map<?, ?>) json.get("source_snapshot")).containsKey("match"));
         assertNotNull(json.get("resolution_diagnostic_counts"));
         assertNotNull(json.get("resolution_diagnostic_groups"));
+        assertNotNull(json.get("diagnostic_aggregation"));
+        assertNotNull(json.get("diagnostic_storage"));
+    }
+
+    @Test
+    void doctorSeparatesTruncationMetadataAndReturnsFilteredFileCoverage(@TempDir Path tmp)
+            throws Exception {
+        Path db = buildFixtureIndex(tmp, false);
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO index_diagnostics"
+                    + "(severity,code,phase,occurrence_count,sample) VALUES "
+                    + "('info','DIAGNOSTIC_LIMIT_REACHED','RESOLUTION',17,'limit')");
+            statement.executeUpdate("INSERT INTO index_diagnostics"
+                    + "(severity,code,phase,occurrence_count,sample) VALUES "
+                    + "('info','DIAGNOSTIC_STORAGE_TRUNCATED','RESOLUTION',4,'storage')");
+            statement.executeUpdate("INSERT OR REPLACE INTO analysis_coverage"
+                    + "(source_file,module,scope,capability,status,occurrences,groups_count,"
+                    + "codes,code_counts,details_truncated) VALUES "
+                    + "('service/src/main/java/p/Target.java','service','MAIN','AGGREGATE',"
+                    + "'partial',3,2,'[\"METHOD_NOT_FOUND\"]',"
+                    + "'{\"METHOD_NOT_FOUND\":3}',0)");
+        }
+
+        RunResult result = runCli("doctor", "--format", "json", "--index", db.toString(),
+                "--diagnostic-file", "p/Target.java");
+        assertEquals(0, result.exitCode, result.stderr);
+        Map<?, ?> json = asObject(result.stdout);
+        assertEquals(Boolean.TRUE,
+                ((Map<?, ?>) json.get("diagnostic_aggregation")).get("truncated"));
+        assertEquals(17L,
+                ((Number) ((Map<?, ?>) json.get("diagnostic_aggregation"))
+                        .get("overflow_occurrences")).longValue());
+        assertEquals(Boolean.TRUE,
+                ((Map<?, ?>) json.get("diagnostic_storage")).get("truncated"));
+        Map<?, ?> coverage = (Map<?, ?>) json.get("diagnostic_coverage");
+        List<?> files = (List<?>) coverage.get("files");
+        assertEquals(1, files.size());
+        assertEquals("service/src/main/java/p/Target.java",
+                ((Map<?, ?>) files.get(0)).get("source_file"));
+        Map<?, ?> other = (Map<?, ?>) ((Map<?, ?>) ((Map<?, ?>) json
+                .get("health_dimensions")).get("resolution")).get("other");
+        assertFalse(String.valueOf(other.get("codes")).contains("DIAGNOSTIC_"));
     }
 
     @Test

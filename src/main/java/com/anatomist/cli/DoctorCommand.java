@@ -95,6 +95,10 @@ public class DoctorCommand implements Callable<Integer> {
                 "core-reflection",
                 "cfg", "def-use", "interprocedural-flow", "exception-flow", "taint-flow",
                 "progressive-dataflow", "agent-preflight"));
+        @SuppressWarnings("unchecked")
+        List<String> capabilities = new java.util.ArrayList<>((List<String>) out.get("capabilities"));
+        capabilities.add("file-resolution-coverage");
+        out.put("capabilities", List.copyOf(capabilities));
 
         if (exists) {
             try (SqliteStore store = new SqliteStore(db)) {
@@ -124,6 +128,10 @@ public class DoctorCommand implements Callable<Integer> {
                             "classpath_detection_entries", "entries");
                     putIntegerMeta(store, classpathDetection,
                             "classpath_detection_module_outputs", "module_output_files");
+                    putIntegerMeta(store, classpathDetection,
+                            "classpath_detection_module_outputs", "maven_classpath_files");
+                    putIntegerMeta(store, classpathDetection,
+                            "classpath_detection_build_outputs", "build_output_entries");
                     putIntegerMeta(store, classpathDetection,
                             "classpath_detection_maven_exit", "maven_exit_code");
                     store.readProjectMeta("classpath_detection_error_sample")
@@ -189,6 +197,12 @@ public class DoctorCommand implements Callable<Integer> {
                     out.put("resolution_diagnostic_counts", coverageCounts.isEmpty()
                             ? resolutionCounts(health.diagnostics()) : coverageCounts);
                     out.put("resolution_diagnostic_groups", resolutionGroups(health.diagnostics()));
+                    out.put("diagnostic_aggregation", diagnosticAggregation(health.diagnostics()));
+                    out.put("diagnostic_storage", diagnosticStorage(health.diagnostics()));
+                    if (diagnosticFile != null && !diagnosticFile.isBlank()) {
+                        out.put("diagnostic_coverage", Map.of(
+                                "files", store.readDiagnosticCoverage(diagnosticFile)));
+                    }
                     out.put("gate", health.gate(policy).toMap());
                     out.put("diagnostics", displayed.toMaps());
                     out.put("warnings", displayed.warnings());
@@ -367,6 +381,32 @@ public class DoctorCommand implements Callable<Integer> {
             }
         }
         return groups;
+    }
+
+    private static Map<String, Object> diagnosticAggregation(
+            List<com.anatomist.core.IndexDiagnostic> diagnostics) {
+        long overflow = diagnostics.stream()
+                .filter(item -> "DIAGNOSTIC_LIMIT_REACHED".equals(item.code()))
+                .mapToLong(com.anatomist.core.IndexDiagnostic::count).sum();
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("truncated", overflow > 0);
+        out.put("group_limit", com.anatomist.core.ResolutionDiagnostics.DIAGNOSTIC_GROUP_LIMIT);
+        out.put("overflow_occurrences", overflow);
+        return out;
+    }
+
+    private static Map<String, Object> diagnosticStorage(
+            List<com.anatomist.core.IndexDiagnostic> diagnostics) {
+        long omitted = diagnostics.stream()
+                .filter(item -> "DIAGNOSTIC_STORAGE_TRUNCATED".equals(item.code()))
+                .mapToLong(com.anatomist.core.IndexDiagnostic::count).sum();
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("truncated", omitted > 0);
+        out.put("limit", com.anatomist.core.IndexDiagnosticRetention.LIMIT);
+        out.put("retained_groups", diagnostics.stream()
+                .filter(item -> !"DIAGNOSTIC_STORAGE_TRUNCATED".equals(item.code())).count());
+        out.put("omitted_groups", omitted);
+        return out;
     }
 
     private static void addHealth(Map<String, Object> out,

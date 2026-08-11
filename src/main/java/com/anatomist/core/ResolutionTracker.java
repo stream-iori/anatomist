@@ -15,8 +15,6 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Always-on bounded aggregation of failed SymbolSolver operations. */
 final class ResolutionTracker {
 
-    private static final int MAX_GROUPS = 50_000;
-
     private final Path projectRoot;
     private final SourceIdentityResolver identities;
     private final List<Path> sourcePaths;
@@ -87,7 +85,7 @@ final class ResolutionTracker {
         Key key = new Key(sourceFile, module, scope, phase, reason, symbol, line);
         Bucket bucket = groups.get(key);
         if (bucket == null) {
-            if (groups.size() >= MAX_GROUPS) {
+            if (groups.size() >= ResolutionDiagnostics.DIAGNOSTIC_GROUP_LIMIT) {
                 key = new Key(null, ".", "MAIN", "RESOLUTION",
                         "DIAGNOSTIC_LIMIT_REACHED", null, 0);
                 bucket = groups.computeIfAbsent(key, ignored -> new Bucket());

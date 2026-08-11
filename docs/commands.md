@@ -138,7 +138,7 @@ JSON includes:
 | `index_exists` | Whether the target DB exists |
 | `source_root` / `source_snapshot_fingerprint` / `source_snapshot` | Local checkout ownership, portable indexed-source identity, and indexed-vs-current Git commit match when available |
 | `java_version` / `classpath_mode` / `spring_xml` | Index profile used to build the current facts |
-| `classpath_detection` | Detection status plus `origin`: `maven`, `classpath_cache`, `index_metadata`, `explicit`, or `none` |
+| `classpath_detection` | Detection status plus `origin`; `maven_classpath_files` counts Maven output files and `build_output_entries` counts discovered `target/classes` / `target/test-classes`. Legacy `module_output_files` is deprecated. |
 | `commands` | Supported subcommands for Agent self-discovery |
 | `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
 | `index_state` | `committed`, `empty`, `incompatible`, `missing`, or `unknown` |
@@ -147,6 +147,9 @@ JSON includes:
 | `resolution_diagnostic_groups` | Retained distinct file/phase/code/symbol/source-site groups; unlike counts, this is bounded by diagnostic retention |
 | `diagnostics` | Persisted findings shared with `index` and `survey-baseline` |
 | `diagnostic_stats` | Total/matched/page counts for bounded diagnostic output |
+| `diagnostic_aggregation` | Whether the 50,000-group aggregation bound was reached and how many later occurrences were folded into metadata |
+| `diagnostic_storage` | Whether persisted diagnostic samples were truncated, including retained and omitted group counts |
+| `diagnostic_coverage.files` | With `--diagnostic-file`, pre-storage-retention file/module/scope coverage rows; capability `file-resolution-coverage` advertises this contract |
 | `git_untracked_cache` | Repository Git setting: `enabled`, `disabled`, or `unknown` |
 | `agent_preflight` | Present with `--agent-preflight`: read-only Agent readiness, blockers, flow coverage, and next commands |
 

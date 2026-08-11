@@ -48,7 +48,13 @@ public class JdkTypeCatalogBuilder {
                     ? home.resolve("jre/lib/rt.jar") : home.resolve("lib/rt.jar");
             if (Files.isRegularFile(rtJar)) {
                 JdkTypeCatalog catalog = new JdkTypeCatalog(release);
-                addZipClasses(catalog, rtJar, 0, "");
+                Path lib = rtJar.getParent();
+                for (String archive : List.of("rt.jar", "jce.jar", "jsse.jar", "charsets.jar")) {
+                    Path platformArchive = lib.resolve(archive);
+                    if (Files.isRegularFile(platformArchive)) {
+                        addZipClasses(catalog, platformArchive, 0, "");
+                    }
+                }
                 return catalog;
             }
             Path jmods = home.resolve("jmods");

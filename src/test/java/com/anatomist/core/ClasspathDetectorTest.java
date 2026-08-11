@@ -338,6 +338,8 @@ class ClasspathDetectorTest {
     void detect_reusesPomFingerprintCache(@TempDir Path tmp) throws Exception {
         Files.writeString(tmp.resolve("pom.xml"), "<project/>");
         Path jar = Files.write(tmp.resolve("dep.jar"), new byte[] { 1 });
+        Path mainOutput = Files.createDirectories(tmp.resolve("core/target/classes"));
+        Path testOutput = Files.createDirectories(tmp.resolve("core/target/test-classes"));
         java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
         ClasspathDetector first = new ClasspathDetector() {
             @Override protected int runMvn(Path workingDir, List<String> args) throws IOException {
@@ -346,14 +348,18 @@ class ClasspathDetectorTest {
                 return 0;
             }
         };
-        assertEquals(List.of(jar.toString()), first.detect(tmp));
+        assertEquals(List.of(jar.toString(), mainOutput.toString(), testOutput.toString()), first.detect(tmp));
 
         ClasspathDetector second = new ClasspathDetector() {
             @Override protected int runMvn(Path workingDir, List<String> args) {
                 throw new AssertionError("cache hit must not invoke Maven");
             }
         };
-        assertEquals(List.of(jar.toString()), second.detect(tmp));
+        ClasspathDetectionResult cached = second.detectResult(tmp);
+        assertEquals(List.of(jar.toString(), mainOutput.toString(), testOutput.toString()), cached.entries());
+        assertEquals(ClasspathDetectionResult.Status.CACHE_HIT, cached.status());
+        assertEquals(0, cached.mavenClasspathFiles());
+        assertEquals(2, cached.buildOutputEntries());
         assertEquals(1, attempts.get());
     }
 

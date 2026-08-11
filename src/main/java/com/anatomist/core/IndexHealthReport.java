@@ -22,6 +22,8 @@ public record IndexHealthReport(Status status, List<IndexDiagnostic> diagnostics
             "CLASSPATH_UNAVAILABLE");
     private static final Set<String> JDK_CODES = Set.of("JDK_SYMBOL_MISMATCH");
     private static final Set<String> AGGREGATE_CODES = Set.of("UNRESOLVED_SYMBOLS");
+    private static final Set<String> DIAGNOSTIC_METADATA_CODES = Set.of(
+            "DIAGNOSTIC_LIMIT_REACHED", "DIAGNOSTIC_STORAGE_TRUNCATED");
 
     public static IndexHealthReport of(List<IndexDiagnostic> diagnostics) {
         List<IndexDiagnostic> retained = IndexDiagnosticRetention.retain(diagnostics);
@@ -80,7 +82,8 @@ public record IndexHealthReport(Status status, List<IndexDiagnostic> diagnostics
                         && !INTERNAL_CODES.contains(d.code())
                         && !EXTERNAL_CODES.contains(d.code())
                         && !JDK_CODES.contains(d.code())
-                        && !AGGREGATE_CODES.contains(d.code()))
+                        && !AGGREGATE_CODES.contains(d.code())
+                        && !DIAGNOSTIC_METADATA_CODES.contains(d.code()))
                 .toList()));
         out.put("resolution", resolution);
         return out;
