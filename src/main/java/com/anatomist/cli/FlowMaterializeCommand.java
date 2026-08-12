@@ -3,6 +3,7 @@ package com.anatomist.cli;
 import com.anatomist.flow.FlowMaterializationException;
 import com.anatomist.flow.FlowMaterializer;
 import com.anatomist.json.Json;
+import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -18,8 +19,8 @@ import java.util.concurrent.Callable;
         description = "Build DETAIL flow facts for source files on one shortest static call path.")
 public final class FlowMaterializeCommand implements Callable<Integer> {
 
-    @Parameters(index = "0", description = "Source method ref.") String source;
-    @Parameters(index = "1", description = "Target method ref.") String target;
+    @Parameters(index = "0", description = "Exact source method signature.") String source;
+    @Parameters(index = "1", description = "Exact target method signature.") String target;
     @Option(names = "--depth", defaultValue = "8",
             description = "Static call-path depth (1..20, default 8); no write occurs when an empty path is truncated.")
     int depth;
@@ -74,6 +75,8 @@ public final class FlowMaterializeCommand implements Callable<Integer> {
             }
             emit(out);
             return 2;
+        } catch (SymbolResolutionException failure) {
+            return SymbolResolutionOutput.emit(failure, db, module, scope);
         }
     }
 

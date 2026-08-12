@@ -11,9 +11,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SkillMdContractTest {
 
+    private static final List<String> SCENES = List.of(
+            "core", "explore", "trace", "branch", "relations", "spring", "flow", "topics");
+
     @Test
-    void skillFrontmatterAndIdeaCategoriesStayDiscoverable() throws Exception {
-        Path skill = Path.of(System.getProperty("user.dir")).resolve("SKILL.md");
+    void installedSkillIsOnlyACompactDiscoveryEntry() throws Exception {
+        Path skill = repo().resolve("SKILL.md");
         String text = Files.readString(skill, StandardCharsets.UTF_8);
         List<String> lines = Files.readAllLines(skill, StandardCharsets.UTF_8);
 
@@ -21,62 +24,83 @@ class SkillMdContractTest {
         int end = lines.subList(1, lines.size()).indexOf("---") + 1;
         assertTrue(end > 1, "frontmatter closing marker missing");
         List<String> frontmatter = lines.subList(1, end);
-        assertEquals(2, frontmatter.size(), "Codex skill frontmatter should only contain name/description");
+        assertEquals(2, frontmatter.size(),
+                "Codex skill frontmatter should only contain name/description");
         assertTrue(frontmatter.get(0).startsWith("name: anatomist"));
-        assertTrue(frontmatter.get(1).startsWith("description: "));
+        assertTrue(frontmatter.get(1).startsWith("description: \""));
+        assertTrue(frontmatter.get(1).endsWith("\""),
+                "description containing ':' must remain valid quoted YAML");
+        assertTrue(Files.size(skill) <= 2 * 1024, "SKILL.md exceeds the 2 KiB budget");
+        assertTrue(lines.size() <= 60, "SKILL.md exceeds the 60-line budget");
+        assertTrue(text.contains("anatomist skill core"));
+        assertTrue(text.contains("anatomist skill topics"));
+        assertTrue(text.contains("incremental"));
+        assertFalse(text.toLowerCase().contains("watch"));
+        assertFalse(text.contains("## Task details"));
+    }
 
-        for (String category : List.of(
-                "Entry discovery",
-                "Local context",
-                "Forward trace",
-                "Branch/control-flow slice",
-                "Reverse impact",
-                "Type relation",
-                "Field relation",
-                "Architecture map",
-                "Framework wiring",
-                "Evidence hygiene")) {
-            assertTrue(text.contains(category), "missing IDEA task category: " + category);
-        }
-
-        for (String rule : List.of(
-                "hierarchy` is upward only",
-                "implementors-of <type> --recursive",
-                "context=field_type",
-                "field-access",
-                "branches-of",
-                "--in-branch",
-                "project_meta",
-                "source-window",
-                "through-callbacks",
-                "stats.depth_truncated",
-                "stats.limit_truncated",
-                "depth_limit_reached",
-                "follow both entries in `next_queries`",
-                "## Checkout and index isolation (P0)",
-                "The index identity is the final DB path, not the Git branch.",
-                "Never pass `doctor.index_path` from a different checkout as `--output`.",
-                "persistent empty `.lock` file is not itself an owner")) {
-            assertTrue(text.contains(rule), "missing skill rule: " + rule);
+    @Test
+    void scenesStaySmallOrthogonalAndFreeOfContinuousIndexGuidance() throws Exception {
+        Path sceneDir = sceneDir();
+        String core = Files.readString(sceneDir.resolve("core.md"));
+        for (String scene : SCENES) {
+            Path path = sceneDir.resolve(scene + ".md");
+            assertTrue(Files.isRegularFile(path), "missing scene: " + scene);
+            String text = Files.readString(path);
+            assertTrue(Files.size(path) <= 6 * 1024, scene + " exceeds the 6 KiB budget");
+            assertTrue(core.getBytes(StandardCharsets.UTF_8).length
+                            + text.getBytes(StandardCharsets.UTF_8).length <= 10 * 1024,
+                    "core + " + scene + " exceeds the 10 KiB budget");
+            assertFalse(text.contains("Usage:"), scene + " duplicates CLI help");
+            assertFalse(text.toLowerCase().contains("watch"),
+                    scene + " must not recommend continuous indexing");
+            assertFalse(text.contains("anatomist --skill"), scene + " exposes a second entrypoint");
         }
     }
 
     @Test
-    void flowSkillContractRequiresCoverageAndExactEndpoints() throws Exception {
-        Path skill = Path.of(System.getProperty("user.dir")).resolve("SKILL.md");
-        String text = Files.readString(skill, StandardCharsets.UTF_8);
-
+    void flowSceneUsesTheCheapestSufficientAnalysis() throws Exception {
+        String flow = Files.readString(sceneDir().resolve("flow.md"));
         for (String requirement : List.of(
-                "`--dataflow-mode full`",
-                "`FLOW_COVERAGE_INCOMPLETE`",
-                "Do not run `taint-path` against `summary` or `scoped` indexes.",
-                "flow-materialize <source> <target>",
-                "[--from-slot arg:0]",
-                "[--to-slot return]",
-                "`FLOW_ENDPOINT_AMBIGUOUS`",
-                "sink `arg:N` or `this`")) {
-            assertTrue(text.contains(requirement),
-                    "missing flow skill contract: " + requirement);
+                "Data-flow is opt-in and expensive",
+                "Never enable it for ordinary call tracing",
+                "flow-materialize",
+                "Scoped coverage",
+                "Full coverage only after disclosing cost",
+                "Never upgrade to full coverage automatically",
+                "Empty partial results do not prove absence")) {
+            assertTrue(flow.contains(requirement), "missing flow decision rule: " + requirement);
         }
+        for (String structural : List.of("explore", "trace", "branch", "relations", "spring")) {
+            String text = Files.readString(sceneDir().resolve(structural + ".md"));
+            assertFalse(text.contains("dataflow-mode"), structural + " leaks flow profile syntax");
+            assertFalse(text.contains("flow-materialize"), structural + " recommends data-flow");
+        }
+    }
+
+    @Test
+    void sceneGuidanceExplainsSelectorBoundariesWithoutDuplicatingHelp() throws Exception {
+        String trace = Files.readString(sceneDir().resolve("trace.md"));
+        assertTrue(trace.contains("full method signature"));
+        assertTrue(trace.contains("methodExtra"));
+        assertTrue(trace.contains("ambiguity response"));
+
+        String relations = Files.readString(sceneDir().resolve("relations.md"));
+        assertTrue(relations.contains("Short type or field names"));
+        assertTrue(relations.contains("--module"));
+        assertTrue(relations.contains("--scope"));
+
+        String flow = Files.readString(sceneDir().resolve("flow.md"));
+        assertTrue(flow.contains("flow-summary"));
+        assertTrue(flow.contains("full exact source"));
+        assertTrue(flow.contains("never falls back"));
+    }
+
+    private static Path repo() {
+        return Path.of(System.getProperty("user.dir"));
+    }
+
+    private static Path sceneDir() {
+        return repo().resolve("src/main/resources/META-INF/anatomist/skills");
     }
 }

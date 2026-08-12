@@ -103,10 +103,11 @@ class EnrichQueryIT {
     }
 
     @Test
-    void enrichNode_returnsNullForUnknown() {
+    void enrichNode_rejectsUnknownSelector() {
         try (QueryService q = new QueryService(dbPath)) {
-            EnrichResult r = q.enrichNode("com.does.not.Exist", 1, false);
-            assertNull(r);
+            SymbolResolutionException failure = assertThrows(SymbolResolutionException.class,
+                    () -> q.enrichNode("com.does.not.Exist", 1, false));
+            assertEquals("SYMBOL_NOT_FOUND", failure.code());
         }
     }
 
@@ -150,12 +151,16 @@ class EnrichQueryIT {
     void suggestQueries_includesCallersOfForMethod() {
         try (QueryService q = new QueryService(dbPath)) {
             EnrichResult r = q.enrichNode(
-                    "com.example.shop.service.OrderService#createOrder", 0, false);
+                    "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+                    0, false);
             assertNotNull(r);
             assertNotNull(r.node);
             assertEquals("METHOD", r.node.kind);
             assertTrue(r.suggestedQueries.stream().anyMatch(s -> s.contains("callers-of")),
                     "method enrich should suggest callers-of; got " + r.suggestedQueries);
+            assertTrue(r.suggestedQueries.stream().allMatch(s -> s.contains(
+                            "OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)")),
+                    "method suggestions must retain the full signature: " + r.suggestedQueries);
         }
     }
 }

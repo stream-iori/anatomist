@@ -130,6 +130,24 @@ class CommonsLangSmokeIT {
         }
     }
 
+    @Test
+    void queryLayer_resolvesExactContextAndMethodSelectors() {
+        requireSubmodule();
+        try (QueryService q = new QueryService(dbPath)) {
+            var type = q.resolveType("org.apache.commons.lang3.StringUtils").requireUnique();
+            assertEquals("StringUtils", type.label);
+            var context = q.context("org.apache.commons.lang3.StringUtils", 0);
+            assertNotNull(context);
+            assertTrue(context.members.size() >= 50,
+                    "StringUtils should expose a dense member context");
+            var method = q.resolveMethod(
+                    "org.apache.commons.lang3.StringUtils#isEmpty(java.lang.CharSequence)")
+                    .requireExact();
+            assertEquals("isEmpty", method.label);
+            assertDoesNotThrow(() -> q.calleesOf(method.id, 1));
+        }
+    }
+
     private static int scalar(String sql) throws Exception {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
              Statement st = c.createStatement();

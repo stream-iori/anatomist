@@ -7,6 +7,7 @@ import com.anatomist.query.PagedResult;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -41,6 +42,9 @@ public class UsedByCommand implements Callable<Integer> {
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
+            scope = CliValidation.scope(scope, true);
+            CliValidation.nonNegative("--limit", limit);
+            CliValidation.nonNegative("--offset", offset);
             q.selectNodes(module, scope);
             PagedResult<EdgeRow> paged = Disclosure.filterAndPage(
                     q.usedBy(type), inLoop, inBranch, filter, limit, offset);
@@ -65,6 +69,10 @@ public class UsedByCommand implements Callable<Integer> {
                     List.of(type), module, scope, paged.total() > 0, false).toMap());
             JsonFormatter.emit(System.out, env);
             return 0;
+        } catch (SymbolResolutionException failure) {
+            return SymbolResolutionOutput.emit(failure, db, module, scope);
+        } catch (IllegalArgumentException failure) {
+            return CliValidation.emit(failure);
         }
     }
 }

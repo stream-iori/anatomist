@@ -48,7 +48,7 @@ public final class QueryCoverageService {
                                 boolean positive,
                                 boolean aggregate) {
         Set<String> anchorFiles = isOutgoing(capability)
-                ? resolveAnchorFiles(anchors) : Set.of();
+                ? resolveAnchorFiles(anchors, module, scope) : Set.of();
         List<CoverageGap> coverageGaps = readCoverage(capability).stream()
                 .filter(gap -> matchesSelection(gap, module, scope))
                 .filter(gap -> !isOutgoing(capability)
@@ -144,26 +144,17 @@ public final class QueryCoverageService {
         return out;
     }
 
-    private Set<String> resolveAnchorFiles(List<String> anchors) {
+    private Set<String> resolveAnchorFiles(List<String> anchors,
+                                           String module,
+                                           String scope) {
         if (anchors == null || anchors.isEmpty()) return Set.of();
         Set<String> out = new LinkedHashSet<>();
-        String sql = "SELECT DISTINCT source_file FROM nodes WHERE id=? OR symbol_id=?"
-                + " OR qualified_name=? OR label=? OR symbol_id LIKE ? OR qualified_name LIKE ?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            for (String anchor : anchors) {
-                if (anchor == null || anchor.isBlank()) continue;
-                for (int i = 1; i <= 4; i++) statement.setString(i, anchor);
-                statement.setString(5, anchor + "%");
-                statement.setString(6, anchor + "%");
-                try (ResultSet rows = statement.executeQuery()) {
-                    while (rows.next()) {
-                        String source = rows.getString(1);
-                        if (source != null) out.add(source);
-                    }
-                }
+        NodeResolver resolver = new NodeResolver(connection);
+        resolver.select(module, scope);
+        for (String anchor : anchors) {
+            for (NodeRow node : resolver.resolveAnchorRows(anchor)) {
+                if (node.sourceFile != null) out.add(node.sourceFile);
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to resolve query coverage anchors", e);
         }
         return out;
     }

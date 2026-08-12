@@ -37,18 +37,19 @@ compile:
 # Build the fat JVM jar -> target/anatomist.jar
 jar:
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     mvn -q -DskipTests package
 
 # Build the native binary for the host OS/arch  -> target/anatomist
 native:
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
     set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     # A native executable embeds classes and the filtered version resource.
     # Do not reuse target/: it can otherwise publish a binary from an older
     # source/schema revision when Maven considers source timestamps current.
@@ -191,50 +192,56 @@ uninstall:
 # Unit tests
 test:
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     mvn test
 
 # Adversarial regex/glob complexity guards (excluded from the default suite)
 regex-perf:
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     mvn -Pregex-perf test
 
 # Integration tests (anything ending in *IT)
 it:
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     mvn test -Dtest='*IT'
 
 # One specific test class or method
 test-one PATTERN:
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     mvn test -Dtest='{{PATTERN}}'
 
 # Full regression (unit + IT). Same gate used before each merge.
 test-all:
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     mvn -q clean test
     mvn -q test -Dtest='IndexCommandIT,QueryServiceIT,GoldenFileIT,MicroFixtureIT,EnrichQueryIT,EnrichCommandIT,AnnotateCommandIT,IndexDocsCommandIT,PicocliCodegenIT,JdkTypeCatalogBuilderIT,JdkTypeCatalogE2EIT,CommonsLangSmokeIT,JavaParserFactoryEmbeddedJdkIT,EmbeddedJdkSolverEndToEndIT'
 
 # Refresh golden files after an intentional output-format change
 golden-update:
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     mvn test -Dtest=GoldenFileIT -Dgolden.update=true
 
 # ─────────────────────────────────── smoke (run binary end-to-end) ─────────────────────────────
@@ -287,9 +294,9 @@ smoke-installed:
 # Indexes fixture with both, runs 6 query commands, diffs output.
 native-smoke: jar native
     #!/usr/bin/env bash
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     set -eo pipefail
     JVM=(java --enable-native-access=ALL-UNNAMED -jar "{{ROOT}}/target/anatomist.jar")
     NATIVE="{{NATIVE_BIN}}"
@@ -402,9 +409,9 @@ version:
 release-native VERSION:
     #!/usr/bin/env bash
     set -eo pipefail
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     set -u
 
     REL_VERSION="{{VERSION}}"
@@ -470,9 +477,9 @@ release-upload VERSION:
 release VERSION="":
     #!/usr/bin/env bash
     set -eo pipefail
-    export SDKMAN_DIR="${HOME}/.sdkman"
-    source "${SDKMAN_DIR}/bin/sdkman-init.sh" || true
-    sdk use java 25.0.3-graal || true
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
     set -u
 
     # Determine release version

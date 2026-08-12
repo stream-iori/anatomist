@@ -1,6 +1,7 @@
 package com.anatomist.query;
 
 import com.anatomist.model.GraphConstants;
+import com.anatomist.core.NodeKeyFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -8,7 +9,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +28,12 @@ import static com.anatomist.query.QueryInfra.sqlIn;
  * <p>Shares the caller's {@link Connection}; does not own its lifecycle.</p>
  */
 final class NodeResolver {
+
+    private static final Set<String> EXACT_CALLABLE_KINDS = Set.of(
+            GraphConstants.Kind.METHOD,
+            GraphConstants.Kind.CONSTRUCTOR,
+            GraphConstants.Kind.LAMBDA,
+            GraphConstants.Kind.METHOD_REF);
 
     private final Connection conn;
     private final Map<String, NodeRow> nodeCache = new HashMap<>();
@@ -65,16 +71,21 @@ final class NodeResolver {
     /** Resolve a free-form input to one or more type node IDs.
      *  Accepts FQN (`com.x.Foo`) or short label (`Foo`). */
     List<String> resolveTypeIds(String input) {
-        if (input == null || input.isEmpty()) return Collections.emptyList();
+        return resolveType(input).ids();
+    }
+
+    SymbolResolution resolveType(String input) {
+        if (input == null || input.isBlank()) return notFound(input, SymbolResolution.TargetKind.TYPE);
         // strip a trailing method-part if user passed `Foo#bar` to a type cmd
         String t = input;
         int hash = t.indexOf('#');
         if (hash >= 0) t = t.substring(0, hash);
 
         // Try exact qualified_name first.
-        if (com.anatomist.core.NodeKeyFactory.isKey(t)) {
-            List<String> exact = runStringColumn("SELECT id FROM nodes WHERE id=?", List.of(t));
-            if (!exact.isEmpty()) return exact;
+        if (NodeKeyFactory.isKey(t)) {
+            List<String> exact = runStringColumn("SELECT id FROM nodes WHERE id=?"
+                    + selectorClause(), List.of(t));
+            return exact(input, SymbolResolution.TargetKind.TYPE, exact);
         }
         String sql = "SELECT id FROM nodes WHERE qualified_name = ?" + selectorClause() + " AND kind IN ("
                 + qmarks(GraphConstants.TYPE_KINDS.size()) + ")";
@@ -82,7 +93,7 @@ final class NodeResolver {
         args.add(t);
         args.addAll(GraphConstants.TYPE_KINDS);
         List<String> ids = runStringColumn(sql, args);
-        if (!ids.isEmpty()) return ids;
+        if (!ids.isEmpty()) return exact(input, SymbolResolution.TargetKind.TYPE, ids);
 
         // Else label match
         sql = "SELECT id FROM nodes WHERE label = ?" + selectorClause() + " AND kind IN ("
@@ -90,22 +101,49 @@ final class NodeResolver {
         args.clear();
         args.add(t);
         args.addAll(GraphConstants.TYPE_KINDS);
-        return runStringColumn(sql, args);
+        return uniqueOrAmbiguous(input, SymbolResolution.TargetKind.TYPE,
+                runStringColumn(sql, args));
     }
 
     /** Resolve a free-form input to one or more method node IDs.
      *  Accepts {@code pkg.Class#method}, {@code pkg.Class#method(p1,p2)},
      *  or {@code Class.method} / {@code method} shorthand. */
     List<String> resolveMethodIds(String input) {
-        if (input == null || input.isEmpty()) return Collections.emptyList();
+        return resolveMethod(input).ids();
+    }
 
-        // Exact id (with parens)?
-        if (input.contains("(") && input.endsWith(")")) {
+    List<String> resolveMethodFamilyIds(String input) {
+        return resolveMethod(input).requireFamilyOrExactIds();
+    }
+
+    String resolveUniqueMethodId(String input) {
+        return resolveMethod(input).requireUnique().id;
+    }
+
+    String resolveExactMethodId(String input) {
+        return resolveMethod(input).requireExact().id;
+    }
+
+    SymbolResolution resolveMethod(String input) {
+        if (input == null || input.isBlank()) return notFound(input, SymbolResolution.TargetKind.METHOD);
+
+        if (NodeKeyFactory.isKey(input)) {
             List<String> exact = runStringColumn(
-                    "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS)
+                    "SELECT id FROM nodes WHERE kind IN (" + sqlIn(EXACT_CALLABLE_KINDS)
+                            + ")" + selectorClause() + " AND id = ?", List.of(input));
+            return exact(input, SymbolResolution.TargetKind.METHOD, exact);
+        }
+
+        // A selector containing parentheses is a signature contract. It never falls back.
+        if (input.contains("(") || input.contains(")")) {
+            if (!hasExplicitSignature(input)) {
+                return notFound(input, SymbolResolution.TargetKind.METHOD);
+            }
+            List<String> exact = runStringColumn(
+                    "SELECT id FROM nodes WHERE kind IN (" + sqlIn(EXACT_CALLABLE_KINDS)
                             + ")" + selectorClause() + " AND (id = ? OR symbol_id = ?)",
                     List.of(input, input));
-            if (!exact.isEmpty()) return exact;
+            return exact(input, SymbolResolution.TargetKind.METHOD, exact);
         }
 
         // `pkg.Class#method` — match qualified_name exactly (any overload).
@@ -113,21 +151,22 @@ final class NodeResolver {
             String[] parts = input.split("#", 2);
             String typePart = parts[0];
             String methodPart = parts[1];
-            // strip any trailing `(...)` from methodPart for qualified_name match
-            int p = methodPart.indexOf('(');
-            String mname = p >= 0 ? methodPart.substring(0, p) : methodPart;
+            if (typePart.isBlank() || methodPart.isBlank()) {
+                return notFound(input, SymbolResolution.TargetKind.METHOD);
+            }
 
             if (typePart.contains(".")) {
-                String q = typePart + "#" + mname;
-                return runStringColumn(
+                String q = typePart + "#" + methodPart;
+                return family(input, runStringColumn(
                         "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
-                      + selectorClause() + " AND qualified_name = ? ORDER BY id", List.of(q));
+                      + selectorClause() + " AND qualified_name = ? ORDER BY id", List.of(q)));
             } else {
                 // short class name
-                return runStringColumn(
+                String q = typePart + "#" + methodPart;
+                return family(input, runStringColumn(
                         "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
-                      + selectorClause() + " AND qualified_name LIKE ? ORDER BY id",
-                        List.of("%." + typePart + "#" + mname));
+                      + selectorClause() + " AND (qualified_name = ? OR qualified_name LIKE ? ESCAPE '\\') ORDER BY id",
+                        List.of(q, likeSuffix("." + q))));
             }
         }
 
@@ -137,35 +176,40 @@ final class NodeResolver {
             String typePart = input.substring(0, dot);
             String mname = input.substring(dot + 1);
             if (typePart.contains(".")) {
-                return runStringColumn(
+                return family(input, runStringColumn(
                         "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
                       + selectorClause() + " AND qualified_name = ? ORDER BY id",
-                        List.of(typePart + "#" + mname));
+                        List.of(typePart + "#" + mname)));
             } else {
-                return runStringColumn(
+                String q = typePart + "#" + mname;
+                return family(input, runStringColumn(
                         "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ") "
-                      + selectorClause() + " AND qualified_name LIKE ? ORDER BY id",
-                        List.of("%." + typePart + "#" + mname));
+                      + selectorClause() + " AND (qualified_name = ? OR qualified_name LIKE ? ESCAPE '\\') ORDER BY id",
+                        List.of(q, likeSuffix("." + q))));
             }
         }
 
         // bare method name
-        return runStringColumn(
+        return family(input, runStringColumn(
                 "SELECT id FROM nodes WHERE kind IN (" + sqlIn(GraphConstants.METHOD_KINDS) + ")"
               + selectorClause() + " AND label = ? "
-              + " ORDER BY qualified_name", List.of(input));
+              + " ORDER BY qualified_name", List.of(input)));
     }
 
     /** Resolve a field reference. Accepts {@code pkg.Class#name},
      *  {@code Class.name}, or a bare {@code name} (matched by label). */
     List<String> resolveFieldIds(String input) {
-        if (input == null || input.isEmpty()) return Collections.emptyList();
+        return resolveField(input).ids();
+    }
+
+    SymbolResolution resolveField(String input) {
+        if (input == null || input.isBlank()) return notFound(input, SymbolResolution.TargetKind.FIELD);
         // pkg.Class#field — exact id (FIELD id = <classFqn>#<name>, no parens)
         if (input.contains("#")) {
-            return runStringColumn(
+            return exact(input, SymbolResolution.TargetKind.FIELD, runStringColumn(
                     "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD
                             + "'" + selectorClause() + " AND (id = ? OR symbol_id = ?) ORDER BY id",
-                    List.of(input, input));
+                    List.of(input, input)));
         }
         // Class.field — split at last dot; if typePart is qualified, exact match
         int dot = input.lastIndexOf('.');
@@ -173,51 +217,62 @@ final class NodeResolver {
             String typePart = input.substring(0, dot);
             String fname = input.substring(dot + 1);
             if (typePart.contains(".")) {
-                return runStringColumn(
+                return exact(input, SymbolResolution.TargetKind.FIELD, runStringColumn(
                         "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD
                                 + "'" + selectorClause() + " AND symbol_id = ? ORDER BY id",
-                        List.of(typePart + "#" + fname));
+                        List.of(typePart + "#" + fname)));
             }
-            return runStringColumn(
+            String q = typePart + "#" + fname;
+            return uniqueOrAmbiguous(input, SymbolResolution.TargetKind.FIELD, runStringColumn(
                     "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD
-                            + "'" + selectorClause() + " AND symbol_id LIKE ? ORDER BY id",
-                    List.of("%." + typePart + "#" + fname));
+                            + "'" + selectorClause()
+                            + " AND (symbol_id = ? OR symbol_id LIKE ? ESCAPE '\\') ORDER BY id",
+                    List.of(q, likeSuffix("." + q))));
         }
         // bare name — by label
-        return runStringColumn(
+        return uniqueOrAmbiguous(input, SymbolResolution.TargetKind.FIELD, runStringColumn(
                 "SELECT id FROM nodes WHERE kind='" + GraphConstants.Kind.FIELD
                         + "'" + selectorClause() + " AND label = ? ORDER BY qualified_name",
-                List.of(input));
+                List.of(input)));
     }
 
     /** Resolve to a single NodeRow when caller wants one row (e.g. context). */
     NodeRow resolveNodeRow(String input) {
-        // Try as method first if input contains '#' or paren.
-        if (input.contains("#") || input.contains("(")) {
-            List<String> mids = resolveMethodIds(input);
-            if (!mids.isEmpty()) return readNodeById(mids.get(0));
-        }
-        List<String> tids = resolveTypeIds(input);
-        if (!tids.isEmpty()) return readNodeById(tids.get(0));
-        // last resort: method shorthand
-        List<String> mids = resolveMethodIds(input);
-        if (!mids.isEmpty()) return readNodeById(mids.get(0));
-        return null;
+        SymbolResolution resolution = resolveNode(input);
+        return resolution.status() == SymbolResolution.Status.NOT_FOUND
+                ? null : resolution.requireUnique();
     }
 
     /** Resolve to every candidate in the same priority order as {@link #resolveNodeRow(String)}. */
     List<NodeRow> resolveNodeRows(String input) {
-        if (input == null || input.isEmpty()) return Collections.emptyList();
-        List<String> ids;
-        if (input.contains("#") || input.contains("(")) {
-            ids = resolveMethodIds(input);
-            if (!ids.isEmpty()) return readNodesById(ids);
+        return resolveNode(input).candidates();
+    }
+
+    SymbolResolution resolveNode(String input) {
+        if (input == null || input.isBlank()) return notFound(input, SymbolResolution.TargetKind.NODE);
+        if (input.contains("#") || input.contains("(") || input.contains(")")) {
+            return retarget(resolveMethod(input), SymbolResolution.TargetKind.NODE);
         }
-        ids = resolveTypeIds(input);
-        if (!ids.isEmpty()) return readNodesById(ids);
-        ids = resolveMethodIds(input);
-        if (!ids.isEmpty()) return readNodesById(ids);
-        return Collections.emptyList();
+        SymbolResolution types = resolveType(input);
+        if (types.status() != SymbolResolution.Status.NOT_FOUND) {
+            return retarget(types, SymbolResolution.TargetKind.NODE);
+        }
+        return retarget(resolveMethod(input), SymbolResolution.TargetKind.NODE);
+    }
+
+    /** Candidate rows used only to scope evidence coverage; never performs fuzzy prefix matching. */
+    List<NodeRow> resolveAnchorRows(String input) {
+        if (input == null || input.isBlank()) return List.of();
+        if (input.contains("#") || input.contains("(") || input.contains(")")) {
+            SymbolResolution methods = resolveMethod(input);
+            if (methods.status() != SymbolResolution.Status.NOT_FOUND) return methods.candidates();
+            return resolveField(input).candidates();
+        }
+        SymbolResolution types = resolveType(input);
+        if (types.status() != SymbolResolution.Status.NOT_FOUND) return types.candidates();
+        SymbolResolution methods = resolveMethod(input);
+        if (methods.status() != SymbolResolution.Status.NOT_FOUND) return methods.candidates();
+        return resolveField(input).candidates();
     }
 
     NodeRow readNodeById(String id) {
@@ -243,6 +298,63 @@ final class NodeResolver {
             if (row != null) rows.add(row);
         }
         return rows;
+    }
+
+    private SymbolResolution exact(String input, SymbolResolution.TargetKind kind,
+                                   List<String> ids) {
+        if (ids.isEmpty()) return notFound(input, kind);
+        List<NodeRow> rows = readNodesById(ids);
+        return new SymbolResolution(input, kind,
+                rows.size() == 1 ? SymbolResolution.Status.EXACT
+                        : SymbolResolution.Status.AMBIGUOUS,
+                rows);
+    }
+
+    private SymbolResolution uniqueOrAmbiguous(String input,
+                                                SymbolResolution.TargetKind kind,
+                                                List<String> ids) {
+        if (ids.isEmpty()) return notFound(input, kind);
+        List<NodeRow> rows = readNodesById(ids);
+        return new SymbolResolution(input, kind,
+                rows.size() == 1 ? SymbolResolution.Status.EXACT
+                        : SymbolResolution.Status.AMBIGUOUS,
+                rows);
+    }
+
+    private SymbolResolution family(String input, List<String> ids) {
+        if (ids.isEmpty()) return notFound(input, SymbolResolution.TargetKind.METHOD);
+        List<NodeRow> rows = readNodesById(ids);
+        long owners = rows.stream()
+                .map(node -> String.valueOf(node.module) + "\u0000"
+                        + node.scope + "\u0000" + node.qualifiedName)
+                .distinct().count();
+        return new SymbolResolution(input, SymbolResolution.TargetKind.METHOD,
+                owners == 1 ? SymbolResolution.Status.FAMILY
+                        : SymbolResolution.Status.AMBIGUOUS,
+                rows);
+    }
+
+    private static SymbolResolution notFound(String input,
+                                             SymbolResolution.TargetKind kind) {
+        return new SymbolResolution(input, kind, SymbolResolution.Status.NOT_FOUND, List.of());
+    }
+
+    private static SymbolResolution retarget(SymbolResolution resolution,
+                                             SymbolResolution.TargetKind kind) {
+        return new SymbolResolution(resolution.input(), kind,
+                resolution.status(), resolution.candidates());
+    }
+
+    private static boolean hasExplicitSignature(String input) {
+        int open = input.indexOf('(');
+        return open > 0 && input.endsWith(")")
+                && input.indexOf(')', open) == input.length() - 1
+                && input.indexOf('(', open + 1) < 0;
+    }
+
+    private static String likeSuffix(String value) {
+        return "%" + value.replace("\\", "\\\\")
+                .replace("%", "\\%").replace("_", "\\_");
     }
 
     void preloadNodes(Collection<String> ids) {

@@ -156,7 +156,7 @@ class QueryServiceIT {
     void c3_context_onMethodFqn() {
         try (QueryService q = new QueryService(dbPath)) {
             ContextResult r = q.context(
-                    "com.example.shop.service.OrderService#createOrder", 0);
+                    "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)", 0);
             assertNotNull(r);
             assertEquals("METHOD", r.node.kind);
         }

@@ -4,6 +4,7 @@ import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Option;
 
 import java.nio.file.Path;
@@ -20,7 +21,9 @@ public abstract class QueryCommand implements Callable<Integer> {
     @Override
     public final Integer call() {
         Path db = IndexPath.resolve(index);
-        try (QueryService q = new QueryService(db)) {
+        try {
+            scope = CliValidation.scope(scope, true);
+            try (QueryService q = new QueryService(db)) {
             q.selectNodes(module, scope);
             QueryEnvelope env = execute(q);
             env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
@@ -29,6 +32,11 @@ public abstract class QueryCommand implements Callable<Integer> {
             Disclosure.applyBoundedEvidence(env, false);
             JsonFormatter.emit(System.out, env);
             return 0;
+            }
+        } catch (SymbolResolutionException failure) {
+            return SymbolResolutionOutput.emit(failure, db, module, scope);
+        } catch (IllegalArgumentException failure) {
+            return CliValidation.emit(failure);
         }
     }
 

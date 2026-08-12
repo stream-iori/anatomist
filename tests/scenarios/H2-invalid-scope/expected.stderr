@@ -1,0 +1,1 @@
+ERROR: --scope must be MAIN, TEST, GENERATED, or ALL; got TYPO

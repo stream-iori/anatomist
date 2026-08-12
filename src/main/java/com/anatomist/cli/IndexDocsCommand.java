@@ -15,7 +15,8 @@ import java.util.concurrent.Callable;
 @Command(
         name = "index-docs",
         mixinStandardHelpOptions = true,
-        description = "Scan project markdown documents into SQLite documents + doc_content FTS5."
+        description = "Scan project markdown documents into SQLite documents + doc_content FTS5; "
+                    + "the project must match an existing index."
 )
 public class IndexDocsCommand implements Callable<Integer> {
 
@@ -47,7 +48,13 @@ public class IndexDocsCommand implements Callable<Integer> {
             try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
                  SqliteStore store = new SqliteStore(dbPath)) {
                 if (!store.schemaExists()) store.initSchema();
-                store.replaceDocuments(docs);
+                String indexedRoot = store.readProjectMeta("source_root").orElse("");
+                if (!indexedRoot.isBlank() && !sameProject(indexedRoot, projectRoot)) {
+                    System.err.println("ERROR: INDEX_PROJECT_MISMATCH: requested " + projectRoot
+                            + ", index belongs to " + indexedRoot);
+                    return 2;
+                }
+                store.replaceDocumentsForProject(docs, projectRoot.toString());
             }
 
             long elapsed = System.currentTimeMillis() - started;
@@ -60,6 +67,14 @@ public class IndexDocsCommand implements Callable<Integer> {
             System.err.println("ERROR: index-docs failed: " + e.getMessage());
             e.printStackTrace(System.err);
             return 1;
+        }
+    }
+
+    private static boolean sameProject(String indexedRoot, Path requestedRoot) {
+        try {
+            return Path.of(indexedRoot).toRealPath().normalize().equals(requestedRoot);
+        } catch (Exception invalidIdentity) {
+            return false;
         }
     }
 }

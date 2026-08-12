@@ -35,10 +35,14 @@ public class ProjectScanner {
     }
 
     public List<Path> scan(Path root) {
+        return scan(root, false);
+    }
+
+    private List<Path> scan(Path root, boolean trustedRoot) {
         if (root == null || !Files.isDirectory(root)) {
             return Collections.emptyList();
         }
-        if (containsExcludedDir(root.normalize())) {
+        if (!trustedRoot && containsExcludedDir(root.normalize())) {
             return Collections.emptyList();
         }
         List<Path> out = new ArrayList<>();
@@ -62,6 +66,19 @@ public class ProjectScanner {
             });
         } catch (IOException e) {
             throw new RuntimeException("Failed scanning " + root, e);
+        }
+        out.sort(java.util.Comparator.comparing(
+                path -> path.toAbsolutePath().normalize().toString()));
+        return out;
+    }
+
+    /** Scan resolved source roots while allowing an explicitly classified generated root
+     *  to live below Maven's target directory. Ordinary target trees remain excluded. */
+    public List<Path> scanSourceRoots(List<SourceRoot> roots) {
+        List<Path> out = new ArrayList<>();
+        if (roots == null) return out;
+        for (SourceRoot root : roots) {
+            out.addAll(scan(root.path(), root.scope() == SourceScope.GENERATED));
         }
         out.sort(java.util.Comparator.comparing(
                 path -> path.toAbsolutePath().normalize().toString()));

@@ -1,6 +1,7 @@
 package com.anatomist.cli;
 
 import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.json.Json;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -12,7 +13,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
@@ -65,7 +68,19 @@ public class AnnotateCommand implements Callable<Integer> {
     String scope;
 
     @Override
-    public Integer call() throws Exception {
+    public Integer call() {
+        try {
+            format = CliValidation.choice("--format", format, "text", "json");
+            scope = CliValidation.scope(scope, false);
+            return execute();
+        } catch (IllegalArgumentException failure) {
+            return CliValidation.emit(failure);
+        } catch (Exception failure) {
+            return emitError("ANNOTATE_FAILED", failure.getMessage(), 1);
+        }
+    }
+
+    private Integer execute() throws Exception {
         Path db = IndexPath.resolve(index);
 
         List<SemanticAnnotation> batch;
@@ -73,12 +88,10 @@ public class AnnotateCommand implements Callable<Integer> {
             batch = parseBatch(fromJson);
         } else {
             if (nodeId == null || nodeId.isEmpty()) {
-                System.err.println("ERROR: node-id is required unless --from-json is used.");
-                return 1;
+                return emitError("INVALID_ARGUMENT", "node-id is required unless --from-json is used");
             }
             if (category == null || category.isEmpty()) {
-                System.err.println("ERROR: --category is required.");
-                return 1;
+                return emitError("INVALID_ARGUMENT", "--category is required");
             }
             SemanticAnnotation sa = new SemanticAnnotation();
             sa.nodeId = nodeId;
@@ -94,8 +107,7 @@ public class AnnotateCommand implements Callable<Integer> {
         for (SemanticAnnotation sa : batch) {
             String err = validate(sa);
             if (err != null) {
-                System.err.println("ERROR: " + err);
-                return 1;
+                return emitError("INVALID_ARGUMENT", err);
             }
         }
 
@@ -103,13 +115,40 @@ public class AnnotateCommand implements Callable<Integer> {
              SqliteStore store = new SqliteStore(db)) {
             String resolutionError = resolveStorageIds(store, batch, module, scope);
             if (resolutionError != null) {
-                System.err.println("ERROR: " + resolutionError);
-                return 1;
+                String code = resolutionError.startsWith("ambiguous")
+                        ? "SYMBOL_AMBIGUOUS" : "SYMBOL_NOT_FOUND";
+                return emitError(code, resolutionError);
             }
             store.upsertSemanticAnnotations(batch);
         }
-        System.out.println("Annotated " + batch.size() + " node(s).");
+        if ("json".equals(format)) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("command", "annotate");
+            out.put("status", "ok");
+            out.put("annotated", batch.size());
+            System.out.println(Json.writePretty(out));
+        } else {
+            System.out.println("Annotated " + batch.size() + " node(s).");
+        }
         return 0;
+    }
+
+    private int emitError(String code, String message) {
+        return emitError(code, message, 2);
+    }
+
+    private int emitError(String code, String message, int exitCode) {
+        if ("json".equalsIgnoreCase(format)) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("command", "annotate");
+            out.put("status", "error");
+            out.put("code", code);
+            out.put("message", message == null ? "unknown error" : message);
+            System.out.println(Json.writePretty(out));
+        } else {
+            System.err.println("ERROR: " + (message == null ? "unknown error" : message));
+        }
+        return exitCode;
     }
 
     private static String validate(SemanticAnnotation sa) {
@@ -149,11 +188,15 @@ public class AnnotateCommand implements Callable<Integer> {
         String sql = "SELECT id FROM nodes WHERE symbol_id=? AND scope=?"
                 + (module == null || module.isBlank() ? "" : " AND module=?")
                 + " ORDER BY id";
-        try (PreparedStatement exact = c.prepareStatement("SELECT id FROM nodes WHERE id=?");
+        String exactSql = "SELECT id FROM nodes WHERE id=? AND scope=?"
+                + (module == null || module.isBlank() ? "" : " AND module=?");
+        try (PreparedStatement exact = c.prepareStatement(exactSql);
              PreparedStatement symbolic = c.prepareStatement(sql)) {
             for (SemanticAnnotation sa : batch) {
                 String requested = sa.nodeId;
                 exact.setString(1, requested);
+                exact.setString(2, selectedScope);
+                if (module != null && !module.isBlank()) exact.setString(3, module);
                 try (ResultSet rs = exact.executeQuery()) {
                     if (rs.next()) {
                         sa.nodeId = rs.getString(1);

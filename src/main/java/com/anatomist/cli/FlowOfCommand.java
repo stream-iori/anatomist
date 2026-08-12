@@ -9,7 +9,7 @@ import picocli.CommandLine.Parameters;
 @Command(name = "flow-of", mixinStandardHelpOptions = true,
         description = "Trace CFG/def-use/interprocedural flow from a method.")
 public final class FlowOfCommand extends FlowQueryCommand {
-    @Parameters(index = "0") String method;
+    @Parameters(index = "0", description = "Unique method; use a full signature for overloads.") String method;
     @Option(names = "--reverse", description = "Traverse incoming flow edges.") boolean reverse;
     @Option(names = "--depth", defaultValue = "8",
             description = "Traversal depth (1..50, default 8); check stats.depth_truncated.") int depth;

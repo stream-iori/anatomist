@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.test.CliTestSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -133,6 +134,55 @@ class IndexDocsCommandIT {
         }
     }
 
+    @Test
+    void rejectsDifferentProjectWithoutChangingDocumentsOrIdentity(@TempDir Path tmp) throws Exception {
+        Path first = Files.createDirectories(tmp.resolve("first"));
+        Path second = Files.createDirectories(tmp.resolve("second"));
+        Files.writeString(first.resolve("README.md"), "# First\n");
+        Files.writeString(second.resolve("README.md"), "# Second\n");
+        Path db = run(first, tmp.resolve("shared.db"));
+
+        CliTestSupport.RunResult mismatch = CliTestSupport.capture(() ->
+                new CommandLine(new IndexDocsCommand()).execute(
+                        second.toString(), "--index", db.toString()));
+        assertEquals(2, mismatch.exitCode(), mismatch.stdout() + mismatch.stderr());
+        assertTrue(mismatch.stderr().contains("INDEX_PROJECT_MISMATCH"), mismatch.stderr());
+        assertFalse(mismatch.stderr().contains("Exception"), mismatch.stderr());
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(first.toRealPath().toString(), scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='source_root'"));
+            assertEquals("First", scalarString(st,
+                    "SELECT title FROM documents WHERE path='README.md'"));
+            assertEquals(1, scalar(st, "SELECT count(*) FROM documents"));
+        }
+    }
+
+    @Test
+    void canonicalSymlinkCanRefreshSameProject(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("project"));
+        Files.writeString(project.resolve("README.md"), "# Before\n");
+        Path db = run(project, tmp.resolve("symlink.db"));
+        Path alias = tmp.resolve("alias");
+        try {
+            Files.createSymbolicLink(alias, project);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException unsupported) {
+            return;
+        }
+        Files.writeString(project.resolve("README.md"), "# After\n");
+        assertEquals(0, new CommandLine(new IndexDocsCommand()).execute(
+                alias.toString(), "--index", db.toString()));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals("After", scalarString(st,
+                    "SELECT title FROM documents WHERE path='README.md'"));
+            assertEquals(project.toRealPath().toString(), scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='source_root'"));
+        }
+    }
+
     private static Path run(Path project, Path db) {
         IndexDocsCommand cmd = new IndexDocsCommand();
         new CommandLine(cmd).parseArgs(project.toString(), "--output", db.toString());
@@ -144,6 +194,13 @@ class IndexDocsCommandIT {
         try (ResultSet rs = st.executeQuery(sql)) {
             assertTrue(rs.next());
             return rs.getInt(1);
+        }
+    }
+
+    private static String scalarString(Statement st, String sql) throws Exception {
+        try (ResultSet rs = st.executeQuery(sql)) {
+            assertTrue(rs.next());
+            return rs.getString(1);
         }
     }
 }

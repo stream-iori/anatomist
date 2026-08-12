@@ -9,6 +9,7 @@ import picocli.CommandLine.Option;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -60,6 +61,9 @@ public class DoctorCommand implements Callable<Integer> {
     public Integer call() {
         com.anatomist.core.HealthPolicy policy;
         try {
+            format = CliValidation.choice("--format", format, "text", "json");
+            CliValidation.nonNegative("--offset", offset);
+            CliValidation.positive("--limit", limit);
             policy = com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
         } catch (IllegalArgumentException invalid) {
             System.err.println("ERROR: " + invalid.getMessage());
@@ -83,7 +87,7 @@ public class DoctorCommand implements Callable<Integer> {
         if (freshness.reason() != null) out.put("rebuild_reason", freshness.reason());
         if (freshness.dirtyGeneration() > 0) out.put("dirty_generation", freshness.dirtyGeneration());
         out.put("commands", List.of(
-                "index", "index-docs", "watch", "search", "context", "callees-of",
+                "skill", "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline",
                 "flow-of", "flow-path", "flow-materialize", "taint-path", "exception-flow", "guards-of",
@@ -94,7 +98,7 @@ public class DoctorCommand implements Callable<Integer> {
                 "branch-context-slices", "source-snapshot-fingerprint",
                 "core-reflection",
                 "cfg", "def-use", "interprocedural-flow", "exception-flow", "taint-flow",
-                "progressive-dataflow", "agent-preflight"));
+                "progressive-dataflow", "agent-preflight", "agent-skill-topics"));
         @SuppressWarnings("unchecked")
         List<String> capabilities = new java.util.ArrayList<>((List<String>) out.get("capabilities"));
         capabilities.add("file-resolution-coverage");
@@ -287,6 +291,10 @@ public class DoctorCommand implements Callable<Integer> {
                     blockers.add("INDEX_STALE");
                     next.add(indexCommand(root, db, false));
                 }
+                if (Boolean.TRUE.equals(flow.get("progressive"))
+                        && blockers.contains("INDEX_STALE")) {
+                    warnings.add("PROGRESSIVE_FLOW_WILL_REQUIRE_REMATERIALIZATION");
+                }
             }
         }
         preflight.put("status", !blockers.isEmpty() ? "REPAIR_REQUIRED"
@@ -299,8 +307,79 @@ public class DoctorCommand implements Callable<Integer> {
     }
 
     private static String indexCommand(String root, Path db, boolean recreate) {
-        return "anatomist index " + root + (recreate ? " --recreate" : " --incremental")
-                + " --health-policy integrity --format json --output " + db;
+        Map<String, String> metadata = Map.of();
+        if (Files.isRegularFile(db)) {
+            try (SqliteStore store = new SqliteStore(db)) {
+                if (store.schemaCompatible()) metadata = store.readProjectMeta();
+            } catch (RuntimeException ignored) {
+                // A repair command for an unreadable index can only use safe defaults.
+            }
+        }
+        List<String> args = new ArrayList<>();
+        args.add("anatomist");
+        args.add("index");
+        args.add(root);
+        args.add(recreate ? "--recreate" : "--incremental");
+        appendProfileArgs(args, metadata);
+        args.add("--health-policy");
+        args.add("integrity");
+        args.add("--format");
+        args.add("json");
+        args.add("--output");
+        args.add(db.toString());
+        return shellJoin(args);
+    }
+
+    private static void appendProfileArgs(List<String> args, Map<String, String> metadata) {
+        String layout = metadata.getOrDefault("source_layout", "");
+        for (String line : layout.split("\\R")) {
+            String spec = line.trim();
+            if (spec.isEmpty()) continue;
+            args.add("--source-root");
+            args.add(spec);
+        }
+
+        appendValue(args, "--java-version", metadata.get("java_version"));
+        String classpathMode = metadata.getOrDefault("classpath_mode", "");
+        if ("none".equals(classpathMode)) {
+            args.add("--no-classpath");
+        } else if ("explicit".equals(classpathMode)) {
+            String explicit = metadata.getOrDefault("classpath_override", "");
+            if (explicit.isBlank()) explicit = metadata.getOrDefault("classpath_entries", "");
+            appendValue(args, "--classpath", explicit);
+        }
+        if (Boolean.parseBoolean(metadata.getOrDefault("spring_xml", "false"))) {
+            args.add("--spring-xml");
+        }
+
+        String flowMode = metadata.get("dataflow_mode");
+        if (flowMode != null && !flowMode.isBlank()) {
+            appendValue(args, "--dataflow-mode", flowMode);
+            if ("scoped".equals(flowMode)) {
+                for (String scope : metadata.getOrDefault("dataflow_scopes", "").split(",")) {
+                    appendValue(args, "--dataflow-scope", scope.trim());
+                }
+            }
+        }
+        if (Boolean.parseBoolean(metadata.getOrDefault("implicit_taint", "false"))) {
+            args.add("--implicit-taint");
+        }
+    }
+
+    private static void appendValue(List<String> args, String option, String value) {
+        if (value == null || value.isBlank()) return;
+        args.add(option);
+        args.add(value);
+    }
+
+    static String shellJoin(List<String> args) {
+        return args.stream().map(DoctorCommand::shellQuote)
+                .collect(java.util.stream.Collectors.joining(" "));
+    }
+
+    private static String shellQuote(String value) {
+        if (value.matches("[A-Za-z0-9_./:@%+=,-]+")) return value;
+        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     private boolean matchesDiagnostic(com.anatomist.core.IndexDiagnostic diagnostic) {

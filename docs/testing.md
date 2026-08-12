@@ -92,26 +92,29 @@ L1 fixture 各加一条 negative 断言覆盖。
 ```
 tests/scenarios/<scenario-id>/
 ├── input.cmd               # 一行 CLI 命令（args 用空格分隔，支持 # 注释与 "..." 引号段）
-└── expected.json           # 期望输出（结构对比；规范化时绝对路径替换为 ${PROJECT}）
+├── expected.exit           # 可选；默认 0
+├── expected.json           # 可选；stdout JSON 结构对比
+└── expected.stderr         # 可选；stderr 文本精确对比
 ```
 
 **Driver**：`src/test/java/com/anatomist/cli/GoldenFileIT` — `@TestFactory` 自动遍历 `tests/scenarios/*/input.cmd`，对每个目录跑一条 `DynamicTest`，命令通过 `AnatomistCli` 一次性执行后比对。规范化策略：
 
-- Jackson `ORDER_MAP_ENTRIES_BY_KEYS` 让 map 输出顺序稳定（不依赖 JsonUnit / AssertJ JSON 这种额外依赖，保持 4 dep 预算）
+- 内置 JSON codec 递归排序 map key，让输出顺序稳定（不依赖 JsonUnit / AssertJ JSON 这种额外依赖，保持 4 dep 预算）
 - 项目根绝对路径替换为 `${PROJECT}`，跨机器/CI 稳定
 - 自动注入 `--index <built-db>`，input.cmd 不用写 `--index`
 
-**刷新机制**：`mvn test -Dtest=GoldenFileIT -Dgolden.update=true` 重新生成所有 `expected.json`。CI 默认不带这个开关，diff 不为空即 fail。**这套用例同时作为对外的命令使用手册**。
+**刷新机制**：`mvn test -Dtest=GoldenFileIT -Dgolden.update=true` 重新生成场景实际需要的输出、错误和退出码期望。CI 默认不带这个开关，diff 不为空即 fail。**这套用例同时作为对外的命令使用手册**。
 
-**当前 11 个种子场景**：`B1-search-by-label` / `B3-context-by-fqn` / `C1-context-members` / `C2-hierarchy-extends` / `C4-deps-of` / `D1-callees-single-hop` / `D2-callers-single-hop` / `D3-callees-multi-hop` / `D4-call-path` / `E1-overview` / `F1-callers-deep-impact`，覆盖搜索、上下文、层次、依赖、调用链、overview、影响面代表路径。
+场景由 `tests/scenarios/*/input.cmd` 动态发现，覆盖正向结果、合法空结果、
+缺失/歧义选择器、非法参数、调用链、关系、分支和 overview；不再维护易失效的手工数量。
 
 ## 五、本地 E2E / Smoke 命令
 
-统一使用 SDKMAN JDK25：
+统一由仓库 `.sdkmanrc` 选择 SDKMAN JDK：
 
 ```bash
 source "$HOME/.sdkman/bin/sdkman-init.sh"
-sdk use java 25.0.3-graal
+sdk env
 ```
 
 | 命令 | 验证什么 | 说明 |
@@ -215,8 +218,9 @@ jobs:
 | Phase | 引入的测试资产 | 状态 |
 |-------|--------------|------|
 | Phase 1 | Fixture A 全集 + Fixture B 编译通过 + L1 全部 Extractor 单测 | ✅ Fixture A 8 文件 + `MicroFixtureIT` 10 用例；Fixture B 全程；8 Extractor 单测共 30+ 条 |
-| Phase 2 | L2 集成（SQLite + 查询） + L3 golden file 主场景（B/C/D/F） | ✅ `QueryServiceIT` 17 条覆盖 B1–F3；`GoldenFileIT` 8 种子场景 |
+| Phase 2 | L2 集成（SQLite + 查询） + L3 golden file 主场景（B/C/D/F/H） | ✅ `QueryServiceIT` + 动态 `GoldenFileIT` 覆盖正向与负向命令契约 |
 | Phase 3 | Skill 文件与 CLI 契约 e2e（脚本驱动 CLI） | golden-file 套件已部分承担（CLI → JSON 契约锁定） |
 | Phase 4 | Fixture C 接入 + 性能基线 trend + 增量回归 | ✅ Fixture C = commons-lang 3.12.0；增量见 `IncrementalIndexerIT` / `WatchCommandIT`；性能 trend 未接入 |
 
-**触发约定**：所有 `*IT` 走 Surefire 默认 include 模式之外（与 unit `*Test` 区分），必须显式 `mvn test -Dtest=<ClassName>` 触发。
+**触发约定**：Surefire 默认同时包含 `*Test` 和 `*IT`；使用
+`mvn test -Dtest=<ClassName>` 只是在本地缩小回归范围。

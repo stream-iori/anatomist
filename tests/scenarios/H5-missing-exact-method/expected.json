@@ -1,0 +1,15 @@
+{
+  "candidates" : [ ],
+  "code" : "SYMBOL_NOT_FOUND",
+  "message" : "no method matches selector 'com.example.shop.service.OrderService#missing(java.lang.String)'",
+  "results" : [ ],
+  "selector" : "com.example.shop.service.OrderService#missing(java.lang.String)",
+  "selector_status" : "NOT_FOUND",
+  "stats" : {
+    "ambiguous" : false,
+    "candidates" : 0,
+    "reason" : "symbol_not_found",
+    "total" : 0
+  },
+  "status" : "error"
+}

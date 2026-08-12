@@ -108,6 +108,8 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
     private void emitFieldInjection(FieldDeclaration n, String sourceFile, ExtractionResult result) {
         Optional<AnnotationExpr> ann = SpringAnnotationSupport.first(n.getAnnotations(), INJECTION);
         if (ann.isEmpty()) return;
+        AnnotationExpr qualifier = SpringAnnotationSupport.first(
+                n.getAnnotations(), Set.of("Qualifier")).orElse(null);
         for (VariableDeclarator var : n.getVariables()) {
             ResolvedFieldDeclaration field;
             try {
@@ -119,13 +121,19 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
             try { ownerId = ctx.idGenerator().forType(field.declaringType()); }
             catch (RuntimeException e) { ctx.incrementUnresolved(e); continue; }
             try {
-                emitInjection(ownerId, var.getType().resolve(), sourceFile, lineOf(var), ann.get(), result);
+                emitInjection(ownerId, var.getType().resolve(), sourceFile, lineOf(var),
+                        ann.get(), qualifier, false, result);
             } catch (RuntimeException e) { ctx.incrementUnresolved(e); }
         }
     }
 
     private void emitConstructorInjection(ConstructorDeclaration n, String sourceFile, ExtractionResult result) {
-        if (!SpringAnnotationSupport.first(n.getAnnotations(), INJECTION).isPresent()) return;
+        AnnotationExpr injection = SpringAnnotationSupport.first(n.getAnnotations(), INJECTION).orElse(null);
+        ClassOrInterfaceDeclaration owner = n.findAncestor(ClassOrInterfaceDeclaration.class).orElse(null);
+        boolean implicitSingleConstructor = injection == null && owner != null
+                && owner.getConstructors().size() == 1
+                && SpringAnnotationSupport.first(owner.getAnnotations(), COMPONENTS).isPresent();
+        if (injection == null && !implicitSingleConstructor) return;
         ResolvedConstructorDeclaration ctor;
         try { ctor = n.resolve(); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
@@ -134,13 +142,17 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         for (var p : n.getParameters()) {
             try {
-                emitInjection(ownerId, p.getType().resolve(), sourceFile, lineOf(p), null, result);
+                AnnotationExpr qualifier = SpringAnnotationSupport.first(
+                        p.getAnnotations(), Set.of("Qualifier")).orElse(null);
+                emitInjection(ownerId, p.getType().resolve(), sourceFile, lineOf(p),
+                        injection, qualifier, implicitSingleConstructor, result);
             } catch (RuntimeException e) { ctx.incrementUnresolved(e); }
         }
     }
 
     private void emitInjection(String ownerId, ResolvedType injectedType, String sourceFile, int line,
-                               AnnotationExpr ann, ExtractionResult result) {
+                               AnnotationExpr injection, AnnotationExpr qualifier,
+                               boolean implicitConstructor, ExtractionResult result) {
         if (injectedType == null || !injectedType.isReferenceType()) return;
         var td = injectedType.asReferenceType().getTypeDeclaration().orElse(null);
         if (td == null) return;
@@ -148,12 +160,24 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
                 sourceFile, line, GraphConstants.Confidence.CONFIGURED, null);
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("injectedType", injectedType.describe());
-        if (ann != null) {
-            meta.put("annotation", SpringAnnotationSupport.simpleName(ann));
-            String qualifier = SpringAnnotationSupport.stringAttribute(ann, "value");
-            if (qualifier == null) qualifier = SpringAnnotationSupport.stringAttribute(ann, "name");
-            if (qualifier != null) meta.put("qualifier", qualifier);
+        if (injection != null) {
+            meta.put("annotation", SpringAnnotationSupport.simpleName(injection));
         }
+        if (implicitConstructor) meta.put("implicitSingleConstructor", true);
+        String qualifierValue = null;
+        if (qualifier != null) {
+            qualifierValue = SpringAnnotationSupport.stringAttribute(qualifier, "value");
+            if (qualifierValue == null) {
+                qualifierValue = SpringAnnotationSupport.stringAttribute(qualifier, "name");
+            }
+        } else if (injection != null
+                && "Resource".equals(SpringAnnotationSupport.simpleName(injection))) {
+            qualifierValue = SpringAnnotationSupport.stringAttribute(injection, "name");
+            if (qualifierValue == null) {
+                qualifierValue = SpringAnnotationSupport.stringAttribute(injection, "value");
+            }
+        }
+        if (qualifierValue != null) meta.put("qualifier", qualifierValue);
         e.metadata = Json.writeCompact(meta);
         if (ctx.isProjectInternal(td)) {
             e.targetId = ctx.idGenerator().forType(td);

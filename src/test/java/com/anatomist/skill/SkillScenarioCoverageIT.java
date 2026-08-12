@@ -74,15 +74,15 @@ class SkillScenarioCoverageIT {
 
     @Test
     void skillRequiresAgentQueryGateBeforeStaticQueries() throws Exception {
-        Path skill = Path.of(System.getProperty("user.dir")).resolve("SKILL.md");
-        String content = Files.readString(skill);
+        Path core = Path.of(System.getProperty("user.dir"))
+                .resolve("src/main/resources/META-INF/anatomist/skills/core.md");
+        String content = Files.readString(core);
 
-        assertTrue(content.contains("## Agent query gate (P0)"));
-        assertTrue(content.contains(
-                "index <project-root> --incremental --health-policy integrity --format json"));
-        assertTrue(content.contains("evidence.status=confirmed_empty"));
-        assertTrue(content.contains("Do not issue a code query"));
-        assertTrue(content.contains("`doctor` is read-only"));
+        assertTrue(content.contains("incremental integrity gate"));
+        assertTrue(content.contains("Stop when the gate fails"));
+        assertTrue(content.contains("negative conclusion safe"));
+        assertTrue(content.contains("Static paths describe possible source relationships"));
+        assertFalse(content.toLowerCase().contains("watch"));
     }
 
     @Test

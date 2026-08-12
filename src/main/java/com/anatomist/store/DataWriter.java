@@ -226,6 +226,28 @@ public class DataWriter {
         });
     }
 
+    /** Replace all documents and establish their canonical project identity atomically. */
+    public void replaceDocumentsForProject(List<Document> docs, String sourceRoot) {
+        inTransaction(c -> {
+            try (PreparedStatement meta = c.prepareStatement(SQL_UPSERT_PROJECT_META)) {
+                meta.setString(1, "source_root");
+                setNullableString(meta, 2, sourceRoot);
+                meta.executeUpdate();
+            }
+            try (Statement st = c.createStatement()) {
+                st.execute("DELETE FROM documents");
+            }
+            if (docs == null || docs.isEmpty()) return;
+            try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_DOCUMENT)) {
+                for (Document d : docs) {
+                    bindDocument(ps, d);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        });
+    }
+
     public void updateFileCache(List<FileCacheEntry> entries) {
         if (entries == null || entries.isEmpty()) return;
         Connection c;

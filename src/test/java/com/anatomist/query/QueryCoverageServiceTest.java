@@ -19,13 +19,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class QueryCoverageServiceTest {
 
     @Test
+    void methodFamilyAnchorDoesNotBleedIntoLongerMethodPrefix(@TempDir Path tmp)
+            throws Exception {
+        try (SqliteStore store = new SqliteStore(tmp.resolve("index.db"))) {
+            store.initSchema();
+            ExtractionResult graph = new ExtractionResult();
+            graph.nodes.add(node("p.A#pick(java.lang.String)", "p.A#pick", "Pick.java"));
+            graph.nodes.add(node("p.A#pickExtra(java.lang.String)",
+                    "p.A#pickExtra", "Extra.java"));
+            store.write(graph);
+            store.replaceIndexDiagnostics(List.of(
+                    diagnostic("METHOD_NOT_FOUND", "full_extract_call_graph", "Extra.java", 1)));
+
+            QueryEvidence evidence = new QueryCoverageService(store.connection()).assess(
+                    QueryCoverageService.Capability.CALL_OUTGOING,
+                    List.of("p.A#pick"), null, "MAIN", false, false);
+
+            assertEquals("confirmed_empty", evidence.status());
+            assertEquals("complete", evidence.coverage());
+        }
+    }
+
+    @Test
     void outgoingCoverageUsesAnchorFileWhileIncomingCoverageIsGlobal(@TempDir Path tmp)
             throws Exception {
         try (SqliteStore store = new SqliteStore(tmp.resolve("index.db"))) {
             store.initSchema();
             ExtractionResult graph = new ExtractionResult();
-            graph.nodes.add(node("p.A#run()", "p.A#run()", "A.java"));
-            graph.nodes.add(node("p.B#call()", "p.B#call()", "B.java"));
+            graph.nodes.add(node("p.A#run()", "p.A#run", "A.java"));
+            graph.nodes.add(node("p.B#call()", "p.B#call", "B.java"));
             store.write(graph);
             store.replaceIndexDiagnostics(List.of(
                     diagnostic("THIRDPARTY_SYMBOL_MISSING",

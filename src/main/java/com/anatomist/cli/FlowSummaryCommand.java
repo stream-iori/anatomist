@@ -9,7 +9,7 @@ import picocli.CommandLine.Parameters;
 @Command(name = "flow-summary", mixinStandardHelpOptions = true,
         description = "Show method input/return/exception flow summaries.")
 public final class FlowSummaryCommand extends FlowQueryCommand {
-    @Parameters(index = "0") String method;
+    @Parameters(index = "0", description = "Exact method or owner-qualified overload family.") String method;
     @Option(names = "--limit", defaultValue = "200") int limit;
 
     @Override protected QueryEnvelope execute(FlowQueryService service) {

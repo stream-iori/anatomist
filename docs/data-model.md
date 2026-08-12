@@ -76,7 +76,7 @@ ENUM_CONSTANT:          enumFQN + # + constantName                   → com.exa
 ANONYMOUS_CLASS:        parentMethodID + $anon@L<line>C<col>         → com.example.OrderService#checkout(...)$anon@L42C18
 LAMBDA:                 parentMethodID + $lambda@L<line>C<col>       → com.example.OrderService#checkout(...)$lambda@L42C18
 BEAN:                   bean:<springBeanName>                         → bean:orderService
-ROUTE:                  route:<HTTP_METHOD> <path>                    → route:POST /api/orders
+ROUTE:                  route:<HTTP_METHOD> <path>|handler:<method>   → route:POST /api/orders|handler:com.example.OrderController#create()
 XML_*:                  parent XML id + segment + source location      → bean:registry@beans.xml/property:filters@L10C5I0
 ```
 

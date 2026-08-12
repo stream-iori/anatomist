@@ -21,7 +21,7 @@ import java.util.List;
                 + "%n  callers-of OrderService#create --in-loop")
 public class CallersOfCommand extends QueryCommand {
 
-    @Parameters(index = "0", description = "Method FQN (Class#method or pkg.Class.method); external full signatures match exactly.")
+    @Parameters(index = "0", description = "Method selector; owner-qualified families aggregate overloads, while full signatures match exactly.")
     String method;
 
     @Option(names = "--depth", description = "Traversal depth (1..20, default 1); check stats.depth_truncated before treating results as exhaustive.")
@@ -68,6 +68,11 @@ public class CallersOfCommand extends QueryCommand {
 
     @Override
     protected QueryEnvelope execute(QueryService q) {
+        CliValidation.positive("--depth", depth);
+        CliValidation.nonNegative("--limit", limit);
+        CliValidation.nonNegative("--offset", offset);
+        if (sourceWindow != null) CliValidation.nonNegative("--source-window", sourceWindow);
+        blocks = CliValidation.choice("--blocks", blocks, "class", "package");
         TraversalResult<EdgeRow> traversal = q.callersTraversal(method, depth, throughCallbacks);
         List<EdgeRow> rows = ContextFilter.apply(traversal.items(), inLoop, inBranch);
         if (filter != null && !filter.isBlank()) {

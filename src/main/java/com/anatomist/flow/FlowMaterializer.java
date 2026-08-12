@@ -10,6 +10,7 @@ import com.anatomist.model.FileCacheEntry;
 import com.anatomist.query.EdgeRow;
 import com.anatomist.query.QueryService;
 import com.anatomist.query.TraversalResult;
+import com.anatomist.query.NodeRow;
 import com.anatomist.store.FileCacheService;
 import com.anatomist.store.IndexLock;
 import com.anatomist.store.SqliteStore;
@@ -45,7 +46,10 @@ public final class FlowMaterializer {
         TraversalResult<EdgeRow> traversal;
         try (QueryService query = new QueryService(database)) {
             query.selectNodes(module, scope);
-            traversal = query.callPathTraversal(source, target, depth, throughCallbacks);
+            NodeRow selectedSource = query.resolveMethod(source).requireExact();
+            NodeRow selectedTarget = query.resolveMethod(target).requireExact();
+            traversal = query.callPathTraversal(
+                    selectedSource.id, selectedTarget.id, depth, throughCallbacks);
         }
         if (traversal.depthTruncated()) {
             throw new FlowMaterializationException(

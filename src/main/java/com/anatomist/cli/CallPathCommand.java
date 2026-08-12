@@ -7,6 +7,7 @@ import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
 import com.anatomist.query.TraversalResult;
+import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -22,13 +23,15 @@ import java.util.concurrent.Callable;
                 + "%n  call-path Controller#handle Repository#save --source-window=2")
 public class CallPathCommand implements Callable<Integer> {
 
-    @Parameters(index = "0", description = "Source method ref.") String from;
-    @Parameters(index = "1", description = "Target method ref.") String to;
+    @Parameters(index = "0", description = "Unique source method; use a full signature for overloaded methods.") String from;
+    @Parameters(index = "1", description = "Unique target method; use a full signature for overloaded methods.") String to;
 
     @Option(names = "--depth", description = "Max BFS traversal depth (1..20, default 5); an empty path may be depth-truncated.")
     int depth = 5;
 
     @Option(names = "--index") Path index;
+    @Option(names = "--module", description = "Restrict endpoint resolution to one module.") String module;
+    @Option(names = "--scope", defaultValue = "MAIN", description = "MAIN | TEST | GENERATED | ALL.") String scope;
 
     @Option(names = "--blocks", arity = "0..1", fallbackValue = "package",
             description = "Slice chain into blocks: class | package (default: package).")
@@ -47,6 +50,11 @@ public class CallPathCommand implements Callable<Integer> {
     public Integer call() {
         Path db = IndexPath.resolve(index);
         try (QueryService q = new QueryService(db)) {
+            scope = CliValidation.scope(scope, true);
+            blocks = CliValidation.choice("--blocks", blocks, "class", "package");
+            CliValidation.positive("--depth", depth);
+            if (sourceWindow != null) CliValidation.nonNegative("--source-window", sourceWindow);
+            q.selectNodes(module, scope);
             TraversalResult<EdgeRow> traversal = q.callPathTraversal(
                     from, to, depth, throughCallbacks);
             List<EdgeRow> rows = traversal.items();
@@ -58,6 +66,10 @@ public class CallPathCommand implements Callable<Integer> {
             Disclosure.addFlag(queryArgs, throughCallbacks, "--through-callbacks");
             Disclosure.addOption(queryArgs, "--source-window", sourceWindow);
             Disclosure.addOption(queryArgs, "--blocks", blocks);
+            Disclosure.addOption(queryArgs, "--module", module);
+            if (!"MAIN".equalsIgnoreCase(scope)) {
+                Disclosure.addOption(queryArgs, "--scope", scope);
+            }
             QueryEnvelope env = new QueryEnvelope(Disclosure.renderCommand(queryArgs), rows);
             env.stats.put("path_length", rows.size());
             env.stats.put("found", !rows.isEmpty());
@@ -76,10 +88,14 @@ public class CallPathCommand implements Callable<Integer> {
             }
             env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
                     QueryCoverageService.Capability.CALL_PATH,
-                    List.of(from, to), null, "MAIN", !rows.isEmpty(), false).toMap());
+                    List.of(from, to), module, scope, !rows.isEmpty(), false).toMap());
             Disclosure.applyBoundedEvidence(env, false);
             JsonFormatter.emit(System.out, env);
             return rows.isEmpty() ? 2 : 0;
+        } catch (SymbolResolutionException failure) {
+            return SymbolResolutionOutput.emit(failure, db, module, scope);
+        } catch (IllegalArgumentException failure) {
+            return CliValidation.emit(failure);
         }
     }
 }

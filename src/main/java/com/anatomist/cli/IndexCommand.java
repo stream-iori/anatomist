@@ -189,6 +189,7 @@ public class IndexCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
+            format = CliValidation.choice("--format", format, "text", "json");
             com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
         } catch (IllegalArgumentException invalid) {
             System.err.println("ERROR: " + invalid.getMessage());
@@ -257,7 +258,7 @@ public class IndexCommand implements Callable<Integer> {
                 ? Collections.emptySet()
                 : new HashSet<>(Arrays.asList(exclude.split(",")));
         ProjectScanner scanner = new ProjectScanner(extraExcludes);
-        List<Path> sourceFiles = candidateFastPath ? List.of() : scanner.scan(sourcePaths);
+        List<Path> sourceFiles = candidateFastPath ? List.of() : scanner.scanSourceRoots(resolvedSourceRoots);
         phaseTimings.stop("discover", phaseStarted);
         if (!candidateFastPath && sourceFiles.isEmpty()) {
             System.err.println("ERROR: no .java files found under " + sourcePaths);
@@ -282,7 +283,7 @@ public class IndexCommand implements Callable<Integer> {
                 if (deferFullFallback) throw new FullRebuildRequiredException("schema_version mismatch");
                 IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                 return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                        sourceFilesForFull(scanner, sourcePaths, sourceFiles),
+                        sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
                         runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, true,
                         phaseTimings, totalStarted);
             }
@@ -306,7 +307,7 @@ public class IndexCommand implements Callable<Integer> {
                     if (deferFullFallback) throw new FullRebuildRequiredException(reason);
                     IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                            sourceFilesForFull(scanner, sourcePaths, sourceFiles),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
@@ -316,7 +317,7 @@ public class IndexCommand implements Callable<Integer> {
                     if (deferFullFallback) throw new FullRebuildRequiredException("source layout changed");
                     IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                            sourceFilesForFull(scanner, sourcePaths, sourceFiles),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
@@ -334,7 +335,7 @@ public class IndexCommand implements Callable<Integer> {
                     if (deferFullFallback) throw new FullRebuildRequiredException(reason);
                     IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                            sourceFilesForFull(scanner, sourcePaths, sourceFiles),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
@@ -358,7 +359,7 @@ public class IndexCommand implements Callable<Integer> {
                     if (deferFullFallback) throw new FullRebuildRequiredException(reason);
                     IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                            sourceFilesForFull(scanner, sourcePaths, sourceFiles),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
@@ -368,7 +369,7 @@ public class IndexCommand implements Callable<Integer> {
                     if (deferFullFallback) throw new FullRebuildRequiredException(classpathRefreshReason);
                     IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                            sourceFilesForFull(scanner, sourcePaths, sourceFiles),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
@@ -472,7 +473,7 @@ public class IndexCommand implements Callable<Integer> {
                         throw new FullRebuildRequiredException(summary.degradationReason);
                     }
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                            sourceFilesForFull(scanner, sourcePaths, sourceFiles),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
@@ -821,9 +822,9 @@ public class IndexCommand implements Callable<Integer> {
     }
 
     private static List<Path> sourceFilesForFull(ProjectScanner scanner,
-                                                 List<Path> sourcePaths,
+                                                 List<com.anatomist.core.SourceRoot> sourceRoots,
                                                  List<Path> discovered) throws java.io.IOException {
-        return discovered.isEmpty() ? scanner.scan(sourcePaths) : discovered;
+        return discovered.isEmpty() ? scanner.scanSourceRoots(sourceRoots) : discovered;
     }
 
     private static String classpathFingerprint(List<Path> classpathEntries, String override) {

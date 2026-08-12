@@ -42,6 +42,7 @@ public class SurveyBaselineCommand implements Callable<Integer> {
     public Integer call() {
         com.anatomist.core.HealthPolicy policy;
         try {
+            format = CliValidation.choice("--format", format, "json", "text");
             policy = com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
         } catch (IllegalArgumentException invalid) {
             System.err.println("ERROR: " + invalid.getMessage());

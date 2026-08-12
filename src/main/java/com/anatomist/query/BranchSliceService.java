@@ -41,7 +41,7 @@ public class BranchSliceService {
                                                            int depth,
                                                            boolean throughCallbacks,
                                                            Integer sourceWindowLines) {
-        List<String> seedIds = resolver.resolveMethodIds(methodRef);
+        List<String> seedIds = resolver.resolveMethodFamilyIds(methodRef);
         int effectiveDepth = Math.min(Math.max(1, depth), CallGraphService.MAX_DEPTH);
         if (seedIds.isEmpty()) {
             return new TraversalResult<>(List.of(), depth, effectiveDepth,

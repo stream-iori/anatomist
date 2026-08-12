@@ -24,9 +24,9 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * L3 golden-file driver: each subdir under {@code tests/scenarios/} contains
  * an {@code input.cmd} (one CLI command, args separated by whitespace) and an
- * {@code expected.json}. We run the command against a freshly-built index of
- * {@code fixtures/mini-spring-shop}, capture stdout, normalize, and assert the
- * normalized JSON matches expected.json.
+ * optional {@code expected.exit}, {@code expected.json}, and
+ * {@code expected.stderr} files. We run the command against a freshly-built
+ * index of {@code fixtures/mini-spring-shop} and compare both output streams.
  *
  * <p>Run with {@code -Dgolden.update=true} to regenerate expected.json from
  * the actual output (use after intentional output-shape changes).</p>
@@ -112,42 +112,74 @@ class GoldenFileIT {
             args.add(dbPath.toString());
         }
 
-        ByteArrayOutputStream cap = new ByteArrayOutputStream();
-        PrintStream old = System.out;
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        PrintStream oldOut = System.out;
+        PrintStream oldErr = System.err;
         int rc;
         try {
-            System.setOut(new PrintStream(cap, true, StandardCharsets.UTF_8));
+            System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
+            System.setErr(new PrintStream(stderr, true, StandardCharsets.UTF_8));
             rc = new CommandLine(new AnatomistCli()).execute(args.toArray(new String[0]));
         } finally {
-            System.setOut(old);
+            System.setOut(oldOut);
+            System.setErr(oldErr);
         }
-        assertEquals(0, rc, "command exited non-zero: " + inputCmd
-                + "\nstdout:\n" + cap.toString(StandardCharsets.UTF_8));
+        Path expectedExitFile = scenarioDir.resolve("expected.exit");
+        int expectedExit = Files.exists(expectedExitFile)
+                ? Integer.parseInt(Files.readString(expectedExitFile, StandardCharsets.UTF_8).trim())
+                : 0;
+        if (UPDATE && (rc != 0 || Files.exists(expectedExitFile))) {
+            Files.writeString(expectedExitFile, rc + "\n", StandardCharsets.UTF_8);
+            expectedExit = rc;
+        }
+        assertEquals(expectedExit, rc, "unexpected exit: " + inputCmd
+                + "\nstdout:\n" + stdout.toString(StandardCharsets.UTF_8)
+                + "\nstderr:\n" + stderr.toString(StandardCharsets.UTF_8));
 
-        String actualJson = normalize(cap.toString(StandardCharsets.UTF_8));
+        String rawStdout = stdout.toString(StandardCharsets.UTF_8);
         Path expected = scenarioDir.resolve("expected.json");
-
-        if (UPDATE || !Files.exists(expected)) {
-            Files.writeString(expected, actualJson, StandardCharsets.UTF_8);
-            if (!UPDATE) fail("expected.json was missing — generated from actual run; "
-                    + "review " + expected + " then re-run");
-            return;
+        if (!rawStdout.isBlank() || Files.exists(expected)) {
+            String actualJson = normalize(rawStdout);
+            if (UPDATE || !Files.exists(expected)) {
+                Files.writeString(expected, actualJson, StandardCharsets.UTF_8);
+                if (!UPDATE) fail("expected.json was missing — generated from actual run; "
+                        + "review " + expected + " then re-run");
+            } else {
+                String expectedJson = normalize(Files.readString(expected, StandardCharsets.UTF_8));
+                if (!expectedJson.equals(actualJson)) {
+                    fail("golden mismatch for " + scenarioDir.getFileName()
+                            + "\n--- expected ---\n" + expectedJson
+                            + "\n--- actual ---\n" + actualJson
+                            + "\n(run with -Dgolden.update=true to refresh)");
+                }
+            }
         }
 
-        String expectedJson = normalize(Files.readString(expected, StandardCharsets.UTF_8));
-        if (!expectedJson.equals(actualJson)) {
-            fail("golden mismatch for " + scenarioDir.getFileName()
-                    + "\n--- expected ---\n" + expectedJson
-                    + "\n--- actual ---\n" + actualJson
-                    + "\n(run with -Dgolden.update=true to refresh)");
+        String actualStderr = normalizeText(stderr.toString(StandardCharsets.UTF_8));
+        Path expectedStderr = scenarioDir.resolve("expected.stderr");
+        if (UPDATE && (!actualStderr.isBlank() || Files.exists(expectedStderr))) {
+            Files.writeString(expectedStderr, actualStderr, StandardCharsets.UTF_8);
+        }
+        String wantedStderr = Files.exists(expectedStderr)
+                ? normalizeText(Files.readString(expectedStderr, StandardCharsets.UTF_8)) : "";
+        if (!wantedStderr.equals(actualStderr)) {
+            fail("stderr mismatch for " + scenarioDir.getFileName()
+                    + "\n--- expected ---\n" + wantedStderr
+                    + "\n--- actual ---\n" + actualStderr);
         }
     }
 
     /** Re-emit JSON with sorted map keys and project-root scrubbed. */
     private String normalize(String raw) {
-        String scrubbed = raw.replace(repoRoot.toString(), "${PROJECT}")
-                .replace(dbPath.toString(), "${INDEX}");
+        String scrubbed = normalizeText(raw);
         return Json.writeCanonical(Json.parseTree(scrubbed));
+    }
+
+    private String normalizeText(String raw) {
+        return raw.replace("\r\n", "\n")
+                .replace(repoRoot.toString(), "${PROJECT}")
+                .replace(dbPath.toString(), "${INDEX}");
     }
 
     /** Minimal shell-like tokenizer — supports double-quoted segments. */

@@ -338,6 +338,7 @@ class FlowAnalysisIT {
                 class A {
                     String copy(String value) { return value; }
                     int copy(int value) { return value; }
+                    String copyExtra(String value) { return value; }
                 }
                 """);
         Path db = tmp.resolve("ambiguous-path.db");
@@ -351,6 +352,77 @@ class FlowAnalysisIT {
 
         assertEquals(2, path.exitCode(), path.stdout());
         assertTrue(path.stdout().contains("FLOW_ENDPOINT_AMBIGUOUS"), path.stdout());
+
+        RunResult broadFlow = runCli("flow-of", "p.A#copy", "--index", db.toString());
+        assertEquals(2, broadFlow.exitCode(), broadFlow.stdout());
+        assertTrue(broadFlow.stdout().contains("SYMBOL_AMBIGUOUS"), broadFlow.stdout());
+
+        RunResult familySummary = runCli("flow-summary", "p.A#copy",
+                "--index", db.toString());
+        assertEquals(0, familySummary.exitCode(), familySummary.stderr());
+        assertTrue(familySummary.stdout().contains("p.A#copy(java.lang.String)"), familySummary.stdout());
+        assertTrue(familySummary.stdout().contains("p.A#copy(int)"), familySummary.stdout());
+        assertTrue(!familySummary.stdout().contains("copyExtra"), familySummary.stdout());
+
+        String exactString = "p.A#copy(java.lang.String)";
+        String otherOverload = "p.A#copy(int)";
+        RunResult exactPath = runCli("flow-path", exactString, exactString,
+                "--from-slot", "arg:0", "--to-slot", "return",
+                "--index", db.toString());
+        assertEquals(0, exactPath.exitCode(), exactPath.stdout());
+        assertTrue(exactPath.stdout().contains("\"found\" : true"), exactPath.stdout());
+        assertTrue(!exactPath.stdout().contains(otherOverload), exactPath.stdout());
+
+        RunResult exactSummary = runCli("flow-summary", exactString,
+                "--index", db.toString());
+        assertEquals(0, exactSummary.exitCode(), exactSummary.stderr());
+        assertTrue(exactSummary.stdout().contains(exactString), exactSummary.stdout());
+        assertTrue(!exactSummary.stdout().contains(otherOverload), exactSummary.stdout());
+
+        RunResult exactFlow = runCli("flow-of", exactString,
+                "--index", db.toString());
+        assertEquals(0, exactFlow.exitCode(), exactFlow.stderr());
+        assertTrue(exactFlow.stdout().contains(exactString), exactFlow.stdout());
+        assertTrue(!exactFlow.stdout().contains(otherOverload), exactFlow.stdout());
+
+        String invalidSignature = "p.A#copy(java.lang.Boolean)";
+        RunResult invalidPath = runCli("flow-path", invalidSignature, exactString,
+                "--from-slot", "arg:0", "--to-slot", "return",
+                "--index", db.toString());
+        assertEquals(2, invalidPath.exitCode(), invalidPath.stdout());
+        assertTrue(invalidPath.stdout().contains("FLOW_ENDPOINT_NOT_FOUND"), invalidPath.stdout());
+        assertTrue(!invalidPath.stdout().contains(otherOverload), invalidPath.stdout());
+
+        RunResult invalidSummary = runCli("flow-summary", invalidSignature,
+                "--index", db.toString());
+        assertEquals(2, invalidSummary.exitCode(), invalidSummary.stdout());
+        assertTrue(invalidSummary.stdout().contains("SYMBOL_NOT_FOUND"), invalidSummary.stdout());
+        assertTrue(!invalidSummary.stdout().contains("p.A#copy(int)"), invalidSummary.stdout());
+        assertTrue(!invalidSummary.stdout().contains("p.A#copy(java.lang.String)"), invalidSummary.stdout());
+
+        RunResult invalidFlow = runCli("flow-of", invalidSignature,
+                "--index", db.toString());
+        assertEquals(2, invalidFlow.exitCode(), invalidFlow.stdout());
+        assertTrue(invalidFlow.stdout().contains("SYMBOL_NOT_FOUND"), invalidFlow.stdout());
+
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            int nodesBefore = scalar(statement, "SELECT count(*) FROM flow_nodes");
+            int edgesBefore = scalar(statement, "SELECT count(*) FROM flow_edges");
+
+            RunResult nonExactWrite = runCli("flow-materialize", "p.A#copy", exactString,
+                    "--index", db.toString(), "--format", "json");
+            assertEquals(2, nonExactWrite.exitCode(), nonExactWrite.stdout());
+            assertTrue(nonExactWrite.stdout().contains("SYMBOL_EXACT_REQUIRED"), nonExactWrite.stdout());
+
+            RunResult missingWrite = runCli("flow-materialize", invalidSignature, exactString,
+                    "--index", db.toString(), "--format", "json");
+            assertEquals(2, missingWrite.exitCode(), missingWrite.stdout());
+            assertTrue(missingWrite.stdout().contains("SYMBOL_NOT_FOUND"), missingWrite.stdout());
+
+            assertEquals(nodesBefore, scalar(statement, "SELECT count(*) FROM flow_nodes"));
+            assertEquals(edgesBefore, scalar(statement, "SELECT count(*) FROM flow_edges"));
+        }
     }
 
     @Test
@@ -421,7 +493,8 @@ class FlowAnalysisIT {
         assertEquals(2, before.exitCode(), before.stdout());
         assertTrue(before.stdout().contains("flow-materialize"), before.stdout());
 
-        RunResult materialized = runCli("flow-materialize", "p.A#run", "p.A#sink",
+        RunResult materialized = runCli("flow-materialize",
+                "p.A#run(java.lang.String)", "p.A#sink(java.lang.String)",
                 "--index", db.toString(), "--format", "json");
         assertEquals(0, materialized.exitCode(), materialized.stderr());
         assertTrue(materialized.stdout().contains("\"mode\" : \"progressive\""), materialized.stdout());
@@ -444,7 +517,8 @@ class FlowAnalysisIT {
         Path db = tmp.resolve("progressive-incremental.db");
         CliTestSupport.assertIndexOk(project,
                 "--no-classpath", "--java-version", "17", "--output", db.toString());
-        assertEquals(0, runCli("flow-materialize", "p.A#run", "p.A#sink",
+        assertEquals(0, runCli("flow-materialize",
+                "p.A#run(java.lang.String)", "p.A#sink(java.lang.String)",
                 "--index", db.toString()).exitCode());
         Files.writeString(source, """
                 package p;
@@ -474,7 +548,8 @@ class FlowAnalysisIT {
                 class A { void sink(String v) {} void run(String v) { String copy = v; sink(copy); } }
                 """);
 
-        RunResult result = runCli("flow-materialize", "p.A#run", "p.A#sink",
+        RunResult result = runCli("flow-materialize",
+                "p.A#run(java.lang.String)", "p.A#sink(java.lang.String)",
                 "--index", db.toString(), "--format", "json");
         assertEquals(2, result.exitCode(), result.stdout());
         assertTrue(result.stdout().contains("INDEX_STALE"), result.stdout());

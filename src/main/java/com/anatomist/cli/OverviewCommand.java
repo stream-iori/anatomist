@@ -43,8 +43,13 @@ public class OverviewCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        Path db = IndexPath.resolve(index);
-        try (QueryService q = new QueryService(db)) {
+        try {
+            format = CliValidation.choice("--format", format, "markdown", "json");
+            CliValidation.nonNegative("--depth", depth);
+            CliValidation.nonNegative("--limit", limit);
+            CliValidation.nonNegative("--offset", offset);
+            Path db = IndexPath.resolve(index);
+            try (QueryService q = new QueryService(db)) {
             if (depsOnly) {
                 List<Map<String, Object>> rows = q.packageDeps();
                 int total = rows.size();
@@ -83,6 +88,9 @@ public class OverviewCommand implements Callable<Integer> {
                 System.out.print(MarkdownFormatter.format(ov));
             }
             return 0;
+            }
+        } catch (IllegalArgumentException failure) {
+            return CliValidation.emit(failure);
         }
     }
 

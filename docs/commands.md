@@ -2,6 +2,26 @@
 
 Query commands output JSON to stdout. Mutation commands default to text and support JSON where noted.
 
+## Agent Guidance
+
+### `skill`
+
+Print a small decision guide for one analysis scene. With no scene, it prints
+the mandatory core workflow.
+
+```bash
+anatomist skill [core|explore|trace|branch|relations|spring|flow|topics]
+```
+
+| Interface | Answers |
+|---|---|
+| `anatomist skill [scene]` | Why and when to use a command, query order, evidence boundaries, and cost choices |
+| `anatomist <command> --help` | Exact syntax, parameters, defaults, and supported options |
+| `anatomist doctor --agent-preflight --format json` | Facts about the current checkout, index health/profile, and the next safe action |
+
+The interfaces are intentionally orthogonal: scene guidance points to commands
+but does not duplicate their option reference.
+
 ## Index Phase
 
 ### `index`
@@ -58,6 +78,11 @@ the selected policy, pass/fail result, and blocking diagnostic codes.
 A failed gate returns exit code 3. `--strict-health` is exactly
 `--health-policy complete`; combining it with another policy is an argument
 error (exit code 2).
+
+For Maven reactors, default source discovery also indexes Java files below
+`target/generated-sources/*` as `scope=GENERATED` with the owning module. Other
+content below `target` remains excluded. Incremental indexing detects generated
+file additions, changes, deletions, and newly created generated-source roots.
 
 ### Local JDK catalogs
 
@@ -206,6 +231,11 @@ Index project markdown documents for FTS5 search.
 anatomist index-docs <path> --index <db>
 ```
 
+The canonical project path is stored as `project_meta.source_root`. Reusing an
+explicit database for a different project fails with `INDEX_PROJECT_MISMATCH`
+before documents or metadata are changed. A symlink resolving to the same
+project is accepted.
+
 ### `watch`
 Monitor source tree, report or auto-index changes.
 
@@ -292,8 +322,8 @@ anatomist index <project-path> --incremental --health-policy integrity --format 
 | Gate fails | Do not issue a query or call an older graph current. |
 
 `doctor --health-policy integrity` verifies the existing DB but does not inspect source
-files; `freshness_state=idle` only says a watcher operation finished. It is not
-a substitute for the Agent query gate when users edited code without `watch`.
+files; `freshness_state=idle` is not a source-tree comparison and cannot replace
+the Agent query gate after offline edits.
 
 ## Query Phase
 
@@ -314,6 +344,9 @@ JSON query responses include top-level `evidence`:
 `negative_conclusion_safe` explain the decision. Ordinary empty queries still
 exit 0 so existing callers can parse the response; `call-path` and flow
 coverage errors keep their existing command-specific exit behavior.
+An unresolved selector is not an empty query: it exits 2 with
+`SYMBOL_NOT_FOUND`. Only a successfully resolved symbol with no matching facts
+may produce `confirmed_empty`.
 
 ### Flow queries
 
@@ -344,7 +377,7 @@ anatomist flow-summary com.example.Service#run --index <db>
 anatomist guards-of com.example.Service#run --index <db>
 anatomist exception-flow com.example.Service#run --index <db>
 anatomist taint-path '*' '*' --depth 30 --index <db>
-anatomist flow-materialize <source-method> <target-method> --depth 8 --index <db>
+anatomist flow-materialize <source-method-signature> <target-method-signature> --depth 8 --index <db>
 ```
 
 | Command | Evidence |
@@ -365,6 +398,9 @@ only when `depth_truncated=false` and evidence permits a negative conclusion.
 `flow-materialize` writes only after the structural index passes its integrity
 and freshness checks. It does not write when the static call path is absent or
 depth-truncated; use its `next_commands` to increase depth or re-index first.
+Both materialization endpoints must be full exact method signatures. Missing,
+family, or ambiguous selectors fail before the write lock is acquired and leave
+all flow tables unchanged.
 
 Taint rules live in `.anatomist/taint-rules.json`:
 
@@ -392,6 +428,22 @@ default. Control/guard and exception edges require their explicit flags.
 If a method selector matches multiple overloads, use the full method signature;
 the command returns `FLOW_ENDPOINT_AMBIGUOUS` instead of searching all overloads.
 
+### Selector contract
+
+| Selector | Meaning |
+|---|---|
+| `pkg.Type#method(java.lang.String)` | Exact signature; a miss never degrades to the method family |
+| `pkg.Type#method` | Only that owner's overload family; never `methodExtra` |
+| `Type#method` or bare `method` | Valid only when it identifies one owner; otherwise `SYMBOL_AMBIGUOUS` |
+| Type/field short name | Valid only when unique across the selected module and scope |
+| Storage node key | Exact node, still constrained by `--module` and `--scope` |
+
+`callees-of`, `callers-of`, `branches-of`, and `flow-summary` may aggregate one
+owner-qualified overload family. Single-target context, path, relation, and
+detailed-flow commands require one resolved target. Ambiguity exits with code 2
+and returns exact candidate IDs and follow-up queries. `search` remains explicitly
+fuzzy and is not governed by this selector contract.
+
 Method patterns support full-string `*` and `?` glob matching. Matching uses a
 bounded non-regex state machine: the configuration file is limited to 1 MiB,
 each source/sink/sanitizer list to 256 valid rules, and each method pattern to
@@ -415,6 +467,7 @@ anatomist search <term> --count --index <db>
 - Default `<term>`: FTS5 match over qualified name / label / javadoc — **also matches package path tokens** (e.g. `search Facade` matches everything under a `.facade.` package). FTS results carry a `stats.label_matches` count: how many returned rows actually match the simple name, so an inflated `total` is easy to spot.
 - Default name/FTS search also appends matching virtual `EXTERNAL_CLASS` rows derived from project external edges. Use `--kind EXTERNAL_CLASS` to return only those rows. They carry `external_target=true`, `external_edge_count`, and relation/resolution/confidence count maps; Anatomist does not create a source node or index the dependency JAR.
 - `--by-annotation` searches only project nodes because dependency annotations are not indexed.
+- `--by-annotation` requires `<term>`; `--count --by-annotation` counts the same annotation result set.
 - `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*Plugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
 - `--count`: return only the true total (results omitted), **independent of `--limit`**. Works with `--name` or FTS.
 - Search output always reports `stats.total`, `stats.limit`, `stats.offset`, `stats.truncated`, and `budget`, including the first page. Continue with `next_queries` when `stats.truncated=true`.
@@ -423,7 +476,9 @@ anatomist search <term> --count --index <db>
 Show node structure + optional enrichment.
 
 ```bash
-anatomist context <fqn> [--with-callees=N] [--enrich] [--with-docs] [--package <pkg>] [--format markdown|json] --index <db>
+anatomist context <fqn> [--with-callees=N] [--format markdown|json] --index <db>
+anatomist context <fqn> --enrich [--with-docs] [--format markdown|json] --index <db>
+anatomist context --enrich --package <pkg> [--with-docs] [--format markdown|json] --index <db>
 anatomist context <fqn> --members-limit 50 --members-offset 50 --index <db>
 ```
 
@@ -432,18 +487,34 @@ anatomist context <fqn> --members-limit 50 --members-offset 50 --index <db>
 - `--format markdown`: 200-line budgeted output
 - `--members-limit` / `--members-offset`: page class members for large classes
 - `--methods-only` / `--fields-only`: narrow member paging by kind
+- `--package` and `--with-docs` require `--enrich`; package lookup obeys
+  `--module` and `--scope`
+- Member paging/filter flags belong to the non-enriched node view and are
+  rejected when they would otherwise be ignored
 
 ### `bean-config`
 Show structured Spring XML bean config trees.
 
 ```bash
 anatomist bean-config FilterRegistry --property filters --index <db>
-anatomist bean-config FilterRegistry --property filters --format json --index <db>
+anatomist bean-config FilterRegistry --property filters --format json \
+  --module service --scope MAIN --limit 20 --offset 20 --index <db>
 ```
 
 Use this when XML `map` / `list` structure carries behavior such as ordered
 filter chains. `WIRES` only shows class dependency impact; `bean-config`
 preserves keys, order, and nesting.
+Bean-name matching is a literal substring search (`%`, `_`, and `\\` are not
+SQL wildcards). JSON output is paged and reports
+`total/limit/offset/truncated/next_offset` plus a continuation query.
+
+Spring MVC indexing expands every class-path, method-path, and declared HTTP
+method combination. Route labels stay human-readable while route IDs include
+the handler method, so identical routes in separate modules do not overwrite
+each other. Injection indexing covers explicitly annotated injection points and
+the single-constructor component convention, including field/parameter
+`@Qualifier` values. Custom composed annotations, ordinary setter injection,
+profiles, and AOP runtime selection remain outside static coverage.
 
 ### `callees-of`
 Outgoing call chain from a method.

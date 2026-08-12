@@ -88,6 +88,17 @@ description: Use when analyzing Java code structure with anatomist.
 ---
 ```
 
+The installed `SKILL.md` is only a compact bootstrap. Task guidance ships inside
+the same-version binary:
+
+```bash
+anatomist skill topics
+anatomist skill core
+```
+
+Use `skill` to choose the workflow and evidence boundary; use the selected
+command's `--help` for exact syntax and defaults.
+
 ## Build from source
 
 ### Prerequisites
