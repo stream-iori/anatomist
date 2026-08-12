@@ -9,6 +9,8 @@ import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.SymbolResolution;
+import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -24,14 +26,15 @@ import java.util.concurrent.Callable;
                     + "Add --enrich for semantic annotations, docs and suggested queries.")
 public class ContextCommand implements Callable<Integer> {
 
-    @Parameters(index = "0", arity = "0..1", description = "FQN or label (Class or Class#method).")
+    @Parameters(index = "0", arity = "0..1", description = "Unique type or method selector; use a full signature for overloaded methods.")
     String target;
 
     @Option(names = "--enrich",
             description = "Aggregate enriched view: semantic annotations + docs + suggested queries.")
     boolean enrich;
 
-    @Option(names = "--package", description = "Package name (mutually exclusive with positional target).")
+    @Option(names = "--package",
+            description = "Package name; requires --enrich and is mutually exclusive with positional target.")
     String pkg;
 
     @Option(names = "--with-callees", arity = "0..1", fallbackValue = "1",
@@ -64,44 +67,53 @@ public class ContextCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        try {
+            validateOptions();
+            Path db = IndexPath.resolve(index);
+            if (enrich) {
+                return callEnrich(db);
+            }
+            return callContext(db);
+        } catch (IllegalArgumentException failure) {
+            return CliValidation.emit(failure);
+        }
+    }
+
+    private void validateOptions() {
         if (target != null && pkg != null) {
-            System.err.println("ERROR: specify either a positional target or --package, not both.");
-            return 2;
+            throw new IllegalArgumentException("specify either a positional target or --package, not both");
         }
         if (target == null && pkg == null) {
-            System.err.println("ERROR: specify a target (positional) or --package.");
-            return 2;
+            throw new IllegalArgumentException("specify a target or --package");
         }
-
-        Path db = IndexPath.resolve(index);
-
-        if (enrich) {
-            return callEnrich(db);
+        if (pkg != null && !enrich) {
+            throw new IllegalArgumentException("--package requires --enrich");
         }
-        return callContext(db);
+        if (withDocs && !enrich) {
+            throw new IllegalArgumentException("--with-docs requires --enrich");
+        }
+        if (methodsOnly && fieldsOnly) {
+            throw new IllegalArgumentException("--methods-only and --fields-only are mutually exclusive");
+        }
+        if (enrich && (membersLimit != 0 || membersOffset != 0 || methodsOnly || fieldsOnly)) {
+            throw new IllegalArgumentException("member paging options are not supported with --enrich");
+        }
+        if (pkg != null && withCallees != null) {
+            throw new IllegalArgumentException("--with-callees is not supported with --package");
+        }
+        scope = CliValidation.scope(scope, true);
+        CliValidation.nonNegative("--members-limit", membersLimit);
+        CliValidation.nonNegative("--members-offset", membersOffset);
+        if (withCallees != null) CliValidation.nonNegative("--with-callees", withCallees);
+        format = CliValidation.choice("--format", format, "markdown", "json");
     }
 
     private int callContext(Path db) {
         try (QueryService q = new QueryService(db)) {
             q.selectNodes(module, scope);
-            List<NodeRow> candidates = q.resolveNodeRows(target);
-            if (candidates.size() > 1) {
-                QueryEnvelope env = new QueryEnvelope(buildQueryString(), candidates);
-                env.stats.clear();
-                env.stats.put("total", 0);
-                env.stats.put("ambiguous", true);
-                env.stats.put("candidates", candidates.size());
-                env.stats.put("reason", "target_resolves_to_multiple_nodes");
-                env.nextQueries = candidates.stream()
-                        .map(n -> "anatomist context " + n.id
-                                + " --scope " + scope + " "
-                                + Disclosure.renderCommand(List.of("--index", db.toString())))
-                        .toList();
-                attachEvidence(q, env, true);
-                JsonFormatter.emit(System.out, env);
-                return 2;
-            }
-            ContextResult r = q.context(target, withCallees == null ? 0 : withCallees);
+            SymbolResolution resolution = q.resolveNode(target);
+            NodeRow selected = resolution.requireUnique();
+            ContextResult r = q.context(selected.id, withCallees == null ? 0 : withCallees);
             int membersTotal = 0;
             int safeOffset = 0;
             boolean membersTruncated = false;
@@ -144,8 +156,15 @@ public class ContextCommand implements Callable<Integer> {
                 Disclosure.putBudget(env, "members", r.members.size(), membersTotal);
             }
             attachEvidence(q, env, r != null);
-            JsonFormatter.emit(System.out, env);
+            String effectiveFormat = format == null ? "json" : format;
+            if ("markdown".equals(effectiveFormat)) {
+                System.out.print(MarkdownFormatter.format(r));
+            } else {
+                JsonFormatter.emit(System.out, env);
+            }
             return r == null ? 2 : 0;
+        } catch (SymbolResolutionException failure) {
+            return SymbolResolutionOutput.emit(failure, db, module, scope);
         }
     }
 
@@ -153,15 +172,17 @@ public class ContextCommand implements Callable<Integer> {
         try (QueryService q = new QueryService(db)) {
             q.selectNodes(module, scope);
             int depth = withCallees != null ? withCallees : 1;
+            String selected = target;
+            if (pkg == null) selected = q.resolveNode(target).requireUnique().id;
             EnrichResult r = pkg != null
                     ? q.enrichPackage(pkg, withDocs)
-                    : q.enrichNode(target, depth, withDocs);
+                    : q.enrichNode(selected, depth, withDocs);
             if (r == null) {
                 System.err.println("ERROR: no node or package matches the target.");
                 return 2;
             }
             String effectiveFormat = format != null ? format : "markdown";
-            if ("json".equalsIgnoreCase(effectiveFormat)) {
+            if ("json".equals(effectiveFormat)) {
                 QueryEnvelope env = new QueryEnvelope(buildQueryString(), List.of(r));
                 env.stats.clear();
                 env.stats.putAll(r.toStats());
@@ -171,6 +192,8 @@ public class ContextCommand implements Callable<Integer> {
                 System.out.print(MarkdownFormatter.format(r));
             }
             return 0;
+        } catch (SymbolResolutionException failure) {
+            return SymbolResolutionOutput.emit(failure, db, module, scope);
         }
     }
 

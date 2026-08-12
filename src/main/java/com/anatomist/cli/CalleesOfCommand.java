@@ -21,7 +21,7 @@ import java.util.List;
                 + "%n  callees-of OrderService#create --blocks package")
 public class CalleesOfCommand extends QueryCommand {
 
-    @Parameters(index = "0", description = "Method FQN (Class#method or pkg.Class.method).")
+    @Parameters(index = "0", description = "Method selector; omitting parameters aggregates only that owner's overload family.")
     String method;
 
     @Option(names = "--depth", description = "Traversal depth (1..20, default 1); check stats.depth_truncated before treating results as exhaustive.")
@@ -68,6 +68,11 @@ public class CalleesOfCommand extends QueryCommand {
 
     @Override
     protected QueryEnvelope execute(QueryService q) {
+        CliValidation.positive("--depth", depth);
+        CliValidation.nonNegative("--limit", limit);
+        CliValidation.nonNegative("--offset", offset);
+        if (sourceWindow != null) CliValidation.nonNegative("--source-window", sourceWindow);
+        blocks = CliValidation.choice("--blocks", blocks, "class", "package");
         TraversalResult<EdgeRow> traversal = q.calleesTraversal(method, depth, throughCallbacks);
         List<EdgeRow> rows = ContextFilter.apply(traversal.items(), inLoop, inBranch);
         if (filter != null && !filter.isBlank()) {

@@ -38,9 +38,11 @@ public class SearchCommand extends QueryCommand {
 
     @Override
     protected QueryEnvelope execute(QueryService q) {
+        validateOptions();
         if (count) {
             int n;
             if (name != null) n = q.countByName(name, kind);
+            else if (byAnnotation) n = q.countByAnnotation(term, kind);
             else n = q.countSearch(term, kind);
             QueryEnvelope env = new QueryEnvelope(buildQueryString(), List.of());
             env.stats.put("total", n);
@@ -77,6 +79,23 @@ public class SearchCommand extends QueryCommand {
             env.stats.put("label_matches", labelHits);
         }
         return env;
+    }
+
+    private void validateOptions() {
+        boolean hasTerm = term != null && !term.isBlank();
+        boolean hasName = name != null && !name.isBlank();
+        if (!hasTerm && !hasName) {
+            throw new IllegalArgumentException("provide a search term or --name");
+        }
+        if (hasTerm && hasName) {
+            throw new IllegalArgumentException("search term and --name are mutually exclusive");
+        }
+        if (byAnnotation && !hasTerm) {
+            throw new IllegalArgumentException("--by-annotation requires a search term");
+        }
+        kind = CliValidation.kind(kind);
+        CliValidation.positive("--limit", limit);
+        CliValidation.nonNegative("--offset", offset);
     }
 
     private String buildQueryString() {

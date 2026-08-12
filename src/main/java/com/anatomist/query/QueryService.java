@@ -279,4 +279,20 @@ public class QueryService implements AutoCloseable {
     public List<NodeRow> resolveNodeRows(String input) {
         return resolver.resolveNodeRows(input);
     }
+
+    public SymbolResolution resolveNode(String input) {
+        return resolver.resolveNode(input);
+    }
+
+    public SymbolResolution resolveType(String input) {
+        return resolver.resolveType(input);
+    }
+
+    public SymbolResolution resolveMethod(String input) {
+        return resolver.resolveMethod(input);
+    }
+
+    public SymbolResolution resolveField(String input) {
+        return resolver.resolveField(input);
+    }
 }

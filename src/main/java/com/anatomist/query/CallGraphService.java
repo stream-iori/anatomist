@@ -34,7 +34,7 @@ public class CallGraphService {
 
     public TraversalResult<EdgeRow> calleesTraversal(String methodRef, int depth,
                                                       boolean throughCallbacks) {
-        return callsFromTraversal(resolver.resolveMethodIds(methodRef), depth, throughCallbacks);
+        return callsFromTraversal(resolver.resolveMethodFamilyIds(methodRef), depth, throughCallbacks);
     }
 
     public List<EdgeRow> callersOf(String methodRef, int depth) {
@@ -48,10 +48,17 @@ public class CallGraphService {
     public TraversalResult<EdgeRow> callersTraversal(String methodRef, int depth,
                                                       boolean throughCallbacks) {
         int effectiveDepth = effectiveDepth(depth, 1);
+        SymbolResolution resolution = resolver.resolveMethod(methodRef);
+        List<String> internalIds = resolution.status() == SymbolResolution.Status.NOT_FOUND
+                ? List.of() : resolution.requireFamilyOrExactIds();
         TraversalResult<EdgeRow> internal = callsToTraversal(
-                resolver.resolveMethodIds(methodRef), depth, throughCallbacks);
+                internalIds, depth, throughCallbacks);
         TraversalResult<EdgeRow> external = callsToExternalTraversal(
                 methodRef, depth, throughCallbacks);
+        if (resolution.status() == SymbolResolution.Status.NOT_FOUND
+                && external.items().isEmpty()) {
+            resolution.requireFamilyOrExactIds();
+        }
         List<EdgeRow> combined = new ArrayList<>(internal.items());
         combined.addAll(external.items());
         List<EdgeRow> rows = dedup(combined);
@@ -287,8 +294,8 @@ public class CallGraphService {
 
     public TraversalResult<EdgeRow> callPathTraversal(String fromMethodRef, String toMethodRef,
                                                        int maxDepth, boolean throughCallbacks) {
-        List<String> froms = resolver.resolveMethodIds(fromMethodRef);
-        List<String> tos   = resolver.resolveMethodIds(toMethodRef);
+        List<String> froms = List.of(resolver.resolveUniqueMethodId(fromMethodRef));
+        List<String> tos   = List.of(resolver.resolveUniqueMethodId(toMethodRef));
         int depthCap = effectiveDepth(maxDepth, 5);
         if (froms.isEmpty() || tos.isEmpty()) return emptyTraversal(maxDepth, depthCap);
 

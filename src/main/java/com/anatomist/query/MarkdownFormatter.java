@@ -14,6 +14,39 @@ public final class MarkdownFormatter {
 
     private MarkdownFormatter() {}
 
+    /** Render the non-enriched context result without inventing semantic sections. */
+    public static String format(ContextResult r) {
+        if (r == null || r.node == null) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("# ").append(r.node.label).append(" (").append(r.node.kind).append(")\n\n");
+        sb.append("| Field | Value |\n|---|---|\n");
+        sb.append("| qualified_name | `").append(r.node.qualifiedName).append("` |\n");
+        if (r.node.sourceFile != null) sb.append("| source_file | `").append(r.node.sourceFile).append("` |\n");
+        if (r.node.sourceLocation != null) sb.append("| source_location | ").append(r.node.sourceLocation).append(" |\n");
+        if (r.node.module != null) sb.append("| module | ").append(r.node.module).append(" |\n");
+        if (r.node.scope != null) sb.append("| scope | ").append(r.node.scope).append(" |\n");
+        sb.append("\n## Members\n\n");
+        if (r.members.isEmpty()) sb.append("_None._\n");
+        else for (NodeRow member : r.members) {
+            sb.append("- ").append(member.kind).append(" `").append(member.qualifiedName).append("`\n");
+        }
+        if (!r.annotations.isEmpty()) {
+            sb.append("\n## Annotations\n\n");
+            for (Map<String, Object> annotation : r.annotations) {
+                sb.append("- `@").append(annotation.get("annotation_fqn")).append("`\n");
+            }
+        }
+        if (r.callees != null) {
+            sb.append("\n## Callees\n\n");
+            if (r.callees.isEmpty()) sb.append("_None._\n");
+            else for (EdgeRow edge : r.callees) {
+                String target = edge.target != null ? edge.target : edge.externalTargetFqn;
+                sb.append("- `").append(edge.source).append("` -> `").append(target).append("`\n");
+            }
+        }
+        return sb.toString();
+    }
+
     public static String format(EnrichResult r) {
         if (r == null) return "";
         if (r.pkg != null) return formatPackage(r);

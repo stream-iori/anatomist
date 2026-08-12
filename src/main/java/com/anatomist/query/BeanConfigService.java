@@ -21,38 +21,59 @@ public final class BeanConfigService {
     }
 
     public List<Map<String, Object>> beanConfig(String target, String property) {
+        return beanConfigPaged(target, property, null, "MAIN", 20, 0).items();
+    }
+
+    public PagedResult<Map<String, Object>> beanConfigPaged(String target, String property,
+                                                            String module, String scope,
+                                                            int limit, int offset) {
+        List<Node> matches = findBeans(target, module, scope);
+        int total = matches.size();
+        int safeOffset = Math.max(0, Math.min(offset, total));
+        int end = Math.min(safeOffset + limit, total);
         List<Map<String, Object>> out = new ArrayList<>();
-        for (Node node : findBeans(target)) {
+        for (Node node : matches.subList(safeOffset, end)) {
             Map<String, Object> bean = new LinkedHashMap<>();
             bean.put("bean_id", node.id);
             bean.put("label", node.label);
             bean.put("source_file", node.sourceFile);
             bean.put("source_location", node.sourceLocation);
+            bean.put("module", node.module);
+            bean.put("scope", node.scope);
             bean.put("metadata", parseMetadata(node.metadata));
             List<Map<String, Object>> children = childrenOf(node.id, property);
             bean.put("children", children);
             out.add(bean);
         }
-        return out;
+        return new PagedResult<>(out, total, end < total, safeOffset);
     }
 
-    private List<Node> findBeans(String target) {
-        String like = "%" + target + "%";
-        String sql = """
-                SELECT id,label,source_file,source_location,metadata
+    private List<Node> findBeans(String target, String module, String scope) {
+        String like = "%" + escapeLike(target) + "%";
+        StringBuilder sql = new StringBuilder("""
+                SELECT id,label,source_file,source_location,module,scope,metadata
                 FROM nodes
                 WHERE kind=? AND source_file LIKE '%.xml'
-                AND (label=? OR label LIKE ? OR qualified_name LIKE ? OR id LIKE ?)
-                ORDER BY CASE WHEN label=? THEN 0 ELSE 1 END, source_file, label
-                LIMIT 20
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, GraphConstants.Kind.BEAN);
-            ps.setString(2, target);
-            ps.setString(3, like);
-            ps.setString(4, like);
-            ps.setString(5, like);
-            ps.setString(6, target);
+                AND (label=? OR label LIKE ? ESCAPE '\\' OR qualified_name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')
+                """);
+        List<Object> args = new ArrayList<>();
+        args.add(GraphConstants.Kind.BEAN);
+        args.add(target);
+        args.add(like);
+        args.add(like);
+        args.add(like);
+        if (module != null && !module.isBlank()) {
+            sql.append(" AND module=?");
+            args.add(module);
+        }
+        if (scope != null && !"ALL".equalsIgnoreCase(scope)) {
+            sql.append(" AND scope=?");
+            args.add(scope.toUpperCase());
+        }
+        sql.append(" ORDER BY CASE WHEN label=? THEN 0 ELSE 1 END, source_file, label");
+        args.add(target);
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            for (int i = 0; i < args.size(); i++) ps.setObject(i + 1, args.get(i));
             try (ResultSet rs = ps.executeQuery()) {
                 List<Node> rows = new ArrayList<>();
                 while (rs.next()) rows.add(readNode(rs));
@@ -61,6 +82,10 @@ public final class BeanConfigService {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to query bean config", e);
         }
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     private List<Map<String, Object>> childrenOf(String parentId, String property) {
@@ -126,8 +151,10 @@ public final class BeanConfigService {
 
     private static Node readNode(ResultSet rs) throws SQLException {
         return new Node(rs.getString("id"), rs.getString("label"), rs.getString("source_file"),
-                rs.getString("source_location"), rs.getString("metadata"));
+                rs.getString("source_location"), rs.getString("module"), rs.getString("scope"),
+                rs.getString("metadata"));
     }
 
-    private record Node(String id, String label, String sourceFile, String sourceLocation, String metadata) {}
+    private record Node(String id, String label, String sourceFile, String sourceLocation,
+                        String module, String scope, String metadata) {}
 }

@@ -3,6 +3,7 @@
     "includes": [
       { "pattern": "schema.sql" },
       { "pattern": "anatomist-version\\.properties" },
+      { "pattern": "META-INF/anatomist/skills/.*\\.md" },
       { "pattern": "META-INF/anatomist/jdk.*-types\\.bin" }
     ]
   }

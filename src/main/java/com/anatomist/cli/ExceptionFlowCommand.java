@@ -9,7 +9,7 @@ import picocli.CommandLine.Parameters;
 @Command(name = "exception-flow", mixinStandardHelpOptions = true,
         description = "Show throw/catch/declared-exception propagation for a method.")
 public final class ExceptionFlowCommand extends FlowQueryCommand {
-    @Parameters(index = "0") String method;
+    @Parameters(index = "0", description = "Unique method; use a full signature for overloads.") String method;
     @Option(names = "--limit", defaultValue = "200") int limit;
 
     @Override protected QueryEnvelope execute(FlowQueryService service) {

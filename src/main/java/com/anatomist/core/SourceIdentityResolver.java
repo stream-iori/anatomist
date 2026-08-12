@@ -63,9 +63,11 @@ public final class SourceIdentityResolver {
             rel = path.toString().replace('\\', '/');
         }
         String[] markers = {
-                "/src/main/java", "/src/test/java", "/target/generated-sources/", "/build/generated/"
+                "/src/main/java", "/src/test/java", "/src/main/resources", "/src/test/resources",
+                "/target/generated-sources/", "/build/generated/"
         };
         SourceScope scope = rel.contains("/src/test/java") || rel.startsWith("src/test/java")
+                || rel.contains("/src/test/resources") || rel.startsWith("src/test/resources")
                 ? SourceScope.TEST
                 : rel.contains("/target/generated-sources/") || rel.startsWith("target/generated-sources/")
                     || rel.contains("/build/generated/") || rel.startsWith("build/generated/")

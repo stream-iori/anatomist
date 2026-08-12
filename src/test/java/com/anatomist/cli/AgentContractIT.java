@@ -24,7 +24,7 @@ class AgentContractIT {
     @Test
     void everySubcommand_acceptsHelp() {
         String[] commands = {
-                "index", "index-docs", "watch", "search", "context", "callees-of",
+                "skill", "index", "index-docs", "watch", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "flow-materialize", "overview", "survey-baseline",
                 "annotate", "doctor"
@@ -55,6 +55,7 @@ class AgentContractIT {
         assertEquals("idle", json.get("freshness_state"));
         assertEquals(Boolean.TRUE, json.get("index_exists"));
         assertTrue(((List<?>) json.get("commands")).contains("search"));
+        assertTrue(((List<?>) json.get("commands")).contains("skill"));
         assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
         assertTrue(((List<?>) json.get("commands")).contains("branches-of"));
         assertTrue(((List<?>) json.get("commands")).contains("flow-materialize"));
@@ -66,6 +67,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("capabilities")).contains("core-reflection"));
         assertTrue(((List<?>) json.get("capabilities")).contains("progressive-dataflow"));
         assertTrue(((List<?>) json.get("capabilities")).contains("file-resolution-coverage"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("agent-skill-topics"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
         assertEquals(fixture().toRealPath().toString(), json.get("source_root"));
@@ -126,6 +128,7 @@ class AgentContractIT {
     void doctorAgentPreflightIsReadOnlyAndSuppliesAgentContract(@TempDir Path tmp) throws Exception {
         Path db = buildFixtureIndex(tmp, false);
         long bytesBefore = Files.size(db);
+        byte[] contentBefore = Files.readAllBytes(db);
         RunResult result = runCli("doctor", "--agent-preflight", "--format", "json",
                 "--index", db.toString());
         assertEquals(0, result.exitCode, result.stderr);
@@ -136,6 +139,7 @@ class AgentContractIT {
         assertTrue(preflight.containsKey("next_commands"));
         assertTrue(((Map<?, ?>) preflight.get("flow_coverage")).containsKey("detailed_methods"));
         assertEquals(bytesBefore, Files.size(db), "preflight must not write the index");
+        assertArrayEquals(contentBefore, Files.readAllBytes(db), "preflight must not change index bytes");
 
         Path missing = tmp.resolve("missing.db");
         RunResult absent = runCli("doctor", "--agent-preflight", "--format", "json",
@@ -166,6 +170,119 @@ class AgentContractIT {
         Map<?, ?> contract = (Map<?, ?>) asObject(preflight.stdout).get("agent_preflight");
         assertTrue(String.valueOf(contract.get("blockers")).contains("INDEX_STALE"), contract.toString());
         assertTrue(String.valueOf(contract.get("next_commands")).contains("--incremental"), contract.toString());
+        assertTrue(String.valueOf(contract.get("next_commands")).contains("--dataflow-mode off"),
+                contract.toString());
+        assertTrue(String.valueOf(contract.get("next_commands")).contains("--no-classpath"),
+                contract.toString());
+    }
+
+    @Test
+    void doctorRepairCommandPreservesScopedProfileAndQuotesPaths(@TempDir Path tmp) throws Exception {
+        Path holder = Files.createDirectories(tmp.resolve("project with ' quote"));
+        Path project = CliTestSupport.createSimpleMavenProject(holder, false);
+        Path source = project.resolve("src/main/java/p/A.java");
+        Path db = holder.resolve("index with ' quote.db");
+        String sourceSpec = "app@MAIN=" + project.resolve("src/main/java").toAbsolutePath();
+        RunResult indexed = runCli("index", project.toString(),
+                "--source-root", sourceSpec,
+                "--no-classpath", "--java-version", "17", "--spring-xml",
+                "--dataflow-scope", "method:p.A#run*", "--implicit-taint",
+                "--output", db.toString());
+        assertEquals(0, indexed.exitCode, indexed.stderr);
+
+        Files.writeString(source, "package p; class A { void run() { int changed = 1; } }\n");
+        RunResult result = runCli("doctor", "--agent-preflight", "--format", "json",
+                "--index", db.toString());
+        Map<?, ?> preflight = (Map<?, ?>) asObject(result.stdout).get("agent_preflight");
+        String command = String.valueOf(((List<?>) preflight.get("next_commands")).get(0));
+
+        for (String expected : List.of(
+                "--incremental", "--source-root", "--java-version 17", "--no-classpath",
+                "--spring-xml", "--dataflow-mode scoped", "--dataflow-scope",
+                "--implicit-taint", "--health-policy integrity")) {
+            assertTrue(command.contains(expected), expected + " missing from: " + command);
+        }
+        assertFalse(command.contains("--dataflow-mode full"), command);
+        assertTrue(command.contains("'\\''"), "single quote must be POSIX escaped: " + command);
+
+        Process shell = new ProcessBuilder("sh", "-c",
+                "set -- " + command + "; printf '%s\\n' \"$@\"").start();
+        String parsed = new String(shell.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        String shellError = new String(shell.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, shell.waitFor(), shellError);
+        assertTrue(parsed.contains(sourceSpec + "\n"), parsed);
+        assertTrue(parsed.contains(db.toString() + "\n"), parsed);
+    }
+
+    @Test
+    void doctorRepairCommandPreservesExistingFullAndDetectedProfiles(@TempDir Path tmp)
+            throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path source = project.resolve("src/main/java/p/A.java");
+        Path db = tmp.resolve("profile.db");
+        RunResult indexed = runCli("index", project.toString(), "--no-classpath",
+                "--output", db.toString());
+        assertEquals(0, indexed.exitCode, indexed.stderr);
+        Files.writeString(source, "package p; class A { void changed() {} }\n");
+
+        try (SqliteStore store = new SqliteStore(db)) {
+            store.upsertProjectMeta(Map.of(
+                    "dataflow_mode", "full",
+                    "dataflow_scopes", "",
+                    "implicit_taint", "false",
+                    "classpath_mode", "explicit",
+                    "classpath_override", "/tmp/one path:/tmp/two"));
+        }
+        RunResult full = runCli("doctor", "--agent-preflight", "--format", "json",
+                "--index", db.toString());
+        String fullCommand = String.valueOf(((List<?>) ((Map<?, ?>) asObject(full.stdout)
+                .get("agent_preflight")).get("next_commands")).get(0));
+        assertTrue(fullCommand.contains("--dataflow-mode full"), fullCommand);
+        assertTrue(fullCommand.contains("--classpath '/tmp/one path:/tmp/two'"), fullCommand);
+
+        try (SqliteStore store = new SqliteStore(db)) {
+            store.upsertProjectMeta(Map.of(
+                    "dataflow_mode", "summary",
+                    "classpath_mode", "detected"));
+        }
+        RunResult detected = runCli("doctor", "--agent-preflight", "--format", "json",
+                "--index", db.toString());
+        String detectedCommand = String.valueOf(((List<?>) ((Map<?, ?>) asObject(detected.stdout)
+                .get("agent_preflight")).get("next_commands")).get(0));
+        assertTrue(detectedCommand.contains("--dataflow-mode summary"), detectedCommand);
+        assertFalse(detectedCommand.contains("--classpath"), detectedCommand);
+        assertFalse(detectedCommand.contains("--no-classpath"), detectedCommand);
+    }
+
+    @Test
+    void staleProgressiveFlowRequiresRematerializationWithoutUpgradingFull(@TempDir Path tmp)
+            throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path source = project.resolve("src/main/java/p/A.java");
+        Files.writeString(source, """
+                package p;
+                class A { void sink(String v) {} void run(String v) { sink(v); } }
+                """);
+        Path db = tmp.resolve("progressive-preflight.db");
+        RunResult indexed = runCli("index", project.toString(), "--no-classpath",
+                "--output", db.toString());
+        assertEquals(0, indexed.exitCode, indexed.stderr);
+        RunResult materialized = runCli("flow-materialize",
+                "p.A#run(java.lang.String)", "p.A#sink(java.lang.String)",
+                "--index", db.toString());
+        assertEquals(0, materialized.exitCode, materialized.stderr);
+
+        Files.writeString(source, """
+                package p;
+                class A { void sink(String v) {} void run(String v) { String x = v; sink(x); } }
+                """);
+        RunResult result = runCli("doctor", "--agent-preflight", "--format", "json",
+                "--index", db.toString());
+        Map<?, ?> preflight = (Map<?, ?>) asObject(result.stdout).get("agent_preflight");
+        assertTrue(String.valueOf(preflight.get("warnings"))
+                .contains("PROGRESSIVE_FLOW_WILL_REQUIRE_REMATERIALIZATION"), preflight.toString());
+        assertFalse(String.valueOf(preflight.get("next_commands"))
+                .contains("--dataflow-mode full"), preflight.toString());
     }
 
     @Test
@@ -278,7 +395,8 @@ class AgentContractIT {
                     + "'service/src/main/java/example/Unknown.java','service','MAIN',2,'missing')");
         }
 
-        RunResult callers = runCli("callers-of", "DefinitelyMissing#method",
+        RunResult callers = runCli("callers-of",
+                "com.example.shop.domain.dto.OrderResult#getFinalPrice()",
                 "--index", db.toString());
         assertEquals(0, callers.exitCode, callers.stderr);
         Map<?, ?> evidence = (Map<?, ?>) asObject(callers.stdout).get("evidence");

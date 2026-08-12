@@ -15,7 +15,7 @@ if [[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]]; then
     set +u
     # shellcheck disable=SC1091
     source "$SDKMAN_DIR/bin/sdkman-init.sh"
-    sdk use java 25.0.3-graal >/dev/null || true
+    sdk env >/dev/null
     set -u
 fi
 

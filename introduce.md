@@ -106,6 +106,7 @@ curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh -s -- --components an
 
 ```bash
 anatomist --version
+anatomist skill topics
 ```
 
 ## 边界

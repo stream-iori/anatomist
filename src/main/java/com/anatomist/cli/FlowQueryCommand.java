@@ -5,6 +5,7 @@ import com.anatomist.query.FlowCoverageException;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
+import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Option;
 
 import java.nio.file.Path;
@@ -54,6 +55,8 @@ abstract class FlowQueryCommand implements Callable<Integer> {
                 if (next != null) error.put("next_commands", java.util.List.of(next));
                 System.out.println(JsonFormatter.toJson(error));
                 return 2;
+            } catch (SymbolResolutionException failure) {
+                return SymbolResolutionOutput.emit(failure, database, module, scope);
             }
         }
     }

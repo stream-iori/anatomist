@@ -35,8 +35,21 @@ class NodeResolverTest {
             r.nodes.add(type("com.x.Order", "Order"));
             r.nodes.add(method("com.x.Order#create(java.lang.String)", "create", "com.x.Order#create"));
             r.nodes.add(method("com.x.Order#create()", "create", "com.x.Order#create"));
+            r.nodes.add(method("com.x.Order#createExtra()", "createExtra", "com.x.Order#createExtra"));
+            r.nodes.add(method("com.x.Order#Order(java.lang.String)", "Order", "com.x.Order#Order"));
             r.nodes.add(field("com.x.Order#total", "total"));
             r.nodes.add(type("com.y.OrderService", "OrderService"));
+            r.nodes.add(type("com.a.Duplicate", "Duplicate"));
+            r.nodes.add(type("com.b.Duplicate", "Duplicate"));
+            r.nodes.add(method("com.a.A_B#go()", "go", "com.a.A_B#go"));
+            r.nodes.add(method("com.b.AxB#go()", "go", "com.b.AxB#go"));
+            r.nodes.add(field("com.a.Box#value", "value"));
+            r.nodes.add(field("com.b.Box#value", "value"));
+            r.nodes.add(methodInSelection("m1", "MAIN", "p.Shared#go()"));
+            r.nodes.add(methodInSelection("m2", "MAIN", "p.Shared#go()"));
+            r.nodes.add(methodInSelection("m1", "TEST", "p.Shared#go()"));
+            r.nodes.add(internalCallable(".::MAIN::p.A#run()$lambda@L10C5",
+                    "p.A#run()$lambda@L10C5", "LAMBDA"));
             store.write(r);
         }
         conn = DriverManager.getConnection("jdbc:sqlite:" + db);
@@ -68,12 +81,28 @@ class NodeResolverTest {
         List<String> all = resolver.resolveMethodIds("com.x.Order#create");
         assertEquals(2, all.size());
         assertTrue(all.contains("com.x.Order#create()"));
+        assertFalse(all.contains("com.x.Order#createExtra()"));
+        assertEquals(SymbolResolution.Status.FAMILY,
+                resolver.resolveMethod("com.x.Order#create").status());
+        assertEquals(List.of("com.x.Order#Order(java.lang.String)"),
+                resolver.resolveMethodIds("com.x.Order#Order"));
+    }
+
+    @Test
+    void explicitSignatureNeverFallsBackToAnOverloadFamily() {
+        assertEquals(SymbolResolution.Status.NOT_FOUND,
+                resolver.resolveMethod("com.x.Order#create(java.lang.Boolean)").status());
+        assertTrue(resolver.resolveMethodIds("com.x.Order#create(java.lang.Boolean)").isEmpty());
+        assertTrue(resolver.resolveNodeRows("com.x.Order#create(java.lang.Boolean)").isEmpty());
+        assertEquals(SymbolResolution.Status.NOT_FOUND,
+                resolver.resolveMethod("com.x.Order#create(").status());
     }
 
     @Test
     void resolveMethodShortClassAndDotForm() {
         assertTrue(resolver.resolveMethodIds("Order#create").contains("com.x.Order#create()"));
         assertTrue(resolver.resolveMethodIds("com.x.Order.create").contains("com.x.Order#create()"));
+        assertEquals(List.of("com.a.A_B#go()"), resolver.resolveMethodIds("A_B#go"));
     }
 
     @Test
@@ -82,6 +111,42 @@ class NodeResolverTest {
         assertEquals(List.of("com.x.Order#total"), resolver.resolveFieldIds("com.x.Order.total"));
         assertEquals(List.of("com.x.Order#total"), resolver.resolveFieldIds("Order.total"));
         assertEquals(List.of("com.x.Order#total"), resolver.resolveFieldIds("total"));
+        assertEquals(SymbolResolution.Status.AMBIGUOUS,
+                resolver.resolveField("value").status());
+        assertThrows(SymbolResolutionException.class,
+                () -> resolver.resolveField("value").requireUnique());
+    }
+
+    @Test
+    void duplicateShortTypeIsAmbiguousButFqnIsExact() {
+        assertEquals(SymbolResolution.Status.AMBIGUOUS,
+                resolver.resolveType("Duplicate").status());
+        assertEquals(SymbolResolution.Status.EXACT,
+                resolver.resolveType("com.a.Duplicate").status());
+    }
+
+    @Test
+    void moduleAndScopeNarrowAnOtherwiseAmbiguousExactSignature() {
+        assertEquals(SymbolResolution.Status.AMBIGUOUS,
+                resolver.resolveMethod("p.Shared#go()").status());
+        assertEquals(SymbolResolution.Status.AMBIGUOUS,
+                resolver.resolveMethod("p.Shared#go").status());
+
+        resolver.select("m1", "MAIN");
+        assertEquals(List.of("m1::MAIN::p.Shared#go()"),
+                resolver.resolveMethodIds("p.Shared#go()"));
+        assertTrue(resolver.resolveMethodIds("m2::MAIN::p.Shared#go()").isEmpty());
+
+        resolver.select("m1", "TEST");
+        assertEquals(List.of("m1::TEST::p.Shared#go()"),
+                resolver.resolveMethodIds("p.Shared#go()"));
+    }
+
+    @Test
+    void exactStorageKeyCanResolveAnInternalCallableWithoutFuzzyFallback() {
+        assertEquals(List.of(".::MAIN::p.A#run()$lambda@L10C5"),
+                resolver.resolveMethodIds(".::MAIN::p.A#run()$lambda@L10C5"));
+        assertTrue(resolver.resolveMethodIds("p.A#run()$lambda@L99C1").isEmpty());
     }
 
     @Test
@@ -112,6 +177,25 @@ class NodeResolverTest {
         Node n = new Node();
         n.id = id; n.label = label; n.kind = "METHOD"; n.qualifiedName = qn;
         n.pkg = "com.x"; n.sourceFile = "Order.java"; n.sourceLocation = "L2"; n.scope = "MAIN";
+        return n;
+    }
+
+    private static Node methodInSelection(String module, String scope, String symbolId) {
+        String label = symbolId.substring(symbolId.indexOf('#') + 1, symbolId.indexOf('('));
+        Node n = method(module + "::" + scope + "::" + symbolId,
+                label, symbolId.substring(0, symbolId.indexOf('(')));
+        n.symbolId = symbolId;
+        n.module = module;
+        n.scope = scope;
+        return n;
+    }
+
+    private static Node internalCallable(String id, String symbolId, String kind) {
+        Node n = method(id, "lambda", symbolId);
+        n.symbolId = symbolId;
+        n.kind = kind;
+        n.module = ".";
+        n.scope = "MAIN";
         return n;
     }
 

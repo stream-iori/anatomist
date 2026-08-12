@@ -9,7 +9,7 @@ import picocli.CommandLine.Parameters;
 @Command(name = "guards-of", mixinStandardHelpOptions = true,
         description = "Show true/false guard and condition dependencies.")
 public final class GuardsOfFlowCommand extends FlowQueryCommand {
-    @Parameters(index = "0") String method;
+    @Parameters(index = "0", description = "Unique method; use a full signature for overloads.") String method;
     @Option(names = "--limit", defaultValue = "200") int limit;
 
     @Override protected QueryEnvelope execute(FlowQueryService service) {

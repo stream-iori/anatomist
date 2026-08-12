@@ -92,21 +92,39 @@ class AnnotateCommandIT {
     }
 
     @Test
-    void annotate_sourceConvention_rejectedExit1() {
+    void annotate_sourceConvention_rejectedExit2() {
         int rc = runExit("annotate", "com.example.shop.service.OrderService",
                 "--label", "x", "--category", "REVIEWED",
                 "--source", "CONVENTION",
                 "--index", dbPath.toString());
-        assertEquals(1, rc);
+        assertEquals(2, rc);
     }
 
     @Test
-    void annotate_sourceJavadoc_rejectedExit1() {
+    void annotate_sourceJavadoc_rejectedExit2() {
         int rc = runExit("annotate", "com.example.shop.service.OrderService",
                 "--label", "x", "--category", "REVIEWED",
                 "--source", "JAVADOC",
                 "--index", dbPath.toString());
-        assertEquals(1, rc);
+        assertEquals(2, rc);
+    }
+
+    @Test
+    void annotate_exactStorageKeyStillHonorsModuleSelection() throws Exception {
+        String storageId;
+        try (Connection c = openDb()) {
+            storageId = scalar(c, "SELECT id FROM nodes WHERE symbol_id="
+                    + "'com.example.shop.service.OrderService'");
+        }
+        int rc = runExit("annotate", storageId,
+                "--category", "WRONG_MODULE", "--source", "LLM",
+                "--module", "api", "--scope", "MAIN",
+                "--index", dbPath.toString());
+        assertEquals(2, rc);
+        try (Connection c = openDb()) {
+            assertEquals(0, count(c, "SELECT count(*) FROM semantic_annotations "
+                    + "WHERE category='WRONG_MODULE'"));
+        }
     }
 
     @Test
@@ -142,7 +160,7 @@ class AnnotateCommandIT {
                 StandardCharsets.UTF_8);
         int rc = runExit("annotate", "--from-json", batch.toString(),
                 "--index", dbPath.toString());
-        assertEquals(1, rc);
+        assertEquals(2, rc);
     }
 
     private static Connection openDb() throws Exception {

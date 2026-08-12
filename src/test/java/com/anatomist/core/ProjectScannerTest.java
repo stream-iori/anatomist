@@ -67,4 +67,17 @@ class ProjectScannerTest {
         List<Path> files = new ProjectScanner().scan(generated);
         assertTrue(files.isEmpty(), "target generated sources must not be scanned; got " + files);
     }
+
+    @Test
+    void scan_trustsResolvedGeneratedRootWithoutOpeningTargetTree(@TempDir Path tmp) throws Exception {
+        Path generated = Files.createDirectories(tmp.resolve("module/target/generated-sources/annotations"));
+        Path source = generated.resolve("Generated.java");
+        Files.writeString(source, "class Generated {}");
+        Files.writeString(tmp.resolve("module/target/Noise.java"), "class Noise {}");
+
+        SourceRoot root = new SourceRoot(generated, "module", SourceScope.GENERATED);
+        List<Path> files = new ProjectScanner().scanSourceRoots(List.of(root));
+
+        assertEquals(List.of(source), files);
+    }
 }

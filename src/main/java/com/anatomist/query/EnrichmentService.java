@@ -26,14 +26,14 @@ public class EnrichmentService {
     }
 
     public EnrichResult enrichNode(String fqnOrShorthand, int depth, boolean withDocs) {
-        NodeRow node = resolver.resolveNodeRow(fqnOrShorthand);
-        if (node == null) return null;
+        SymbolResolution resolution = resolver.resolveNode(fqnOrShorthand);
+        NodeRow node = resolution.requireUnique();
 
         EnrichResult r = new EnrichResult();
         r.node = node;
 
         int effectiveDepth = Math.max(0, depth);
-        ContextResult ctx = typeContext.context(fqnOrShorthand, effectiveDepth);
+        ContextResult ctx = typeContext.context(node.id, effectiveDepth);
         if (ctx != null) {
             r.members = ctx.members;
             r.annotations = ctx.annotations;
@@ -53,7 +53,7 @@ public class EnrichmentService {
 
         List<NodeRow> types = runNodeQuery(conn,
                 "SELECT " + RowMappers.NODE_COLS
-              + "  FROM nodes n WHERE package = ? AND kind IN ("
+              + "  FROM nodes n WHERE n.package = ? " + resolver.selectorClause("n") + " AND kind IN ("
               + qmarks(GraphConstants.TYPE_KINDS.size()) + ") "
               + " ORDER BY label",
                 concat(List.of(pkg), new ArrayList<>(GraphConstants.TYPE_KINDS)));
@@ -147,7 +147,8 @@ public class EnrichmentService {
             return out;
         }
         if (r.node == null) return out;
-        String q = r.node.qualifiedName;
+        String q = GraphConstants.METHOD_KINDS.contains(r.node.kind)
+                ? r.node.id : r.node.qualifiedName;
         String kind = r.node.kind;
         if (GraphConstants.METHOD_KINDS.contains(kind)) {
             out.add("anatomist callers-of " + q);

@@ -243,8 +243,8 @@ public class SearchService {
     }
 
     public List<NodeRow> implementorsOf(String typeRef, boolean recursive) {
-        List<String> targetIds = resolver.resolveTypeIds(typeRef);
-        if (targetIds.isEmpty()) return Collections.emptyList();
+        SymbolResolution resolution = resolver.resolveType(typeRef);
+        List<String> targetIds = List.of(resolution.requireUnique().id);
         String placeholders = qmarks(targetIds.size());
         String sql;
         if (recursive) {
@@ -269,8 +269,8 @@ public class SearchService {
 
     /** True count of implementors, independent of any LIMIT. */
     public int countImplementorsOf(String typeRef, boolean recursive) {
-        List<String> targetIds = resolver.resolveTypeIds(typeRef);
-        if (targetIds.isEmpty()) return 0;
+        SymbolResolution resolution = resolver.resolveType(typeRef);
+        List<String> targetIds = List.of(resolution.requireUnique().id);
         String placeholders = qmarks(targetIds.size());
         String sql;
         if (recursive) {

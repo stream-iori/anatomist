@@ -18,6 +18,7 @@ import picocli.CommandLine.HelpCommand;
                 "",
                 "@|bold Quick Start:|@",
                 "  anatomist index /path/to/project          Index a Java project",
+                "  anatomist skill topics                   Choose Agent task guidance",
                 "  anatomist doctor --format json            Check CLI/schema/index",
                 "  anatomist index . --format json           Build index JSON summary",
                 "  anatomist survey-baseline . --format json Structural baseline",
@@ -35,6 +36,7 @@ import picocli.CommandLine.HelpCommand;
         commandListHeading = "%n@|bold Commands:|@%n",
         subcommands = {
                 HelpCommand.class,
+                SkillCommand.class,
                 IndexCommand.class,
                 IndexDocsCommand.class,
                 WatchCommand.class,

@@ -14,6 +14,7 @@ import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,28 +46,41 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
                     super.visit(n, arg);
                     return;
                 }
-                String basePath = SpringAnnotationSupport.first(n.getAnnotations(), Set.of("RequestMapping"))
-                        .map(a -> firstPath(a, ""))
-                        .orElse("");
+                List<String> basePaths = SpringAnnotationSupport.first(
+                                n.getAnnotations(), Set.of("RequestMapping"))
+                        .map(SpringMvcAnalyzer::paths)
+                        .orElse(List.of(""));
                 for (MethodDeclaration m : n.getMethods()) {
-                    emitRoute(basePath, m, sourceFile, result);
+                    emitRoutes(basePaths, m, sourceFile, result);
                 }
                 super.visit(n, arg);
             }
         }.visit(unit, null);
     }
 
-    private void emitRoute(String basePath, MethodDeclaration method, String sourceFile, ExtractionResult result) {
+    private void emitRoutes(List<String> basePaths, MethodDeclaration method,
+                            String sourceFile, ExtractionResult result) {
         Optional<AnnotationExpr> mapping = SpringAnnotationSupport.first(method.getAnnotations(), MAPPINGS);
         if (mapping.isEmpty()) return;
         ResolvedMethodDeclaration resolved;
         try { resolved = method.resolve(); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         String methodId = ctx.idGenerator().forMethod(resolved);
-        String httpMethod = httpMethod(mapping.get());
-        String methodPath = firstPath(mapping.get(), "");
-        String fullPath = SpringAnnotationSupport.joinPaths(basePath, methodPath);
-        String routeId = routeId(httpMethod, fullPath);
+        for (String basePath : basePaths) {
+            for (String methodPath : paths(mapping.get())) {
+                String fullPath = SpringAnnotationSupport.joinPaths(basePath, methodPath);
+                for (String httpMethod : httpMethods(mapping.get())) {
+                    emitRoute(mapping.get(), method, methodId, httpMethod, fullPath,
+                            sourceFile, result);
+                }
+            }
+        }
+    }
+
+    private void emitRoute(AnnotationExpr mapping, MethodDeclaration method, String methodId,
+                           String httpMethod, String fullPath, String sourceFile,
+                           ExtractionResult result) {
+        String routeId = routeId(httpMethod, fullPath, methodId);
 
         Node route = new Node();
         route.id = routeId;
@@ -76,7 +90,11 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
         route.sourceFile = sourceFile;
         route.sourceLocation = "L" + lineOf(method);
         route.scope = GraphConstants.Scope.MAIN;
-        route.metadata = Json.writeCompact(routeMetadata(mapping.get(), method));
+        Map<String, Object> metadata = routeMetadata(mapping, method);
+        metadata.put("httpMethod", httpMethod);
+        metadata.put("path", fullPath);
+        metadata.put("handler", methodId);
+        route.metadata = Json.writeCompact(metadata);
         result.nodes.add(route);
 
         Edge handles = new Edge();
@@ -119,30 +137,34 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
         if (values != null && !values.isEmpty()) meta.put(key, values);
     }
 
-    private static String firstPath(AnnotationExpr ann, String defaultValue) {
+    private static List<String> paths(AnnotationExpr ann) {
         List<String> values = SpringAnnotationSupport.stringListAttribute(ann, "value");
         if (values.isEmpty()) values = SpringAnnotationSupport.stringListAttribute(ann, "path");
-        return values.isEmpty() ? defaultValue : values.get(0);
+        return values.isEmpty() ? List.of("") : new ArrayList<>(new LinkedHashSet<>(values));
     }
 
-    private static String httpMethod(AnnotationExpr ann) {
-        return switch (SpringAnnotationSupport.simpleName(ann)) {
+    private static List<String> httpMethods(AnnotationExpr ann) {
+        String fixed = switch (SpringAnnotationSupport.simpleName(ann)) {
             case "GetMapping" -> "GET";
             case "PostMapping" -> "POST";
             case "PutMapping" -> "PUT";
             case "DeleteMapping" -> "DELETE";
             case "PatchMapping" -> "PATCH";
-            default -> {
-                String method = SpringAnnotationSupport.stringAttribute(ann, "method");
-                if (method == null) yield "ANY";
-                int dot = method.lastIndexOf('.');
-                yield dot >= 0 ? method.substring(dot + 1) : method;
-            }
+            default -> null;
         };
+        if (fixed != null) return List.of(fixed);
+        List<String> values = SpringAnnotationSupport.stringListAttribute(ann, "method");
+        if (values.isEmpty()) return List.of("ANY");
+        LinkedHashSet<String> methods = new LinkedHashSet<>();
+        for (String value : values) {
+            int dot = value.lastIndexOf('.');
+            methods.add((dot >= 0 ? value.substring(dot + 1) : value).toUpperCase());
+        }
+        return new ArrayList<>(methods);
     }
 
-    private static String routeId(String method, String path) {
-        return "route:" + method + " " + path;
+    private static String routeId(String method, String path, String handlerMethodId) {
+        return "route:" + method + " " + path + "|handler:" + handlerMethodId;
     }
 
     private static int lineOf(com.github.javaparser.ast.Node node) {

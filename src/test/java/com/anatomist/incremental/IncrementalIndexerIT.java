@@ -538,13 +538,15 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM nodes WHERE symbol_id='route:GET /api/orders/ping' "
+                    "SELECT count(*) FROM nodes WHERE symbol_id="
+                            + "'route:GET /api/orders/ping|handler:com.example.shop.controller.OrderController#ping()' "
                             + "AND kind='ROUTE'"));
             assertEquals(1, scalar(st,
                     "SELECT count(*) FROM edges e "
                             + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
                             + "WHERE e.relation='HANDLES' "
-                            + "AND s.symbol_id='route:GET /api/orders/ping' "
+                            + "AND s.symbol_id="
+                            + "'route:GET /api/orders/ping|handler:com.example.shop.controller.OrderController#ping()' "
                             + "AND t.symbol_id='com.example.shop.controller.OrderController#ping()'"));
         }
     }

@@ -26,8 +26,8 @@ public class TypeContextService {
     }
 
     public ContextResult context(String fqnOrShorthand, int withCalleesDepth) {
-        NodeRow node = resolver.resolveNodeRow(fqnOrShorthand);
-        if (node == null) return null;
+        SymbolResolution resolution = resolver.resolveNode(fqnOrShorthand);
+        NodeRow node = resolution.requireUnique();
 
         ContextResult r = new ContextResult();
         r.node = node;
@@ -92,10 +92,9 @@ public class TypeContextService {
     }
 
     public HierarchyResult hierarchy(String typeRef) {
-        List<String> seeds = resolver.resolveTypeIds(typeRef);
         HierarchyResult h = new HierarchyResult();
-        if (seeds.isEmpty()) return h;
-
+        SymbolResolution resolution = resolver.resolveType(typeRef);
+        List<String> seeds = List.of(resolution.requireUnique().id);
         String seed = seeds.get(0);
         NodeRow self = resolver.readNodeById(seed);
         if (self == null) return h;

@@ -40,7 +40,9 @@ public class DependencyService {
     }
 
     public List<EdgeRow> usedBy(String typeRef) {
-        List<String> targets = expandTypeToMembers(typeRef);
+        SymbolResolution resolution = resolver.resolveType(typeRef);
+        List<String> targets = resolution.status() == SymbolResolution.Status.NOT_FOUND
+                ? List.of() : expandTypeToMembers(resolution);
         List<EdgeRow> result = new ArrayList<>();
         if (!targets.isEmpty()) {
             String ph = qmarks(targets.size());
@@ -52,7 +54,11 @@ public class DependencyService {
                     + " ORDER BY e.relation, e.source_id";
             result.addAll(runEdgeQuery(conn, sql, new ArrayList<>(targets)));
         }
-        result.addAll(externalUsedBy(typeRef));
+        List<EdgeRow> external = externalUsedBy(typeRef);
+        result.addAll(external);
+        if (resolution.status() == SymbolResolution.Status.NOT_FOUND && external.isEmpty()) {
+            resolution.requireUnique();
+        }
         return result;
     }
 
@@ -109,8 +115,8 @@ public class DependencyService {
     }
 
     private List<EdgeRow> fieldEdgeQuery(String fieldRef, String relation) {
-        List<String> fieldIds = resolver.resolveFieldIds(fieldRef);
-        if (fieldIds.isEmpty()) return Collections.emptyList();
+        SymbolResolution resolution = resolver.resolveField(fieldRef);
+        List<String> fieldIds = List.of(resolution.requireUnique().id);
         String ph = qmarks(fieldIds.size());
         String sql = "SELECT " + RowMappers.edgeColsFlat("1")
                 + RowMappers.EDGE_FROM_JOINS
@@ -146,8 +152,12 @@ public class DependencyService {
     }
 
     private List<String> expandTypeToMembers(String typeRef) {
-        List<String> typeIds = resolver.resolveTypeIds(typeRef);
-        if (typeIds.isEmpty()) return Collections.emptyList();
+        SymbolResolution resolution = resolver.resolveType(typeRef);
+        return expandTypeToMembers(resolution);
+    }
+
+    private List<String> expandTypeToMembers(SymbolResolution resolution) {
+        List<String> typeIds = List.of(resolution.requireUnique().id);
         List<String> all = new ArrayList<>(typeIds);
         String ph = qmarks(typeIds.size());
         try (PreparedStatement ps = conn.prepareStatement(

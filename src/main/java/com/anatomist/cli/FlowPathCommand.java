@@ -2,6 +2,8 @@ package com.anatomist.cli;
 
 import com.anatomist.query.FlowQueryService;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryService;
+import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -48,7 +50,19 @@ public final class FlowPathCommand extends FlowQueryCommand {
     }
 
     @Override protected String coverageSuggestion() {
-        return "anatomist flow-materialize " + source + " " + target
-                + " --depth " + depth + " --index " + IndexPath.resolve(index);
+        try (QueryService query = new QueryService(IndexPath.resolve(index))) {
+            query.selectNodes(module, scope);
+            String exactSource = query.resolveMethod(source).requireUnique().symbolId;
+            String exactTarget = query.resolveMethod(target).requireUnique().symbolId;
+            java.util.List<String> args = new java.util.ArrayList<>(java.util.List.of(
+                    "anatomist", "flow-materialize", exactSource, exactTarget,
+                    "--depth", String.valueOf(depth)));
+            Disclosure.addOption(args, "--module", module);
+            Disclosure.addOption(args, "--scope", scope);
+            Disclosure.addOption(args, "--index", IndexPath.resolve(index));
+            return Disclosure.renderCommand(args);
+        } catch (SymbolResolutionException ignored) {
+            return null;
+        }
     }
 }

@@ -18,7 +18,7 @@ import java.util.List;
                 + "%n  branches-of OrderService#create --depth 3 --through-callbacks")
 public class BranchesOfCommand extends QueryCommand {
 
-    @Parameters(index = "0", description = "Method FQN (Class#method or pkg.Class.method).")
+    @Parameters(index = "0", description = "Method selector; omitting parameters aggregates only that owner's overload family.")
     String method;
 
     @Option(names = "--depth", description = "Callee traversal depth (1..20, default 1); check stats.depth_truncated for hidden downstream methods.")
@@ -53,6 +53,10 @@ public class BranchesOfCommand extends QueryCommand {
 
     @Override
     protected QueryEnvelope execute(QueryService q) {
+        CliValidation.positive("--depth", depth);
+        CliValidation.nonNegative("--limit", limit);
+        CliValidation.nonNegative("--offset", offset);
+        if (sourceWindow != null) CliValidation.nonNegative("--source-window", sourceWindow);
         List<String> queryArgs = new java.util.ArrayList<>(List.of(
                 "branches-of", method, "--depth", String.valueOf(depth)));
         Disclosure.addFlag(queryArgs, throughCallbacks, "--through-callbacks");
