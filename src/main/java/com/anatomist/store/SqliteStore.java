@@ -84,6 +84,7 @@ public class SqliteStore implements IndexWriter {
             DataWriter.insertEdges(c, result.edges);
             DataWriter.insertAnnotations(c, result.annotations);
             DataWriter.insertSemanticAnnotations(c, result.semanticAnnotations);
+            DataWriter.insertDeclarations(c, result.declarations);
         });
         writer.runAnalyze();
     }

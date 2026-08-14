@@ -12,11 +12,13 @@ public class ExtractionResult {
     public final List<Edge> edges = new ArrayList<>();
     public final List<Annotation> annotations = new ArrayList<>();
     public final List<SemanticAnnotation> semanticAnnotations = new ArrayList<>();
+    public final List<Declaration> declarations = new ArrayList<>();
     public final Map<String, Object> stats = new HashMap<>();
 
     /** Number of graph facts currently retained by this batch. */
     public int factCount() {
-        return nodes.size() + edges.size() + annotations.size() + semanticAnnotations.size();
+        return nodes.size() + edges.size() + annotations.size() + semanticAnnotations.size()
+                + declarations.size();
     }
 
     /** Release all graph facts after a staging flush while preserving aggregate stats. */
@@ -25,5 +27,6 @@ public class ExtractionResult {
         edges.clear();
         annotations.clear();
         semanticAnnotations.clear();
+        declarations.clear();
     }
 }

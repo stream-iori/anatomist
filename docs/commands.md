@@ -121,7 +121,7 @@ It adds non-overlapping top-level children for schema setup, parse/extract, proj
 analysis, graph rewriting, SQLite writes, file-cache/metadata work, dependency
 refresh, `ANALYZE`, and final statistics/health. `full_parse_extract` is further
 split into parser overhead and extractor work; extractor keys identify type,
-field, method, annotation, hierarchy, reference, call-graph, field-access,
+field, method, declaration, annotation, hierarchy, reference, call-graph, field-access,
 reflection, framework-analyzer, and source-origin costs. Parent and nested measurements
 overlap by design and must not all be summed together.
 
@@ -471,6 +471,95 @@ anatomist search <term> --count --index <db>
 - `--name '<glob>'`: precise simple-name match against the label only (`*`/`?` globs, e.g. `--name '*Plugin'`). Bypasses FTS — use this to count/enumerate a naming pattern.
 - `--count`: return only the true total (results omitted), **independent of `--limit`**. Works with `--name` or FTS.
 - Search output always reports `stats.total`, `stats.limit`, `stats.offset`, `stats.truncated`, and `budget`, including the first page. Continue with `next_queries` when `stats.truncated=true`.
+
+### `declarations-of`
+
+Enumerate Java declarations already extracted from one parsed source file. The
+query is read-only and never scans source text.
+
+```bash
+anatomist declarations-of \
+  --file src/main/java/com/example/AuthenticationService.java \
+  [--scope MAIN|TEST|GENERATED|ALL] [--module <name>] \
+  [--visibility public,protected,private,package] \
+  [--kind type,method,constructor] \
+  [--top-level-types] [--direct-members] [--include-synthetic] \
+  [--limit 100] [--offset 0] [--format json] --index <db>
+```
+
+| Field/flag | Contract |
+|---|---|
+| `symbol_id` | Stable logical symbol accepted by other Anatomist queries; overloads include the full parameter signature |
+| `declaration_kind` | `type`, `method`, or `constructor`; callers never infer constructors from names |
+| `type_kind` | `class`, `interface`, `enum`, `record`, or `annotation` for type rows |
+| `modifiers` | Effective Java modifiers; `declared_modifiers` and `implicit_modifiers` preserve provenance |
+| `visibility` | Effective `public`, `protected`, `private`, or `package` visibility |
+| `nesting_depth` | Top-level type is 0; its direct callables/nested types are 1 |
+| `direct_member` | True only for a callable directly owned by a top-level type |
+| `--top-level-types` | Filters nested type rows only |
+| `--direct-members` | Filters method/constructor rows to direct members of top-level types |
+
+`--file` must be a normalized, project-relative `.java` path. Defaults enumerate
+all explicit source declarations, including private/package declarations, but
+exclude synthesized declarations. Filters are SQL predicates over persisted AST
+facts. Pagination always reports `stats` and `budget` truncation independently.
+
+Fail-closed evidence errors return exit code 3 with empty `results`,
+`coverage=incomplete`, and `negative_conclusion_safe=false`. Stable codes are
+`INDEX_MISSING`, `SCHEMA_MISMATCH`, `INDEX_STALE`, `FILE_NOT_INDEXED`,
+`FILE_PARSE_FAILED`, `DECLARATION_COVERAGE_INCOMPLETE`, and
+`GRAPH_INTEGRITY_FAILED`.
+
+Diorama-ready example:
+
+```json
+{
+  "query": "declarations-of --file src/main/java/com/example/AuthenticationService.java --scope MAIN --visibility public,protected --kind type,method --top-level-types --direct-members --limit 100",
+  "results": [
+    {
+      "symbol_id": "com.example.AuthenticationService",
+      "qualified_name": "com.example.AuthenticationService",
+      "label": "AuthenticationService",
+      "kind": "CLASS",
+      "declaration_kind": "type",
+      "type_kind": "class",
+      "visibility": "public",
+      "modifiers": ["public"],
+      "declared_modifiers": ["public"],
+      "implicit_modifiers": [],
+      "source_file": "src/main/java/com/example/AuthenticationService.java",
+      "source_location": "L8",
+      "module": ".",
+      "scope": "MAIN",
+      "nesting_depth": 0,
+      "direct_member": false,
+      "synthetic": false
+    },
+    {
+      "symbol_id": "com.example.AuthenticationService#authenticate()",
+      "qualified_name": "com.example.AuthenticationService#authenticate",
+      "label": "authenticate",
+      "kind": "METHOD",
+      "declaration_kind": "method",
+      "visibility": "public",
+      "modifiers": ["public"],
+      "declared_modifiers": ["public"],
+      "implicit_modifiers": [],
+      "declaring_type": "com.example.AuthenticationService",
+      "source_file": "src/main/java/com/example/AuthenticationService.java",
+      "source_location": "L12",
+      "module": ".",
+      "scope": "MAIN",
+      "nesting_depth": 1,
+      "direct_member": true,
+      "synthetic": false
+    }
+  ],
+  "stats": {"total": 2, "offset": 0, "limit": 100, "truncated": false},
+  "budget": {"mode": "rows", "emitted": 2, "total": 2, "truncated": false},
+  "evidence": {"status": "positive", "coverage": "complete", "negative_conclusion_safe": true}
+}
+```
 
 ### `context`
 Show node structure + optional enrichment.

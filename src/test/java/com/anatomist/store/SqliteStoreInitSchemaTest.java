@@ -31,12 +31,14 @@ class SqliteStoreInitSchemaTest {
         assertTrue(tables.contains("nodes"), "missing table nodes; got " + tables);
         assertTrue(tables.contains("edges"));
         assertTrue(tables.contains("annotations"));
+        assertTrue(tables.contains("declarations"));
         assertTrue(tables.contains("node_names"));
 
         Set<String> indexes = listObjects(store.connection(), "index");
         assertTrue(indexes.contains("idx_nodes_kind"), "missing idx_nodes_kind; got " + indexes);
         assertTrue(indexes.contains("idx_edges_source_id"));
         assertTrue(indexes.contains("idx_annotations_fqn"));
+        assertTrue(indexes.contains("idx_declarations_file"));
     }
 
     @Test

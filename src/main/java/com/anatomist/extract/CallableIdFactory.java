@@ -78,6 +78,13 @@ public final class CallableIdFactory {
         return signature(resolved, declaration.getParameters(), declaration);
     }
 
+    public static String signature(ConstructorDeclaration declaration) {
+        ResolvedConstructorDeclaration resolved = null;
+        try { resolved = declaration.resolve(); }
+        catch (RuntimeException ignore) { }
+        return signature(resolved, declaration.getParameters(), declaration);
+    }
+
     private static String forMethod(NodeIdGenerator generator,
                                     ResolvedMethodDeclaration resolved,
                                     MethodDeclaration declaration) {
@@ -119,18 +126,24 @@ public final class CallableIdFactory {
         if (resolved != null) {
             try {
                 String type = NodeIdGenerator.erasedTypeDescribe(resolved.getParam(index).getType());
-                if (usable(type)) return type;
+                if (usable(type)) return varargs(type, parameters, index);
             } catch (RuntimeException ignore) { }
         }
         if (index < parameters.size()) {
             String type = AstTypeNames.of(parameters.get(index).getType(), parameters.get(index));
-            if (usable(type)) return type;
+            if (usable(type)) return varargs(type, parameters, index);
             String lexical = removeAsciiRegexWhitespace(
                     parameters.get(index).getTypeAsString());
-            if (!lexical.isBlank()) return "?" + lexical;
+            if (!lexical.isBlank()) return varargs("?" + lexical, parameters, index);
         }
         int line = declaration.getBegin().map(p -> p.line).orElse(0);
         return "?param" + index + "@L" + line;
+    }
+
+    private static String varargs(String type, List<Parameter> parameters, int index) {
+        if (index >= parameters.size() || !parameters.get(index).isVarArgs()) return type;
+        if (type.endsWith("[]")) return type.substring(0, type.length() - 2) + "...";
+        return type + "...";
     }
 
     private static boolean usable(String type) {

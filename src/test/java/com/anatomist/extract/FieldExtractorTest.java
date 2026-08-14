@@ -89,7 +89,8 @@ class FieldExtractorTest {
                 .map(n -> n.id).collect(Collectors.toSet());
         assertTrue(methods.contains("pkg.Point#x()"), methods.toString());
         assertTrue(methods.contains("pkg.Point#y()"), methods.toString());
-        assertTrue(methods.contains("pkg.Point#Point(int,int)"), methods.toString());
+        assertTrue(r.nodes.stream().anyMatch(n -> "CONSTRUCTOR".equals(n.kind)
+                && "pkg.Point#Point(int,int)".equals(n.id)), r.nodes.toString());
     }
 
     @Test

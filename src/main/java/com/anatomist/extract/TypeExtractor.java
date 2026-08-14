@@ -153,7 +153,7 @@ public class TypeExtractor implements Extractor {
     private static String kindOf(TypeDeclaration<?> decl, ResolvedReferenceTypeDeclaration rt) {
         if (decl instanceof EnumDeclaration) return GraphConstants.Kind.ENUM;
         if (decl instanceof RecordDeclaration) return GraphConstants.Kind.RECORD;
-        if (decl instanceof AnnotationDeclaration) return GraphConstants.Kind.INTERFACE; // annotations stored as INTERFACE per Phase 1 kind set
+        if (decl instanceof AnnotationDeclaration) return GraphConstants.Kind.ANNOTATION;
         if (rt.isInterface()) return GraphConstants.Kind.INTERFACE;
         return GraphConstants.Kind.CLASS;
     }

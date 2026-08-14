@@ -4,6 +4,7 @@ import com.anatomist.json.Json;
 
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.model.Edge;
+import com.anatomist.model.Declaration;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
@@ -13,6 +14,7 @@ import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedEnumConstantDeclaration;
@@ -96,6 +98,9 @@ public class FieldExtractor implements Extractor {
 
             if (!hasExplicitAccessor(decl, name)) {
                 emitRecordAccessor(rt, classId, name, typeDesc, sourceFile, n.sourceLocation, result);
+                emitSyntheticDeclaration(methodDeclaration(classId, name + "()", name,
+                        GraphConstants.Kind.METHOD, "method", "public", sourceFile, n.sourceLocation,
+                        typeDepth(decl) + 1, typeDepth(decl) == 0), result);
             }
 
             if (ctorParams.length() > 0) ctorParams.append(',');
@@ -112,7 +117,7 @@ public class FieldExtractor implements Extractor {
         Node ctor = new Node();
         ctor.id = ctorId;
         ctor.label = simple;
-        ctor.kind = GraphConstants.Kind.METHOD;
+        ctor.kind = GraphConstants.Kind.CONSTRUCTOR;
         ctor.qualifiedName = rt.getQualifiedName() + "#" + simple;
         ctor.pkg = rt.getPackageName();
         ctor.sourceFile = sourceFile;
@@ -126,6 +131,10 @@ public class FieldExtractor implements Extractor {
         ctor.metadata = Json.writeCompact(cmeta);
         result.nodes.add(ctor);
         result.edges.add(containsEdge(classId, ctorId, sourceFile, ctor.sourceLocation));
+        String visibility = visibilityOf(decl);
+        emitSyntheticDeclaration(methodDeclaration(classId, simple + "(" + ctorParams + ")", simple,
+                GraphConstants.Kind.CONSTRUCTOR, "constructor", visibility, sourceFile, ctor.sourceLocation,
+                typeDepth(decl) + 1, typeDepth(decl) == 0), result);
     }
 
     private void emitRecordAccessor(ResolvedReferenceTypeDeclaration record,
@@ -178,6 +187,54 @@ public class FieldExtractor implements Extractor {
             if (recordParams.equals(constructorParams)) return true;
         }
         return false;
+    }
+
+    private Declaration methodDeclaration(String owner, String suffix, String label, String kind,
+                                          String declarationKind, String visibility, String sourceFile,
+                                          String sourceLocation, int nestingDepth, boolean directMember) {
+        Declaration declaration = new Declaration();
+        declaration.symbolId = owner + "#" + suffix;
+        declaration.qualifiedName = owner + "#" + label;
+        declaration.label = label;
+        declaration.kind = kind;
+        declaration.declarationKind = declarationKind;
+        declaration.visibility = visibility;
+        declaration.modifiers = "package".equals(visibility) ? java.util.List.of() : java.util.List.of(visibility);
+        declaration.declaredModifiers = java.util.List.of();
+        declaration.implicitModifiers = declaration.modifiers;
+        declaration.declaringType = owner;
+        declaration.sourceFile = sourceFile;
+        declaration.sourceLocation = sourceLocation;
+        declaration.module = ctx.module();
+        declaration.scope = ctx.scope();
+        declaration.nestingDepth = nestingDepth;
+        declaration.directMember = directMember;
+        declaration.synthetic = true;
+        declaration.bindingResolved = true;
+        return declaration;
+    }
+
+    private static void emitSyntheticDeclaration(Declaration declaration, ExtractionResult result) {
+        result.declarations.add(declaration);
+    }
+
+    private static String visibilityOf(RecordDeclaration declaration) {
+        if (declaration.isPublic()) return "public";
+        if (declaration.isProtected()) return "protected";
+        if (declaration.isPrivate()) return "private";
+        TypeDeclaration<?> owner = declaration.findAncestor(TypeDeclaration.class).orElse(null);
+        if (owner instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration c && c.isInterface()
+                || owner instanceof com.github.javaparser.ast.body.AnnotationDeclaration) return "public";
+        return "package";
+    }
+
+    private static int typeDepth(TypeDeclaration<?> declaration) {
+        int depth = 0;
+        com.github.javaparser.ast.Node cursor = declaration;
+        while ((cursor = cursor.getParentNode().orElse(null)) != null) {
+            if (cursor instanceof TypeDeclaration<?>) depth++;
+        }
+        return depth;
     }
 
     private void emitField(FieldDeclaration decl, VariableDeclarator var,

@@ -31,6 +31,7 @@ public class ExtractorPipeline {
                 new TimedExtractor("full_extract_type", new TypeExtractor(ctx)),
                 new TimedExtractor("full_extract_field", new FieldExtractor(ctx)),
                 new TimedExtractor("full_extract_method", new MethodExtractor(ctx)),
+                new TimedExtractor("full_extract_declaration", new DeclarationExtractor(ctx)),
                 new TimedExtractor("full_extract_annotation", new AnnotationExtractor(ctx)),
                 new TimedExtractor("full_extract_hierarchy", new HierarchyExtractor(ctx)),
                 new TimedExtractor("full_extract_reference", new ReferenceExtractor(ctx)),

@@ -57,6 +57,9 @@ public class QueryService implements AutoCloseable {
                             + ", required " + IndexSchema.VERSION + "; re-index required");
                 }
             }
+            try (java.sql.Statement st = conn.createStatement()) {
+                st.execute("PRAGMA query_only=ON");
+            }
         } catch (SQLException e) {
             lock.close();
             throw new RuntimeException("Failed to open index db: " + dbPath, e);

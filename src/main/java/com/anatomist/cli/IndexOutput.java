@@ -56,7 +56,9 @@ final class IndexOutput {
         }
         stats.put("types", types);
         stats.put("classes", kinds.getOrDefault(GraphConstants.Kind.CLASS, 0L));
-        stats.put("methods", kinds.getOrDefault(GraphConstants.Kind.METHOD, 0L));
+        stats.put("methods", kinds.getOrDefault(GraphConstants.Kind.METHOD, 0L)
+                + kinds.getOrDefault(GraphConstants.Kind.CONSTRUCTOR, 0L));
+        stats.put("constructors", kinds.getOrDefault(GraphConstants.Kind.CONSTRUCTOR, 0L));
         stats.put("fields", kinds.getOrDefault(GraphConstants.Kind.FIELD, 0L));
         stats.put("beans", kinds.getOrDefault(GraphConstants.Kind.BEAN, 0L));
         stats.put("unresolved", result.unresolvedCount());

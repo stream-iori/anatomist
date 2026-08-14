@@ -13,6 +13,7 @@ import com.anatomist.flow.MethodFlowCoverage;
 import com.anatomist.flow.MethodFlowSummary;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Edge;
+import com.anatomist.model.Declaration;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
@@ -66,7 +67,17 @@ public final class StagedGraphStore implements AutoCloseable {
         try {
             boolean existing = reusable && Files.isRegularFile(path) && Files.size(path) > 0;
             if (!reusable) Files.deleteIfExists(path);
-            if (existing) reset(); else initSchema(connection());
+            if (existing) {
+                try {
+                    reset();
+                } catch (SQLException incompatibleStage) {
+                    closeConnection();
+                    Files.deleteIfExists(path);
+                    initSchema(connection());
+                }
+            } else {
+                initSchema(connection());
+            }
         } catch (Exception e) {
             closeConnection();
             try { Files.deleteIfExists(path); } catch (Exception ignored) {}
@@ -114,7 +125,8 @@ public final class StagedGraphStore implements AutoCloseable {
             try (PreparedStatement nodes = c.prepareStatement(NODE_INSERT);
                  PreparedStatement edges = c.prepareStatement(EDGE_INSERT);
                  PreparedStatement annotations = c.prepareStatement(ANNOTATION_INSERT);
-                 PreparedStatement semantics = c.prepareStatement(SEMANTIC_INSERT)) {
+                 PreparedStatement semantics = c.prepareStatement(SEMANTIC_INSERT);
+                 PreparedStatement declarations = c.prepareStatement(DECLARATION_INSERT)) {
                 for (Node node : result.nodes) bindNode(nodes, node, normalized);
                 nodes.executeBatch();
                 for (Edge edge : result.edges) bindEdge(edges, edge, normalized);
@@ -125,6 +137,8 @@ public final class StagedGraphStore implements AutoCloseable {
                     bindSemantic(semantics, semantic, nodeSourceFiles.get(semantic.nodeId), normalized);
                 }
                 semantics.executeBatch();
+                for (Declaration declaration : result.declarations) bindDeclaration(declarations, declaration);
+                declarations.executeBatch();
                 c.commit();
             } catch (SQLException e) {
                 c.rollback();
@@ -587,12 +601,16 @@ public final class StagedGraphStore implements AutoCloseable {
                                 + "(source_file IS NULL AND source_id IN "
                                 + "(SELECT id FROM nodes WHERE source_file IN (" + placeholders + ")))");
                  PreparedStatement cache = c.prepareStatement(
-                        "DELETE FROM file_cache WHERE source_file IN (" + placeholders + ")")) {
+                        "DELETE FROM file_cache WHERE source_file IN (" + placeholders + ")");
+                 PreparedStatement declarations = c.prepareStatement(
+                        "DELETE FROM declarations WHERE source_file IN (" + placeholders + ")")) {
                 bindFiles(semantic, files, 1);
                 bindFiles(annotations, files, 1);
                 bindFiles(edges, files, 2);
                 bindFiles(cache, files, 1);
+                bindFiles(declarations, files, 1);
                 semantic.executeUpdate(); annotations.executeUpdate(); edges.executeUpdate(); cache.executeUpdate();
+                declarations.executeUpdate();
             }
         }
         try (Statement statement = c.createStatement()) {
@@ -730,6 +748,32 @@ public final class StagedGraphStore implements AutoCloseable {
         statement.setString(i++, key ? semantic.nodeId : null); statement.addBatch();
     }
 
+    private void bindDeclaration(PreparedStatement statement, Declaration declaration)
+            throws SQLException {
+        SourceIdentity identity = identities.resolve(declaration.sourceFile);
+        int i = 1;
+        statement.setString(i++, declaration.symbolId);
+        statement.setString(i++, declaration.qualifiedName);
+        statement.setString(i++, declaration.label);
+        statement.setString(i++, declaration.kind);
+        statement.setString(i++, declaration.declarationKind);
+        statement.setString(i++, declaration.typeKind);
+        statement.setString(i++, declaration.visibility);
+        statement.setString(i++, com.anatomist.json.Json.writeCompact(declaration.modifiers));
+        statement.setString(i++, com.anatomist.json.Json.writeCompact(declaration.declaredModifiers));
+        statement.setString(i++, com.anatomist.json.Json.writeCompact(declaration.implicitModifiers));
+        statement.setString(i++, declaration.declaringType);
+        statement.setString(i++, declaration.sourceFile);
+        statement.setString(i++, declaration.sourceLocation);
+        statement.setString(i++, identity.module());
+        statement.setString(i++, identity.scope().name());
+        statement.setInt(i++, declaration.nestingDepth);
+        statement.setInt(i++, declaration.directMember ? 1 : 0);
+        statement.setInt(i++, declaration.synthetic ? 1 : 0);
+        statement.setInt(i, declaration.bindingResolved ? 1 : 0);
+        statement.addBatch();
+    }
+
     private static String symbolOf(Node node) {
         if (node.symbolId != null) return node.symbolId;
         return NodeKeyFactory.isKey(node.id) ? NodeKeyFactory.symbolId(node.id) : node.id;
@@ -766,6 +810,7 @@ public final class StagedGraphStore implements AutoCloseable {
     }
 
     private static void clearGraph(Statement statement) throws SQLException {
+        statement.executeUpdate("DELETE FROM declarations");
         statement.executeUpdate("DELETE FROM semantic_annotations");
         statement.executeUpdate("DELETE FROM annotations");
         statement.executeUpdate("DELETE FROM edges");
@@ -792,6 +837,13 @@ public final class StagedGraphStore implements AutoCloseable {
     }
 
     private static void insertFactsFromStage(Statement statement) throws SQLException {
+        statement.executeUpdate("INSERT OR REPLACE INTO declarations(symbol_id,qualified_name,label,kind,"
+                + "declaration_kind,type_kind,visibility,modifiers,declared_modifiers,implicit_modifiers,"
+                + "declaring_type,source_file,source_location,module,scope,nesting_depth,direct_member,synthetic,"
+                + "binding_resolved) SELECT symbol_id,qualified_name,label,kind,declaration_kind,type_kind,visibility,"
+                + "modifiers,declared_modifiers,implicit_modifiers,declaring_type,source_file,source_location,module,"
+                + "scope,nesting_depth,direct_member,synthetic,binding_resolved FROM " + ALIAS
+                + ".stage_declarations ORDER BY seq");
         statement.executeUpdate("INSERT INTO edges(source_id,target_id,external_target_fqn,relation,call_kind,"
                 + "confidence,resolution,context,is_external,source_file,source_location,metadata) SELECT resolved_source,"
                 + "resolved_target,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,source_file,"
@@ -850,6 +902,7 @@ public final class StagedGraphStore implements AutoCloseable {
             statement.executeUpdate("DELETE FROM stage_flow_edges");
             statement.executeUpdate("DELETE FROM stage_flow_nodes");
             statement.executeUpdate("DELETE FROM stage_semantic_annotations");
+            statement.executeUpdate("DELETE FROM stage_declarations");
             statement.executeUpdate("DELETE FROM stage_annotations");
             statement.executeUpdate("DELETE FROM stage_edges");
             statement.executeUpdate("DELETE FROM stage_nodes");
@@ -881,6 +934,10 @@ public final class StagedGraphStore implements AutoCloseable {
     private static final String SEMANTIC_INSERT = "INSERT INTO stage_semantic_annotations(node_ref,doc_id,category,"
             + "business_label,business_description,domain_context,source,confidence,source_file,source_module,"
             + "source_scope,node_is_key,resolved_node) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String DECLARATION_INSERT = "INSERT OR REPLACE INTO stage_declarations(symbol_id,"
+            + "qualified_name,label,kind,declaration_kind,type_kind,visibility,modifiers,declared_modifiers,"
+            + "implicit_modifiers,declaring_type,source_file,source_location,module,scope,nesting_depth,direct_member,"
+            + "synthetic,binding_resolved) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String FLOW_NODE_INSERT = "INSERT OR REPLACE INTO stage_flow_nodes"
             + "(id,method_id,kind,label,source_file,module,scope,line,column_no,callee_method,slot,metadata)"
             + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
@@ -923,6 +980,13 @@ public final class StagedGraphStore implements AutoCloseable {
             "CREATE INDEX stage_nodes_symbol ON stage_nodes(symbol_id)",
             "CREATE INDEX stage_nodes_candidate ON stage_nodes(symbol_id,source_file,module,scope)",
             "CREATE INDEX stage_nodes_arity ON stage_nodes(arity_key)",
+            "CREATE TABLE stage_declarations(seq INTEGER PRIMARY KEY AUTOINCREMENT,symbol_id TEXT NOT NULL,"
+                    + "qualified_name TEXT NOT NULL,label TEXT NOT NULL,kind TEXT NOT NULL,declaration_kind TEXT NOT NULL,"
+                    + "type_kind TEXT,visibility TEXT NOT NULL,modifiers TEXT NOT NULL,declared_modifiers TEXT NOT NULL,"
+                    + "implicit_modifiers TEXT NOT NULL,declaring_type TEXT,source_file TEXT NOT NULL,source_location TEXT,"
+                    + "module TEXT NOT NULL,scope TEXT NOT NULL,nesting_depth INTEGER NOT NULL,direct_member INTEGER NOT NULL,"
+                    + "synthetic INTEGER NOT NULL,binding_resolved INTEGER NOT NULL,"
+                    + "UNIQUE(symbol_id,module,scope,source_file))",
             "CREATE TABLE stage_edges(seq INTEGER PRIMARY KEY AUTOINCREMENT,source_ref TEXT,target_ref TEXT,"
                     + "external_target_fqn TEXT,relation TEXT,call_kind TEXT,confidence TEXT,resolution TEXT,context TEXT,"
                     + "is_external INTEGER,source_file TEXT,source_location TEXT,metadata TEXT,source_module TEXT,"

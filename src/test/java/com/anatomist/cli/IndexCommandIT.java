@@ -310,6 +310,7 @@ class IndexCommandIT {
              Statement st = c.createStatement()) {
             int classes  = scalar(st, "SELECT count(*) FROM nodes WHERE kind='CLASS'");
             int methods  = scalar(st, "SELECT count(*) FROM nodes WHERE kind='METHOD'");
+            int constructors = scalar(st, "SELECT count(*) FROM nodes WHERE kind='CONSTRUCTOR'");
             int contains = scalar(st, "SELECT count(*) FROM edges WHERE relation='CONTAINS'");
             int orderSvc = scalar(st,
                     "SELECT count(*) FROM nodes WHERE qualified_name='com.example.shop.service.OrderService'");
@@ -320,7 +321,8 @@ class IndexCommandIT {
 
             // Baseline post-gap-closure; keep these monotonic floors from regressing.
             assertTrue(classes  >= 4, "expected ≥4 CLASS nodes; got "  + classes);
-            assertTrue(methods  >= 47, "expected ≥47 METHOD nodes; got " + methods);
+            assertTrue(methods + constructors >= 47,
+                    "expected ≥47 callable nodes; got methods=" + methods + ", constructors=" + constructors);
             assertTrue(contains >= 75, "expected ≥75 CONTAINS edges; got " + contains);
             assertEquals(1, orderSvc,
                     "OrderService node missing or duplicated; got " + orderSvc);

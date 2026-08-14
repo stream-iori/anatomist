@@ -52,6 +52,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 - CLI commands covering: search, context, call chain, hierarchy, dependencies, field access, overview, survey-baseline, annotation
 - Stable Agent contract: index/doctor expose committed state, health dimensions,
   policy gate, and structured classpath quality; queries expose evidence coverage
+- AST-backed `declarations-of --file ...` contract for type/method/constructor discovery without regex parsing
 - Progressive disclosure for large repos: `survey-baseline`, paged search, paged context members, and paged/filtered call chains
 - Source-backed graph slices: `callees-of` / `callers-of` / `call-path --source-window=3` return file/line snippets for Agent evidence
 - Index snapshot metadata in `project_meta`: source root, source paths, index time, git commit/branch/dirty/remote

@@ -87,7 +87,7 @@ public class DoctorCommand implements Callable<Integer> {
         if (freshness.reason() != null) out.put("rebuild_reason", freshness.reason());
         if (freshness.dirtyGeneration() > 0) out.put("dirty_generation", freshness.dirtyGeneration());
         out.put("commands", List.of(
-                "skill", "index", "index-docs", "watch", "search", "context", "callees-of",
+                "skill", "index", "index-docs", "watch", "search", "context", "declarations-of", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline",
                 "flow-of", "flow-path", "flow-materialize", "taint-path", "exception-flow", "guards-of",
@@ -102,6 +102,7 @@ public class DoctorCommand implements Callable<Integer> {
         @SuppressWarnings("unchecked")
         List<String> capabilities = new java.util.ArrayList<>((List<String>) out.get("capabilities"));
         capabilities.add("file-resolution-coverage");
+        capabilities.add("declarations-by-file-v1");
         out.put("capabilities", List.copyOf(capabilities));
 
         if (exists) {
@@ -282,11 +283,15 @@ public class DoctorCommand implements Callable<Integer> {
                 flow.put("progressive", "off".equals(out.get("dataflow_mode"))
                         && stats.detailedMethods() > 0);
                 Map<String, com.anatomist.model.FileCacheEntry> cache = store.readFileCache();
-                List<Path> files = cache.keySet().stream().filter(path -> path.endsWith(".java"))
+                Map<String, com.anatomist.model.FileCacheEntry> javaCache = cache.entrySet().stream()
+                        .filter(entry -> entry.getKey().endsWith(".java"))
+                        .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+                                (left, right) -> left, java.util.LinkedHashMap::new));
+                List<Path> files = javaCache.keySet().stream()
                         .map(Path.of(root)::resolve).filter(Files::isRegularFile).toList();
                 com.anatomist.store.FileCacheService.CandidateScan scan =
                         new com.anatomist.store.FileCacheService().detectChangesFast(
-                                Path.of(root), files, cache, false, null);
+                                Path.of(root), files, javaCache, false, null);
                 if (!scan.changes().isEmpty() && !blockers.contains("INDEX_STALE")) {
                     blockers.add("INDEX_STALE");
                     next.add(indexCommand(root, db, false));

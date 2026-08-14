@@ -185,7 +185,7 @@ public class MethodExtractor implements Extractor {
         Node n = new Node();
         n.id = methodId;
         n.label = r.getName();
-        n.kind = GraphConstants.Kind.METHOD;
+        n.kind = GraphConstants.Kind.CONSTRUCTOR;
         n.qualifiedName = classId + "#" + r.getName();
         n.pkg = declType.getPackageName();
         n.sourceFile = sourceFile;
@@ -231,7 +231,7 @@ public class MethodExtractor implements Extractor {
         Node n = new Node();
         n.id = methodId;
         n.label = name;
-        n.kind = GraphConstants.Kind.METHOD;
+        n.kind = GraphConstants.Kind.CONSTRUCTOR;
         n.qualifiedName = classId + "#" + name;
         n.pkg = pkg;
         n.sourceFile = sourceFile;

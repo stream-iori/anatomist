@@ -25,6 +25,33 @@ CREATE INDEX idx_nodes_source_file ON nodes(source_file);
 CREATE INDEX idx_nodes_module ON nodes(module);
 CREATE INDEX idx_nodes_scope ON nodes(scope);
 
+CREATE TABLE declarations (
+    symbol_id TEXT NOT NULL,
+    qualified_name TEXT NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    declaration_kind TEXT NOT NULL CHECK (declaration_kind IN ('type','method','constructor')),
+    type_kind TEXT CHECK (type_kind IS NULL OR type_kind IN ('class','interface','enum','record','annotation')),
+    visibility TEXT NOT NULL CHECK (visibility IN ('public','protected','private','package')),
+    modifiers TEXT NOT NULL,
+    declared_modifiers TEXT NOT NULL,
+    implicit_modifiers TEXT NOT NULL,
+    declaring_type TEXT,
+    source_file TEXT NOT NULL,
+    source_location TEXT,
+    module TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('MAIN','TEST','GENERATED')),
+    nesting_depth INTEGER NOT NULL,
+    direct_member INTEGER NOT NULL,
+    synthetic INTEGER NOT NULL DEFAULT 0,
+    binding_resolved INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (symbol_id,module,scope,source_file)
+);
+
+CREATE INDEX idx_declarations_file ON declarations(source_file,module,scope);
+CREATE INDEX idx_declarations_filters ON declarations(declaration_kind,visibility,synthetic);
+CREATE INDEX idx_declarations_owner ON declarations(declaring_type);
+
 CREATE TABLE edges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,

@@ -63,6 +63,7 @@ public class SchemaManager {
     public void clearAllData() {
         try (Statement st = connSupplier.get().createStatement()) {
             st.execute("DELETE FROM analysis_coverage");
+            st.execute("DELETE FROM declarations");
             st.execute("DELETE FROM method_flow_coverage");
             st.execute("DELETE FROM method_flow_summaries");
             st.execute("DELETE FROM flow_edges");

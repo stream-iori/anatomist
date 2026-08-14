@@ -10,7 +10,7 @@ public final class GraphConstants {
     public static final Set<String> DECLARED_TYPE_KINDS = Set.of(
             Kind.CLASS, Kind.INTERFACE, Kind.ENUM, Kind.ANNOTATION, Kind.RECORD);
     public static final Set<String> INDEX_SUMMARY_TYPE_KINDS = Set.of(
-            Kind.CLASS, Kind.INTERFACE, Kind.ENUM, Kind.RECORD, Kind.ANONYMOUS_CLASS);
+            Kind.CLASS, Kind.INTERFACE, Kind.ENUM, Kind.ANNOTATION, Kind.RECORD, Kind.ANONYMOUS_CLASS);
     public static final Set<String> METHOD_KINDS = Set.of(Kind.METHOD, Kind.CONSTRUCTOR);
     public static final Set<String> MEMBER_KINDS = Set.of(Kind.METHOD, Kind.CONSTRUCTOR, Kind.FIELD);
     public static final Set<String> FIELD_ACCESS_RELATIONS = Set.of(Relation.READS, Relation.WRITES);

@@ -74,6 +74,14 @@ git submodule 锁版本，vendored 到 `fixtures/external/`，**不联网即跑�
 
 **跳过语义**：每个 @Test 顶部调 `requireSubmodule()` → `assumeTrue(...)`，submodule 未 checkout 时 Surefire 报 `Tests run: 3, Skipped: 3`（不是误导性的 `Tests run: 0`），并在 stderr 打一行接入提示。
 
+### Fixture D — `fixtures/declarations/`（声明契约）
+
+Java 21 小项目，专门锁定 `declarations-of` 的 AST/JSON 契约：公开、保护、
+私有和包可见性，构造器与 compact constructor，重载、泛型、varargs、
+注解与类型注解、多行声明、嵌套 record/annotation、接口隐式修饰符、
+synthetic record accessor、分页、增量替换和 fail-closed evidence。
+`DeclarationsOfCommandIT` 走完整 index → SQLite → CLI 流程。
+
 ## 三、JDK 8 语义边界验证
 
 由于 anatomist 跑在 JDK 21、索引 JDK 8 源码，必须显式断言以下不被"提升解析"：

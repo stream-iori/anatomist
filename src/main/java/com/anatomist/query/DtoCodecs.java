@@ -33,6 +33,7 @@ public final class DtoCodecs {
 
     private static void registerAll() {
         JsonCodecRegistry.register(NodeRow.class, NODE_ROW);
+        JsonCodecRegistry.register(DeclarationRow.class, DECLARATION_ROW);
         JsonCodecRegistry.register(EdgeRow.class, EDGE_ROW);
         JsonCodecRegistry.register(SourceWindow.class, SOURCE_WINDOW);
         JsonCodecRegistry.register(HierarchyResult.Entry.class, HIERARCHY_ENTRY);
@@ -83,6 +84,21 @@ public final class DtoCodecs {
             return m;
         }
         @Override public NodeRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
+    };
+
+    private static final JsonCodec<DeclarationRow> DECLARATION_ROW = new JsonCodec<>() {
+        @Override public Object toTree(DeclarationRow d) {
+            Map<String, Object> m = obj();
+            put(m, "symbol_id", d.symbolId); put(m, "qualified_name", d.qualifiedName);
+            put(m, "label", d.label); put(m, "kind", d.kind); put(m, "declaration_kind", d.declarationKind);
+            put(m, "type_kind", d.typeKind); put(m, "visibility", d.visibility); put(m, "modifiers", d.modifiers);
+            put(m, "declared_modifiers", d.declaredModifiers); put(m, "implicit_modifiers", d.implicitModifiers);
+            put(m, "declaring_type", d.declaringType); put(m, "source_file", d.sourceFile);
+            put(m, "source_location", d.sourceLocation); put(m, "module", d.module); put(m, "scope", d.scope);
+            put(m, "nesting_depth", d.nestingDepth); put(m, "direct_member", d.directMember);
+            put(m, "synthetic", d.synthetic); return m;
+        }
+        @Override public DeclarationRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };
 
     private static final JsonCodec<EdgeRow> EDGE_ROW = new JsonCodec<>() {

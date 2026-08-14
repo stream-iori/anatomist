@@ -12,6 +12,8 @@ Use this guide for every independent static-analysis session.
    described current source.
 5. Load exactly one relevant scene from `skill topics`, then read each selected
    query command's `--help` before execution.
+6. For declaration seeds from known files, use `declarations-of`; do not infer
+   Java declarations with source-text regular expressions.
 
 Interpret evidence conservatively:
 

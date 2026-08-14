@@ -43,7 +43,14 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node Identity (schema v12)
+## Node Identity and declarations (schema v13)
+
+Schema v13 adds the `declarations` table and the
+`declarations-by-file-v1` capability. A v12 index must be rebuilt; no migration
+or compatibility read path is provided. Declaration rows preserve AST-derived
+kind, effective/declared/implicit modifiers, visibility, lexical ownership,
+nesting, source location, module, and scope. Query-time declaration discovery
+uses this table only.
 
 Every node stores both a logical symbol and a globally unique storage key:
 
@@ -71,6 +78,7 @@ or compatibility read path.
 ```
 CLASS/INTERFACE/ENUM/RECORD: FQN as-is                               → com.example.OrderService
 METHOD:                 classFQN + # + name + (erased-signature)     → com.example.OrderService#checkout(java.lang.String,java.util.List)
+CONSTRUCTOR:            classFQN + # + typeName + (erased-signature) → com.example.OrderService#OrderService(java.lang.String)
 FIELD:                  classFQN + # + fieldName (no parens = field)  → com.example.OrderService#orderRepo
 ENUM_CONSTANT:          enumFQN + # + constantName                   → com.example.OrderStatus#PENDING
 ANONYMOUS_CLASS:        parentMethodID + $anon@L<line>C<col>         → com.example.OrderService#checkout(...)$anon@L42C18
@@ -87,6 +95,7 @@ XML_*:                  parent XML id + segment + source location      → bean:
 | Storage key includes module + scope | Main/test/generated and multi-module duplicate FQNs remain distinct |
 | Preserve case | `com.example.Order` (class) vs `com.example.order` (subpackage) must not collide |
 | Method uses full erased signature | Overload disambiguation; derived from `erasure().describe()` |
+| Varargs retain `...` | Stable distinction in the public declaration symbol contract |
 | AST-aware parameter fallback | Unresolved parameter types use normalized source/import information instead of collapsing overloads to `<unresolved>` |
 | Fact provenance | Java AST edges and annotations carry the originating `source_file`; synthetic edges inherit it from their source node |
 | `#` separates class from member | Java doc convention; no parens = field, with parens = method |
@@ -279,7 +288,7 @@ later source-level detail is unavailable.
 | `details_truncated` | Whether detail samples were truncated |
 
 Query safety is derived from this table, not from the bounded
-`index_diagnostics` sample. Schema v12 has no migration path; older indexes
+`index_diagnostics` sample. Schema v13 has no migration path; older indexes
 must be rebuilt.
 
 ## Core reflection facts

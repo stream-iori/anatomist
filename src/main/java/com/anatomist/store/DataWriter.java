@@ -5,6 +5,7 @@ import com.anatomist.core.ResolutionDiagnostics;
 import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Document;
+import com.anatomist.model.Declaration;
 import com.anatomist.model.Edge;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.GraphConstants;
@@ -85,6 +86,10 @@ public class DataWriter {
                     + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_ANNOTATION =
             "INSERT INTO annotations(node_id,annotation_fqn,attributes) VALUES (?,?,?)";
+    private static final String SQL_INSERT_DECLARATION = "INSERT OR REPLACE INTO declarations(symbol_id,"
+            + "qualified_name,label,kind,declaration_kind,type_kind,visibility,modifiers,declared_modifiers,"
+            + "implicit_modifiers,declaring_type,source_file,source_location,module,scope,nesting_depth,direct_member,"
+            + "synthetic,binding_resolved) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
     private final ConnectionSupplier connSupplier;
 
@@ -136,6 +141,7 @@ public class DataWriter {
             insertEdges(c, result.edges);
             insertAnnotations(c, result.annotations);
             insertSemanticAnnotations(c, result.semanticAnnotations);
+            insertDeclarations(c, result.declarations);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to write graph in current transaction", e);
         }
@@ -316,15 +322,18 @@ public class DataWriter {
         }
         try (PreparedStatement psSem = c.prepareStatement(SQL_DELETE_SEMANTIC_ANNOTATIONS_BY_SOURCE_FILE);
              PreparedStatement psFc = c.prepareStatement(SQL_DELETE_FILE_CACHE_BY_SOURCE_FILE);
+             PreparedStatement psDecl = c.prepareStatement("DELETE FROM declarations WHERE source_file=?");
              PreparedStatement psNodes = c.prepareStatement(SQL_DELETE_NODES_BY_SOURCE_FILE)) {
             for (String f : sourceFiles) {
                 psSem.setString(1, f); psSem.addBatch();
                 psNodes.setString(1, f); psNodes.addBatch();
                 psFc.setString(1, f); psFc.addBatch();
+                psDecl.setString(1, f); psDecl.addBatch();
             }
             psSem.executeBatch();
             psNodes.executeBatch();
             psFc.executeBatch();
+            psDecl.executeBatch();
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete by source files", e);
         }
@@ -355,6 +364,7 @@ public class DataWriter {
                 insertEdges(c, result.edges);
                 insertAnnotations(c, result.annotations);
                 insertSemanticAnnotations(c, result.semanticAnnotations);
+                insertDeclarations(c, result.declarations);
             }
             return new ReplacementStats(obsoleteIds.size(), deletedEdges);
         } catch (SQLException e) {
@@ -412,17 +422,21 @@ public class DataWriter {
              PreparedStatement edges = c.prepareStatement(
                     "DELETE FROM edges WHERE source_file=? "
                             + "OR source_id IN (SELECT id FROM nodes WHERE source_file=?)");
+             PreparedStatement declarations = c.prepareStatement(
+                    "DELETE FROM declarations WHERE source_file=?");
              PreparedStatement cache = c.prepareStatement("DELETE FROM file_cache WHERE source_file=?")) {
             for (String sourceFile : sourceFiles) {
                 semantic.setString(1, sourceFile); semantic.addBatch();
                 annotations.setString(1, sourceFile); annotations.addBatch();
                 edges.setString(1, sourceFile); edges.setString(2, sourceFile); edges.addBatch();
                 cache.setString(1, sourceFile); cache.addBatch();
+                declarations.setString(1, sourceFile); declarations.addBatch();
             }
             semantic.executeBatch();
             annotations.executeBatch();
             edges.executeBatch();
             cache.executeBatch();
+            declarations.executeBatch();
         }
     }
 
@@ -765,6 +779,30 @@ public class DataWriter {
             for (SemanticAnnotation sa : sas) {
                 bindSemanticAnnotation(ps, sa);
                 ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    static void insertDeclarations(Connection c, List<Declaration> declarations) throws SQLException {
+        if (declarations == null || declarations.isEmpty()) return;
+        try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_DECLARATION)) {
+            for (Declaration declaration : declarations) {
+                int i = 1;
+                ps.setString(i++, declaration.symbolId); ps.setString(i++, declaration.qualifiedName);
+                ps.setString(i++, declaration.label); ps.setString(i++, declaration.kind);
+                ps.setString(i++, declaration.declarationKind); ps.setString(i++, declaration.typeKind);
+                ps.setString(i++, declaration.visibility);
+                ps.setString(i++, com.anatomist.json.Json.writeCompact(declaration.modifiers));
+                ps.setString(i++, com.anatomist.json.Json.writeCompact(declaration.declaredModifiers));
+                ps.setString(i++, com.anatomist.json.Json.writeCompact(declaration.implicitModifiers));
+                ps.setString(i++, declaration.declaringType); ps.setString(i++, declaration.sourceFile);
+                ps.setString(i++, declaration.sourceLocation);
+                ps.setString(i++, declaration.module == null ? "." : declaration.module);
+                ps.setString(i++, declaration.scope == null ? GraphConstants.Scope.MAIN : declaration.scope);
+                ps.setInt(i++, declaration.nestingDepth);
+                ps.setInt(i++, declaration.directMember ? 1 : 0); ps.setInt(i++, declaration.synthetic ? 1 : 0);
+                ps.setInt(i, declaration.bindingResolved ? 1 : 0); ps.addBatch();
             }
             ps.executeBatch();
         }
