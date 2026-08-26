@@ -1,5 +1,6 @@
 package com.anatomist.extract;
 
+import com.anatomist.model.BeanRefTarget;
 import com.anatomist.core.SpringBeanParser.ParsedBean;
 import com.anatomist.core.SpringBeanParser;
 import com.anatomist.model.Edge;
@@ -146,7 +147,7 @@ class XmlBeanExtractorTest {
         ExtractionResult r = new ExtractionResult();
         new XmlBeanExtractor().extractWithResolvedBeans(List.of(svc),
                 Set.of("com.example.OrderService", "com.example.RepoImpl", repoBeanId),
-                Map.of("bean:repo", new XmlBeanExtractor.BeanRefTarget(repoBeanId, "com.example.RepoImpl")),
+                Map.of("bean:repo", new BeanRefTarget(repoBeanId, "com.example.RepoImpl")),
                 XML, r);
 
         Edge ref = r.edges.stream().filter(e -> "XML_REFERS_TO".equals(e.relation)).findFirst().orElseThrow();

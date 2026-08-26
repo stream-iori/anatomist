@@ -1,4 +1,4 @@
-package com.anatomist.core;
+package com.anatomist.incremental;
 
 import com.anatomist.store.FileCacheService;
 import com.github.javaparser.ast.CompilationUnit;

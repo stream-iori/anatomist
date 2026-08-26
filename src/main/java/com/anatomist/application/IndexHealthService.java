@@ -1,5 +1,9 @@
-package com.anatomist.core;
+package com.anatomist.application;
 
+import com.anatomist.core.IndexDiagnostic;
+import com.anatomist.core.IndexHealthReport;
+import com.anatomist.core.IndexResult;
+import com.anatomist.core.ParseInventory;
 import com.anatomist.store.SqliteStore;
 
 import java.util.ArrayList;

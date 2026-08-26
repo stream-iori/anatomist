@@ -1,11 +1,10 @@
 # 测试策略
 
-anatomist 自身运行在 **JDK 21+**（`maven.compiler.release=21`），但被索引的目标项目以 **JDK 8** 为基线。本文定义验收策略、fixture 设计与 CI 流程。
+anatomist 自身运行在 **JDK 25+**（`maven.compiler.release=25`），被索引的目标项目支持 **Java 8–25**。本文定义验收策略、fixture 设计与 CI 流程。
 
 ## 一、测试金字塔
 
-目标项目版本矩阵固定覆盖 Java 8、11、17；Java 18+ 只验证明确拒绝，
-不作为支持目标。版本探测测试覆盖 Maven release/plugin/父属性引用和
+目标项目版本矩阵固定覆盖 Java 8、11、17、21、25。版本探测测试覆盖 Maven release/plugin/父属性引用和
 Gradle Groovy/Kotlin toolchain/gradle.properties。
 
 | 层 | 验证什么 | 形式 | 占比 |
@@ -84,12 +83,12 @@ synthetic record accessor、分页、增量替换和 fail-closed evidence。
 
 ## 三、JDK 8 语义边界验证
 
-由于 anatomist 跑在 JDK 21、索引 JDK 8 源码，必须显式断言以下不被"提升解析"：
+由于 anatomist 跑在 JDK 25、仍可索引 JDK 8 源码，必须显式断言以下不被“提升解析”：
 
 1. `ParserConfiguration.setLanguageLevel(JAVA_8)` 生效——Record / sealed / switch pattern 不应识别
 2. Lambda 按 JDK 8 语义（不是 var capture）
 3. interface `default` 方法正确归到 INTERFACE 节点
-4. anatomist 自身 JRE 21 的类（`java.util.SequencedCollection` 等）不污染外部 FQN（通过 `--vm-classpath false` 关闭 ReflectionTypeSolver 验证）
+4. anatomist 自身高版本 JRE 的类（`java.util.SequencedCollection` 等）不污染外部 FQN（通过 `--vm-classpath false` 关闭 ReflectionTypeSolver 验证）
 
 L1 fixture 各加一条 negative 断言覆盖。
 

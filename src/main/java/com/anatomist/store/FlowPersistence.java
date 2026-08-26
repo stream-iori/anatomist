@@ -1,7 +1,7 @@
-package com.anatomist.flow;
+package com.anatomist.store;
 
 import com.anatomist.core.IndexTimings;
-import com.anatomist.store.SqliteStore;
+import com.anatomist.flow.*;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

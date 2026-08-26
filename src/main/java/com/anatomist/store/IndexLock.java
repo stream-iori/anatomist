@@ -43,12 +43,14 @@ public class IndexLock implements AutoCloseable {
     }
 
     public static IndexLock forWrite(Path dbPath, long timeoutMs) {
+        requireValidTimeout(timeoutMs);
         LockState state = stateFor(dbPath);
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        long startedAt = System.nanoTime();
+        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(timeoutMs);
 
         // Step 1: JVM write lock
         try {
-            if (!state.rwLock.writeLock().tryLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+            if (!state.rwLock.writeLock().tryLock(timeoutNanos, TimeUnit.NANOSECONDS)) {
                 throw new LockTimeoutException("Write lock JVM-level timeout after " + timeoutMs + "ms");
             }
         } catch (InterruptedException ie) {
@@ -57,9 +59,9 @@ public class IndexLock implements AutoCloseable {
         }
 
         // Step 2: File exclusive lock
-        long remaining = deadline - System.currentTimeMillis();
+        long remaining = remainingNanos(startedAt, timeoutNanos);
         try {
-            acquireFileLock(state, false, Math.max(remaining, 100));
+            acquireFileLock(state, false, remaining, timeoutMs);
         } catch (RuntimeException e) {
             state.rwLock.writeLock().unlock();
             throw e;
@@ -73,12 +75,14 @@ public class IndexLock implements AutoCloseable {
     }
 
     public static IndexLock forRead(Path dbPath, long timeoutMs) {
+        requireValidTimeout(timeoutMs);
         LockState state = stateFor(dbPath);
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        long startedAt = System.nanoTime();
+        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(timeoutMs);
 
         // Step 1: JVM read lock
         try {
-            if (!state.rwLock.readLock().tryLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+            if (!state.rwLock.readLock().tryLock(timeoutNanos, TimeUnit.NANOSECONDS)) {
                 throw new LockTimeoutException("Read lock JVM-level timeout after " + timeoutMs + "ms");
             }
         } catch (InterruptedException ie) {
@@ -87,9 +91,9 @@ public class IndexLock implements AutoCloseable {
         }
 
         // Step 2: File shared lock (for cross-process blocking by writer in another JVM)
-        long remaining = deadline - System.currentTimeMillis();
+        long remaining = remainingNanos(startedAt, timeoutNanos);
         try {
-            acquireFileLock(state, true, Math.max(remaining, 100));
+            acquireFileLock(state, true, remaining, timeoutMs);
         } catch (RuntimeException e) {
             state.rwLock.readLock().unlock();
             throw e;
@@ -117,8 +121,9 @@ public class IndexLock implements AutoCloseable {
         return JVM_LOCKS.computeIfAbsent(key, k -> new LockState(lockPathFor(dbPath)));
     }
 
-    private static void acquireFileLock(LockState state, boolean shared, long timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
+    private static void acquireFileLock(LockState state, boolean shared,
+                                        long timeoutNanos, long configuredTimeoutMs) {
+        long startedAt = System.nanoTime();
         synchronized (state.channelLock) {
             ensureChannel(state);
             while (true) {
@@ -137,19 +142,34 @@ public class IndexLock implements AutoCloseable {
                     throw new LockException("File lock acquisition failed", e);
                 }
 
-                if (System.currentTimeMillis() >= deadline) {
+                long remaining = remainingNanos(startedAt, timeoutNanos);
+                if (remaining == 0) {
                     throw new LockTimeoutException(
-                            (shared ? "Read" : "Write") + " file lock timeout after " + timeoutMs + "ms");
+                            (shared ? "Read" : "Write") + " file lock timeout after "
+                                    + configuredTimeoutMs + "ms");
                 }
 
                 try {
-                    Thread.sleep(POLL_INTERVAL_MS);
+                    TimeUnit.NANOSECONDS.sleep(Math.min(
+                            TimeUnit.MILLISECONDS.toNanos(POLL_INTERVAL_MS), remaining));
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw new LockException("Interrupted waiting for file lock", ie);
                 }
             }
         }
+    }
+
+    private static void requireValidTimeout(long timeoutMs) {
+        if (timeoutMs < 0) {
+            throw new IllegalArgumentException("lock timeout must be >= 0ms");
+        }
+    }
+
+    private static long remainingNanos(long startedAt, long timeoutNanos) {
+        long elapsed = System.nanoTime() - startedAt;
+        if (elapsed < 0 || elapsed >= timeoutNanos) return 0;
+        return timeoutNanos - elapsed;
     }
 
     private static void releaseFileLock(LockState state) {

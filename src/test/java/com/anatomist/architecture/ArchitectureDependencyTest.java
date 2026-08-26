@@ -22,6 +22,52 @@ class ArchitectureDependencyTest {
     }
 
     @Test
+    void coreDoesNotDependOnApplicationOrAdapters() throws Exception {
+        Path core = Path.of("src/main/java/com/anatomist/core");
+        List<String> forbidden = List.of(
+                "import com.anatomist.application.",
+                "import com.anatomist.cli.",
+                "import com.anatomist.extract.",
+                "import com.anatomist.flow.",
+                "import com.anatomist.framework.",
+                "import com.anatomist.query.",
+                "import com.anatomist.store.");
+        List<String> offenders = forbidden.stream()
+                .flatMap(prefix -> uncheckedImports(core, prefix).stream())
+                .distinct().sorted().toList();
+
+        assertTrue(offenders.isEmpty(),
+                "core must contain dependency-light indexing primitives only: " + offenders);
+    }
+
+    @Test
+    void lowerLayersDoNotDependOnApplicationOrCli() throws Exception {
+        List<Path> roots = List.of("core", "extract", "flow", "framework", "incremental",
+                        "model", "query", "semantic", "store").stream()
+                .map(name -> Path.of("src/main/java/com/anatomist", name)).toList();
+        List<String> offenders = roots.stream().flatMap(root -> Stream.concat(
+                        uncheckedImports(root, "import com.anatomist.application.").stream(),
+                        uncheckedImports(root, "import com.anatomist.cli.").stream()))
+                .distinct().sorted().toList();
+
+        assertTrue(offenders.isEmpty(),
+                "only CLI may depend on the application composition layer: " + offenders);
+    }
+
+    @Test
+    void frameworkSpiDoesNotWireSpringAndStoreDoesNotDependOnExtractors() throws Exception {
+        List<String> offenders = Stream.concat(
+                        importsMatching(Path.of("src/main/java/com/anatomist/framework"),
+                                "import com.anatomist.framework.spring.").stream(),
+                        importsMatching(Path.of("src/main/java/com/anatomist/store"),
+                                "import com.anatomist.extract.").stream())
+                .sorted().toList();
+
+        assertTrue(offenders.isEmpty(),
+                "adapter wiring must point toward framework/model contracts: " + offenders);
+    }
+
+    @Test
     void jsonPackageDoesNotDependOnQueryDtos() throws Exception {
         List<String> offenders = importsMatching(
                 Path.of("src/main/java/com/anatomist/json"),
@@ -65,6 +111,14 @@ class ArchitectureDependencyTest {
                     .map(Path::toString)
                     .sorted()
                     .toList();
+        }
+    }
+
+    private static List<String> uncheckedImports(Path root, String importPrefix) {
+        try {
+            return importsMatching(root, importPrefix);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 

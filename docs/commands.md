@@ -60,7 +60,7 @@ Target-project language support is Java 8–25. Detection precedence is
 Maven detection reads compiler `release`/`source`, plugin configuration, local
 parent properties, and property references. Gradle detection statically reads
 toolchains, compatibility/release assignments, and simple `gradle.properties`
-references; it never executes a build script. Java 18+ is rejected before parsing.
+references; it never executes a build script.
 
 JSON `stats` reports `scanned_files`, `attempted_files`, `parsed_files`,
 `failed_files`, `parse_completeness`, and `completeness`. A failed file makes

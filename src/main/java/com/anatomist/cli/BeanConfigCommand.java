@@ -64,9 +64,9 @@ public class BeanConfigCommand implements Callable<Integer> {
                 QueryEnvelope env = new QueryEnvelope(buildQueryString(offset), results);
                 Disclosure.putPaging(env, page.total(), limit, page.offset());
                 Disclosure.putBudget(env, "beans", results.size(), page.total());
-                env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+                env.evidence = new QueryCoverageService(q.connection()).assess(
                         QueryCoverageService.Capability.WIRING,
-                        List.of(target), module, scope, !results.isEmpty(), false).toMap());
+                        List.of(target), module, scope, !results.isEmpty(), false);
                 if (page.truncated()) {
                     List<String> next = buildArgs(page.offset() + limit);
                     Disclosure.addOption(next, "--index", db);

@@ -2,11 +2,13 @@ package com.anatomist.cli;
 
 import com.anatomist.config.ConfigLoader;
 import com.anatomist.config.ProjectConfig;
+import com.anatomist.application.IndexExecutionHints;
+import com.anatomist.application.IndexExecutionRequest;
 import com.anatomist.core.ClasspathDetector;
-import com.anatomist.core.IndexEnvironmentFingerprint;
-import com.anatomist.core.IndexOutcome;
+import com.anatomist.incremental.IndexEnvironmentFingerprint;
+import com.anatomist.application.IndexOutcome;
 import com.anatomist.core.ProjectScanner;
-import com.anatomist.core.ProjectMetadata;
+import com.anatomist.application.ProjectMetadata;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.SourceIdentityResolver;
 import com.anatomist.core.SourceRoot;
@@ -21,7 +23,6 @@ import com.anatomist.store.IndexOperationLock;
 import com.anatomist.store.IndexStateStore;
 import com.anatomist.store.SqliteStore;
 import com.anatomist.store.WatchLease;
-import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -178,12 +179,22 @@ public class WatchCommand implements Callable<Integer> {
             defaultValue = "0", hidden = true)
     long idleTimeoutMs;
 
-    private IndexCommandRunner indexCommandRunner = IndexCommand::executeOutcome;
+    private IndexCommandRunner indexCommandRunner = IndexCommand::execute;
+    private WatchRegistrar watchRegistrar = new DefaultWatchRegistrar();
+    private java.util.function.LongSupplier nanoTime = System::nanoTime;
     private Runnable readyListener = () -> {};
     private java.util.function.Consumer<IncrementalParseException> parseFailureListener = failure -> {};
 
     void setIndexCommandRunnerForTest(IndexCommandRunner indexCommandRunner) {
         this.indexCommandRunner = indexCommandRunner;
+    }
+
+    void setWatchRegistrarForTest(WatchRegistrar watchRegistrar) {
+        this.watchRegistrar = watchRegistrar == null ? new DefaultWatchRegistrar() : watchRegistrar;
+    }
+
+    void setNanoTimeForTest(java.util.function.LongSupplier nanoTime) {
+        this.nanoTime = nanoTime == null ? System::nanoTime : nanoTime;
     }
 
     void setReadyListenerForTest(Runnable readyListener) {
@@ -204,6 +215,10 @@ public class WatchCommand implements Callable<Integer> {
             com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
         } catch (IllegalArgumentException invalid) {
             System.err.println("ERROR: " + invalid.getMessage());
+            return 2;
+        }
+        if (debounceMs < 0 || idleTimeoutMs < 0) {
+            System.err.println("ERROR: --debounce-ms and --idle-timeout-ms must be >= 0");
             return 2;
         }
         if (projectPath == null || !Files.isDirectory(projectPath)) {
@@ -275,6 +290,7 @@ public class WatchCommand implements Callable<Integer> {
             thread.setDaemon(true);
             return thread;
         });
+        long dirtyGeneration = 0;
         try (WatchService ws = projectRoot.getFileSystem().newWatchService();
              JavaParserFactory.SessionCache parserSessions = new JavaParserFactory.SessionCache();
              IncrementalSessionState incrementalSession = new IncrementalSessionState()) {
@@ -299,8 +315,11 @@ public class WatchCommand implements Callable<Integer> {
                     + (autoIndex ? ", auto-index" : "") + ")");
             readyListener.run();
 
-            long startedAt = System.currentTimeMillis();
+            long debounceNanos = TimeUnit.MILLISECONDS.toNanos(debounceMs);
+            long idleTimeoutNanos = TimeUnit.MILLISECONDS.toNanos(idleTimeoutMs);
+            long startedAt = nanoTime.getAsLong();
             long lastEventAt = startedAt;
+            long lastActivityAt = startedAt;
             // Buffered changes since the last flush.
             Map<String, String> buffered = new HashMap<>(); // relPath -> event kind
             boolean buildFileTouched = false;
@@ -309,7 +328,8 @@ public class WatchCommand implements Callable<Integer> {
             boolean reconciliationRequired = recoverInterrupted;
             if (recoverInterrupted) {
                 buffered.put("<interrupted-watch>", "RECONCILE");
-                lastEventAt = startedAt - Math.max(debounceMs, 1L);
+                lastEventAt = startedAt - TimeUnit.MILLISECONDS.toNanos(
+                        Math.max(debounceMs, 1L));
                 System.out.println("Recovering interrupted watch rebuild in background");
             }
             boolean pendingReconciliation = false;
@@ -317,8 +337,6 @@ public class WatchCommand implements Callable<Integer> {
             int iterations = 0;
             int parseRetryCount = 0;
             long parseRetryAt = Long.MAX_VALUE;
-            long lastAttemptAt = startedAt;
-            long dirtyGeneration = 0;
             Future<FlushResult> backgroundFull = null;
             Map<String, String> backgroundAttempt = Map.of();
             BuildEnvironmentCheck backgroundBuildCheck = null;
@@ -326,7 +344,7 @@ public class WatchCommand implements Callable<Integer> {
 
             while (!Thread.currentThread().isInterrupted()) {
                 WatchKey k = ws.poll(100, TimeUnit.MILLISECONDS);
-                long now = System.currentTimeMillis();
+                long now = nanoTime.getAsLong();
                 if (k != null) {
                     Path dir = keys.get(k);
                     for (WatchEvent<?> ev : k.pollEvents()) {
@@ -336,15 +354,14 @@ public class WatchCommand implements Callable<Integer> {
                             buffered.put("<watch-overflow>", "OVERFLOW");
                             dirtyGeneration++;
                             lastEventAt = now;
+                            lastActivityAt = now;
                             continue;
                         }
                         Path name = (Path) ev.context();
                         Path full = dir == null ? name : dir.resolve(name);
                         // Recurse on newly created directory
                         if (kind == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(full)) {
-                            try {
-                                registerRecursive(ws, full, keys, extraExcludes);
-                            } catch (IOException ignore) {}
+                            registerRecursive(ws, full, keys, extraExcludes);
                         }
                         if ((kind == StandardWatchEventKinds.ENTRY_CREATE
                                 || kind == StandardWatchEventKinds.ENTRY_DELETE)
@@ -380,6 +397,7 @@ public class WatchCommand implements Callable<Integer> {
                         buffered.put(rel, label);
                         dirtyGeneration++;
                         lastEventAt = now;
+                        lastActivityAt = now;
                     }
                     boolean valid = k.reset();
                     if (!valid) keys.remove(k);
@@ -413,10 +431,13 @@ public class WatchCommand implements Callable<Integer> {
 
                 // Flush after debounce, or retry a transient parse failure even
                 // when the filesystem does not emit another event.
-                long effectiveDebounce = buildFileTouched ? Math.max(debounceMs, 1500L) : debounceMs;
-                boolean eventFlushDue = !buffered.isEmpty() && now - lastEventAt >= effectiveDebounce;
+                long effectiveDebounce = buildFileTouched
+                        ? Math.max(debounceNanos, TimeUnit.MILLISECONDS.toNanos(1500L))
+                        : debounceNanos;
+                boolean eventFlushDue = !buffered.isEmpty()
+                        && elapsedAtLeast(now, lastEventAt, effectiveDebounce);
                 boolean parseRetryDue = buffered.isEmpty() && !pending.isEmpty()
-                        && parseRetryAt != Long.MAX_VALUE && now >= parseRetryAt;
+                        && parseRetryAt != Long.MAX_VALUE && now - parseRetryAt >= 0;
                 if (result == null && backgroundFull == null && (eventFlushDue || parseRetryDue)) {
                     if (eventFlushDue) {
                         parseRetryCount = 0;
@@ -448,7 +469,7 @@ public class WatchCommand implements Callable<Integer> {
                         buffered.clear();
                         buildFileTouched = false;
                         reconciliationRequired = false;
-                        lastAttemptAt = now;
+                        lastActivityAt = now;
                         continue;
                     }
                     if (forceFull && autoIndex && configuredFullPolicy == FullPolicy.MANUAL) {
@@ -462,7 +483,7 @@ public class WatchCommand implements Callable<Integer> {
                                 resolvedRoots, new ArrayList<>(springXmlInventory), parserSessions,
                                 fingerprintCache, incrementalSession, completeEvents, eventFlushDue);
                     }
-                    lastAttemptAt = now;
+                    lastActivityAt = now;
                 }
                 if (result != null) {
                     if (result.status() == FlushStatus.SUCCESS) {
@@ -515,7 +536,7 @@ public class WatchCommand implements Callable<Integer> {
                         if (parseRetryCount < MAX_PARSE_RETRIES) {
                             parseRetryCount++;
                             long retryDelay = Math.max(MIN_PARSE_RETRY_DELAY_MS, debounceMs);
-                            parseRetryAt = now + retryDelay;
+                            parseRetryAt = now + TimeUnit.MILLISECONDS.toNanos(retryDelay);
                             System.err.println("WARN: source temporarily unparsable; previous index retained; "
                                     + "retry " + parseRetryCount + "/" + MAX_PARSE_RETRIES
                                     + " in " + retryDelay + "ms: " + parseFailure.sourceFiles()
@@ -559,12 +580,29 @@ public class WatchCommand implements Callable<Integer> {
                 if (idleTimeoutMs > 0 && buffered.isEmpty()
                         && parseRetryAt == Long.MAX_VALUE
                         && backgroundFull == null
-                        && now - Math.max(Math.max(lastEventAt, lastAttemptAt), startedAt)
-                        > idleTimeoutMs) {
+                        && elapsedAtLeast(now, lastActivityAt, idleTimeoutNanos)) {
                     break;
                 }
             }
             if (!pending.isEmpty()) return 1;
+        } catch (WatchRegistrationException e) {
+            dirtyGeneration++;
+            String relative = displayPath(projectRoot, e.path());
+            String detail = e.getCause() == null || e.getCause().getMessage() == null
+                    ? e.getMessage() : e.getCause().getMessage();
+            String reason = "WATCH_REGISTRATION_FAILED: unable to register "
+                    + relative + ": " + detail;
+            if (autoIndex) {
+                try {
+                    IndexStateStore.write(dbPath, IndexStateStore.State.STALE,
+                            reason, dirtyGeneration, null);
+                } catch (RuntimeException stateFailure) {
+                    System.err.println("ERROR: unable to persist stale index state: "
+                            + stateFailure.getMessage());
+                }
+            }
+            System.err.println("ERROR: " + reason);
+            return 1;
         } catch (ClosedWatchServiceCompat | IOException e) {
             System.err.println("ERROR: watch failed: " + e.getMessage());
             return 1;
@@ -587,9 +625,9 @@ public class WatchCommand implements Callable<Integer> {
                 "full rebuild required", dirtyGeneration, temporary);
         try (IndexOperationLock ignored = IndexOperationLock.forWrite(liveDb)) {
             System.out.println("Full re-index (background)");
-            IndexCommand command = configuredFullCommand(projectRoot, classpathOverride,
+            IndexExecutionRequest request = configuredIndexRequest(projectRoot, classpathOverride,
                     noClasspath, vmClasspath, javaVersion, jdkHome, temporary, liveDb);
-            FlushResult result = classifyOutcome(command, indexCommandRunner.run(command));
+            FlushResult result = classifyOutcome(indexCommandRunner.run(request));
             if (result.status() != FlushStatus.SUCCESS) {
                 IndexStateStore.write(liveDb, IndexStateStore.State.FAILED,
                         "background full index failed", dirtyGeneration, temporary);
@@ -614,50 +652,28 @@ public class WatchCommand implements Callable<Integer> {
         }
     }
 
-    private IndexCommand configuredFullCommand(Path projectRoot, String classpathOverride,
-                                                boolean noClasspath, boolean vmClasspath,
-                                                Integer javaVersion, Path jdkHome, Path outputPath, Path liveDb) {
-        IndexCommand command = new IndexCommand();
-        List<String> args = new ArrayList<>();
-        args.add(projectRoot.toString());
-        if (projectSource != null) { args.add("--project-source"); args.add(projectSource); }
-        for (String spec : sourceRootSpecs) { args.add("--source-root"); args.add(spec); }
-        if (includeTests) args.add("--include-tests");
-        if (noClasspath) args.add("--no-classpath");
-        if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
-        args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
-        if (javaVersion != null) { args.add("--java-version"); args.add(String.valueOf(javaVersion)); }
-        if (jdkHome != null) { args.add("--jdk-home"); args.add(jdkHome.toString()); }
-        args.add("--output"); args.add(outputPath.toString());
-        if (springXml) args.add("--spring-xml");
-        appendFlowArgs(args);
-        appendHealthArgs(args);
-        if (timings) args.add("--timings");
-        args.add("--full");
-        new CommandLine(command).parseArgs(args.toArray(new String[0]));
-        command.setOperationLockPath(liveDb);
-        return command;
+    private IndexExecutionRequest configuredIndexRequest(
+            Path projectRoot, String classpathOverride, boolean noClasspath,
+            boolean vmClasspath, Integer javaVersion, Path jdkHome, Path outputPath,
+            Path operationLockPath) {
+        return new IndexExecutionRequest(
+                projectRoot, projectSource, sourceRootSpecs, includeTests,
+                noClasspath, classpathOverride, vmClasspath, javaVersion, jdkHome,
+                outputPath, false, springXml, dataflow, dataflowMode, dataflowScopes,
+                implicitTaint, strictHealth, healthPolicy, timings, maxRealignFiles,
+                operationLockPath, null, false);
     }
 
-    private void appendFlowArgs(List<String> args) {
-        if (dataflow) args.add("--dataflow");
-        if (dataflowMode != null && !dataflowMode.isBlank()) {
-            args.add("--dataflow-mode");
-            args.add(dataflowMode);
-        }
-        for (String scope : dataflowScopes) {
-            args.add("--dataflow-scope");
-            args.add(scope);
-        }
-        if (implicitTaint) args.add("--implicit-taint");
-    }
-
-    private void appendHealthArgs(List<String> args) {
-        if (strictHealth) args.add("--strict-health");
-        if (healthPolicy != null && !healthPolicy.isBlank()) {
-            args.add("--health-policy");
-            args.add(healthPolicy);
-        }
+    private IndexExecutionRequest configuredIncrementalRequest(
+            Path projectRoot, String classpathOverride, boolean noClasspath,
+            boolean vmClasspath, Integer javaVersion, Path jdkHome, Path outputPath,
+            IndexExecutionHints hints) {
+        return new IndexExecutionRequest(
+                projectRoot, projectSource, sourceRootSpecs, includeTests,
+                noClasspath, classpathOverride, vmClasspath, javaVersion, jdkHome,
+                outputPath, true, springXml, dataflow, dataflowMode, dataflowScopes,
+                implicitTaint, strictHealth, healthPolicy, timings, maxRealignFiles,
+                null, hints, true);
     }
 
     private FlowProfile resolveFlowProfile(Path projectRoot) {
@@ -717,62 +733,26 @@ public class WatchCommand implements Callable<Integer> {
                 // Full re-index
                 incrementalSession.invalidateKnownNodeIds();
                 System.out.println("Full re-index (build environment changed)");
-                IndexCommand ic = new IndexCommand();
-                List<String> args = new ArrayList<>();
-                args.add(projectRoot.toString());
-                if (projectSource != null) {
-                    args.add("--project-source"); args.add(projectSource);
-                }
-                for (String spec : sourceRootSpecs) { args.add("--source-root"); args.add(spec); }
-                if (includeTests) args.add("--include-tests");
-                if (noClasspath) args.add("--no-classpath");
-                if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
-                args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
-                if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
-                if (jdkHome != null) { args.add("--jdk-home"); args.add(jdkHome.toString()); }
-                args.add("--output"); args.add(dbPath.toString());
-                if (springXml) args.add("--spring-xml");
-                appendFlowArgs(args);
-                appendHealthArgs(args);
-                if (timings) args.add("--timings");
-                args.add("--full");
-                new CommandLine(ic).parseArgs(args.toArray(new String[0]));
-                return classifyOutcome(ic, indexCommandRunner.run(ic));
+                IndexExecutionRequest request = configuredIndexRequest(projectRoot,
+                        classpathOverride, noClasspath, vmClasspath, jvOverride, jdkHome,
+                        dbPath, null);
+                return classifyOutcome(indexCommandRunner.run(request));
             }
             // Incremental
-            IndexCommand ic = new IndexCommand();
-            List<String> args = new ArrayList<>();
-            args.add(projectRoot.toString());
-            if (projectSource != null) {
-                args.add("--project-source"); args.add(projectSource);
-            }
-            for (String spec : sourceRootSpecs) { args.add("--source-root"); args.add(spec); }
-            if (includeTests) args.add("--include-tests");
-            if (noClasspath) args.add("--no-classpath");
-            if (classpathOverride != null) { args.add("--classpath"); args.add(classpathOverride); }
-            args.add("--vm-classpath"); args.add(String.valueOf(vmClasspath));
-            if (jvOverride != null) { args.add("--java-version"); args.add(String.valueOf(jvOverride)); }
-            if (jdkHome != null) { args.add("--jdk-home"); args.add(jdkHome.toString()); }
-            args.add("--output"); args.add(dbPath.toString());
-            args.add("--incremental");
-            if (springXml) args.add("--spring-xml");
-            appendFlowArgs(args);
-            appendHealthArgs(args);
-            if (timings) args.add("--timings");
-            args.add("--max-realign-files"); args.add(String.valueOf(maxRealignFiles));
-            new CommandLine(ic).parseArgs(args.toArray(new String[0]));
-            ic.setExecutionHints(new IndexExecutionHints(
+            IndexExecutionHints hints = new IndexExecutionHints(
                     resolvedRoots, buffered.keySet(), springXmlInventory, parserSessions,
-                    fingerprintCache, incrementalSession, completeEvents));
-            ic.deferFullFallbackForWatch();
-            return classifyOutcome(ic, indexCommandRunner.run(ic));
+                    fingerprintCache, incrementalSession, completeEvents);
+            IndexExecutionRequest request = configuredIncrementalRequest(projectRoot,
+                    classpathOverride, noClasspath, vmClasspath, jvOverride, jdkHome,
+                    dbPath, hints);
+            return classifyOutcome(indexCommandRunner.run(request));
         } catch (Exception ex) {
             System.err.println("WARN: auto-index failed: " + ex.getMessage());
             return FlushResult.failed();
         }
     }
 
-    private static FlushResult classifyOutcome(IndexCommand command, IndexOutcome outcome) {
+    private static FlushResult classifyOutcome(IndexOutcome outcome) {
         if (outcome.exitCode() == 0) return FlushResult.success();
         if (outcome.cause() instanceof IncrementalParseException parseFailure) {
             return FlushResult.retryableParse(parseFailure);
@@ -780,8 +760,17 @@ public class WatchCommand implements Callable<Integer> {
         if (outcome.cause() instanceof FullRebuildRequiredException) {
             return FlushResult.fullRequired();
         }
-        command.reportOutcome(outcome);
+        reportOutcome(outcome);
         return FlushResult.failed();
+    }
+
+    private static void reportOutcome(IndexOutcome outcome) {
+        if (outcome.error() == null) return;
+        System.err.println("ERROR: " + outcome.error());
+        if (outcome.cause() != null
+                && !(outcome.cause() instanceof IncrementalParseException)) {
+            outcome.cause().printStackTrace(System.err);
+        }
     }
 
     private static String conciseDiagnostic(IncrementalParseException failure) {
@@ -808,7 +797,46 @@ public class WatchCommand implements Callable<Integer> {
 
     @FunctionalInterface
     interface IndexCommandRunner {
-        IndexOutcome run(IndexCommand command);
+        IndexOutcome run(IndexExecutionRequest request);
+    }
+
+    interface WatchRegistrar {
+        void registerRecursive(WatchService service, Path root,
+                               Map<WatchKey, Path> keys, Set<String> excludes) throws IOException;
+
+        void registerSingle(WatchService service, Path directory,
+                            Map<WatchKey, Path> keys) throws IOException;
+    }
+
+    static final class DefaultWatchRegistrar implements WatchRegistrar {
+        @Override
+        public void registerRecursive(WatchService service, Path root,
+                                      Map<WatchKey, Path> keys, Set<String> excludes) throws IOException {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir,
+                                                          BasicFileAttributes attrs) throws IOException {
+                    String name = dir.getFileName() == null ? "" : dir.getFileName().toString();
+                    if (ProjectScanner.DEFAULT_EXCLUDES.contains(name) || excludes.contains(name)) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    registerSingle(service, dir, keys);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        }
+
+        @Override
+        public void registerSingle(WatchService service, Path directory,
+                                   Map<WatchKey, Path> keys) throws IOException {
+            Path normalized = directory.toAbsolutePath().normalize();
+            if (keys.containsValue(normalized)) return;
+            WatchKey key = directory.register(service,
+                    StandardWatchEventKinds.ENTRY_CREATE,
+                    StandardWatchEventKinds.ENTRY_DELETE,
+                    StandardWatchEventKinds.ENTRY_MODIFY);
+            keys.put(key, normalized);
+        }
     }
 
     private enum FlushStatus {
@@ -850,28 +878,48 @@ public class WatchCommand implements Callable<Integer> {
         }
     }
 
-    private void registerRecursive(WatchService ws, Path root, Map<WatchKey, Path> keys, Set<String> excludes) throws IOException {
-        Files.walkFileTree(root, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                String name = dir.getFileName() == null ? "" : dir.getFileName().toString();
-                if (ProjectScanner.DEFAULT_EXCLUDES.contains(name) || excludes.contains(name)) {
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                registerSingle(ws, dir, keys);
-                return FileVisitResult.CONTINUE;
-            }
-        });
+    private void registerRecursive(WatchService ws, Path root, Map<WatchKey, Path> keys,
+                                   Set<String> excludes) throws WatchRegistrationException {
+        try {
+            watchRegistrar.registerRecursive(ws, root, keys, excludes);
+        } catch (IOException failure) {
+            throw new WatchRegistrationException(root, failure);
+        }
     }
 
-    private void registerSingle(WatchService ws, Path dir, Map<WatchKey, Path> keys) throws IOException {
-        Path normalized = dir.toAbsolutePath().normalize();
-        if (keys.containsValue(normalized)) return;
-        WatchKey key = dir.register(ws,
-                StandardWatchEventKinds.ENTRY_CREATE,
-                StandardWatchEventKinds.ENTRY_DELETE,
-                StandardWatchEventKinds.ENTRY_MODIFY);
-        keys.put(key, normalized);
+    private void registerSingle(WatchService ws, Path dir,
+                                Map<WatchKey, Path> keys) throws WatchRegistrationException {
+        try {
+            watchRegistrar.registerSingle(ws, dir, keys);
+        } catch (IOException failure) {
+            throw new WatchRegistrationException(dir, failure);
+        }
+    }
+
+    private static String displayPath(Path projectRoot, Path path) {
+        Path normalized = path.toAbsolutePath().normalize();
+        try {
+            return projectRoot.relativize(normalized).toString();
+        } catch (IllegalArgumentException outsideProject) {
+            return normalized.toString();
+        }
+    }
+
+    static boolean elapsedAtLeast(long now, long since, long durationNanos) {
+        return now - since >= durationNanos;
+    }
+
+    private static final class WatchRegistrationException extends IOException {
+        private final Path path;
+
+        WatchRegistrationException(Path path, IOException cause) {
+            super(cause.getMessage(), cause);
+            this.path = path;
+        }
+
+        Path path() {
+            return path;
+        }
     }
 
     private Set<Path> discoverBuildFiles(Path projectRoot, List<Path> sourcePaths) {

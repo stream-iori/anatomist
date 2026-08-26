@@ -1,8 +1,10 @@
 package com.anatomist.cli;
 
-import com.anatomist.core.IndexOutcome;
+import com.anatomist.application.IndexOutcome;
 import com.anatomist.incremental.IncrementalParseException;
 import com.anatomist.store.FileCacheService;
+import com.anatomist.store.IndexStateStore;
+import com.anatomist.store.WatchLease;
 import com.anatomist.test.CliTestSupport;
 import com.anatomist.test.CliTestSupport.RunResult;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,14 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WatchCommandIT {
+
+    @Test
+    void monotonicElapsedComparisonHandlesBoundaryAndWraparound() {
+        assertFalse(WatchCommand.elapsedAtLeast(1_099, 1_000, 100));
+        assertTrue(WatchCommand.elapsedAtLeast(1_100, 1_000, 100));
+        assertTrue(WatchCommand.elapsedAtLeast(Long.MIN_VALUE + 49,
+                Long.MAX_VALUE - 50, 100));
+    }
 
     private Path setupFixtureCopy(Path tmp) throws Exception {
         return CliTestSupport.copyMiniSpringFixture(tmp);
@@ -512,7 +522,8 @@ class WatchCommandIT {
                     throw new RuntimeException(ex);
                 }
             } else {
-                secondFastPath.set(index.usesCandidateFastPathForTest());
+                secondFastPath.set(index.executionHints() != null
+                        && index.executionHints().canUseFastPath());
             }
             return IndexOutcome.success(0);
         });
@@ -562,7 +573,8 @@ class WatchCommandIT {
                     throw new RuntimeException(ex);
                 }
             } else {
-                replayWasIncremental.set(index.usesCandidateFastPathForTest());
+                replayWasIncremental.set(index.executionHints() != null
+                        && index.executionHints().canUseFastPath());
             }
             return IndexOutcome.success(0);
         });
@@ -602,6 +614,104 @@ class WatchCommandIT {
 
         assertFalse(stdout.contains("dummy.xml"),
                 "with --extensions .java, dummy.xml events should be filtered; got:\n" + stdout);
+    }
+
+    @Test
+    void newDirectoryRegistrationFailureMarksIndexStaleAndRetainsDatabase(
+            @TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false).toRealPath();
+        Path sourceRoot = project.resolve("src/main/java");
+        Path db = tmp.resolve("index.db");
+        CliTestSupport.assertIndexOk(project, "--no-classpath", "--output", db.toString());
+        byte[] databaseBefore = Files.readAllBytes(db);
+
+        WatchCommand command = new WatchCommand();
+        new CommandLine(command).parseArgs(project.toString(),
+                "--project-source", sourceRoot.toString(), "--no-classpath",
+                "--output", db.toString(), "--auto-index", "--debounce-ms", "100");
+        WatchCommand.WatchRegistrar delegate = new WatchCommand.DefaultWatchRegistrar();
+        command.setWatchRegistrarForTest(new WatchCommand.WatchRegistrar() {
+            @Override
+            public void registerRecursive(java.nio.file.WatchService service, Path root,
+                                          Map<java.nio.file.WatchKey, Path> keys,
+                                          java.util.Set<String> excludes) throws java.io.IOException {
+                if (root.getFileName().toString().equals("unwatchable")) {
+                    throw new java.io.IOException("simulated registration denial");
+                }
+                delegate.registerRecursive(service, root, keys, excludes);
+            }
+
+            @Override
+            public void registerSingle(java.nio.file.WatchService service, Path directory,
+                                       Map<java.nio.file.WatchKey, Path> keys)
+                    throws java.io.IOException {
+                delegate.registerSingle(service, directory, keys);
+            }
+        });
+        CountDownLatch ready = new CountDownLatch(1);
+        command.setReadyListenerForTest(ready::countDown);
+        AtomicInteger exitCode = new AtomicInteger(-1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        RunResult result = CliTestSupport.capture(() -> {
+            Thread watch = new Thread(() -> {
+                try {
+                    exitCode.set(command.call());
+                } catch (Throwable error) {
+                    failure.set(error);
+                }
+            });
+            watch.start();
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            Files.createDirectory(sourceRoot.resolve("unwatchable"));
+            watch.join(5_000);
+            assertFalse(watch.isAlive(), "watch must fail closed after registration failure");
+            if (failure.get() != null) throw new AssertionError(failure.get());
+            return exitCode.get();
+        });
+
+        assertEquals(1, result.exitCode());
+        assertTrue(result.stderr().contains("WATCH_REGISTRATION_FAILED"), result.stderr());
+        assertTrue(result.stderr().contains("src/main/java/unwatchable"), result.stderr());
+        IndexStateStore.Snapshot state = IndexStateStore.read(db);
+        assertEquals(IndexStateStore.State.STALE, state.state());
+        assertTrue(state.reason().contains("simulated registration denial"), state.reason());
+        assertArrayEquals(databaseBefore, Files.readAllBytes(db),
+                "registration failure must retain the last committed database");
+        try (WatchLease ignored = WatchLease.acquire(db)) {
+            assertNotNull(ignored, "watch lease must be released on failure");
+        }
+    }
+
+    @Test
+    void initialRegistrationFailureWithoutAutoIndexCreatesNoState(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false).toRealPath();
+        Path db = tmp.resolve("index.db");
+        WatchCommand command = new WatchCommand();
+        new CommandLine(command).parseArgs(project.toString(), "--project-source",
+                project.resolve("src/main/java").toString(), "--no-classpath",
+                "--output", db.toString());
+        command.setWatchRegistrarForTest(new WatchCommand.WatchRegistrar() {
+            @Override
+            public void registerRecursive(java.nio.file.WatchService service, Path root,
+                                          Map<java.nio.file.WatchKey, Path> keys,
+                                          java.util.Set<String> excludes) throws java.io.IOException {
+                throw new java.io.IOException("simulated initial denial");
+            }
+
+            @Override
+            public void registerSingle(java.nio.file.WatchService service, Path directory,
+                                       Map<java.nio.file.WatchKey, Path> keys) {
+                fail("single registration must not be reached");
+            }
+        });
+
+        RunResult result = CliTestSupport.capture(command::call);
+
+        assertEquals(1, result.exitCode());
+        assertTrue(result.stderr().contains("WATCH_REGISTRATION_FAILED"), result.stderr());
+        assertFalse(Files.exists(db));
+        assertFalse(Files.exists(IndexStateStore.pathFor(db)));
     }
 
 }

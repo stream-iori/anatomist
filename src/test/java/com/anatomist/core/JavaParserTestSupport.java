@@ -32,7 +32,7 @@ public final class JavaParserTestSupport {
     /** Parse {@code source} (single file) with SymbolSolver attached. */
     public static CompilationUnit parse(String source) {
         ParserConfiguration cfg = new ParserConfiguration()
-                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21)
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_25)
                 .setSymbolResolver(new JavaSymbolSolver(combinedTypeSolver()));
         JavaParser parser = new JavaParser(cfg);
         ParseResult<CompilationUnit> r = parser.parse(source);

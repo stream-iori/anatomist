@@ -79,9 +79,9 @@ public class FieldAccessCommand implements Callable<Integer> {
                 Disclosure.addOption(next, "--offset", env.stats.get("next_offset"));
                 env.nextQueries = List.of(Disclosure.renderCommand(next));
             }
-            env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+            env.evidence = new QueryCoverageService(q.connection()).assess(
                     QueryCoverageService.Capability.FIELD_ACCESS,
-                    List.of(field), module, scope, paged.total() > 0, false).toMap());
+                    List.of(field), module, scope, paged.total() > 0, false);
             JsonFormatter.emit(System.out, env);
             return 0;
         } catch (SymbolResolutionException failure) {

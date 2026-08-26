@@ -1,5 +1,7 @@
-package com.anatomist.core;
+package com.anatomist.application;
 
+import com.anatomist.core.IndexResult;
+import com.anatomist.core.ParseInventory;
 import com.anatomist.model.GraphConstants;
 
 import java.io.PrintStream;

@@ -94,7 +94,7 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             com.anatomist.core.IndexHealthReport health;
             try (SqliteStore store = new SqliteStore(db)) {
                 health =
-                        com.anatomist.core.IndexHealthService.read(store);
+                        com.anatomist.application.IndexHealthService.read(store);
                 out.put("health", health.status().name().toLowerCase());
                 out.put("health_dimensions", health.dimensions());
                 out.put("gate", health.gate(policy).toMap());

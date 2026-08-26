@@ -34,7 +34,7 @@ java -jar target/anatomist.jar search OrderService --index /tmp/shop.db
 
 ## Coding Style & Naming Conventions
 
-Use Java 21 with `maven.compiler.release=21`. Follow existing package boundaries: parsing/indexing in `core` and `extract`, persistence in `store`, query-only behavior in `query`, commands in `cli`. Keep JSON runtime code hand-written; avoid reflection-heavy libraries because native-image support is a core constraint.
+Use Java 25 with `maven.compiler.release=25`; `.sdkmanrc` is the canonical local SDK selection. Follow existing package boundaries: parsing/indexing in `core` and `extract`, application orchestration in `application`, persistence in `store`, query-only behavior in `query`, commands in `cli`. Keep JSON runtime code hand-written; avoid reflection-heavy libraries because native-image support is a core constraint.
 
 Class names use `PascalCase`, methods and fields use `camelCase`, constants use `UPPER_SNAKE_CASE`. Match surrounding indentation; no formatter config is currently enforced.
 

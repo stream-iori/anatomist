@@ -1,4 +1,6 @@
-package com.anatomist.core;
+package com.anatomist.application;
+
+import com.anatomist.core.JavaVersionException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

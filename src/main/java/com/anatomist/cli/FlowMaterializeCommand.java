@@ -1,7 +1,7 @@
 package com.anatomist.cli;
 
 import com.anatomist.flow.FlowMaterializationException;
-import com.anatomist.flow.FlowMaterializer;
+import com.anatomist.application.FlowMaterializer;
 import com.anatomist.json.Json;
 import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Command;

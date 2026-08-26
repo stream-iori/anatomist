@@ -4,6 +4,8 @@ import com.anatomist.query.DeclarationQueryService;
 import com.anatomist.query.DeclarationRow;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryBudget;
+import com.anatomist.query.QueryEvidence;
 import com.anatomist.query.QueryService;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -59,9 +61,7 @@ public final class DeclarationsOfCommand implements Callable<Integer> {
                 QueryEnvelope envelope = new QueryEnvelope(query(), results);
                 Disclosure.putPaging(envelope, total, limit, offset);
                 Disclosure.putBudget(envelope, "rows", results.size(), total);
-                envelope.evidence.put("status", "positive");
-                envelope.evidence.put("coverage", "complete");
-                envelope.evidence.put("negative_conclusion_safe", true);
+                envelope.evidence = QueryEvidence.positiveComplete();
                 if (Boolean.TRUE.equals(envelope.stats.get("truncated"))) {
                     envelope.nextQueries = List.of(queryWithOffset(((Number) envelope.stats.get("next_offset")).intValue()));
                 }
@@ -117,11 +117,9 @@ public final class DeclarationsOfCommand implements Callable<Integer> {
         QueryEnvelope envelope = new QueryEnvelope(query(), List.of());
         envelope.stats.clear(); envelope.stats.put("total", 0); envelope.stats.put("offset", offset);
         envelope.stats.put("limit", limit); envelope.stats.put("truncated", false);
-        envelope.budget.put("mode", "rows"); envelope.budget.put("emitted", 0);
-        envelope.budget.put("total", 0); envelope.budget.put("truncated", false);
-        envelope.evidence.put("status", "indeterminate"); envelope.evidence.put("coverage", "incomplete");
-        envelope.evidence.put("negative_conclusion_safe", false); envelope.evidence.put("code", code);
-        envelope.evidence.put("message", message); JsonFormatter.emit(System.out, envelope); return 3;
+        envelope.budget = new QueryBudget("rows", 0, 0, false);
+        envelope.evidence = QueryEvidence.indeterminate(code, message);
+        JsonFormatter.emit(System.out, envelope); return 3;
     }
 
     private String query() { return queryWithOffset(offset); }

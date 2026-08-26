@@ -1,8 +1,8 @@
 package com.anatomist.cli;
 
-import com.anatomist.core.IndexConfig;
+import com.anatomist.application.IndexConfig;
 import com.anatomist.core.IndexHealthReport;
-import com.anatomist.core.IndexHealthService;
+import com.anatomist.application.IndexHealthService;
 import com.anatomist.core.IndexResult;
 import com.anatomist.core.HealthPolicy;
 import com.anatomist.core.ParseInventory;

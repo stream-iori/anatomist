@@ -153,15 +153,15 @@ public class DoctorCommand implements Callable<Integer> {
                             .ifPresent(v -> out.put("dataflow_scopes",
                                     v.isBlank() ? List.of() : List.of(v.split(","))));
                     store.readProjectMeta("source_root").ifPresent(v -> out.put("source_root", v));
-                    store.readProjectMeta(com.anatomist.core.ProjectMetadata.SNAPSHOT_FINGERPRINT_KEY)
+                    store.readProjectMeta(com.anatomist.application.ProjectMetadata.SNAPSHOT_FINGERPRINT_KEY)
                             .ifPresent(v -> out.put("source_snapshot_fingerprint", v));
                     addSnapshotStatus(out, store);
                     if (store.readProjectMeta("source_git_commit").isPresent()
                             && out.get("source_root") instanceof String sourceRoot) {
-                        com.anatomist.core.ProjectMetadata.GitUntrackedCache cache =
-                                com.anatomist.core.ProjectMetadata.gitUntrackedCache(Path.of(sourceRoot));
+                        com.anatomist.application.ProjectMetadata.GitUntrackedCache cache =
+                                com.anatomist.application.ProjectMetadata.gitUntrackedCache(Path.of(sourceRoot));
                         out.put("git_untracked_cache", cache.value());
-                        if (cache != com.anatomist.core.ProjectMetadata.GitUntrackedCache.ENABLED) {
+                        if (cache != com.anatomist.application.ProjectMetadata.GitUntrackedCache.ENABLED) {
                             out.put("advice", List.of(
                                     "Enable faster exact Git dirty checks with: "
                                             + "git config core.untrackedCache true"));
@@ -186,7 +186,7 @@ public class DoctorCommand implements Callable<Integer> {
                     }
                     out.put("index_state", "committed");
                     com.anatomist.core.IndexHealthReport health =
-                            com.anatomist.core.IndexHealthService.read(store);
+                            com.anatomist.application.IndexHealthService.read(store);
                     List<com.anatomist.core.IndexDiagnostic> filtered = health.diagnostics().stream()
                             .filter(this::matchesDiagnostic)
                             .toList();
@@ -276,8 +276,8 @@ public class DoctorCommand implements Callable<Integer> {
         if (out.containsKey("dataflow_mode")) flow.put("configured_mode", out.get("dataflow_mode"));
         if (exists && "committed".equals(state)) {
             try (SqliteStore store = new SqliteStore(db)) {
-                com.anatomist.flow.FlowPersistence.Stats stats =
-                        com.anatomist.flow.FlowPersistence.stats(store);
+                com.anatomist.store.FlowPersistence.Stats stats =
+                        com.anatomist.store.FlowPersistence.stats(store);
                 flow.put("detailed_methods", stats.detailedMethods());
                 flow.put("summary_only_methods", stats.summaryOnlyMethods());
                 flow.put("progressive", "off".equals(out.get("dataflow_mode"))
@@ -436,7 +436,7 @@ public class DoctorCommand implements Callable<Integer> {
         if (!indexed.isBlank()) snapshot.put("indexed_git_commit", indexed);
         if (!indexedAt.isBlank()) snapshot.put("indexed_at", indexedAt);
         String current = root.isBlank() ? null
-                : com.anatomist.core.ProjectMetadata.currentGitCommit(Path.of(root));
+                : com.anatomist.application.ProjectMetadata.currentGitCommit(Path.of(root));
         if (current != null && !current.isBlank()) snapshot.put("current_git_commit", current);
         snapshot.put("match", !indexed.isBlank() && current != null && !current.isBlank()
                 ? indexed.equals(current) : null);

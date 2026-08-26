@@ -20,6 +20,25 @@ public class Edge {
 
     public Edge() {}
 
+    /**
+     * Convert the extractor draft fields into the exclusive persisted target model.
+     * Contradictory target fields fail before they can reach SQLite.
+     */
+    public EdgeTarget target() {
+        if (isExternal) {
+            if (targetId != null) {
+                throw new IllegalStateException(
+                        "external edge cannot also have internal target: " + relation);
+            }
+            return new EdgeTarget.External(externalTargetFqn, resolution);
+        }
+        if (externalTargetFqn != null) {
+            throw new IllegalStateException(
+                    "internal edge cannot also have external target: " + relation);
+        }
+        return new EdgeTarget.Internal(targetId);
+    }
+
     public static Edge call(String sourceId, String targetId, String callKind, String sourceLocation) {
         Edge e = new Edge();
         e.sourceId = sourceId;

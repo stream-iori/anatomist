@@ -167,7 +167,7 @@ public class JdkTypeCatalogBuilder {
     }
 
     private static int currentJdkRelease() {
-        // Runtime.version().feature() returns 21 on JDK 21+
+        // Use the running JDK feature version for the generated catalog.
         return Runtime.version().feature();
     }
 

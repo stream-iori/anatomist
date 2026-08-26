@@ -8,7 +8,7 @@ import com.anatomist.core.SourceRoot;
 import com.anatomist.core.SourceScope;
 import com.anatomist.flow.FlowEdge;
 import com.anatomist.flow.FlowNode;
-import com.anatomist.flow.FlowPersistence;
+import com.anatomist.store.FlowPersistence;
 import com.anatomist.flow.FlowResult;
 import com.anatomist.model.Annotation;
 import com.anatomist.model.Edge;

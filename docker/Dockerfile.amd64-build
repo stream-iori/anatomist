@@ -2,8 +2,8 @@
 # anatomist Linux/amd64 native-image build environment.
 #
 # CentOS 7.9.2009 (glibc 2.17) is the oldest mainstream base that can host
-# GraalVM JDK 21+. The user-suggested centos:6.10 (glibc 2.12) cannot run
-# GraalVM 21+ — the runtime linker refuses to load the JDK.
+# GraalVM JDK 25. The user-suggested centos:6.10 (glibc 2.12) cannot run
+# GraalVM 25 — the runtime linker refuses to load the JDK.
 #
 # Usage:
 #   docker build --platform linux/amd64 -t anatomist-build -f docker/Dockerfile.amd64-build .

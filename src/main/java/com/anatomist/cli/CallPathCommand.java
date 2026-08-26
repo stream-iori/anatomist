@@ -86,9 +86,9 @@ public class CallPathCommand implements Callable<Integer> {
                         ? CallChainSlicer.Level.CLASS : CallChainSlicer.Level.PACKAGE;
                 env.blocks = slicer.slice(rows, level);
             }
-            env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+            env.evidence = new QueryCoverageService(q.connection()).assess(
                     QueryCoverageService.Capability.CALL_PATH,
-                    List.of(from, to), module, scope, !rows.isEmpty(), false).toMap());
+                    List.of(from, to), module, scope, !rows.isEmpty(), false);
             Disclosure.applyBoundedEvidence(env, false);
             JsonFormatter.emit(System.out, env);
             return rows.isEmpty() ? 2 : 0;

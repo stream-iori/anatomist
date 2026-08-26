@@ -1,4 +1,4 @@
-package com.anatomist.core;
+package com.anatomist.application;
 
 import java.nio.file.Path;
 import java.util.List;

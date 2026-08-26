@@ -1,6 +1,6 @@
 package com.anatomist.incremental;
 
-import com.anatomist.core.IndexEnvironmentFingerprint;
+import com.anatomist.incremental.IndexEnvironmentFingerprint;
 import com.anatomist.store.SqliteStore;
 
 import java.util.LinkedHashMap;

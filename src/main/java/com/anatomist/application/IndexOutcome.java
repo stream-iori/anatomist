@@ -1,4 +1,4 @@
-package com.anatomist.core;
+package com.anatomist.application;
 
 /** Result boundary between the index application service and a CLI adapter. */
 public record IndexOutcome(int exitCode, String error, Throwable cause) {

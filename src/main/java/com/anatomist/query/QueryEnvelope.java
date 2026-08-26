@@ -14,18 +14,18 @@ import java.util.Map;
  * }
  * </pre>
  */
-public class QueryEnvelope {
+public final class QueryEnvelope {
     public String query;
-    public List<?> results;
-    public Map<String, Object> stats = new LinkedHashMap<>();
-    public Map<String, Object> budget = new LinkedHashMap<>();
-    public Map<String, Object> evidence = new LinkedHashMap<>();
+    public final List<?> results;
+    public final Map<String, Object> stats = new LinkedHashMap<>();
+    public QueryBudget budget;
+    public QueryEvidence evidence;
     public List<String> nextQueries;
     public SliceResult blocks;
 
     public QueryEnvelope(String query, List<?> results) {
         this.query = query;
-        this.results = results;
-        this.stats.put("total", results.size());
+        this.results = results == null ? List.of() : List.copyOf(results);
+        this.stats.put("total", this.results.size());
     }
 }

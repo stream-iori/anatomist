@@ -4,10 +4,10 @@ import com.anatomist.core.NodeKeyFactory;
 import com.anatomist.core.IndexTimings;
 import com.anatomist.core.SourceIdentity;
 import com.anatomist.core.SourceIdentityResolver;
-import com.anatomist.extract.XmlBeanExtractor;
+import com.anatomist.model.BeanRefTarget;
 import com.anatomist.flow.FlowEdge;
 import com.anatomist.flow.FlowNode;
-import com.anatomist.flow.FlowPersistence;
+import com.anatomist.store.FlowPersistence;
 import com.anatomist.flow.FlowResult;
 import com.anatomist.flow.MethodFlowCoverage;
 import com.anatomist.flow.MethodFlowSummary;
@@ -526,8 +526,8 @@ public final class StagedGraphStore implements AutoCloseable {
         return out;
     }
 
-    public Map<String, XmlBeanExtractor.BeanRefTarget> rawBeanTargets() {
-        Map<String, XmlBeanExtractor.BeanRefTarget> out = new HashMap<>();
+    public Map<String, BeanRefTarget> rawBeanTargets() {
+        Map<String, BeanRefTarget> out = new HashMap<>();
         String sql = "SELECT source_ref,target_ref,external_target_fqn FROM stage_edges "
                 + "WHERE relation=? AND source_ref LIKE 'bean:%' ORDER BY seq";
         try (PreparedStatement statement = connection().prepareStatement(sql)) {
@@ -535,7 +535,7 @@ public final class StagedGraphStore implements AutoCloseable {
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
                     String target = rows.getString(2) != null ? rows.getString(2) : rows.getString(3);
-                    out.put(rows.getString(1), new XmlBeanExtractor.BeanRefTarget(rows.getString(1), target));
+                    out.put(rows.getString(1), new BeanRefTarget(rows.getString(1), target));
                 }
             }
         } catch (SQLException e) {
@@ -703,23 +703,36 @@ public final class StagedGraphStore implements AutoCloseable {
 
     private void bindEdge(PreparedStatement statement, Edge edge, boolean normalized) throws SQLException {
         SourceIdentity identity = identities.resolve(edge.sourceFile);
+        com.anatomist.model.EdgeTarget target = edge.target();
+        String internalTarget = switch (target) {
+            case com.anatomist.model.EdgeTarget.Internal internal -> internal.nodeId();
+            case com.anatomist.model.EdgeTarget.External ignored -> null;
+        };
+        String externalTarget = switch (target) {
+            case com.anatomist.model.EdgeTarget.Internal ignored -> null;
+            case com.anatomist.model.EdgeTarget.External external -> external.fqn();
+        };
+        String resolution = switch (target) {
+            case com.anatomist.model.EdgeTarget.Internal ignored -> null;
+            case com.anatomist.model.EdgeTarget.External external -> external.resolution();
+        };
+        boolean external = target instanceof com.anatomist.model.EdgeTarget.External;
         boolean sourceKey = normalized || NodeKeyFactory.isKey(edge.sourceId);
-        boolean targetKey = normalized || NodeKeyFactory.isKey(edge.targetId);
+        boolean targetKey = normalized || NodeKeyFactory.isKey(internalTarget);
         int i = 1;
-        statement.setString(i++, edge.sourceId); statement.setString(i++, edge.targetId);
-        statement.setString(i++, edge.externalTargetFqn); statement.setString(i++, edge.relation);
+        statement.setString(i++, edge.sourceId); statement.setString(i++, internalTarget);
+        statement.setString(i++, externalTarget); statement.setString(i++, edge.relation);
         statement.setString(i++, edge.callKind); statement.setString(i++, edge.confidence == null
                 ? GraphConstants.Confidence.EXTRACTED : edge.confidence);
-        statement.setString(i++, edge.isExternal
-                ? (edge.resolution == null ? GraphConstants.Resolution.CLASSPATH : edge.resolution) : null);
-        statement.setString(i++, edge.context); statement.setInt(i++, edge.isExternal ? 1 : 0);
+        statement.setString(i++, resolution);
+        statement.setString(i++, edge.context); statement.setInt(i++, external ? 1 : 0);
         statement.setString(i++, edge.sourceFile); statement.setString(i++, edge.sourceLocation);
         statement.setString(i++, edge.metadata); statement.setString(i++, identity.module());
         statement.setString(i++, identity.scope().name()); statement.setInt(i++, sourceKey ? 1 : 0);
         statement.setInt(i++, targetKey ? 1 : 0);
         statement.setString(i++, sourceKey ? edge.sourceId : null);
-        statement.setString(i++, !edge.isExternal && targetKey ? edge.targetId : null);
-        statement.setString(i++, methodArityKey(edge.externalTargetFqn));
+        statement.setString(i++, !external && targetKey ? internalTarget : null);
+        statement.setString(i++, methodArityKey(externalTarget));
         statement.addBatch();
     }
 

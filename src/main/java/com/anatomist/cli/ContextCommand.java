@@ -198,10 +198,10 @@ public class ContextCommand implements Callable<Integer> {
     }
 
     private void attachEvidence(QueryService service, QueryEnvelope envelope, boolean positive) {
-        envelope.evidence.putAll(new QueryCoverageService(service.connection()).assess(
+        envelope.evidence = new QueryCoverageService(service.connection()).assess(
                 QueryCoverageService.Capability.DECLARATION,
                 target == null ? List.of() : List.of(target),
-                module, scope, positive, false).toMap());
+                module, scope, positive, false);
     }
 
     private String buildQueryString() {

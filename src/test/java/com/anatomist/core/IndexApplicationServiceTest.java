@@ -1,5 +1,8 @@
 package com.anatomist.core;
 
+import com.anatomist.application.IndexApplicationService;
+import com.anatomist.application.IndexOutcome;
+import com.anatomist.application.IndexRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

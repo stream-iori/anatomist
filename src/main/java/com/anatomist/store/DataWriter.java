@@ -734,16 +734,28 @@ public class DataWriter {
         if (edges == null || edges.isEmpty()) return;
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_EDGE)) {
             for (Edge e : edges) {
+                com.anatomist.model.EdgeTarget target = e.target();
+                String internalTarget = switch (target) {
+                    case com.anatomist.model.EdgeTarget.Internal internal -> internal.nodeId();
+                    case com.anatomist.model.EdgeTarget.External ignored -> null;
+                };
+                String externalTarget = switch (target) {
+                    case com.anatomist.model.EdgeTarget.Internal ignored -> null;
+                    case com.anatomist.model.EdgeTarget.External external -> external.fqn();
+                };
+                String resolution = switch (target) {
+                    case com.anatomist.model.EdgeTarget.Internal ignored -> null;
+                    case com.anatomist.model.EdgeTarget.External external -> external.resolution();
+                };
                 ps.setString(1, e.sourceId);
-                setNullableString(ps, 2, e.targetId);
-                setNullableString(ps, 3, e.externalTargetFqn);
+                setNullableString(ps, 2, internalTarget);
+                setNullableString(ps, 3, externalTarget);
                 ps.setString(4, e.relation);
                 setNullableString(ps, 5, e.callKind);
                 ps.setString(6, e.confidence == null ? GraphConstants.Confidence.EXTRACTED : e.confidence);
-                setNullableString(ps, 7, e.isExternal
-                        ? (e.resolution == null ? GraphConstants.Resolution.CLASSPATH : e.resolution) : null);
+                setNullableString(ps, 7, resolution);
                 setNullableString(ps, 8, e.context);
-                ps.setInt(9, e.isExternal ? 1 : 0);
+                ps.setInt(9, target instanceof com.anatomist.model.EdgeTarget.External ? 1 : 0);
                 ps.setString(10, e.sourceFile);
                 ps.setString(11, e.sourceLocation);
                 ps.setString(12, e.metadata);

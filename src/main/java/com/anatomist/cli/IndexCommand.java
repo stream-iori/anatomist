@@ -2,6 +2,8 @@ package com.anatomist.cli;
 
 import com.anatomist.config.ConfigLoader;
 import com.anatomist.config.ProjectConfig;
+import com.anatomist.application.IndexExecutionHints;
+import com.anatomist.application.IndexExecutionRequest;
 import com.anatomist.core.ClasspathDetector;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.IndexTimings;
@@ -168,22 +170,34 @@ public class IndexCommand implements Callable<Integer> {
     private com.anatomist.core.ClasspathDetectionResult currentClasspathDetection =
             com.anatomist.core.ClasspathDetectionResult.notRequested();
 
-    void setExecutionHints(IndexExecutionHints executionHints) {
-        this.executionHints = executionHints;
-    }
-
-    /** Internal watch hook: replacement builds write a temporary DB but must
-     * still serialize with writers of the live DB. */
-    void setOperationLockPath(Path operationLockPath) {
-        this.operationLockPath = operationLockPath;
-    }
-
-    void deferFullFallbackForWatch() {
-        this.deferFullFallback = true;
-    }
-
-    boolean usesCandidateFastPathForTest() {
-        return executionHints != null && executionHints.canUseFastPath();
+    static com.anatomist.application.IndexOutcome execute(IndexExecutionRequest request) {
+        IndexCommand command = new IndexCommand();
+        command.projectPath = request.projectPath();
+        command.projectSource = request.projectSource();
+        command.sourceRootSpecs = new ArrayList<>(request.sourceRootSpecs());
+        command.includeTests = request.includeTests();
+        command.noClasspath = request.noClasspath();
+        command.classpath = request.classpath();
+        command.vmClasspath = request.vmClasspath();
+        command.javaVersion = request.javaVersion();
+        command.jdkHome = request.jdkHome();
+        command.output = request.output();
+        command.incremental = request.incremental();
+        command.full = !request.incremental();
+        command.springXml = request.springXml();
+        command.dataflow = request.dataflow();
+        command.dataflowMode = request.dataflowMode();
+        command.dataflowScopes = new ArrayList<>(request.dataflowScopes());
+        command.implicitTaint = request.implicitTaint();
+        command.strictHealth = request.strictHealth();
+        command.healthPolicy = request.healthPolicy();
+        command.timings = request.timings();
+        command.maxRealignFiles = request.maxRealignFiles();
+        command.operationLockPath = request.operationLockPath();
+        command.executionHints = request.executionHints();
+        command.deferFullFallback = request.deferFullFallback();
+        command.format = "text";
+        return command.executeOutcome();
     }
 
     @Override
@@ -198,9 +212,9 @@ public class IndexCommand implements Callable<Integer> {
         return reportOutcome(executeOutcome());
     }
 
-    com.anatomist.core.IndexOutcome executeOutcome() {
-        return new com.anatomist.core.IndexApplicationService().execute(
-                new com.anatomist.core.IndexRequest(projectPath, projectSource, sourceRootSpecs),
+    com.anatomist.application.IndexOutcome executeOutcome() {
+        return new com.anatomist.application.IndexApplicationService().execute(
+                new com.anatomist.application.IndexRequest(projectPath, projectSource, sourceRootSpecs),
                 root -> {
                     Path lockTarget = operationLockPath != null ? operationLockPath
                             : output == null ? DefaultIndexPath.forIndexWrite(root)
@@ -211,7 +225,7 @@ public class IndexCommand implements Callable<Integer> {
                 });
     }
 
-    int reportOutcome(com.anatomist.core.IndexOutcome outcome) {
+    int reportOutcome(com.anatomist.application.IndexOutcome outcome) {
         if (outcome.error() != null) {
             System.err.println("ERROR: " + outcome.error());
             if (outcome.cause() != null
@@ -373,8 +387,8 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
-                com.anatomist.core.ProjectMetadata.GitSnapshotTask gitTask =
-                        com.anatomist.core.ProjectMetadata.startIncrementalGitRead(
+                com.anatomist.application.ProjectMetadata.GitSnapshotTask gitTask =
+                        com.anatomist.application.ProjectMetadata.startIncrementalGitRead(
                                 projectRoot, store.readProjectMeta(), fingerprintCache());
                 phaseStarted = phaseTimings.start();
                 FileCacheService fcs = new FileCacheService();
@@ -409,8 +423,8 @@ public class IndexCommand implements Callable<Integer> {
                 if (ch.isEmpty()) {
                     IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
                     if (flowProfile.enabled()) {
-                        com.anatomist.flow.FlowPersistence.Stats flowStats =
-                                com.anatomist.flow.FlowPersistence.stats(store);
+                        com.anatomist.store.FlowPersistence.Stats flowStats =
+                                com.anatomist.store.FlowPersistence.stats(store);
                         summary.flowNodes = flowStats.nodes();
                         summary.flowEdges = flowStats.edges();
                         summary.flowSummaries = flowStats.summaries();
@@ -425,8 +439,8 @@ public class IndexCommand implements Callable<Integer> {
                         }
                     }
                     phaseStarted = phaseTimings.start();
-                    com.anatomist.core.ProjectMetadata.WriteResult metadataResult =
-                            com.anatomist.core.ProjectMetadata.writeIncremental(
+                    com.anatomist.application.ProjectMetadata.WriteResult metadataResult =
+                            com.anatomist.application.ProjectMetadata.writeIncremental(
                             store, projectRoot, sourcePaths, resolvedSourceRoots,
                             Integer.parseInt(store.readProjectMeta("java_version").orElse("8")),
                             store.readProjectMeta("classpath_mode").orElse(classpathMode()),
@@ -444,7 +458,7 @@ public class IndexCommand implements Callable<Integer> {
                     phaseTimings.stop("total", totalStarted);
                     long elapsed = System.currentTimeMillis() - started;
                     com.anatomist.core.IndexHealthReport persistedHealth =
-                            com.anatomist.core.IndexHealthService.read(store);
+                            com.anatomist.application.IndexHealthService.read(store);
                     IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(cache),
                             summary, cache.size(), elapsed,
                             timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
@@ -480,8 +494,8 @@ public class IndexCommand implements Callable<Integer> {
 
                 java.util.Map<String, FileCacheEntry> after = store.readFileCache();
                 phaseStarted = phaseTimings.start();
-                com.anatomist.core.ProjectMetadata.WriteResult metadataResult =
-                        com.anatomist.core.ProjectMetadata.writeIncremental(
+                com.anatomist.application.ProjectMetadata.WriteResult metadataResult =
+                        com.anatomist.application.ProjectMetadata.writeIncremental(
                         store, projectRoot, sourcePaths, resolvedSourceRoots,
                         runtime.javaVersion(), runtime.classpathMode(), runtime.classpathEntries(),
                         classpath, springXml, after, fingerprintCache(), phaseTimings, gitTask);
@@ -502,7 +516,7 @@ public class IndexCommand implements Callable<Integer> {
                         variableMs, phaseTimings.millis().getOrDefault("total", 0L));
                 long elapsed = System.currentTimeMillis() - started;
                 com.anatomist.core.IndexHealthReport persistedHealth =
-                        com.anatomist.core.IndexHealthService.read(store);
+                        com.anatomist.application.IndexHealthService.read(store);
                 IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(after),
                         summary, after.size(), elapsed,
                         timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
@@ -534,15 +548,15 @@ public class IndexCommand implements Callable<Integer> {
         if (executionHints != null && executionHints.incrementalSession() != null) {
             executionHints.incrementalSession().invalidateKnownNodeIds();
         }
-        com.anatomist.core.IndexConfig cfg = new com.anatomist.core.IndexConfig(
+        com.anatomist.application.IndexConfig cfg = new com.anatomist.application.IndexConfig(
                 projectRoot, sourcePaths, classpathEntries, sourceFiles,
                 jv, springXml, config, dbPath, classpathOverride, noClasspath, debug,
                 resolveSourceRoots(projectRoot, sourcePaths),
                 effectiveHealthPolicy != com.anatomist.core.HealthPolicy.NONE,
                 factory == null ? null : currentJavaVersionDetection,
                 flowProfile, implicitTaint);
-        com.anatomist.core.IndexOrchestrator orchestrator =
-                new com.anatomist.core.IndexOrchestrator(cfg, factory);
+        com.anatomist.application.IndexOrchestrator orchestrator =
+                new com.anatomist.application.IndexOrchestrator(cfg, factory);
 
         try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath)) {
             boolean shouldRecreate = recreateDb;
@@ -586,7 +600,7 @@ public class IndexCommand implements Callable<Integer> {
                             timings ? phaseTimings.millis() : java.util.Map.of(),
                             effectiveHealthPolicy);
                 } else {
-                    com.anatomist.core.IndexStatsPrinter.print(result, cfg, System.out);
+                    com.anatomist.application.IndexStatsPrinter.print(result, cfg, System.out);
                     if (timings) IndexOutput.emitTimingsText(phaseTimings.millis());
                 }
                 if (!"json".equalsIgnoreCase(format) && result.samplingEnabled()
@@ -601,7 +615,7 @@ public class IndexCommand implements Callable<Integer> {
                     com.anatomist.core.UnresolvedReporter.print(
                             System.out, sampleData, projectPackages, unresolvedCount);
                 }
-                if (!com.anatomist.core.IndexHealthService.fromResult(result)
+                if (!com.anatomist.application.IndexHealthService.fromResult(result)
                         .gate(effectiveHealthPolicy).passed()) {
                     return 3;
                 }
@@ -842,18 +856,18 @@ public class IndexCommand implements Callable<Integer> {
         return FileCacheService.sha256OfString(value);
     }
 
-    private com.anatomist.core.ProjectMetadata.FingerprintCache fingerprintCache() {
+    private com.anatomist.application.ProjectMetadata.FingerprintCache fingerprintCache() {
         return executionHints == null ? null : executionHints.fingerprintCache();
     }
 
     private void maybeAdviseGitCache(
-            Path projectRoot, com.anatomist.core.ProjectMetadata.WriteResult result) {
+            Path projectRoot, com.anatomist.application.ProjectMetadata.WriteResult result) {
         if (!timings || result == null || result.gitStatusMillis() < 100) return;
         Path normalized = projectRoot.toAbsolutePath().normalize();
         if (!GIT_CACHE_ADVISED.add(normalized)) return;
-        com.anatomist.core.ProjectMetadata.GitUntrackedCache state =
-                com.anatomist.core.ProjectMetadata.gitUntrackedCache(normalized);
-        if (state == com.anatomist.core.ProjectMetadata.GitUntrackedCache.ENABLED) return;
+        com.anatomist.application.ProjectMetadata.GitUntrackedCache state =
+                com.anatomist.application.ProjectMetadata.gitUntrackedCache(normalized);
+        if (state == com.anatomist.application.ProjectMetadata.GitUntrackedCache.ENABLED) return;
         System.err.println("INFO: Git untracked cache is " + state.value()
                 + "; metadata_git can be faster after `git config core.untrackedCache true`");
     }
@@ -963,10 +977,10 @@ public class IndexCommand implements Callable<Integer> {
         // but it does not by itself change symbol resolution. Rebuild only when
         // the refreshed artifacts differ from the committed index environment.
         List<Path> refreshedEntries = resolveClasspath(detector, projectRoot);
-        String refreshedArtifacts = com.anatomist.core.IndexEnvironmentFingerprint
+        String refreshedArtifacts = com.anatomist.incremental.IndexEnvironmentFingerprint
                 .classpathArtifactsHash(refreshedEntries);
         String previousArtifacts = store.readProjectMeta(
-                com.anatomist.core.IndexEnvironmentFingerprint.CLASSPATH_ARTIFACTS_KEY).orElse("");
+                com.anatomist.incremental.IndexEnvironmentFingerprint.CLASSPATH_ARTIFACTS_KEY).orElse("");
         return refreshedArtifacts.equals(previousArtifacts) ? null : "classpath artifacts changed";
     }
 

@@ -1,5 +1,6 @@
-package com.anatomist.core;
+package com.anatomist.incremental;
 
+import com.anatomist.core.SourceRoot;
 import com.anatomist.store.FileCacheService;
 
 import java.io.IOException;

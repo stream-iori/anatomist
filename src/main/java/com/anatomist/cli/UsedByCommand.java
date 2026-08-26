@@ -64,9 +64,9 @@ public class UsedByCommand implements Callable<Integer> {
                 Disclosure.addOption(next, "--offset", env.stats.get("next_offset"));
                 env.nextQueries = List.of(Disclosure.renderCommand(next));
             }
-            env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+            env.evidence = new QueryCoverageService(q.connection()).assess(
                     QueryCoverageService.Capability.REFERENCE_INCOMING,
-                    List.of(type), module, scope, paged.total() > 0, false).toMap());
+                    List.of(type), module, scope, paged.total() > 0, false);
             JsonFormatter.emit(System.out, env);
             return 0;
         } catch (SymbolResolutionException failure) {

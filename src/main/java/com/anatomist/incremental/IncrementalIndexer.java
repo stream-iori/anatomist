@@ -3,10 +3,11 @@ package com.anatomist.incremental;
 import com.anatomist.config.ProjectConfig;
 import com.anatomist.framework.AnalysisContext;
 import com.anatomist.framework.AnalyzerRegistry;
+import com.anatomist.framework.spring.SpringAnalyzers;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.GraphPostProcessor;
 import com.anatomist.core.JavaParserFactory;
-import com.anatomist.core.JavaContractFingerprint;
+import com.anatomist.incremental.JavaContractFingerprint;
 import com.anatomist.core.IndexTimings;
 import com.anatomist.core.NodeIdGenerator;
 import com.anatomist.core.NodeKeyFactory;
@@ -19,7 +20,7 @@ import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.framework.spring.SpringXmlAnalyzer;
 import com.anatomist.flow.FlowAnalyzer;
-import com.anatomist.flow.FlowPersistence;
+import com.anatomist.store.FlowPersistence;
 import com.anatomist.flow.FlowProfile;
 import com.anatomist.flow.FlowResult;
 import com.anatomist.flow.TaintRules;
@@ -470,8 +471,9 @@ public class IncrementalIndexer {
                 projectRoot, sourcePaths, idGen, null, "MAIN", projectConfig);
         AnalysisContext analysisContext = new AnalysisContext(
                 projectRoot, sourcePaths, ctx, projectConfig, springXml);
+        AnalyzerRegistry analyzers = SpringAnalyzers.registry(analysisContext);
         ExtractorPipeline pipeline = new ExtractorPipeline(
-                ctx, AnalyzerRegistry.javaAstAnalyzers(analysisContext));
+                ctx, analyzers.javaAstAnalyzers());
         Set<String> parsed = new LinkedHashSet<>();
         JavaParserFactory.ParseFilesResult parsedBatch =
                 parserFactory.parseFilesDetailed(targetJavaFiles(files));

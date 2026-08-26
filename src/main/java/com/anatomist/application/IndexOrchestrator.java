@@ -1,14 +1,17 @@
-package com.anatomist.core;
+package com.anatomist.application;
 
 import com.anatomist.config.ProjectConfig;
+import com.anatomist.core.*;
 import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.framework.AnalysisContext;
 import com.anatomist.framework.AnalyzerRegistry;
+import com.anatomist.framework.spring.SpringAnalyzers;
 import com.anatomist.framework.spring.SpringXmlAnalyzer;
+import com.anatomist.incremental.JavaContractFingerprint;
 import com.anatomist.flow.FlowAnalyzer;
-import com.anatomist.flow.FlowPersistence;
+import com.anatomist.store.FlowPersistence;
 import com.anatomist.flow.FlowResult;
 import com.anatomist.flow.TaintRules;
 import com.anatomist.model.ExtractionResult;
@@ -59,8 +62,9 @@ public class IndexOrchestrator {
                 cfg.projectRoot(), cfg.sourcePaths(), idGen, null, "MAIN", cfg.config());
         AnalysisContext analysisContext = new AnalysisContext(
                 cfg.projectRoot(), cfg.sourcePaths(), ctx, cfg.config(), cfg.springXml());
+        AnalyzerRegistry analyzers = SpringAnalyzers.registry(analysisContext);
         ExtractorPipeline pipeline = new ExtractorPipeline(
-                ctx, AnalyzerRegistry.javaAstAnalyzers(analysisContext), timings);
+                ctx, analyzers.javaAstAnalyzers(), timings);
 
         SourceIdentityResolver identityResolver = cfg.sourceRoots() == null || cfg.sourceRoots().isEmpty()
                 ? new SourceIdentityResolver(cfg.projectRoot(), cfg.sourcePaths())

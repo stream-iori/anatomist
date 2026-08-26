@@ -3,6 +3,7 @@ package com.anatomist.extract;
 import com.anatomist.core.SpringBeanParser.ParsedBean;
 import com.anatomist.core.SpringBeanParser.XmlConfigNode;
 import com.anatomist.json.Json;
+import com.anatomist.model.BeanRefTarget;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
@@ -34,8 +35,6 @@ import java.util.Set;
  * </ul>
  */
 public final class XmlBeanExtractor {
-
-    public record BeanRefTarget(String beanId, String className) {}
 
     private final String scope;
 

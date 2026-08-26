@@ -26,9 +26,9 @@ public abstract class QueryCommand implements Callable<Integer> {
             try (QueryService q = new QueryService(db)) {
             q.selectNodes(module, scope);
             QueryEnvelope env = execute(q);
-            env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+            env.evidence = new QueryCoverageService(q.connection()).assess(
                     coverageCapability(), coverageAnchors(), module, scope,
-                    hasPositiveEvidence(env), aggregateEvidence()).toMap());
+                    hasPositiveEvidence(env), aggregateEvidence());
             Disclosure.applyBoundedEvidence(env, false);
             JsonFormatter.emit(System.out, env);
             return 0;

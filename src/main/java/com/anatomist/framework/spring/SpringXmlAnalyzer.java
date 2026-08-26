@@ -4,7 +4,7 @@ import com.anatomist.core.ProjectScanner;
 import com.anatomist.core.SpringBeanParser;
 import com.anatomist.core.SpringBeanParser.ParsedBean;
 import com.anatomist.extract.XmlBeanExtractor;
-import com.anatomist.extract.XmlBeanExtractor.BeanRefTarget;
+import com.anatomist.model.BeanRefTarget;
 import com.anatomist.framework.AnalysisContext;
 import com.anatomist.framework.ProjectAnalyzer;
 import com.anatomist.model.ExtractionResult;

@@ -1,6 +1,8 @@
-package com.anatomist.core;
+package com.anatomist.application;
 
 import com.anatomist.config.ProjectConfig;
+import com.anatomist.core.JavaVersionDetection;
+import com.anatomist.core.SourceRoot;
 import com.anatomist.flow.FlowProfile;
 
 import java.nio.file.Path;

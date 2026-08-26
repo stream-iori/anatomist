@@ -27,20 +27,15 @@ abstract class FlowQueryCommand implements Callable<Integer> {
             service.select(module, scope);
             try {
                 QueryEnvelope result = execute(service);
-                result.evidence.putAll(new QueryCoverageService(service.connection()).assess(
+                result.evidence = new QueryCoverageService(service.connection()).assess(
                         QueryCoverageService.Capability.FLOW,
                         coverageAnchors(), module, scope,
                         result.stats.get("total") instanceof Number total
                                 && total.longValue() > 0,
-                        false).toMap());
+                        false);
                 if ("partial".equals(result.stats.get("flow_coverage"))) {
                     boolean positive = Boolean.TRUE.equals(result.stats.get("found"));
-                    result.evidence.put("coverage", "partial");
-                    result.evidence.put("negative_conclusion_safe", false);
-                    if (!positive) {
-                        result.evidence.put("status", "indeterminate");
-                        result.evidence.put("code", "FLOW_COVERAGE_INCOMPLETE");
-                    }
+                    result.evidence = result.evidence.withPartialFlow(positive);
                 }
                 Disclosure.applyBoundedEvidence(
                         result, result.stats.containsKey("limit_truncated"));

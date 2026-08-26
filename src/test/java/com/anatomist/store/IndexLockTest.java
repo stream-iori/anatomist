@@ -5,11 +5,16 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IndexLockTest {
 
@@ -17,189 +22,104 @@ class IndexLockTest {
     void readLocksCanBeConcurrent(@TempDir Path tmp) throws Exception {
         Path db = tmp.resolve("test.db");
         CountDownLatch bothHeld = new CountDownLatch(2);
-        AtomicBoolean success = new AtomicBoolean(true);
+        CountDownLatch release = new CountDownLatch(1);
 
-        Thread t1 = new Thread(() -> {
-            try (IndexLock lock = IndexLock.forRead(db, 2000)) {
-                bothHeld.countDown();
-                assertTrue(bothHeld.await(2, TimeUnit.SECONDS));
-            } catch (Exception e) {
-                success.set(false);
-            }
-        });
-        Thread t2 = new Thread(() -> {
-            try (IndexLock lock = IndexLock.forRead(db, 2000)) {
-                bothHeld.countDown();
-                assertTrue(bothHeld.await(2, TimeUnit.SECONDS));
-            } catch (Exception e) {
-                success.set(false);
-            }
-        });
-
-        t1.start();
-        t2.start();
-        t1.join(5000);
-        t2.join(5000);
-        assertTrue(success.get(), "Both read locks should be held concurrently");
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Void> first = executor.submit(() -> hold(db, false, bothHeld, release));
+            Future<Void> second = executor.submit(() -> hold(db, false, bothHeld, release));
+            assertTrue(bothHeld.await(2, TimeUnit.SECONDS),
+                    "both read locks should be held concurrently");
+            release.countDown();
+            first.get(2, TimeUnit.SECONDS);
+            second.get(2, TimeUnit.SECONDS);
+        }
     }
 
     @Test
     void writeLockExcludesRead(@TempDir Path tmp) throws Exception {
-        Path db = tmp.resolve("test.db");
-        CountDownLatch writerHeld = new CountDownLatch(1);
-        CountDownLatch writerDone = new CountDownLatch(1);
-        AtomicBoolean readerAcquiredDuringWrite = new AtomicBoolean(false);
-
-        Thread writer = new Thread(() -> {
-            try (IndexLock lock = IndexLock.forWrite(db, 2000)) {
-                writerHeld.countDown();
-                Thread.sleep(300);
-            } catch (Exception e) {
-                // ignore
-            } finally {
-                writerDone.countDown();
-            }
-        });
-
-        Thread reader = new Thread(() -> {
-            try {
-                writerHeld.await(2, TimeUnit.SECONDS);
-                Thread.sleep(50); // ensure writer holds lock
-                long before = System.currentTimeMillis();
-                try (IndexLock lock = IndexLock.forRead(db, 5000)) {
-                    long elapsed = System.currentTimeMillis() - before;
-                    if (elapsed < 200) {
-                        readerAcquiredDuringWrite.set(true);
-                    }
-                }
-            } catch (Exception e) {
-                // ignore
-            }
-        });
-
-        writer.start();
-        reader.start();
-        writer.join(5000);
-        reader.join(5000);
-        assertFalse(readerAcquiredDuringWrite.get(),
-                "Reader should not acquire lock while writer holds it");
+        assertExcluded(tmp.resolve("test.db"), true, false);
     }
 
     @Test
     void writeLockExcludesWrite(@TempDir Path tmp) throws Exception {
-        Path db = tmp.resolve("test.db");
-        CountDownLatch firstHeld = new CountDownLatch(1);
-        AtomicBoolean secondAcquiredDuringFirst = new AtomicBoolean(false);
-
-        Thread first = new Thread(() -> {
-            try (IndexLock lock = IndexLock.forWrite(db, 2000)) {
-                firstHeld.countDown();
-                Thread.sleep(300);
-            } catch (Exception e) {
-                // ignore
-            }
-        });
-
-        Thread second = new Thread(() -> {
-            try {
-                firstHeld.await(2, TimeUnit.SECONDS);
-                Thread.sleep(50);
-                long before = System.currentTimeMillis();
-                try (IndexLock lock = IndexLock.forWrite(db, 5000)) {
-                    long elapsed = System.currentTimeMillis() - before;
-                    if (elapsed < 200) {
-                        secondAcquiredDuringFirst.set(true);
-                    }
-                }
-            } catch (Exception e) {
-                // ignore
-            }
-        });
-
-        first.start();
-        second.start();
-        first.join(5000);
-        second.join(5000);
-        assertFalse(secondAcquiredDuringFirst.get(),
-                "Second writer should wait for first to release");
+        assertExcluded(tmp.resolve("test.db"), true, true);
     }
 
     @Test
     void readLockExcludesWrite(@TempDir Path tmp) throws Exception {
-        Path db = tmp.resolve("test.db");
-        CountDownLatch readerHeld = new CountDownLatch(1);
-        AtomicBoolean writerAcquiredDuringRead = new AtomicBoolean(false);
-
-        Thread reader = new Thread(() -> {
-            try (IndexLock lock = IndexLock.forRead(db, 2000)) {
-                readerHeld.countDown();
-                Thread.sleep(300);
-            } catch (Exception e) {
-                // ignore
-            }
-        });
-
-        Thread writer = new Thread(() -> {
-            try {
-                readerHeld.await(2, TimeUnit.SECONDS);
-                Thread.sleep(50);
-                long before = System.currentTimeMillis();
-                try (IndexLock lock = IndexLock.forWrite(db, 5000)) {
-                    long elapsed = System.currentTimeMillis() - before;
-                    if (elapsed < 200) {
-                        writerAcquiredDuringRead.set(true);
-                    }
-                }
-            } catch (Exception e) {
-                // ignore
-            }
-        });
-
-        reader.start();
-        writer.start();
-        reader.join(5000);
-        writer.join(5000);
-        assertFalse(writerAcquiredDuringRead.get(),
-                "Writer should wait for reader to release");
+        assertExcluded(tmp.resolve("test.db"), false, true);
     }
 
     @Test
     void timeoutThrowsException(@TempDir Path tmp) throws Exception {
         Path db = tmp.resolve("test.db");
         CountDownLatch held = new CountDownLatch(1);
-        AtomicReference<Exception> caught = new AtomicReference<>();
+        CountDownLatch release = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(1)) {
+            Future<Void> holder = executor.submit(() -> hold(db, true, held, release));
+            assertTrue(held.await(2, TimeUnit.SECONDS));
+            IndexLock.LockTimeoutException timeout = assertThrows(
+                    IndexLock.LockTimeoutException.class, () -> IndexLock.forWrite(db, 100));
+            assertTrue(timeout.getMessage().contains("timeout"));
+            release.countDown();
+            holder.get(2, TimeUnit.SECONDS);
+        }
+    }
 
-        Thread holder = new Thread(() -> {
-            try (IndexLock lock = IndexLock.forWrite(db, 2000)) {
-                held.countDown();
-                Thread.sleep(2000);
-            } catch (Exception e) {
-                // ignore
-            }
-        });
+    @Test
+    void zeroTimeoutMakesOneImmediateAttempt(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("test.db");
+        CountDownLatch held = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(1)) {
+            Future<Void> holder = executor.submit(() -> hold(db, true, held, release));
+            assertTrue(held.await(2, TimeUnit.SECONDS));
+            assertThrows(IndexLock.LockTimeoutException.class, () -> IndexLock.forRead(db, 0));
+            release.countDown();
+            holder.get(2, TimeUnit.SECONDS);
+        }
+    }
 
-        holder.start();
-        held.await(2, TimeUnit.SECONDS);
-        Thread.sleep(50);
+    @Test
+    void negativeTimeoutIsRejected(@TempDir Path tmp) {
+        assertThrows(IllegalArgumentException.class,
+                () -> IndexLock.forWrite(tmp.resolve("test.db"), -1));
+    }
 
-        try {
-            IndexLock.forWrite(db, 200);
-            fail("Should have thrown LockTimeoutException");
-        } catch (IndexLock.LockTimeoutException e) {
-            assertTrue(e.getMessage().contains("timeout"));
-        } finally {
-            holder.interrupt();
-            holder.join(3000);
+    @Test
+    void interruptionIsPropagated(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("test.db");
+        CountDownLatch held = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch waiting = new CountDownLatch(1);
+        AtomicReference<Thread> waiterThread = new AtomicReference<>();
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Void> holder = executor.submit(() -> hold(db, true, held, release));
+            assertTrue(held.await(2, TimeUnit.SECONDS));
+            Future<Boolean> waiter = executor.submit(() -> {
+                waiterThread.set(Thread.currentThread());
+                waiting.countDown();
+                try (IndexLock ignored = IndexLock.forRead(db, 5_000)) {
+                    return false;
+                } catch (IndexLock.LockException interrupted) {
+                    return Thread.currentThread().isInterrupted();
+                }
+            });
+            assertTrue(waiting.await(2, TimeUnit.SECONDS));
+            waiterThread.get().interrupt();
+            assertTrue(waiter.get(2, TimeUnit.SECONDS),
+                    "lock wait must restore the interrupted flag");
+            release.countDown();
+            holder.get(2, TimeUnit.SECONDS);
         }
     }
 
     @Test
     void autoCloseableReleasesLock(@TempDir Path tmp) {
         Path db = tmp.resolve("test.db");
-        try (IndexLock lock = IndexLock.forWrite(db, 1000)) {
-            // hold lock
+        try (IndexLock ignored = IndexLock.forWrite(db, 1000)) {
+            // held until close
         }
-        // After close, should be able to acquire again
         try (IndexLock lock = IndexLock.forWrite(db, 1000)) {
             assertNotNull(lock);
         }
@@ -208,7 +128,42 @@ class IndexLockTest {
     @Test
     void lockPathDerivedFromDbPath(@TempDir Path tmp) {
         Path db = tmp.resolve("index.db");
-        Path lockPath = IndexLock.lockPathFor(db);
-        assertEquals(tmp.resolve("index.db.lock"), lockPath);
+        assertTrue(IndexLock.lockPathFor(db).equals(tmp.resolve("index.db.lock")));
+    }
+
+    private static void assertExcluded(Path db, boolean holderWrites,
+                                       boolean contenderWrites) throws Exception {
+        CountDownLatch held = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch acquired = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Void> holder = executor.submit(() -> hold(db, holderWrites, held, release));
+            assertTrue(held.await(2, TimeUnit.SECONDS));
+            Future<Void> contender = executor.submit(() -> {
+                try (IndexLock ignored = acquire(db, contenderWrites, 2_000)) {
+                    acquired.countDown();
+                }
+                return null;
+            });
+            assertFalse(acquired.await(150, TimeUnit.MILLISECONDS),
+                    "contender acquired while the incompatible lock was held");
+            release.countDown();
+            holder.get(2, TimeUnit.SECONDS);
+            contender.get(2, TimeUnit.SECONDS);
+            assertTrue(acquired.await(0, TimeUnit.MILLISECONDS));
+        }
+    }
+
+    private static Void hold(Path db, boolean write, CountDownLatch held,
+                             CountDownLatch release) throws Exception {
+        try (IndexLock ignored = acquire(db, write, 2_000)) {
+            held.countDown();
+            assertTrue(release.await(2, TimeUnit.SECONDS), "test did not release held lock");
+        }
+        return null;
+    }
+
+    private static IndexLock acquire(Path db, boolean write, long timeoutMs) {
+        return write ? IndexLock.forWrite(db, timeoutMs) : IndexLock.forRead(db, timeoutMs);
     }
 }

@@ -68,9 +68,9 @@ public class OverviewCommand implements Callable<Integer> {
                             + " --offset " + end);
                     Disclosure.putBudget(env, "package_deps", page.size(), total);
                 }
-                env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+                env.evidence = new QueryCoverageService(q.connection()).assess(
                         QueryCoverageService.Capability.AGGREGATE,
-                        List.of(), null, "MAIN", total > 0, true).toMap());
+                        List.of(), null, "MAIN", total > 0, true);
                 JsonFormatter.emit(System.out, env);
                 return 0;
             }
@@ -80,9 +80,9 @@ public class OverviewCommand implements Callable<Integer> {
                 QueryEnvelope env = new QueryEnvelope(buildQueryString(), List.of(ov));
                 env.stats.clear();
                 env.stats.putAll(ov.toStats());
-                env.evidence.putAll(new QueryCoverageService(q.connection()).assess(
+                env.evidence = new QueryCoverageService(q.connection()).assess(
                         QueryCoverageService.Capability.AGGREGATE,
-                        List.of(), null, "MAIN", true, true).toMap());
+                        List.of(), null, "MAIN", true, true);
                 JsonFormatter.emit(System.out, env);
             } else {
                 System.out.print(MarkdownFormatter.format(ov));

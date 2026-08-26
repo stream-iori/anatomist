@@ -4,6 +4,8 @@ import com.anatomist.query.EdgeRow;
 import com.anatomist.query.ContextFilter;
 import com.anatomist.query.PagedResult;
 import com.anatomist.query.QueryEnvelope;
+import com.anatomist.query.QueryBudget;
+import com.anatomist.query.QueryEvidence;
 import com.anatomist.query.TraversalResult;
 
 import java.util.ArrayList;
@@ -34,10 +36,7 @@ final class Disclosure {
     }
 
     static void putBudget(QueryEnvelope env, String mode, int emitted, int total) {
-        env.budget.put("mode", mode);
-        env.budget.put("emitted", emitted);
-        env.budget.put("total", total);
-        env.budget.put("truncated", emitted < total);
+        env.budget = new QueryBudget(mode, emitted, total);
     }
 
     static void putTraversal(QueryEnvelope env, TraversalResult<?> traversal, int maximumDepth) {
@@ -93,22 +92,10 @@ final class Disclosure {
         boolean limit = limitIsTraversalBudget && truncated;
         if (!depth && !page && !limit) return;
 
-        env.evidence.put("negative_conclusion_safe", false);
-        List<String> dimensions = new ArrayList<>();
-        Object existing = env.evidence.get("affected_dimensions");
-        if (existing instanceof List<?> values) {
-            values.stream().map(String::valueOf).forEach(dimensions::add);
-        }
-        if (page && !dimensions.contains("query_page")) dimensions.add("query_page");
-        if (depth && !dimensions.contains("query_depth")) dimensions.add("query_depth");
-        if (limit && !dimensions.contains("query_limit")) dimensions.add("query_limit");
-        env.evidence.put("affected_dimensions", dimensions.stream().sorted().toList());
-
-        if ("confirmed_empty".equals(env.evidence.get("status"))) {
-            env.evidence.put("status", "indeterminate");
-            env.evidence.put("code", depth ? "QUERY_DEPTH_TRUNCATED"
-                    : limit ? "QUERY_LIMIT_TRUNCATED" : "QUERY_PAGE_INCOMPLETE");
-        }
+        QueryEvidence evidence = env.evidence == null
+                ? QueryEvidence.indeterminate("QUERY_RESULT_BOUNDED", null)
+                : env.evidence;
+        env.evidence = evidence.bounded(page, depth, limit);
     }
 
     private static int number(Object value) {

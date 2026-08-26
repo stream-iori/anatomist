@@ -1,5 +1,6 @@
 package com.anatomist.core;
 
+import com.anatomist.incremental.JavaContractFingerprint;
 import com.github.javaparser.StaticJavaParser;
 import org.junit.jupiter.api.Test;
 

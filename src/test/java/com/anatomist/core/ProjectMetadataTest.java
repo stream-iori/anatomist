@@ -1,5 +1,7 @@
 package com.anatomist.core;
 
+import com.anatomist.application.ProjectMetadata;
+import com.anatomist.incremental.IndexEnvironmentFingerprint;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.store.SqliteStore;
 import com.anatomist.test.CliTestSupport;

@@ -103,7 +103,7 @@ command's `--help` for exact syntax and defaults.
 
 ### Prerequisites
 
-- JDK 21+ (or GraalVM 25+ for native binary)
+- JDK 25+; use the GraalVM 25 version pinned by `.sdkmanrc` for native builds
 - Maven 3.9+
 - `just` task runner (`brew install just`)
 
