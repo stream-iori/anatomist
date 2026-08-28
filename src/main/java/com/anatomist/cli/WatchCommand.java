@@ -63,6 +63,7 @@ import java.util.stream.Collectors;
 
 @Command(
         name = "watch",
+        hidden = true,
         mixinStandardHelpOptions = true,
         description = "Watch a Java project source tree and report (or incrementally index) changes."
 )

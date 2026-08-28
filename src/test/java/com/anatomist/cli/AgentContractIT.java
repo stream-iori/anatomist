@@ -60,6 +60,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("commands")).contains("branches-of"));
         assertTrue(((List<?>) json.get("commands")).contains("flow-materialize"));
         assertTrue(((List<?>) json.get("commands")).contains("bean-config"));
+        assertFalse(((List<?>) json.get("commands")).contains("watch"));
         assertFalse(((List<?>) json.get("commands")).contains("export"));
         assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
         assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));

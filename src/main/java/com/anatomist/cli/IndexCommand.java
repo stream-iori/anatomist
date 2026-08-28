@@ -112,7 +112,7 @@ public class IndexCommand implements Callable<Integer> {
 
     @Option(names = "--verify-content",
             description = "Hash every indexed file during standalone incremental change detection. "
-                    + "By default unchanged size/mtime pairs reuse the cached hash; Watch events are always hashed.")
+                    + "By default unchanged size/mtime pairs reuse the cached hash.")
     boolean verifyContent;
 
     @Option(names = "--full", description = "Force full re-index (default behavior).")

@@ -51,7 +51,7 @@ anatomist index <project-path> [options]
 | `--scan-include <glob>` | Repeatable project-relative include glob; replaces configured `scan.include` | config/default |
 | `--scan-exclude <glob>` | Repeatable project-relative exclude glob; replaces configured `scan.exclude` | config/default |
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
-| `--verify-content` | Hash every indexed source during standalone incremental scans instead of trusting unchanged size/mtime. Watch candidates are always hashed. | false |
+| `--verify-content` | Hash every indexed source during incremental change detection instead of trusting unchanged size/mtime. | false |
 | `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts and XML property/map/list/ref config trees. Spring annotation Bean/MVC facts are indexed by default. | false |
 | `--timings` | Add per-phase milliseconds to text output or JSON `timings_ms`, including incremental `symbol_delta`, `impact_analysis`, `graph_replace`, and metadata sub-phases. Output is unchanged when omitted. | false |
 | `--format json` | Emit a stable Agent summary: `command`, `status`, `schema_version`, `index_path`, `stats`, `warnings`, `errors` | text |
@@ -170,8 +170,7 @@ anatomist index . --format json --output /tmp/index.db
 With `--timings`, full indexing keeps `full_index` as the parent measurement and
 reports `full_stage_write`, `full_stage_resolve`, and `full_stage_promote` for
 the file-backed streaming path. Incremental runs report `stage_write` and
-`stage_promote`; Watch also reports `staging_setup` and `known_ids` for its reused
-session state. Change detection reports `file_stat` and only reports `file_hash`
+`stage_promote`. Change detection reports `file_stat` and only reports `file_hash`
 when bytes were read. Impact queries are split into `impact_exact` and
 `impact_prefix`; metadata separates asynchronous Git work from `git_status_wait`.
 The older `full_write_*` keys remain as compatibility aliases.
@@ -249,7 +248,7 @@ git config core.untrackedCache true
 ```
 
 Anatomist never runs this command automatically. With `--timings`, a slow
-incremental Git status check prints the same advice once per Watch process.
+incremental Git status check prints the same advice once per process.
 
 Use `--health-policy integrity` for the normal Agent gate. Use
 `--strict-health` when warnings or any disclosed resolution gap must fail the command.
@@ -299,74 +298,6 @@ The canonical project path is stored as `project_meta.source_root`. Reusing an
 explicit database for a different project fails with `INDEX_PROJECT_MISMATCH`
 before documents or metadata are changed. A symlink resolving to the same
 project is accepted.
-
-### `watch`
-Monitor source tree, report or auto-index changes.
-
-```bash
-anatomist watch <project-path> [--auto-index] [--debounce-ms 500]
-anatomist watch <project-path> --auto-index --output <db> \
-  --project-source <paths> [--spring-xml] [--timings] [--no-classpath|--classpath <jars>] \
-  [--full-policy background|inline|manual]
-```
-
-Use `watch` to keep an existing index fresh while editing. It is a file-change
-watcher, not a runtime tracer.
-
-| Case | Behavior |
-|---|---|
-| No `--auto-index` | Print `CREATE` / `MODIFY` / `DELETE` events only. |
-| Source change with `--auto-index` | Run `index --incremental` against the same DB. |
-| Body-only or uniquely named member addition | Contract fingerprint stays stable, so update stable nodes in place; preserve incoming edges and Spring wiring without reparsing unchanged callers. |
-| Removed/renamed/contract-changed symbol or overload family | Reparse only source files selected by exact internal/external symbol edges. |
-| Build-file change (`pom.xml`, Gradle settings) | Re-resolve the index environment. Continue incrementally when inputs are unchanged; otherwise request a full rebuild. |
-| Incremental cannot be trusted | Empty cache, schema mismatch, source-layout drift, or a symbol-impact cap requests a full rebuild rather than blocking the event loop. |
-| `--full-policy background` | Default. Build a sibling temporary DB while WatchService keeps collecting events; replay collected changes, then switch the complete DB under a short lock. |
-| `--full-policy inline` | Legacy behavior: run full indexing in the watch process. Use only when blocking event collection is acceptable. |
-| `--full-policy manual` | Keep the existing DB and mark it stale; run `anatomist index ... --full` yourself. |
-| Second `watch --auto-index` for one DB | Fails with `WATCH_ALREADY_RUNNING`; one process must own the event stream. |
-| Changed Java is temporarily unparsable | Keep the previous committed index and retry three times at `max(100ms, debounce-ms)` even if no second filesystem event arrives. |
-| Parse retries are exhausted | Retain pending paths without a busy loop; the next source event resets the retry budget. Idle/iteration shutdown returns non-zero while work remains pending. |
-| Other auto-index failure | Retain pending paths but do not enter the timed parse-retry loop. |
-| `--fail-fast` | Exit immediately on the first failed auto-index attempt, including a parse failure. |
-| Selected `config.toml` changes, appears, or disappears | Print `CONFIG_CHANGED`, request a restart, and exit with code 4. Watch never hot-reloads scan policy. A global config edit is ignored while a project config is selected. |
-
-For complex projects, pass the same indexing shape used for the initial index:
-
-| Initial index flag | Matching watch flag |
-|---|---|
-| `--output <db>` | Always reuse the same `--output <db>`. |
-| `--project-source <paths>` | Reuse it for multi-module or non-standard source roots. |
-| `--spring-xml` | Reuse it when Spring XML `<beans>` should stay indexed as `WIRES` facts and XML config trees. |
-| `--no-classpath` / `--classpath <jars>` | Reuse the same classpath policy so type resolution stays comparable. |
-| `--java-version <N>` | Reuse it when the project is not detected correctly. |
-| `--jdk-home <path>` | Reuse it so native catalog resolution stays on the same JDK API. |
-| `--source-root ...` | Reuse every explicit module/scope mapping. |
-| `--scan-scope`, `--scan-include`, `--scan-exclude` | Reuse the same configured or CLI scan policy. |
-| `--health-policy none\|integrity\|complete` | Apply the same health gate to auto-index results. |
-| `--strict-health` | Compatibility alias for complete health. |
-| `--timings` | Print discovery, change detection, parse/write/wiring/dependency, metadata sub-phases, and total costs for auto-index runs. |
-| `--dataflow`, `--dataflow-mode`, `--dataflow-scope`, `--implicit-taint` | Reuse the exact same flow-analysis profile and selectors. |
-
-For normal source edits, `watch --auto-index` forwards only the changed candidate
-paths and reuses the resolved source roots, Spring XML inventory, classpath metadata,
-JavaParser session, known node IDs, and an empty staging schema. Stable node IDs are
-updated in place. Removed or contract-changed
-symbols expand the batch through exact incoming edges, overload families, unresolved
-external targets, and type owners until the impact set reaches a fixed point.
-Filesystem overflow triggers reconciliation. Source-layout/environment changes fall back to
-the full correctness scan. Background rebuilds keep the old complete index queryable; use
-`doctor --index <db> --format json` and inspect `freshness_state` before relying on it as
-current. `--max-realign-files` is a hard safety cap (default 1000);
-below it, stored full/incremental timings choose incremental work only when its estimated
-cost is at most 70% of the full baseline. Without history, the fallback budget is 20% of
-Java files with a 200-file floor. Realignment parsing is streamed in batches of at most 128.
-
-`watch` keeps static anatomist facts current. It does not prove that a route,
-branch, callback, bean profile, or runtime path actually executed.
-
-See [Troubleshooting](troubleshooting.md#watch-reports-a-java-parse-failure) for
-parse errors observed during editor or code-generator writes.
 
 ### Agent query gate (P0)
 

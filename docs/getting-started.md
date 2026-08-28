@@ -158,8 +158,7 @@ exclude = ["**/*IT.java"]
 `**` crosses directories; `*` and `?` do not. `source_roots` may replace
 `scopes` for explicit `module@scope=path` mappings, but the two keys cannot be
 combined. Invalid config fails closed with exit code 2. On a policy change,
-`index --incremental` performs a full rebuild; `watch` prints `CONFIG_CHANGED`
-and exits 4, so restart it. Full details are in [the command reference](commands.md#configuration).
+`index --incremental` performs a full rebuild. Full details are in [the command reference](commands.md#configuration).
 
 Maven dependency classpaths are cached under
 `$ANATOMIST_HOME/cache/classpath` using the project POM files and Maven
@@ -178,31 +177,7 @@ matching path once; the generated catalog is cached under
 anatomist index /path/to/project --java-version 17 --jdk-home /path/to/jdk-17
 ```
 
-To keep the index fresh while editing, use `watch --auto-index` with the same
-indexing shape as the initial command:
-
-```bash
-anatomist watch fixtures/mini-spring-shop \
-    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
-    --no-classpath \
-    --output /tmp/shop.db \
-    --auto-index \
-    --full-policy background \
-    --timings
-```
-
-For Spring XML projects, add `--spring-xml` to both `index` and `watch`.
-Likewise, reuse `--jdk-home` for Watch auto-indexing when the native catalog is
-needed.
-`watch` keeps the static index current; it does not prove a runtime path
-actually executed.
-
-For a large project, leave the default `--full-policy background`: a necessary
-full rebuild uses a temporary DB while the watcher continues receiving edits.
-`doctor --index <db> --format json` reports watcher/DB state, but
-`freshness_state=idle` does not detect edits made while no watcher was running.
-
-For a one-off Agent query after local edits, use the query gate instead:
+For every Agent query after local edits, use the explicit query gate:
 
 ```bash
 anatomist index fixtures/mini-spring-shop --incremental --health-policy integrity --format json --output /tmp/shop.db \
@@ -271,4 +246,4 @@ Every query outputs a JSON envelope:
 - [Data Model](data-model.md) — Node ID rules, edge semantics, metadata JSON
 - [Commands](commands.md) — full CLI reference
 - [Testing](testing.md) — how to run tests, fixture design
-- [Troubleshooting](troubleshooting.md) — watch parse failures and recovery
+- [Troubleshooting](troubleshooting.md) — indexing and environment diagnosis

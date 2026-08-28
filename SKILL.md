@@ -19,8 +19,7 @@ Use `[scan]` to declare the source scopes and project-relative include/exclude
 globs. Before explaining a missing symbol, inspect `doctor --format json --index
 <db>` for `config_source` and `scan_policy_hash`, then compare the selected
 configuration with the intended source roots. A scan-policy change requires
-`index --incremental` (which safely rebuilds fully); a running `watch` exits 4
-and must be restarted instead of assuming it hot-reloaded the config.
+`index --incremental`, which safely rebuilds fully when compatibility changes.
 
 Prefer incremental index synchronization. Do not enable data-flow for ordinary
 structural analysis; load `anatomist skill flow` only for explicit value,

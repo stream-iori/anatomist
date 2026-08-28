@@ -87,7 +87,7 @@ public class DoctorCommand implements Callable<Integer> {
         if (freshness.reason() != null) out.put("rebuild_reason", freshness.reason());
         if (freshness.dirtyGeneration() > 0) out.put("dirty_generation", freshness.dirtyGeneration());
         out.put("commands", List.of(
-                "skill", "index", "index-docs", "watch", "search", "context", "declarations-of", "callees-of",
+                "skill", "index", "index-docs", "search", "context", "declarations-of", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline",
                 "flow-of", "flow-path", "flow-materialize", "taint-path", "exception-flow", "guards-of",
