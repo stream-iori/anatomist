@@ -35,3 +35,6 @@ jobs:
         run: |
           java -jar target/anatomist.jar --version
           java -jar target/anatomist.jar doctor --format json
+
+      - name: Config E2E (JVM)
+        run: bash scripts/config-e2e.sh jvm

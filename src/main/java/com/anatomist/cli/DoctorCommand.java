@@ -147,6 +147,11 @@ public class DoctorCommand implements Callable<Integer> {
                     }
                     store.readProjectMeta("spring_xml")
                             .ifPresent(v -> out.put("spring_xml", Boolean.parseBoolean(v)));
+                    store.readProjectMeta("config_source").ifPresent(v -> out.put("config_source", v));
+                    store.readProjectMeta("config_path").filter(v -> !v.isBlank())
+                            .ifPresent(v -> out.put("config_path", v));
+                    store.readProjectMeta("scan_policy_hash")
+                            .ifPresent(v -> out.put("scan_policy_hash", v));
                     store.readProjectMeta("dataflow_mode")
                             .ifPresent(v -> out.put("dataflow_mode", v));
                     store.readProjectMeta("dataflow_scopes")

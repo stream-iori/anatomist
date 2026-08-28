@@ -1,6 +1,8 @@
 package com.anatomist.cli;
 
 import com.anatomist.config.ConfigLoader;
+import com.anatomist.config.ConfigException;
+import com.anatomist.config.LoadedConfig;
 import com.anatomist.config.ProjectConfig;
 import com.anatomist.application.IndexExecutionHints;
 import com.anatomist.application.IndexExecutionRequest;
@@ -8,6 +10,8 @@ import com.anatomist.core.ClasspathDetector;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.IndexTimings;
 import com.anatomist.core.ProjectScanner;
+import com.anatomist.core.ScanPolicy;
+import com.anatomist.core.SourceScope;
 import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.store.FileCacheService;
 import com.anatomist.store.IndexOperationLock;
@@ -80,6 +84,18 @@ public class IndexCommand implements Callable<Integer> {
                     + "--project-source is given (you control the roots explicitly).")
     boolean includeTests;
 
+    @Option(names = "--scan-scope",
+            description = "Source scope to index: MAIN, TEST, or GENERATED. Repeatable; replaces config scopes.")
+    List<String> scanScopeSpecs = new ArrayList<>();
+
+    @Option(names = "--scan-include",
+            description = "Project-relative path glob to include. Repeatable; replaces config includes.")
+    List<String> scanIncludeSpecs = new ArrayList<>();
+
+    @Option(names = "--scan-exclude",
+            description = "Project-relative path glob to exclude. Repeatable; replaces config excludes.")
+    List<String> scanExcludeSpecs = new ArrayList<>();
+
     @Option(names = "--no-classpath", description = "Skip classpath detection; external types will be unresolved.")
     boolean noClasspath;
 
@@ -88,8 +104,8 @@ public class IndexCommand implements Callable<Integer> {
                     + "Defaults to true so java.lang.* / java.util.* are visible "
                     + "without an explicit classpath. Turn off when analysing a "
                     + "much older target than the running JDK.",
-            defaultValue = "true", arity = "1")
-    boolean vmClasspath;
+            arity = "1")
+    Boolean vmClasspath;
 
     @Option(names = "--incremental", description = "Incremental index: only re-parse changed files.")
     boolean incremental;
@@ -112,10 +128,10 @@ public class IndexCommand implements Callable<Integer> {
             defaultValue = "1000")
     int maxRealignFiles;
 
-    @Option(names = "--spring-xml",
+    @Option(names = "--spring-xml", negatable = true,
             description = "Also parse Spring bean XML (<beans>) configs into BEAN nodes "
                     + "+ DEFINED_BY / WIRES edges. Off by default.")
-    boolean springXml;
+    Boolean springXml;
 
     @Option(names = "--debug",
             description = "Write detailed diagnostics (classpath detection, symbol "
@@ -155,9 +171,9 @@ public class IndexCommand implements Callable<Integer> {
             description = "Scoped flow selector: package:<glob>, method:<glob>, or source:<glob>. Repeatable.")
     List<String> dataflowScopes = new ArrayList<>();
 
-    @Option(names = "--implicit-taint",
+    @Option(names = "--implicit-taint", negatable = true,
             description = "Propagate taint through control dependencies. Implies --dataflow.")
-    boolean implicitTaint;
+    Boolean implicitTaint;
 
     private FlowProfile flowProfile = FlowProfile.off();
     private com.anatomist.core.HealthPolicy effectiveHealthPolicy =
@@ -169,6 +185,10 @@ public class IndexCommand implements Callable<Integer> {
     private com.anatomist.core.JavaVersionDetection currentJavaVersionDetection;
     private com.anatomist.core.ClasspathDetectionResult currentClasspathDetection =
             com.anatomist.core.ClasspathDetectionResult.notRequested();
+    private LoadedConfig loadedConfig;
+    private ScanPolicy scanPolicy;
+    private List<SourceScope> effectiveScanScopes = List.of(SourceScope.MAIN, SourceScope.GENERATED);
+    private boolean sourceRootsFromConfig;
 
     static com.anatomist.application.IndexOutcome execute(IndexExecutionRequest request) {
         IndexCommand command = new IndexCommand();
@@ -176,6 +196,9 @@ public class IndexCommand implements Callable<Integer> {
         command.projectSource = request.projectSource();
         command.sourceRootSpecs = new ArrayList<>(request.sourceRootSpecs());
         command.includeTests = request.includeTests();
+        command.scanScopeSpecs = new ArrayList<>(request.scanScopeSpecs());
+        command.scanIncludeSpecs = new ArrayList<>(request.scanIncludeSpecs());
+        command.scanExcludeSpecs = new ArrayList<>(request.scanExcludeSpecs());
         command.noClasspath = request.noClasspath();
         command.classpath = request.classpath();
         command.vmClasspath = request.vmClasspath();
@@ -240,9 +263,10 @@ public class IndexCommand implements Callable<Integer> {
         long started = System.currentTimeMillis();
         long totalStarted = System.nanoTime();
         IndexTimings phaseTimings = new IndexTimings();
-        ProjectConfig config = ConfigLoader.load(projectRoot);
+        loadedConfig = ConfigLoader.loadResolved(projectRoot);
+        ProjectConfig config = loadedConfig.config();
+        configureEffectiveOptions(projectRoot, config);
         effectiveHealthPolicy = com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
-        implicitTaint = implicitTaint || config.implicitTaint();
         flowProfile = resolveFlowProfile(config);
         dataflow = flowProfile.enabled();
         if (externalExclude != null && !externalExclude.isBlank()) {
@@ -270,8 +294,13 @@ public class IndexCommand implements Callable<Integer> {
 
         Set<String> extraExcludes = exclude == null || exclude.isEmpty()
                 ? Collections.emptySet()
-                : new HashSet<>(Arrays.asList(exclude.split(",")));
-        ProjectScanner scanner = new ProjectScanner(extraExcludes);
+                : Arrays.stream(exclude.split(",")).map(String::trim)
+                .filter(value -> !value.isEmpty()).collect(Collectors.toSet());
+        scanPolicy = new ScanPolicy(projectRoot,
+                scanIncludeSpecs.isEmpty() ? config.scanIncludes() : scanIncludeSpecs,
+                scanExcludeSpecs.isEmpty() ? config.scanExcludes() : scanExcludeSpecs,
+                extraExcludes);
+        ProjectScanner scanner = new ProjectScanner(extraExcludes, scanPolicy);
         List<Path> sourceFiles = candidateFastPath ? List.of() : scanner.scanSourceRoots(resolvedSourceRoots);
         phaseTimings.stop("discover", phaseStarted);
         if (!candidateFastPath && sourceFiles.isEmpty()) {
@@ -329,6 +358,19 @@ public class IndexCommand implements Callable<Integer> {
                 if (!expectedLayoutHash.equals(store.readProjectMeta("source_layout_hash").orElse(""))) {
                     System.err.println("INFO: incremental degraded to full (source layout changed)");
                     if (deferFullFallback) throw new FullRebuildRequiredException("source layout changed");
+                    IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
+                            phaseTimings, totalStarted);
+                }
+                String expectedScanHash = scanPolicy.fingerprint(
+                        resolvedSourceRoots, effectiveScanScopes);
+                if (!expectedScanHash.equals(
+                        store.readProjectMeta("scan_policy_hash").orElse(""))) {
+                    String reason = "scan policy changed";
+                    System.err.println("INFO: incremental degraded to full (" + reason + ")");
+                    if (deferFullFallback) throw new FullRebuildRequiredException(reason);
                     IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
                     return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
                             sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
@@ -446,7 +488,8 @@ public class IndexCommand implements Callable<Integer> {
                             store.readProjectMeta("classpath_mode").orElse(classpathMode()),
                             parsePathList(store.readProjectMeta("classpath_entries").orElse("")),
                             store.readProjectMeta("classpath_override").orElse(""), springXml,
-                            cache, fingerprintCache(), phaseTimings, gitTask);
+                            cache, fingerprintCache(), phaseTimings, gitTask,
+                            loadedConfig, scanPolicy, effectiveScanScopes);
                     phaseTimings.stop("metadata", phaseStarted);
                     maybeAdviseGitCache(projectRoot, metadataResult);
                     persistClasspathDetection(store, cd, projectRoot);
@@ -462,7 +505,8 @@ public class IndexCommand implements Callable<Integer> {
                     IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(cache),
                             summary, cache.size(), elapsed,
                             timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
-                            effectiveHealthPolicy);
+                            effectiveHealthPolicy, loadedConfig.sourceName(),
+                            scanPolicy.fingerprint(resolvedSourceRoots, effectiveScanScopes));
                     if (!persistedHealth.gate(effectiveHealthPolicy).passed()) return 3;
                     return 0;
                 }
@@ -498,7 +542,8 @@ public class IndexCommand implements Callable<Integer> {
                         com.anatomist.application.ProjectMetadata.writeIncremental(
                         store, projectRoot, sourcePaths, resolvedSourceRoots,
                         runtime.javaVersion(), runtime.classpathMode(), runtime.classpathEntries(),
-                        classpath, springXml, after, fingerprintCache(), phaseTimings, gitTask);
+                        classpath, springXml, after, fingerprintCache(), phaseTimings, gitTask,
+                        loadedConfig, scanPolicy, effectiveScanScopes);
                 phaseTimings.stop("metadata", phaseStarted);
                 maybeAdviseGitCache(projectRoot, metadataResult);
                 persistClasspathDetection(store, cd, projectRoot);
@@ -520,7 +565,8 @@ public class IndexCommand implements Callable<Integer> {
                 IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(after),
                         summary, after.size(), elapsed,
                         timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
-                        effectiveHealthPolicy);
+                        effectiveHealthPolicy, loadedConfig.sourceName(),
+                        scanPolicy.fingerprint(resolvedSourceRoots, effectiveScanScopes));
                 if (!persistedHealth.gate(effectiveHealthPolicy).passed()) return 3;
                 return 0;
             }
@@ -554,7 +600,7 @@ public class IndexCommand implements Callable<Integer> {
                 resolveSourceRoots(projectRoot, sourcePaths),
                 effectiveHealthPolicy != com.anatomist.core.HealthPolicy.NONE,
                 factory == null ? null : currentJavaVersionDetection,
-                flowProfile, implicitTaint);
+                flowProfile, implicitTaint, loadedConfig, scanPolicy, effectiveScanScopes);
         com.anatomist.application.IndexOrchestrator orchestrator =
                 new com.anatomist.application.IndexOrchestrator(cfg, factory);
 
@@ -647,6 +693,47 @@ public class IndexCommand implements Callable<Integer> {
         return new FlowProfile(mode, scopes);
     }
 
+    private void configureEffectiveOptions(Path projectRoot, ProjectConfig config) {
+        vmClasspath = vmClasspath == null ? config.vmClasspath() : vmClasspath;
+        springXml = springXml == null ? config.springXml() : springXml;
+        implicitTaint = implicitTaint == null ? config.implicitTaint() : implicitTaint;
+
+        boolean cliRoots = !sourceRootSpecs.isEmpty()
+                || (projectSource != null && !projectSource.isBlank());
+        if (!cliRoots && !config.sourceRootSpecs().isEmpty()) {
+            sourceRootSpecs = new ArrayList<>(config.sourceRootSpecs());
+            sourceRootsFromConfig = true;
+        }
+        if (!sourceRootSpecs.isEmpty() && !scanScopeSpecs.isEmpty()) {
+            throw new IllegalArgumentException("--scan-scope cannot be combined with explicit source roots");
+        }
+
+        effectiveScanScopes = scanScopeSpecs.isEmpty()
+                ? new ArrayList<>(config.scanScopes())
+                : parseScanScopes(scanScopeSpecs);
+        if (includeTests && sourceRootSpecs.isEmpty()
+                && (projectSource == null || projectSource.isBlank())
+                && !effectiveScanScopes.contains(SourceScope.TEST)) {
+            List<SourceScope> expanded = new ArrayList<>(effectiveScanScopes);
+            expanded.add(SourceScope.TEST);
+            effectiveScanScopes = List.copyOf(expanded);
+        }
+    }
+
+    private static List<SourceScope> parseScanScopes(List<String> values) {
+        java.util.LinkedHashSet<SourceScope> scopes = new java.util.LinkedHashSet<>();
+        for (String value : values) {
+            try {
+                scopes.add(SourceScope.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT)));
+            } catch (RuntimeException ex) {
+                throw new IllegalArgumentException(
+                        "--scan-scope must be MAIN, TEST, or GENERATED: " + value);
+            }
+        }
+        if (scopes.isEmpty()) throw new IllegalArgumentException("--scan-scope requires a value");
+        return List.copyOf(scopes);
+    }
+
     private IndexRuntime resolveRuntimeTimed(ClasspathDetector cd,
                                              Path projectRoot,
                                              List<Path> sourcePaths,
@@ -698,7 +785,8 @@ public class IndexCommand implements Callable<Integer> {
                     com.anatomist.core.JavaVersionDetection.Source.CLI,
                     null, "--java-version=" + javaVersion, java.util.List.of());
         } else {
-            ProjectConfig loaded = ConfigLoader.load(projectRoot);
+            ProjectConfig loaded = loadedConfig == null
+                    ? ConfigLoader.load(projectRoot) : loadedConfig.config();
             if (loaded.hasJavaVersion()) {
                 detected = new com.anatomist.core.JavaVersionDetection(
                         loaded.javaVersion(),
@@ -885,8 +973,10 @@ public class IndexCommand implements Callable<Integer> {
             absolute = absolute.toAbsolutePath().normalize();
             boolean javaUnderSource = candidate.endsWith(".java")
                     && sourcePaths.stream().map(p -> p.toAbsolutePath().normalize())
-                    .anyMatch(absolute::startsWith);
-            boolean xml = springXml && candidate.endsWith(".xml") && absolute.startsWith(root);
+                    .anyMatch(absolute::startsWith)
+                    && (scanPolicy == null || scanPolicy.includes(absolute));
+            boolean xml = springXml && candidate.endsWith(".xml") && absolute.startsWith(root)
+                    && (scanPolicy == null || scanPolicy.includes(absolute));
             if (javaUnderSource || xml) out.add(candidate);
         }
         return out;
@@ -913,7 +1003,12 @@ public class IndexCommand implements Callable<Integer> {
             }
             return out;
         }
-        return cd.detectSourcePaths(projectRoot, includeTests);
+        List<Path> detected = cd.detectSourcePaths(
+                projectRoot, effectiveScanScopes.contains(SourceScope.TEST));
+        return com.anatomist.core.SourceIdentityResolver.inferRoots(projectRoot, detected).stream()
+                .filter(root -> effectiveScanScopes.contains(root.scope()))
+                .map(com.anatomist.core.SourceRoot::path)
+                .toList();
     }
 
     List<com.anatomist.core.SourceRoot> resolveSourceRoots(Path projectRoot, List<Path> sourcePaths) {
@@ -938,6 +1033,18 @@ public class IndexCommand implements Callable<Integer> {
             }
             Path path = Path.of(spec.substring(eq + 1));
             if (!path.isAbsolute()) path = projectRoot.resolve(path);
+            path = path.toAbsolutePath().normalize();
+            if (sourceRootsFromConfig) {
+                Path normalizedRoot = projectRoot.toAbsolutePath().normalize();
+                if (!path.startsWith(normalizedRoot)) {
+                    throw new ConfigException(loadedConfig.path(), 0,
+                            "scan.source_roots must stay inside the project: " + spec);
+                }
+                if (!Files.isDirectory(path)) {
+                    throw new ConfigException(loadedConfig.path(), 0,
+                            "scan.source_roots directory does not exist: " + spec);
+                }
+            }
             roots.add(new com.anatomist.core.SourceRoot(path, module, scope));
         }
         return roots;

@@ -138,6 +138,28 @@ Key flags:
   allowing disclosed third-party resolution gaps
 - `--jdk-home` — local JDK home for native-image catalog resolution; defaults
   to `ANATOMIST_JDK_HOME` when set
+- `--scan-scope MAIN|TEST|GENERATED` — repeatable source-root scope selector
+- `--scan-include <glob>` / `--scan-exclude <glob>` — repeatable
+  project-relative file rules
+
+### Configure scan scope
+
+The selected config is exactly one file: project
+`.anatomist/config.toml`, otherwise `~/.anatomist/config.toml`, otherwise
+built-in defaults. A project file replaces—not merges with—the user file.
+
+```toml
+[scan]
+scopes = ["MAIN", "GENERATED"]
+include = ["src/**"]
+exclude = ["**/*IT.java"]
+```
+
+`**` crosses directories; `*` and `?` do not. `source_roots` may replace
+`scopes` for explicit `module@scope=path` mappings, but the two keys cannot be
+combined. Invalid config fails closed with exit code 2. On a policy change,
+`index --incremental` performs a full rebuild; `watch` prints `CONFIG_CHANGED`
+and exits 4, so restart it. Full details are in [the command reference](commands.md#configuration).
 
 Maven dependency classpaths are cached under
 `$ANATOMIST_HOME/cache/classpath` using the project POM files and Maven
@@ -188,8 +210,8 @@ anatomist index fixtures/mini-spring-shop --incremental --health-policy integrit
 ```
 
 Use `--verify-content` on the index command when files may have been rewritten
-with restored timestamps. Reuse the source-root, classpath, Java-version, and
-Spring XML options from the initial index.
+with restored timestamps. Reuse the source-root, scan-policy, classpath,
+Java-version, and Spring XML options from the initial index.
 Read query `evidence.status` before making a negative claim:
 `confirmed_empty` is conclusive; `indeterminate` is not.
 

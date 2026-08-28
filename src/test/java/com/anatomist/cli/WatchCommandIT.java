@@ -166,6 +166,50 @@ class WatchCommandIT {
     }
 
     @Test
+    void excludedFileChangesAreIgnored(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false).toRealPath();
+        Files.createDirectories(project.resolve(".anatomist"));
+        Files.writeString(project.resolve(".anatomist/config.toml"), """
+                [scan]
+                exclude = ["**/A.java"]
+                """);
+        Path source = project.resolve("src/main/java/p/A.java");
+
+        RunResult result = runWatchAndMutate(project, tmp.resolve("ignored.db"), true,
+                () -> Files.writeString(source, Files.readString(source) + "\n// ignored\n"));
+
+        assertFalse(result.stdout().contains("A.java"), result.stdout());
+    }
+
+    @Test
+    void selectedConfigChangePromptsRestartAndReturnsFour(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false).toRealPath();
+        Files.createDirectories(project.resolve(".anatomist"));
+        Path config = project.resolve(".anatomist/config.toml");
+        Files.writeString(config, "[scan]\ninclude = [\"**\"]\n");
+        WatchCommand command = new WatchCommand();
+        new CommandLine(command).parseArgs(
+                project.toString(), "--project-source", project.resolve("src/main/java").toString(),
+                "--no-classpath", "--idle-timeout-ms", "5000");
+        CountDownLatch ready = new CountDownLatch(1);
+        command.setReadyListenerForTest(ready::countDown);
+        AtomicInteger rc = new AtomicInteger(-1);
+
+        RunResult result = CliTestSupport.capture(() -> {
+            Thread thread = new Thread(() -> rc.set(command.call()));
+            thread.start();
+            assertTrue(ready.await(5, TimeUnit.SECONDS), "watch did not become ready");
+            Files.writeString(config, "[scan]\ninclude = [\"src/**\"]\n");
+            thread.join(5_000);
+            assertFalse(thread.isAlive(), "watch did not stop after config changed");
+            return rc.get();
+        });
+
+        assertEquals(WatchCommand.CONFIG_CHANGED_EXIT_CODE, result.exitCode());
+        assertTrue(result.stderr().contains("CONFIG_CHANGED"), result.stderr());
+    }
+
+    @Test
     void transientParseFailureRetriesWithoutAnotherWatchEvent(@TempDir Path tmp) throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, false).toRealPath();
         Path source = project.resolve("src/main/java/p/A.java");

@@ -87,6 +87,9 @@ jobs:
           version="${RELEASE_TAG#v}"
           mvn -Pnative -DskipTests -Drevision="${version}" -Dchangelist= package
 
+      - name: Config E2E (native)
+        run: bash scripts/config-e2e.sh native target/anatomist
+
       - name: Stage macOS binary
         run: |
           set -euo pipefail
@@ -123,6 +126,9 @@ jobs:
           set -euo pipefail
           version="${RELEASE_TAG#v}"
           ANATOMIST_MAVEN_ARGS="-Drevision=${version} -Dchangelist=" ./docker/build-linux-amd64.sh
+
+      - name: Config E2E (native)
+        run: bash scripts/config-e2e.sh native target/anatomist
 
       - name: Stage Linux binary
         run: |

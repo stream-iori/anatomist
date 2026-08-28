@@ -238,6 +238,8 @@ belong on every node or edge.
 | `classpath_hash` | Fingerprint of classpath input | Detect changed resolution environment |
 | `index_version` | File-cache/schema version | Incremental compatibility |
 | `source_layout` / `source_layout_hash` | Module/scope/root identity mapping | Force full indexing when identity inputs change |
+| `config_source` / `config_path` | Selected configuration origin and path | Explain which config profile produced the index |
+| `scan_policy` / `scan_policy_hash` | Canonical scopes, roots, glob rules, and hard-exclude policy | Force full rebuild when scan eligibility changes |
 | `dataflow_mode` / `dataflow_scopes` / `implicit_taint` | Optional flow-analysis profile and coverage | Prevent incompatible incremental reuse |
 
 ## Index Diagnostics

@@ -1,6 +1,7 @@
 package com.anatomist.application;
 
 import com.anatomist.core.JavaVersionException;
+import com.anatomist.config.ConfigException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +28,8 @@ public final class IndexApplicationService {
             return IndexOutcome.success(work.run(request.projectPath().toRealPath().normalize()));
         } catch (JavaVersionException e) {
             return IndexOutcome.failure(e.exitCode(), e.getMessage());
+        } catch (ConfigException | IllegalArgumentException e) {
+            return IndexOutcome.failure(2, e.getMessage());
         } catch (Exception e) {
             return IndexOutcome.failure(e);
         }

@@ -47,6 +47,9 @@ anatomist index <project-path> [options]
 | `--implicit-taint` | Propagate taint through control dependencies; implies `--dataflow` | false |
 | `--exclude <dirs>` | Comma-separated directories to skip | none |
 | `--include-tests` | Also index test sources | false |
+| `--scan-scope MAIN\|TEST\|GENERATED` | Repeatable source scope; replaces configured `scan.scopes` | config/default |
+| `--scan-include <glob>` | Repeatable project-relative include glob; replaces configured `scan.include` | config/default |
+| `--scan-exclude <glob>` | Repeatable project-relative exclude glob; replaces configured `scan.exclude` | config/default |
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
 | `--verify-content` | Hash every indexed source during standalone incremental scans instead of trusting unchanged size/mtime. Watch candidates are always hashed. | false |
 | `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts and XML property/map/list/ref config trees. Spring annotation Bean/MVC facts are indexed by default. | false |
@@ -55,8 +58,66 @@ anatomist index <project-path> [options]
 | `--health-policy none\|integrity\|complete` | Select the health gate; see the table below | none |
 | `--strict-health` | Compatibility alias for `--health-policy complete` | false |
 
+### Configuration
+
+Exactly one configuration file is selected; files are never merged:
+
+```text
+<project>/.anatomist/config.toml exists?
+          │
+      yes ├──► use project config only
+          │
+       no └──► ~/.anatomist/config.toml exists?
+                       │
+                   yes ├──► use user config
+                       │
+                    no └──► use built-in defaults
+```
+
+Therefore an empty project config also replaces the whole user config. Missing
+keys in the selected file use built-in defaults. `ANATOMIST_CONFIG` is not a
+supported override. CLI options override the selected file.
+
+```toml
+[index]
+java_version = 17
+spring_xml = false
+vm_classpath = true
+dataflow = false
+dataflow_mode = "off"
+dataflow_scopes = []
+implicit_taint = false
+
+[scan]
+scopes = ["MAIN", "GENERATED"]
+include = ["src/**", "modules/**/src/**"]
+exclude = ["**/*IT.java", "**/generated/**"]
+
+[external]
+exclude_patterns = ["java.lang.*", "com.example.generated.**"]
+```
+
+| `[scan]` key | Meaning | Default |
+|---|---|---|
+| `scopes` | Auto-detected source-root kinds to scan: `MAIN`, `TEST`, `GENERATED` | `MAIN`, `GENERATED` |
+| `source_roots` | Explicit `module@scope=project/relative/path` roots | none |
+| `include` | A file must match at least one project-relative glob | `**` |
+| `exclude` | A matching file is removed after include matching | empty |
+
+`source_roots` and `scopes` are mutually exclusive. `**` crosses directories;
+`*` and `?` stay within one path segment. Absolute paths, `..`, unknown keys,
+wrong types, duplicate keys, and malformed TOML fail with exit code 2. The old
+`[index].include_tests` and `[index].exclude` keys are rejected; use `[scan]`.
+Hard-excluded directories (`target`, `build`, `.gradle`, `.git`, `.idea`, and
+`node_modules`) remain protected, except an explicitly detected generated source
+root under `target`.
+
+The effective scan policy is stored as `scan_policy` and `scan_policy_hash` in
+`project_meta`. Changing roots, scopes, include/exclude rules, or the hard policy
+causes `index --incremental` to rebuild fully so removed files cannot remain stale.
+
 Target-project language support is Java 8–25. Detection precedence is
-`--java-version` → `.anatomist/config.toml` → Maven/Gradle declarations → Java 8.
+`--java-version` → selected `config.toml` → Maven/Gradle declarations → Java 8.
 Maven detection reads compiler `release`/`source`, plugin configuration, local
 parent properties, and property references. Gradle detection statically reads
 toolchains, compatibility/release assignments, and simple `gradle.properties`
@@ -141,6 +202,8 @@ keys for Agents are:
 | `source_git_commit_time` | Commit timestamp, when available |
 | `source_git_remote_origin_url` | Origin URL, when available |
 | `classpath_input_hash` | Maven POM/settings/JDK input identity; a changed or missing value forces the next incremental index to rebuild with a fresh classpath |
+| `config_source` / `config_path` | Which configuration was selected: `project`, `user`, or built-in `default`, plus its path when present |
+| `scan_policy` / `scan_policy_hash` | Canonical resolved scan roots/scopes/globs and its compatibility fingerprint |
 
 ### `doctor`
 Report CLI capabilities, schema version, and index health.
@@ -163,6 +226,7 @@ JSON includes:
 | `index_exists` | Whether the target DB exists |
 | `source_root` / `source_snapshot_fingerprint` / `source_snapshot` | Local checkout ownership, portable indexed-source identity, and indexed-vs-current Git commit match when available |
 | `java_version` / `classpath_mode` / `spring_xml` | Index profile used to build the current facts |
+| `config_source` / `config_path` / `scan_policy_hash` | Selected configuration and the scan-policy identity committed into the index |
 | `classpath_detection` | Detection status plus `origin`; `maven_classpath_files` counts Maven output files and `build_output_entries` counts discovered `target/classes` / `target/test-classes`. Legacy `module_output_files` is deprecated. |
 | `commands` | Supported subcommands for Agent self-discovery |
 | `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
@@ -265,6 +329,7 @@ watcher, not a runtime tracer.
 | Parse retries are exhausted | Retain pending paths without a busy loop; the next source event resets the retry budget. Idle/iteration shutdown returns non-zero while work remains pending. |
 | Other auto-index failure | Retain pending paths but do not enter the timed parse-retry loop. |
 | `--fail-fast` | Exit immediately on the first failed auto-index attempt, including a parse failure. |
+| Selected `config.toml` changes, appears, or disappears | Print `CONFIG_CHANGED`, request a restart, and exit with code 4. Watch never hot-reloads scan policy. A global config edit is ignored while a project config is selected. |
 
 For complex projects, pass the same indexing shape used for the initial index:
 
@@ -277,6 +342,7 @@ For complex projects, pass the same indexing shape used for the initial index:
 | `--java-version <N>` | Reuse it when the project is not detected correctly. |
 | `--jdk-home <path>` | Reuse it so native catalog resolution stays on the same JDK API. |
 | `--source-root ...` | Reuse every explicit module/scope mapping. |
+| `--scan-scope`, `--scan-include`, `--scan-exclude` | Reuse the same configured or CLI scan policy. |
 | `--health-policy none\|integrity\|complete` | Apply the same health gate to auto-index results. |
 | `--strict-health` | Compatibility alias for complete health. |
 | `--timings` | Print discovery, change detection, parse/write/wiring/dependency, metadata sub-phases, and total costs for auto-index runs. |

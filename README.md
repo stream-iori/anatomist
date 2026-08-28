@@ -37,6 +37,22 @@ java -jar target/anatomist.jar callees-of \
     --depth 3 --index /tmp/shop.db
 ```
 
+### Configure scan scope
+
+Put one complete project profile in `.anatomist/config.toml`. It replaces the
+user-wide `~/.anatomist/config.toml` rather than merging with it:
+
+```toml
+[scan]
+scopes = ["MAIN", "GENERATED"]
+include = ["src/**"]
+exclude = ["**/*IT.java"]
+```
+
+CLI overrides are available when needed: `--scan-scope`, `--scan-include`, and
+`--scan-exclude`. See [the command reference](docs/commands.md#configuration)
+for root selection, glob semantics, incremental rebuilding, and Watch exit code 4.
+
 For Agent integration, prefer machine-readable health and build checks:
 
 ```bash

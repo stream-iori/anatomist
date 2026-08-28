@@ -1,5 +1,6 @@
 package com.anatomist.application;
 
+import com.anatomist.config.LoadedConfig;
 import com.anatomist.core.*;
 import com.anatomist.incremental.IndexEnvironmentFingerprint;
 import com.anatomist.model.FileCacheEntry;
@@ -40,7 +41,7 @@ public final class ProjectMetadata {
         Map<String, String> values = baseMetadata(
                 cfg.projectRoot(), cfg.sourcePaths(), cfg.sourceRoots(), cfg.javaVersion(),
                 classpathMode(cfg), cfg.classpathEntries(), cfg.classpathOverride(),
-                cfg.springXml(), fingerprint);
+                cfg.springXml(), fingerprint, cfg.loadedConfig(), cfg.scanPolicy(), cfg.scanScopes());
         phaseStarted = System.nanoTime();
         addGit(values, GitSnapshot.read(cfg.projectRoot()));
         addTiming(timings, "metadata_git", phaseStarted);
@@ -74,7 +75,7 @@ public final class ProjectMetadata {
                                                IndexTimings timings) {
         return writeIncremental(store, projectRoot, sourcePaths, sourceRoots, javaVersion,
                 classpathMode, classpathEntries, classpathOverride, springXml, fileCache,
-                fingerprintCache, timings, null);
+                fingerprintCache, timings, null, null, null, List.of());
     }
 
     public static WriteResult writeIncremental(SqliteStore store,
@@ -90,6 +91,27 @@ public final class ProjectMetadata {
                                                FingerprintCache fingerprintCache,
                                                IndexTimings timings,
                                                GitSnapshotTask gitTask) {
+        return writeIncremental(store, projectRoot, sourcePaths, sourceRoots, javaVersion,
+                classpathMode, classpathEntries, classpathOverride, springXml, fileCache,
+                fingerprintCache, timings, gitTask, null, null, List.of());
+    }
+
+    public static WriteResult writeIncremental(SqliteStore store,
+                                               Path projectRoot,
+                                               List<Path> sourcePaths,
+                                               List<SourceRoot> sourceRoots,
+                                               int javaVersion,
+                                               String classpathMode,
+                                               List<Path> classpathEntries,
+                                               String classpathOverride,
+                                               boolean springXml,
+                                               Map<String, FileCacheEntry> fileCache,
+                                               FingerprintCache fingerprintCache,
+                                               IndexTimings timings,
+                                               GitSnapshotTask gitTask,
+                                               LoadedConfig loadedConfig,
+                                               ScanPolicy scanPolicy,
+                                               List<SourceScope> scanScopes) {
         Map<String, FileCacheEntry> effectiveCache = fileCache == null
                 ? store.readFileCache()
                 : fileCache;
@@ -109,7 +131,8 @@ public final class ProjectMetadata {
 
         Map<String, String> values = baseMetadata(
                 projectRoot, sourcePaths, sourceRoots, javaVersion, classpathMode,
-                classpathEntries, classpathOverride, springXml, fingerprint);
+                classpathEntries, classpathOverride, springXml, fingerprint,
+                loadedConfig, scanPolicy, scanScopes);
         if (git != null) addGit(values, git.snapshot());
 
         phaseStarted = System.nanoTime();
@@ -153,7 +176,10 @@ public final class ProjectMetadata {
                                                     List<Path> classpathEntries,
                                                     String classpathOverride,
                                                     boolean springXml,
-                                                    String fingerprint) {
+                                                    String fingerprint,
+                                                    LoadedConfig loadedConfig,
+                                                    ScanPolicy scanPolicy,
+                                                    List<SourceScope> scanScopes) {
         Map<String, String> values = new LinkedHashMap<>();
         values.put("source_root", projectRoot.toAbsolutePath().normalize().toString());
         values.put("source_paths", joinPaths(sourcePaths));
@@ -169,9 +195,17 @@ public final class ProjectMetadata {
                 IndexOrchestrator.classpathFingerprint(classpathEntries, classpathOverride)));
         values.put("spring_xml", String.valueOf(springXml));
         values.put("index_version", String.valueOf(FileCacheService.CURRENT_SCHEMA_VERSION));
+        List<SourceScope> effectiveScopes = scanScopes == null ? List.of() : scanScopes;
+        String scanCanonical = scanPolicy == null ? "" : scanPolicy.canonical(sourceRoots, effectiveScopes);
+        String scanHash = scanPolicy == null ? "" : scanPolicy.fingerprint(sourceRoots, effectiveScopes);
+        values.put("config_source", loadedConfig == null ? "default" : loadedConfig.sourceName());
+        values.put("config_path", loadedConfig == null || loadedConfig.path() == null
+                ? "" : loadedConfig.path().toString());
+        values.put("scan_policy", scanCanonical);
+        values.put("scan_policy_hash", scanHash);
         IndexEnvironmentFingerprint.Snapshot environment = IndexEnvironmentFingerprint.snapshot(
                 sourceRoots, javaVersion, classpathMode, classpathEntries,
-                classpathOverride, springXml, false, false);
+                classpathOverride, springXml, false, false, scanHash);
         values.put(IndexEnvironmentFingerprint.META_KEY, environment.hash());
         values.put(IndexEnvironmentFingerprint.CLASSPATH_ARTIFACTS_KEY,
                 environment.classpathArtifactsHash());

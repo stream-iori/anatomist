@@ -79,6 +79,12 @@ final class IndexOutput {
         out.put("index_state", "committed");
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("index_path", config.dbPath().toString());
+        out.put("config_source", config.loadedConfig() == null
+                ? "default" : config.loadedConfig().sourceName());
+        if (config.scanPolicy() != null) {
+            out.put("scan_policy_hash", config.scanPolicy().fingerprint(
+                    config.sourceRoots(), config.scanScopes()));
+        }
         out.put("stats", stats);
         out.put("node_kinds", kinds);
         out.put("relations", relations);
@@ -161,6 +167,15 @@ final class IndexOutput {
                                 int sourceFileCount, IncrementalIndexer.Summary summary,
                                 int fileCacheSize, long elapsedMs, Map<String, Long> timingsMs,
                                 IndexHealthReport health, HealthPolicy policy) {
+        emitIncremental(format, projectRoot, dbPath, sourceFileCount, summary,
+                fileCacheSize, elapsedMs, timingsMs, health, policy, null, null);
+    }
+
+    static void emitIncremental(String format, Path projectRoot, Path dbPath,
+                                int sourceFileCount, IncrementalIndexer.Summary summary,
+                                int fileCacheSize, long elapsedMs, Map<String, Long> timingsMs,
+                                IndexHealthReport health, HealthPolicy policy,
+                                String configSource, String scanPolicyHash) {
         if (!"json".equalsIgnoreCase(format)) {
             emitIncrementalText(projectRoot, dbPath, summary, fileCacheSize, elapsedMs, timingsMs);
             return;
@@ -199,6 +214,8 @@ final class IndexOutput {
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("project_root", projectRoot.toString());
         out.put("index_path", dbPath.toString());
+        if (configSource != null) out.put("config_source", configSource);
+        if (scanPolicyHash != null) out.put("scan_policy_hash", scanPolicyHash);
         out.put("stats", stats);
         if (timingsMs != null && !timingsMs.isEmpty()) out.put("timings_ms", timingsMs);
         addHealth(out, health, policy);

@@ -1,9 +1,9 @@
 package com.anatomist.config;
 
+import com.anatomist.core.SourceScope;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -13,123 +13,130 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConfigLoaderTest {
 
     @Test
-    void javaVersionIsAbsentUntilExplicitlyConfigured() {
+    void defaultsAreMainAndGenerated() {
         ProjectConfig config = new ProjectConfig();
         assertFalse(config.hasJavaVersion());
-        assertNull(config.javaVersion());
+        assertEquals(List.of(SourceScope.MAIN, SourceScope.GENERATED), config.scanScopes());
+        assertEquals(List.of("**"), config.scanIncludes());
+        assertEquals(List.of(), config.scanExcludes());
     }
 
     @Test
-    void defaultExcludePatternsBlockJavaLang() {
-        ProjectConfig config = new ProjectConfig();
-        assertTrue(config.isExternalExcluded("java.lang.String"));
-        assertTrue(config.isExternalExcluded("java.lang.Object"));
-        assertTrue(config.isExternalExcluded("java.io.InputStream"));
-        assertTrue(config.isExternalExcluded("sun.misc.Unsafe"));
-        assertFalse(config.isExternalExcluded("com.example.MyService"));
-        assertFalse(config.isExternalExcluded("org.springframework.stereotype.Service"));
-    }
-
-    @Test
-    void matchesPatternExact() {
-        assertTrue(ProjectConfig.matchesPattern("com.example.Foo", "com.example.Foo"));
-        assertFalse(ProjectConfig.matchesPattern("com.example.Foo", "com.example.FooBar"));
-    }
-
-    @Test
-    void matchesPatternSingleWildcard() {
-        assertTrue(ProjectConfig.matchesPattern("java.lang.*", "java.lang.String"));
-        assertTrue(ProjectConfig.matchesPattern("java.lang.*", "java.lang.reflect.Method"));
-        assertFalse(ProjectConfig.matchesPattern("java.lang.*", "java.util.List"));
-    }
-
-    @Test
-    void matchesPatternDoubleWildcard() {
-        assertTrue(ProjectConfig.matchesPattern("org.apache.**", "org.apache.commons.lang.StringUtils"));
-        assertFalse(ProjectConfig.matchesPattern("org.apache.**", "org.springframework.Foo"));
-    }
-
-    @Test
-    void addExternalExcludePatternsNoDuplicates() {
-        ProjectConfig config = new ProjectConfig();
-        int before = config.externalExcludePatterns().size();
-        config.addExternalExcludePatterns(List.of("java.lang.*", "org.apache.**"));
-        assertEquals(before + 1, config.externalExcludePatterns().size());
-        assertTrue(config.isExternalExcluded("org.apache.commons.Foo"));
-    }
-
-    @Test
-    void parseTomlBasic(@TempDir Path tmp) throws IOException {
-        Path toml = tmp.resolve("config.toml");
-        Files.writeString(toml, """
+    void parsesIndexScanAndExternalSections(@TempDir Path tmp) throws Exception {
+        Path file = tmp.resolve("config.toml");
+        Files.writeString(file, """
                 [index]
                 java_version = 17
-                include_tests = true
                 spring_xml = true
+                vm_classpath = false
                 dataflow_mode = "scoped"
-                dataflow_scopes = ["package:com.example.**", "source:service/**"]
-                exclude = ["generated", "test-output"]
+                dataflow_scopes = ["package:com.example.**"]
+
+                [scan]
+                scopes = ["MAIN", "TEST"]
+                include = ["src/**"]
+                exclude = ["**/generated/**", "**/*IT.java"]
 
                 [external]
                 exclude_patterns = ["java.lang.*", "com.google.**"]
                 """);
 
         ProjectConfig config = new ProjectConfig();
-        ConfigLoader.applyToml(config, toml);
+        ConfigLoader.applyToml(config, file);
 
         assertEquals(17, config.javaVersion());
-        assertTrue(config.includeTests());
         assertTrue(config.springXml());
-        assertEquals("scoped", config.dataflowMode());
-        assertEquals(List.of("package:com.example.**", "source:service/**"),
-                config.dataflowScopes());
-        assertEquals(List.of("generated", "test-output"), config.exclude());
+        assertFalse(config.vmClasspath());
+        assertEquals(List.of(SourceScope.MAIN, SourceScope.TEST), config.scanScopes());
+        assertEquals(List.of("src/**"), config.scanIncludes());
+        assertEquals(List.of("**/generated/**", "**/*IT.java"), config.scanExcludes());
         assertEquals(List.of("java.lang.*", "com.google.**"), config.externalExcludePatterns());
     }
 
     @Test
-    void parseTomlIgnoresComments(@TempDir Path tmp) throws IOException {
-        Path toml = tmp.resolve("config.toml");
-        Files.writeString(toml, """
-                # This is a comment
-                [external]
-                # Another comment
-                exclude_patterns = ["org.slf4j.*"]
+    void projectConfigReplacesUserConfigInsteadOfMerging(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("project/.anatomist")).getParent();
+        Path home = Files.createDirectories(tmp.resolve("home/.anatomist")).getParent();
+        Files.writeString(home.resolve(".anatomist/config.toml"), """
+                [index]
+                java_version = 21
+                spring_xml = true
+                [scan]
+                scopes = ["MAIN", "TEST"]
+                """);
+        Files.writeString(project.resolve(".anatomist/config.toml"), """
+                [index]
+                java_version = 17
                 """);
 
+        LoadedConfig loaded = ConfigLoader.loadResolved(project, home);
+
+        assertEquals(LoadedConfig.Source.PROJECT, loaded.source());
+        assertEquals(17, loaded.config().javaVersion());
+        assertFalse(loaded.config().springXml(), "missing project keys use built-in defaults");
+        assertEquals(List.of(SourceScope.MAIN, SourceScope.GENERATED),
+                loaded.config().scanScopes(), "user scan config must not leak into project config");
+    }
+
+    @Test
+    void fallsBackFromProjectToUserThenDefaults(@TempDir Path tmp) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve("project"));
+        Path home = Files.createDirectories(tmp.resolve("home/.anatomist")).getParent();
+        Files.writeString(home.resolve(".anatomist/config.toml"), """
+                [scan]
+                scopes = ["TEST"]
+                """);
+
+        LoadedConfig user = ConfigLoader.loadResolved(project, home);
+        assertEquals(LoadedConfig.Source.USER, user.source());
+        assertEquals(List.of(SourceScope.TEST), user.config().scanScopes());
+
+        Files.delete(home.resolve(".anatomist/config.toml"));
+        LoadedConfig defaults = ConfigLoader.loadResolved(project, home);
+        assertEquals(LoadedConfig.Source.DEFAULT, defaults.source());
+        assertNull(defaults.path());
+    }
+
+    @Test
+    void parsesExplicitSourceRoots(@TempDir Path tmp) throws Exception {
+        Path file = tmp.resolve("config.toml");
+        Files.writeString(file, """
+                [scan]
+                source_roots = ["app@MAIN=app/src/main/java", "it@TEST=it/src/test/java"]
+                """);
         ProjectConfig config = new ProjectConfig();
-        ConfigLoader.applyToml(config, toml);
-        assertEquals(List.of("org.slf4j.*"), config.externalExcludePatterns());
+        ConfigLoader.applyToml(config, file);
+        assertEquals(List.of("app@MAIN=app/src/main/java", "it@TEST=it/src/test/java"),
+                config.sourceRootSpecs());
     }
 
     @Test
-    void loadMergesProjectLocalOverUserWide(@TempDir Path tmp) throws IOException {
-        Path projectRoot = tmp.resolve("project");
-        Files.createDirectories(projectRoot.resolve(".anatomist"));
-        Files.writeString(projectRoot.resolve(".anatomist/config.toml"), """
-                [external]
-                exclude_patterns = ["com.custom.*"]
-                """);
+    void rejectsLegacyUnknownMalformedAndConflictingConfig(@TempDir Path tmp) throws Exception {
+        assertConfigError(tmp, "[index]\ninclude_tests = true\n", "removed key index.include_tests");
+        assertConfigError(tmp, "[index]\nexclude = [\"target\"]\n", "removed key index.exclude");
+        assertConfigError(tmp, "[scan]\nunknown = true\n", "unknown key scan.unknown");
+        assertConfigError(tmp, "[index]\nspring_xml = yes\n", "expected true or false");
+        assertConfigError(tmp, "[scan]\ninclude = [\"../outside/**\"]\n", "cannot contain '..'");
+        assertConfigError(tmp, "[scan]\nscopes = [\"MAIN\"]\nsource_roots = [\"x@MAIN=src\"]\n",
+                "mutually exclusive");
+    }
 
-        ProjectConfig config = ConfigLoader.load(projectRoot);
-        assertEquals(List.of("com.custom.*"), config.externalExcludePatterns());
+    private static void assertConfigError(Path tmp, String content, String message) throws Exception {
+        Path project = Files.createDirectories(tmp.resolve(
+                "project-" + Math.abs(content.hashCode()) + "/.anatomist")).getParent();
+        Path file = project.resolve(".anatomist/config.toml");
+        Files.writeString(file, content);
+        ConfigException error = assertThrows(ConfigException.class,
+                () -> ConfigLoader.loadResolved(project, tmp.resolve("unused-home")));
+        assertTrue(error.getMessage().contains(message), error.getMessage());
     }
 
     @Test
-    void parseStringArraySingleValue() {
-        List<String> result = ConfigLoader.parseStringArray("\"hello\"");
-        assertEquals(List.of("hello"), result);
-    }
-
-    @Test
-    void parseStringArrayMultipleValues() {
-        List<String> result = ConfigLoader.parseStringArray("[\"a\", \"b\", \"c\"]");
-        assertEquals(List.of("a", "b", "c"), result);
-    }
-
-    @Test
-    void unquoteStripsDoubleQuotes() {
-        assertEquals("hello", ConfigLoader.unquote("\"hello\""));
-        assertEquals("noquotes", ConfigLoader.unquote("noquotes"));
+    void externalPatternsStillWork() {
+        ProjectConfig config = new ProjectConfig();
+        assertTrue(config.isExternalExcluded("java.lang.String"));
+        assertFalse(config.isExternalExcluded("com.example.Service"));
+        config.addExternalExcludePatterns(List.of("org.apache.**"));
+        assertTrue(config.isExternalExcluded("org.apache.commons.Foo"));
     }
 }

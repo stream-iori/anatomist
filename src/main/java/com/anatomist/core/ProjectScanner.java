@@ -19,15 +19,21 @@ public class ProjectScanner {
     );
 
     private final Set<String> excludedDirs;
+    private final ScanPolicy scanPolicy;
 
     public ProjectScanner() {
-        this(Collections.emptySet());
+        this(Collections.emptySet(), null);
     }
 
     public ProjectScanner(Set<String> additionalExcludes) {
+        this(additionalExcludes, null);
+    }
+
+    public ProjectScanner(Set<String> additionalExcludes, ScanPolicy scanPolicy) {
         Set<String> merged = new HashSet<>(DEFAULT_EXCLUDES);
         if (additionalExcludes != null) merged.addAll(additionalExcludes);
         this.excludedDirs = Collections.unmodifiableSet(merged);
+        this.scanPolicy = scanPolicy;
     }
 
     public Set<String> excludedDirs() {
@@ -58,7 +64,8 @@ public class ProjectScanner {
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    if (attrs.isRegularFile() && file.getFileName().toString().endsWith(".java")) {
+                    if (attrs.isRegularFile() && file.getFileName().toString().endsWith(".java")
+                            && (scanPolicy == null || scanPolicy.includes(file))) {
                         out.add(file);
                     }
                     return FileVisitResult.CONTINUE;
@@ -75,11 +82,12 @@ public class ProjectScanner {
     /** Scan resolved source roots while allowing an explicitly classified generated root
      *  to live below Maven's target directory. Ordinary target trees remain excluded. */
     public List<Path> scanSourceRoots(List<SourceRoot> roots) {
-        List<Path> out = new ArrayList<>();
-        if (roots == null) return out;
+        Set<Path> unique = new java.util.LinkedHashSet<>();
+        if (roots == null) return List.of();
         for (SourceRoot root : roots) {
-            out.addAll(scan(root.path(), root.scope() == SourceScope.GENERATED));
+            unique.addAll(scan(root.path(), root.scope() == SourceScope.GENERATED));
         }
+        List<Path> out = new ArrayList<>(unique);
         out.sort(java.util.Comparator.comparing(
                 path -> path.toAbsolutePath().normalize().toString()));
         return out;
@@ -117,6 +125,7 @@ public class ProjectScanner {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     if (attrs.isRegularFile() && file.getFileName().toString().endsWith(".xml")
+                            && (scanPolicy == null || scanPolicy.includes(file))
                             && SpringBeanParser.isSpringBeansFile(file)) {
                         out.add(file);
                     }

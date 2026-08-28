@@ -13,6 +13,15 @@ Use anatomist as an indexed companion to IDEA navigation and dependency tools.
 4. Before executing a selected command, read `anatomist <command> --help`; it is
    the source of truth for the installed CLI version.
 
+When a project has `.anatomist/config.toml`, treat it as the complete project
+indexing profile: it replaces `~/.anatomist/config.toml`; values are not merged.
+Use `[scan]` to declare the source scopes and project-relative include/exclude
+globs. Before explaining a missing symbol, inspect `doctor --format json --index
+<db>` for `config_source` and `scan_policy_hash`, then compare the selected
+configuration with the intended source roots. A scan-policy change requires
+`index --incremental` (which safely rebuilds fully); a running `watch` exits 4
+and must be restarted instead of assuming it hot-reloaded the config.
+
 Prefer incremental index synchronization. Do not enable data-flow for ordinary
 structural analysis; load `anatomist skill flow` only for explicit value,
 definition, exception, guard, or taint questions.

@@ -1,18 +1,24 @@
 package com.anatomist.config;
 
+import com.anatomist.core.SourceScope;
+
 import java.util.*;
 
 public class ProjectConfig {
 
     private Integer javaVersion;
-    private List<String> exclude = List.of();
-    private boolean includeTests = false;
     private boolean springXml = false;
     private boolean vmClasspath = true;
     private boolean dataflow = false;
     private String dataflowMode;
     private List<String> dataflowScopes = List.of();
     private boolean implicitTaint = false;
+
+    private List<SourceScope> scanScopes = List.of(SourceScope.MAIN, SourceScope.GENERATED);
+    private boolean scanScopesConfigured;
+    private List<String> scanIncludes = List.of("**");
+    private List<String> scanExcludes = List.of();
+    private List<String> sourceRootSpecs = List.of();
 
     private List<String> externalExcludePatterns = List.of(
             "java.lang.*",
@@ -28,12 +34,6 @@ public class ProjectConfig {
     public Integer javaVersion() { return javaVersion; }
     public boolean hasJavaVersion() { return javaVersion != null; }
     public void setJavaVersion(int v) { this.javaVersion = v; }
-
-    public List<String> exclude() { return exclude; }
-    public void setExclude(List<String> v) { this.exclude = List.copyOf(v); }
-
-    public boolean includeTests() { return includeTests; }
-    public void setIncludeTests(boolean v) { this.includeTests = v; }
 
     public boolean springXml() { return springXml; }
     public void setSpringXml(boolean v) { this.springXml = v; }
@@ -54,6 +54,28 @@ public class ProjectConfig {
 
     public boolean implicitTaint() { return implicitTaint; }
     public void setImplicitTaint(boolean value) { this.implicitTaint = value; }
+
+    public List<SourceScope> scanScopes() { return scanScopes; }
+    public boolean scanScopesConfigured() { return scanScopesConfigured; }
+    public void setScanScopes(List<SourceScope> value) {
+        this.scanScopes = value == null ? List.of() : List.copyOf(value);
+        this.scanScopesConfigured = true;
+    }
+
+    public List<String> scanIncludes() { return scanIncludes; }
+    public void setScanIncludes(List<String> value) {
+        this.scanIncludes = value == null || value.isEmpty() ? List.of("**") : List.copyOf(value);
+    }
+
+    public List<String> scanExcludes() { return scanExcludes; }
+    public void setScanExcludes(List<String> value) {
+        this.scanExcludes = value == null ? List.of() : List.copyOf(value);
+    }
+
+    public List<String> sourceRootSpecs() { return sourceRootSpecs; }
+    public void setSourceRootSpecs(List<String> value) {
+        this.sourceRootSpecs = value == null ? List.of() : List.copyOf(value);
+    }
 
     public List<String> externalExcludePatterns() { return externalExcludePatterns; }
     public void setExternalExcludePatterns(List<String> v) { this.externalExcludePatterns = List.copyOf(v); }

@@ -1,47 +1,53 @@
 package com.anatomist.config;
 
+import com.anatomist.core.SourceScope;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
-public class ConfigLoader {
+/** Selects exactly one config.toml and parses the supported strict TOML subset. */
+public final class ConfigLoader {
+    public static final String CONFIG_FILE = "config.toml";
+    public static final String DOT_DIR = ".anatomist";
 
-    private static final String CONFIG_FILE = "config.toml";
-    private static final String DOT_DIR = ".anatomist";
+    private ConfigLoader() {}
 
     public static ProjectConfig load(Path projectRoot) {
-        ProjectConfig config = new ProjectConfig();
-
-        Path envPath = envConfigPath();
-        if (envPath != null && Files.isRegularFile(envPath)) {
-            applyToml(config, envPath);
-        }
-
-        Path userWide = userWidePath();
-        if (userWide != null && Files.isRegularFile(userWide)) {
-            applyToml(config, userWide);
-        }
-
-        if (projectRoot != null) {
-            Path projectLocal = projectRoot.resolve(DOT_DIR).resolve(CONFIG_FILE);
-            if (Files.isRegularFile(projectLocal)) {
-                applyToml(config, projectLocal);
-            }
-        }
-
-        return config;
+        return loadResolved(projectRoot).config();
     }
 
-    private static Path envConfigPath() {
-        String val = System.getenv("ANATOMIST_CONFIG");
-        return val != null && !val.isBlank() ? Path.of(val) : null;
-    }
-
-    private static Path userWidePath() {
+    public static LoadedConfig loadResolved(Path projectRoot) {
         String home = System.getProperty("user.home");
-        if (home == null) return null;
-        return Path.of(home, DOT_DIR, CONFIG_FILE);
+        return loadResolved(projectRoot, home == null ? null : Path.of(home));
+    }
+
+    static LoadedConfig loadResolved(Path projectRoot, Path userHome) {
+        Path projectFile = projectRoot == null ? null
+                : projectRoot.resolve(DOT_DIR).resolve(CONFIG_FILE);
+        if (projectFile != null && Files.exists(projectFile)) {
+            return loadFile(projectFile, LoadedConfig.Source.PROJECT);
+        }
+        Path userFile = userHome == null ? null : userHome.resolve(DOT_DIR).resolve(CONFIG_FILE);
+        if (userFile != null && Files.exists(userFile)) {
+            return loadFile(userFile, LoadedConfig.Source.USER);
+        }
+        return new LoadedConfig(new ProjectConfig(), LoadedConfig.Source.DEFAULT, null);
+    }
+
+    private static LoadedConfig loadFile(Path file, LoadedConfig.Source source) {
+        if (!Files.isRegularFile(file)) {
+            throw new ConfigException(file, 0, "configuration path is not a regular file");
+        }
+        ProjectConfig config = new ProjectConfig();
+        applyToml(config, file);
+        validate(config, file);
+        return new LoadedConfig(config, source, file.toAbsolutePath().normalize());
     }
 
     static void applyToml(ProjectConfig config, Path file) {
@@ -49,107 +55,207 @@ public class ConfigLoader {
         try {
             lines = Files.readAllLines(file);
         } catch (IOException e) {
-            return;
+            throw new ConfigException(file, "unable to read configuration: " + e.getMessage(), e);
         }
-        applyToml(config, lines);
+        applyToml(config, lines, file);
     }
 
     static void applyToml(ProjectConfig config, List<String> lines) {
+        applyToml(config, lines, null);
+    }
+
+    private static void applyToml(ProjectConfig config, List<String> lines, Path file) {
         String section = "";
-        for (String raw : lines) {
-            String line = raw.strip();
+        Set<String> seen = new HashSet<>();
+        for (int index = 0; index < lines.size(); index++) {
+            int lineNumber = index + 1;
+            String line = lines.get(index).strip();
             if (line.isEmpty() || line.startsWith("#")) continue;
 
-            if (line.startsWith("[") && line.endsWith("]")) {
+            if (line.startsWith("[")) {
+                if (!(line.startsWith("[") && line.endsWith("]"))) {
+                    throw error(file, lineNumber, "malformed section header");
+                }
                 section = line.substring(1, line.length() - 1).strip();
+                if (!Set.of("index", "scan", "external").contains(section)) {
+                    throw error(file, lineNumber, "unknown section [" + section + "]");
+                }
                 continue;
             }
 
             int eq = line.indexOf('=');
-            if (eq < 0) continue;
+            if (eq <= 0) throw error(file, lineNumber, "expected key = value");
+            if (section.isEmpty()) throw error(file, lineNumber, "key must be inside a section");
             String key = line.substring(0, eq).strip();
             String value = line.substring(eq + 1).strip();
-
-            applyKeyValue(config, section, key, value);
+            if (key.isEmpty() || value.isEmpty()) throw error(file, lineNumber, "expected key = value");
+            String qualified = section + "." + key;
+            if (!seen.add(qualified)) throw error(file, lineNumber, "duplicate key " + qualified);
+            applyKeyValue(config, section, key, value, file, lineNumber);
         }
     }
 
-    private static void applyKeyValue(ProjectConfig config, String section, String key, String value) {
+    private static void applyKeyValue(ProjectConfig config, String section, String key,
+                                      String value, Path file, int line) {
         switch (section) {
-            case "index" -> applyIndex(config, key, value);
-            case "external" -> applyExternal(config, key, value);
-            default -> {}
+            case "index" -> applyIndex(config, key, value, file, line);
+            case "scan" -> applyScan(config, key, value, file, line);
+            case "external" -> {
+                if (!"exclude_patterns".equals(key)) throw unknown(file, line, section, key);
+                config.setExternalExcludePatterns(parseStringArray(value, file, line));
+            }
+            default -> throw unknown(file, line, section, key);
         }
     }
 
-    private static void applyIndex(ProjectConfig config, String key, String value) {
+    private static void applyIndex(ProjectConfig config, String key, String value,
+                                   Path file, int line) {
         switch (key) {
-            case "java_version" -> config.setJavaVersion(parseInt(value, 8));
-            case "include_tests" -> config.setIncludeTests(parseBool(value));
-            case "spring_xml" -> config.setSpringXml(parseBool(value));
-            case "vm_classpath" -> config.setVmClasspath(parseBool(value));
-            case "dataflow" -> config.setDataflow(parseBool(value));
-            case "dataflow_mode" -> config.setDataflowMode(unquote(value));
-            case "dataflow_scopes" -> config.setDataflowScopes(parseStringArray(value));
-            case "implicit_taint" -> config.setImplicitTaint(parseBool(value));
-            case "exclude" -> config.setExclude(parseStringArray(value));
-            default -> {}
+            case "java_version" -> config.setJavaVersion(parseInt(value, file, line));
+            case "spring_xml" -> config.setSpringXml(parseBool(value, file, line));
+            case "vm_classpath" -> config.setVmClasspath(parseBool(value, file, line));
+            case "dataflow" -> config.setDataflow(parseBool(value, file, line));
+            case "dataflow_mode" -> config.setDataflowMode(parseString(value, file, line));
+            case "dataflow_scopes" -> config.setDataflowScopes(parseStringArray(value, file, line));
+            case "implicit_taint" -> config.setImplicitTaint(parseBool(value, file, line));
+            case "include_tests", "exclude" -> throw error(file, line,
+                    "removed key index." + key + "; use [scan] instead");
+            default -> throw unknown(file, line, "index", key);
         }
     }
 
-    private static void applyExternal(ProjectConfig config, String key, String value) {
+    private static void applyScan(ProjectConfig config, String key, String value,
+                                  Path file, int line) {
         switch (key) {
-            case "exclude_patterns" -> config.setExternalExcludePatterns(parseStringArray(value));
-            default -> {}
+            case "scopes" -> {
+                List<SourceScope> scopes = new ArrayList<>();
+                for (String raw : parseStringArray(value, file, line)) {
+                    try {
+                        scopes.add(SourceScope.valueOf(raw.toUpperCase(Locale.ROOT)));
+                    } catch (IllegalArgumentException ex) {
+                        throw error(file, line, "scan scope must be MAIN, TEST, or GENERATED: " + raw);
+                    }
+                }
+                config.setScanScopes(scopes);
+            }
+            case "include" -> config.setScanIncludes(parseStringArray(value, file, line));
+            case "exclude" -> config.setScanExcludes(parseStringArray(value, file, line));
+            case "source_roots" -> config.setSourceRootSpecs(parseStringArray(value, file, line));
+            default -> throw unknown(file, line, "scan", key);
         }
     }
 
     static List<String> parseStringArray(String value) {
+        return parseStringArray(value, null, 0);
+    }
+
+    private static List<String> parseStringArray(String value, Path file, int line) {
         if (!value.startsWith("[") || !value.endsWith("]")) {
-            return List.of(unquote(value));
+            throw error(file, line, "expected an array of quoted strings");
         }
         String inner = value.substring(1, value.length() - 1).strip();
         if (inner.isEmpty()) return List.of();
         List<String> result = new ArrayList<>();
-        for (String part : splitComma(inner)) {
-            String trimmed = part.strip();
-            if (!trimmed.isEmpty()) {
-                result.add(unquote(trimmed));
-            }
+        for (String part : splitComma(inner, file, line)) {
+            result.add(parseString(part.strip(), file, line));
         }
-        return result;
+        return List.copyOf(result);
     }
 
-    private static List<String> splitComma(String s) {
+    private static List<String> splitComma(String value, Path file, int line) {
         List<String> parts = new ArrayList<>();
-        boolean inQuote = false;
+        boolean quoted = false;
+        boolean escaped = false;
         int start = 0;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '"') inQuote = !inQuote;
-            else if (c == ',' && !inQuote) {
-                parts.add(s.substring(start, i));
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (escaped) escaped = false;
+            else if (c == '\\' && quoted) escaped = true;
+            else if (c == '"') quoted = !quoted;
+            else if (c == ',' && !quoted) {
+                parts.add(value.substring(start, i));
                 start = i + 1;
             }
         }
-        parts.add(s.substring(start));
+        if (quoted) throw error(file, line, "unterminated string");
+        parts.add(value.substring(start));
+        if (parts.stream().anyMatch(String::isBlank)) throw error(file, line, "empty array element");
         return parts;
     }
 
-    static String unquote(String s) {
-        if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
-            return s.substring(1, s.length() - 1);
+    static String unquote(String value) {
+        return parseString(value, null, 0);
+    }
+
+    private static String parseString(String value, Path file, int line) {
+        if (value.length() < 2 || !value.startsWith("\"") || !value.endsWith("\"")) {
+            throw error(file, line, "expected a quoted string");
         }
-        return s;
+        StringBuilder out = new StringBuilder();
+        for (int i = 1; i < value.length() - 1; i++) {
+            char c = value.charAt(i);
+            if (c != '\\') {
+                out.append(c);
+                continue;
+            }
+            if (++i >= value.length() - 1) throw error(file, line, "unterminated escape");
+            char escaped = value.charAt(i);
+            switch (escaped) {
+                case '"', '\\' -> out.append(escaped);
+                case 'n' -> out.append('\n');
+                case 'r' -> out.append('\r');
+                case 't' -> out.append('\t');
+                default -> throw error(file, line, "unsupported escape \\" + escaped);
+            }
+        }
+        return out.toString();
     }
 
-    private static int parseInt(String value, int defaultVal) {
-        try { return Integer.parseInt(value.strip()); }
-        catch (NumberFormatException e) { return defaultVal; }
+    private static int parseInt(String value, Path file, int line) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw error(file, line, "expected an integer: " + value);
+        }
     }
 
-    private static boolean parseBool(String value) {
-        String v = value.strip().toLowerCase(Locale.ROOT);
-        return "true".equals(v) || "1".equals(v) || "yes".equals(v);
+    private static boolean parseBool(String value, Path file, int line) {
+        if ("true".equals(value)) return true;
+        if ("false".equals(value)) return false;
+        throw error(file, line, "expected true or false: " + value);
+    }
+
+    private static void validate(ProjectConfig config, Path file) {
+        if (!config.sourceRootSpecs().isEmpty() && config.scanScopesConfigured()) {
+            throw error(file, 0, "scan.source_roots and scan.scopes are mutually exclusive");
+        }
+        validatePatterns(config.scanIncludes(), "scan.include", file);
+        validatePatterns(config.scanExcludes(), "scan.exclude", file);
+    }
+
+    private static void validatePatterns(List<String> patterns, String key, Path file) {
+        for (String pattern : patterns) {
+            if (pattern == null || pattern.isBlank()) throw error(file, 0, key + " contains a blank pattern");
+            String normalized = pattern.replace('\\', '/');
+            if (normalized.startsWith("/") || normalized.matches("^[A-Za-z]:/.*")) {
+                throw error(file, 0, key + " patterns must be project-relative: " + pattern);
+            }
+            for (String part : normalized.split("/")) {
+                if ("..".equals(part)) throw error(file, 0, key + " patterns cannot contain '..': " + pattern);
+            }
+            if (normalized.indexOf('!') >= 0 || normalized.indexOf('{') >= 0
+                    || normalized.indexOf('}') >= 0 || normalized.indexOf('[') >= 0
+                    || normalized.indexOf(']') >= 0) {
+                throw error(file, 0, key + " supports only *, **, and ?: " + pattern);
+            }
+        }
+    }
+
+    private static ConfigException unknown(Path file, int line, String section, String key) {
+        return error(file, line, "unknown key " + section + "." + key);
+    }
+
+    private static ConfigException error(Path file, int line, String message) {
+        return new ConfigException(file, line, message);
     }
 }

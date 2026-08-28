@@ -1,6 +1,8 @@
 package com.anatomist.cli;
 
 import com.anatomist.config.ConfigLoader;
+import com.anatomist.config.ConfigException;
+import com.anatomist.config.LoadedConfig;
 import com.anatomist.config.ProjectConfig;
 import com.anatomist.application.IndexExecutionHints;
 import com.anatomist.application.IndexExecutionRequest;
@@ -8,6 +10,8 @@ import com.anatomist.core.ClasspathDetector;
 import com.anatomist.incremental.IndexEnvironmentFingerprint;
 import com.anatomist.application.IndexOutcome;
 import com.anatomist.core.ProjectScanner;
+import com.anatomist.core.ScanPolicy;
+import com.anatomist.core.SourceScope;
 import com.anatomist.application.ProjectMetadata;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.SourceIdentityResolver;
@@ -38,11 +42,12 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +70,7 @@ public class WatchCommand implements Callable<Integer> {
 
     static final int MAX_PARSE_RETRIES = 3;
     static final long MIN_PARSE_RETRY_DELAY_MS = 100L;
+    static final int CONFIG_CHANGED_EXIT_CODE = 4;
 
     @Parameters(index = "0", description = "Path to the Java project to watch.")
     Path projectPath;
@@ -81,6 +87,18 @@ public class WatchCommand implements Callable<Integer> {
             description = "Also watch/index src/test/java (test-only modules included). "
                     + "Off by default. Ignored when --project-source is given.")
     boolean includeTests;
+
+    @Option(names = "--scan-scope",
+            description = "Source scope to watch/index. Repeatable; replaces config scopes.")
+    List<String> scanScopeSpecs = new ArrayList<>();
+
+    @Option(names = "--scan-include",
+            description = "Project-relative path glob to include. Repeatable; replaces config includes.")
+    List<String> scanIncludeSpecs = new ArrayList<>();
+
+    @Option(names = "--scan-exclude",
+            description = "Project-relative path glob to exclude. Repeatable; replaces config excludes.")
+    List<String> scanExcludeSpecs = new ArrayList<>();
 
     @Option(names = "--auto-index",
             description = "Trigger incremental index on change.")
@@ -114,8 +132,8 @@ public class WatchCommand implements Callable<Integer> {
 
     @Option(names = "--vm-classpath",
             description = "Add ReflectionTypeSolver so JDK types resolve.",
-            defaultValue = "true", arity = "1")
-    boolean vmClasspath;
+            arity = "1")
+    Boolean vmClasspath;
 
     @Option(names = "--java-version",
             description = "Target Java language version (default: 8 or detected).")
@@ -130,9 +148,9 @@ public class WatchCommand implements Callable<Integer> {
             defaultValue = "1000")
     int maxRealignFiles;
 
-    @Option(names = "--spring-xml",
+    @Option(names = "--spring-xml", negatable = true,
             description = "Also watch + index Spring bean XML (<beans>) configs. Off by default.")
-    boolean springXml;
+    Boolean springXml;
 
     @Option(names = "--fail-fast",
             description = "Exit immediately when auto-index fails instead of retaining pending changes.")
@@ -157,9 +175,9 @@ public class WatchCommand implements Callable<Integer> {
             description = "Scoped flow selector. Repeatable.")
     List<String> dataflowScopes = new ArrayList<>();
 
-    @Option(names = "--implicit-taint",
+    @Option(names = "--implicit-taint", negatable = true,
             description = "Propagate taint through control dependencies. Implies --dataflow.")
-    boolean implicitTaint;
+    Boolean implicitTaint;
 
     @Option(names = "--full-policy", defaultValue = "background",
             description = "When watch needs a full rebuild: background (default), inline, or manual.")
@@ -184,6 +202,11 @@ public class WatchCommand implements Callable<Integer> {
     private java.util.function.LongSupplier nanoTime = System::nanoTime;
     private Runnable readyListener = () -> {};
     private java.util.function.Consumer<IncrementalParseException> parseFailureListener = failure -> {};
+    private LoadedConfig loadedConfig;
+    private ProjectConfig effectiveProjectConfig;
+    private ScanPolicy scanPolicy;
+    private List<SourceScope> effectiveScanScopes = List.of(SourceScope.MAIN, SourceScope.GENERATED);
+    private boolean sourceRootsFromConfig;
 
     void setIndexCommandRunnerForTest(IndexCommandRunner indexCommandRunner) {
         this.indexCommandRunner = indexCommandRunner;
@@ -232,13 +255,27 @@ public class WatchCommand implements Callable<Integer> {
             System.err.println("ERROR: unable to resolve project path: " + ex.getMessage());
             return 1;
         }
+        try {
+            loadedConfig = ConfigLoader.loadResolved(projectRoot);
+            effectiveProjectConfig = loadedConfig.config();
+            configureEffectiveOptions(effectiveProjectConfig);
+        } catch (ConfigException | IllegalArgumentException ex) {
+            System.err.println("ERROR: " + ex.getMessage());
+            return 2;
+        }
         if (projectSource != null && !projectSource.isBlank() && !sourceRootSpecs.isEmpty()) {
             System.err.println("ERROR: --project-source and --source-root are mutually exclusive");
             return 2;
         }
         ClasspathDetector cd = new ClasspathDetector();
 
-        List<Path> sourcePaths = new ArrayList<>(resolveSourcePaths(cd, projectRoot));
+        List<Path> sourcePaths;
+        try {
+            sourcePaths = new ArrayList<>(resolveSourcePaths(cd, projectRoot));
+        } catch (ConfigException | IllegalArgumentException ex) {
+            System.err.println("ERROR: " + ex.getMessage());
+            return 2;
+        }
         if (sourcePaths.isEmpty()) {
             System.err.println("ERROR: no source paths resolved for " + projectRoot);
             return 1;
@@ -252,7 +289,13 @@ public class WatchCommand implements Callable<Integer> {
 
         Set<String> extraExcludes = exclude == null || exclude.isEmpty()
                 ? Collections.emptySet()
-                : new HashSet<>(Arrays.asList(exclude.split(",")));
+                : Arrays.stream(exclude.split(",")).map(String::trim)
+                .filter(value -> !value.isEmpty()).collect(Collectors.toSet());
+        scanPolicy = new ScanPolicy(projectRoot,
+                scanIncludeSpecs.isEmpty() ? effectiveProjectConfig.scanIncludes() : scanIncludeSpecs,
+                scanExcludeSpecs.isEmpty() ? effectiveProjectConfig.scanExcludes() : scanExcludeSpecs,
+                extraExcludes);
+        ConfigSelectionSnapshot initialConfig = ConfigSelectionSnapshot.capture(projectRoot);
 
         Path dbPath = output == null
                 ? DefaultIndexPath.forIndexWrite(projectRoot)
@@ -282,7 +325,7 @@ public class WatchCommand implements Callable<Integer> {
         List<SourceRoot> resolvedRoots = new ArrayList<>(resolveSourceRoots(projectRoot, sourcePaths));
         Set<Path> watchedBuildFiles = discoverBuildFiles(projectRoot, sourcePaths);
         Set<Path> springXmlInventory = springXml
-                ? new LinkedHashSet<>(new ProjectScanner(extraExcludes).scanSpringXml(projectRoot))
+                ? new LinkedHashSet<>(new ProjectScanner(extraExcludes, scanPolicy).scanSpringXml(projectRoot))
                 : new LinkedHashSet<>();
 
         ExecutorService fullRebuildWorker = Executors.newSingleThreadExecutor(r -> {
@@ -345,6 +388,10 @@ public class WatchCommand implements Callable<Integer> {
             while (!Thread.currentThread().isInterrupted()) {
                 WatchKey k = ws.poll(100, TimeUnit.MILLISECONDS);
                 long now = nanoTime.getAsLong();
+                if (!initialConfig.equals(ConfigSelectionSnapshot.capture(projectRoot))) {
+                    System.err.println("CONFIG_CHANGED: restart watch to apply the selected config.toml");
+                    return CONFIG_CHANGED_EXIT_CODE;
+                }
                 if (k != null) {
                     Path dir = keys.get(k);
                     for (WatchEvent<?> ev : k.pollEvents()) {
@@ -373,6 +420,7 @@ public class WatchCommand implements Callable<Integer> {
                                 full.toAbsolutePath().normalize());
                         boolean matchesExt = exts.stream().anyMatch(fname::endsWith);
                         if (!matchesExt && !isBuildFile) continue;
+                        if (!isBuildFile && !scanPolicy.includes(full)) continue;
                         // For build files we always care
                         if (isBuildFile) buildFileTouched = true;
 
@@ -658,6 +706,7 @@ public class WatchCommand implements Callable<Integer> {
             Path operationLockPath) {
         return new IndexExecutionRequest(
                 projectRoot, projectSource, sourceRootSpecs, includeTests,
+                scanScopeSpecs, scanIncludeSpecs, scanExcludeSpecs,
                 noClasspath, classpathOverride, vmClasspath, javaVersion, jdkHome,
                 outputPath, false, springXml, dataflow, dataflowMode, dataflowScopes,
                 implicitTaint, strictHealth, healthPolicy, timings, maxRealignFiles,
@@ -670,6 +719,7 @@ public class WatchCommand implements Callable<Integer> {
             IndexExecutionHints hints) {
         return new IndexExecutionRequest(
                 projectRoot, projectSource, sourceRootSpecs, includeTests,
+                scanScopeSpecs, scanIncludeSpecs, scanExcludeSpecs,
                 noClasspath, classpathOverride, vmClasspath, javaVersion, jdkHome,
                 outputPath, true, springXml, dataflow, dataflowMode, dataflowScopes,
                 implicitTaint, strictHealth, healthPolicy, timings, maxRealignFiles,
@@ -677,8 +727,8 @@ public class WatchCommand implements Callable<Integer> {
     }
 
     private FlowProfile resolveFlowProfile(Path projectRoot) {
-        ProjectConfig config = ConfigLoader.load(projectRoot);
-        boolean effectiveImplicitTaint = implicitTaint || config.implicitTaint();
+        ProjectConfig config = effectiveProjectConfig;
+        boolean effectiveImplicitTaint = implicitTaint;
         List<String> scopes = dataflowScopes == null || dataflowScopes.isEmpty()
                 ? config.dataflowScopes() : dataflowScopes;
         String suppliedMode = dataflowMode == null || dataflowMode.isBlank()
@@ -970,7 +1020,8 @@ public class WatchCommand implements Callable<Integer> {
             String mode = noClasspath ? "none"
                     : classpath != null && !classpath.isBlank() ? "explicit" : "detected";
             IndexEnvironmentFingerprint.Snapshot current = IndexEnvironmentFingerprint.snapshot(
-                    freshRoots, targetJava, mode, classpathEntries, classpath, springXml);
+                    freshRoots, targetJava, mode, classpathEntries, classpath, springXml,
+                    false, false, scanPolicy.fingerprint(freshRoots, effectiveScanScopes));
             Map<String, String> prior;
             if (!Files.exists(dbPath)) {
                 prior = Map.of();
@@ -980,8 +1031,7 @@ public class WatchCommand implements Callable<Integer> {
                 }
             }
             FlowProfile flowProfile = resolveFlowProfile(projectRoot);
-            boolean requestedImplicitTaint =
-                    implicitTaint || ConfigLoader.load(projectRoot).implicitTaint();
+            boolean requestedImplicitTaint = implicitTaint;
             boolean flowProfileChanged =
                     !flowProfile.mode().name().toLowerCase().equals(
                             prior.getOrDefault("dataflow_mode",
@@ -1008,6 +1058,10 @@ public class WatchCommand implements Callable<Integer> {
                 }
                 if (!String.valueOf(springXml).equals(prior.get("spring_xml"))) {
                     reasons.add("spring_xml");
+                }
+                if (!scanPolicy.fingerprint(freshRoots, effectiveScanScopes).equals(
+                        prior.get("scan_policy_hash"))) {
+                    reasons.add("scan_policy");
                 }
                 if (flowProfileChanged) reasons.add("dataflow");
                 if (reasons.isEmpty()) reasons.add("environment_fingerprint");
@@ -1065,7 +1119,12 @@ public class WatchCommand implements Callable<Integer> {
             }
             return out;
         }
-        return cd.detectSourcePaths(projectRoot, includeTests);
+        List<Path> detected = cd.detectSourcePaths(
+                projectRoot, effectiveScanScopes.contains(SourceScope.TEST));
+        return SourceIdentityResolver.inferRoots(projectRoot, detected).stream()
+                .filter(root -> effectiveScanScopes.contains(root.scope()))
+                .map(SourceRoot::path)
+                .toList();
     }
 
     private List<SourceRoot> resolveSourceRoots(Path projectRoot, List<Path> sourcePaths) {
@@ -1077,12 +1136,92 @@ public class WatchCommand implements Callable<Integer> {
             if (at <= 0 || eq <= at + 1 || eq == spec.length() - 1) continue;
             Path path = Path.of(spec.substring(eq + 1));
             if (!path.isAbsolute()) path = projectRoot.resolve(path);
+            path = path.toAbsolutePath().normalize();
+            if (sourceRootsFromConfig) {
+                if (!path.startsWith(projectRoot)) {
+                    throw new ConfigException(loadedConfig.path(), 0,
+                            "scan.source_roots must stay inside the project: " + spec);
+                }
+                if (!Files.isDirectory(path)) {
+                    throw new ConfigException(loadedConfig.path(), 0,
+                            "scan.source_roots directory does not exist: " + spec);
+                }
+            }
             roots.add(new SourceRoot(path,
                     spec.substring(0, at),
                     com.anatomist.core.SourceScope.valueOf(
                             spec.substring(at + 1, eq).toUpperCase(java.util.Locale.ROOT))));
         }
         return roots;
+    }
+
+    private void configureEffectiveOptions(ProjectConfig config) {
+        if (javaVersion == null && config.hasJavaVersion()) javaVersion = config.javaVersion();
+        vmClasspath = vmClasspath == null ? config.vmClasspath() : vmClasspath;
+        springXml = springXml == null ? config.springXml() : springXml;
+        implicitTaint = implicitTaint == null ? config.implicitTaint() : implicitTaint;
+
+        boolean cliRoots = !sourceRootSpecs.isEmpty()
+                || (projectSource != null && !projectSource.isBlank());
+        if (!cliRoots && !config.sourceRootSpecs().isEmpty()) {
+            sourceRootSpecs = new ArrayList<>(config.sourceRootSpecs());
+            sourceRootsFromConfig = true;
+        }
+        if (!sourceRootSpecs.isEmpty() && !scanScopeSpecs.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "--scan-scope cannot be combined with explicit source roots");
+        }
+        effectiveScanScopes = scanScopeSpecs.isEmpty()
+                ? new ArrayList<>(config.scanScopes())
+                : parseScanScopes(scanScopeSpecs);
+        if (includeTests && sourceRootSpecs.isEmpty()
+                && (projectSource == null || projectSource.isBlank())
+                && !effectiveScanScopes.contains(SourceScope.TEST)) {
+            List<SourceScope> expanded = new ArrayList<>(effectiveScanScopes);
+            expanded.add(SourceScope.TEST);
+            effectiveScanScopes = List.copyOf(expanded);
+        }
+    }
+
+    private static List<SourceScope> parseScanScopes(List<String> values) {
+        LinkedHashSet<SourceScope> scopes = new LinkedHashSet<>();
+        for (String value : values) {
+            try {
+                scopes.add(SourceScope.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT)));
+            } catch (RuntimeException ex) {
+                throw new IllegalArgumentException(
+                        "--scan-scope must be MAIN, TEST, or GENERATED: " + value);
+            }
+        }
+        if (scopes.isEmpty()) throw new IllegalArgumentException("--scan-scope requires a value");
+        return List.copyOf(scopes);
+    }
+
+    private record ConfigSelectionSnapshot(LoadedConfig.Source source, Path path, String contentHash) {
+        static ConfigSelectionSnapshot capture(Path projectRoot) {
+            Path projectFile = projectRoot.resolve(ConfigLoader.DOT_DIR).resolve(ConfigLoader.CONFIG_FILE);
+            Path userFile = System.getProperty("user.home") == null ? null
+                    : Path.of(System.getProperty("user.home"))
+                    .resolve(ConfigLoader.DOT_DIR).resolve(ConfigLoader.CONFIG_FILE);
+            if (Files.exists(projectFile)) {
+                return new ConfigSelectionSnapshot(LoadedConfig.Source.PROJECT,
+                        projectFile.toAbsolutePath().normalize(), hash(projectFile));
+            }
+            if (userFile != null && Files.exists(userFile)) {
+                return new ConfigSelectionSnapshot(LoadedConfig.Source.USER,
+                        userFile.toAbsolutePath().normalize(), hash(userFile));
+            }
+            return new ConfigSelectionSnapshot(LoadedConfig.Source.DEFAULT, null, "");
+        }
+
+        private static String hash(Path path) {
+            try {
+                return java.util.HexFormat.of().formatHex(
+                        MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path)));
+            } catch (IOException | NoSuchAlgorithmException ex) {
+                return "unreadable:" + ex.getClass().getSimpleName() + ":" + ex.getMessage();
+            }
+        }
     }
 
     private static boolean isSourceLayoutDirectory(Path projectRoot, Path path) {

@@ -1,8 +1,11 @@
 package com.anatomist.application;
 
 import com.anatomist.config.ProjectConfig;
+import com.anatomist.config.LoadedConfig;
 import com.anatomist.core.JavaVersionDetection;
+import com.anatomist.core.ScanPolicy;
 import com.anatomist.core.SourceRoot;
+import com.anatomist.core.SourceScope;
 import com.anatomist.flow.FlowProfile;
 
 import java.nio.file.Path;
@@ -24,7 +27,10 @@ public record IndexConfig(
         boolean strictHealth,
         JavaVersionDetection javaVersionDetection,
         FlowProfile flowProfile,
-        boolean implicitTaint
+        boolean implicitTaint,
+        LoadedConfig loadedConfig,
+        ScanPolicy scanPolicy,
+        List<SourceScope> scanScopes
 ) {
     public boolean dataflow() {
         return flowProfile != null && flowProfile.enabled();

@@ -589,4 +589,142 @@ class IndexCommandIT {
                     "no --spring-xml ⇒ no XML BEAN nodes");
         }
     }
+
+    @Test
+    void projectConfigReplacesGlobalConfigInRealIndex(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, true);
+        Path home = Files.createDirectories(tmp.resolve("home/.anatomist")).getParent();
+        Files.writeString(home.resolve(".anatomist/config.toml"), """
+                [scan]
+                scopes = ["TEST"]
+                """);
+        Files.createDirectories(project.resolve(".anatomist"));
+        Files.writeString(project.resolve(".anatomist/config.toml"), """
+                [index]
+                java_version = 17
+                """);
+
+        Path projectDb = tmp.resolve("project-config.db");
+        RunResult projectResult = withUserHome(home, () -> CliTestSupport.runIndex(project,
+                "--no-classpath", "--output", projectDb.toString(), "--format", "json"));
+        assertEquals(0, projectResult.exitCode(), projectResult.stderr());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + projectDb);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st, "SELECT count(*) FROM file_cache"));
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM file_cache WHERE source_file LIKE '%ATest.java'"));
+            assertEquals("project", scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='config_source'"));
+        }
+
+        Files.delete(project.resolve(".anatomist/config.toml"));
+        Path userDb = tmp.resolve("user-config.db");
+        RunResult userResult = withUserHome(home, () -> CliTestSupport.runIndex(project,
+                "--no-classpath", "--java-version", "17",
+                "--output", userDb.toString(), "--format", "json"));
+        assertEquals(0, userResult.exitCode(), userResult.stderr());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + userDb);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM file_cache WHERE source_file LIKE '%ATest.java'"));
+            assertEquals("user", scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='config_source'"));
+        }
+    }
+
+    @Test
+    void scanGlobsAndCliOverridesControlIndexedFiles(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Files.writeString(project.resolve("src/main/java/p/B.java"), "package p; class B {}\n");
+        Files.createDirectories(project.resolve(".anatomist"));
+        Files.writeString(project.resolve(".anatomist/config.toml"), """
+                [scan]
+                include = ["src/main/java/**"]
+                exclude = ["**/B.java"]
+                """);
+
+        Path configuredDb = tmp.resolve("configured.db");
+        CliTestSupport.assertIndexOk(project, "--no-classpath", "--java-version", "17",
+                "--output", configuredDb.toString());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + configuredDb);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st, "SELECT count(*) FROM file_cache"));
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM file_cache WHERE source_file LIKE '%B.java'"));
+            assertFalse(scalarString(st,
+                    "SELECT value FROM project_meta WHERE key='scan_policy_hash'").isBlank());
+        }
+
+        Path cliDb = tmp.resolve("cli.db");
+        CliTestSupport.assertIndexOk(project, "--no-classpath", "--java-version", "17",
+                "--scan-include", "src/main/java/**", "--scan-exclude", "**/A.java",
+                "--output", cliDb.toString());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + cliDb);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM file_cache WHERE source_file LIKE '%B.java'"));
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM file_cache WHERE source_file LIKE '%A.java'"));
+        }
+    }
+
+    @Test
+    void invalidConfigReturnsUsageError(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Files.createDirectories(project.resolve(".anatomist"));
+        Files.writeString(project.resolve(".anatomist/config.toml"), """
+                [scan]
+                exclude = "not-an-array"
+                """);
+
+        RunResult result = CliTestSupport.runIndex(project,
+                "--no-classpath", "--output", tmp.resolve("invalid.db").toString());
+
+        assertEquals(2, result.exitCode(), result.stderr());
+        assertTrue(result.stderr().contains("expected an array of quoted strings"), result.stderr());
+    }
+
+    @Test
+    void changedScanPolicyForcesFullRebuildDuringIncremental(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Files.writeString(project.resolve("src/main/java/p/B.java"), "package p; class B {}\n");
+        Files.createDirectories(project.resolve(".anatomist"));
+        Path config = project.resolve(".anatomist/config.toml");
+        Files.writeString(config, "[scan]\nexclude = [\"**/B.java\"]\n");
+        Path db = tmp.resolve("incremental-policy.db");
+        CliTestSupport.assertIndexOk(project, "--no-classpath", "--java-version", "17",
+                "--output", db.toString());
+
+        Files.writeString(config, "[scan]\nexclude = [\"**/A.java\"]\n");
+        RunResult result = CliTestSupport.runIndex(project,
+                "--no-classpath", "--java-version", "17", "--incremental",
+                "--output", db.toString());
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        assertTrue(result.stderr().contains("scan policy changed"), result.stderr());
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM file_cache WHERE source_file LIKE '%B.java'"));
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM file_cache WHERE source_file LIKE '%A.java'"));
+        }
+    }
+
+    private static synchronized <T> T withUserHome(
+            Path home, ThrowingSupplier<T> action) throws Exception {
+        String previous = System.getProperty("user.home");
+        try {
+            System.setProperty("user.home", home.toString());
+            return action.get();
+        } finally {
+            if (previous == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previous);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingSupplier<T> {
+        T get() throws Exception;
+    }
 }

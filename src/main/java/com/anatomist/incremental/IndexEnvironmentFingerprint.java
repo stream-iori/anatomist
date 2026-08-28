@@ -24,7 +24,7 @@ public final class IndexEnvironmentFingerprint {
                                     String classpathOverride,
                                     boolean springXml) {
         return snapshot(sourceRoots, javaVersion, classpathMode, classpathEntries,
-                classpathOverride, springXml, false, false);
+                classpathOverride, springXml, false, false, "");
     }
 
     public static Snapshot snapshot(List<SourceRoot> sourceRoots,
@@ -35,9 +35,22 @@ public final class IndexEnvironmentFingerprint {
                                     boolean springXml,
                                     boolean dataflow,
                                     boolean implicitTaint) {
+        return snapshot(sourceRoots, javaVersion, classpathMode, classpathEntries,
+                classpathOverride, springXml, dataflow, implicitTaint, "");
+    }
+
+    public static Snapshot snapshot(List<SourceRoot> sourceRoots,
+                                    int javaVersion,
+                                    String classpathMode,
+                                    List<Path> classpathEntries,
+                                    String classpathOverride,
+                                    boolean springXml,
+                                    boolean dataflow,
+                                    boolean implicitTaint,
+                                    String scanPolicyHash) {
         String layout = sourceLayout(sourceRoots);
         String artifacts = classpathArtifacts(classpathEntries);
-        String canonical = "anatomist-index-environment-v1\n"
+        String canonical = "anatomist-index-environment-v2\n"
                 + "layout=" + layout + "\n"
                 + "java=" + javaVersion + "\n"
                 + "mode=" + safe(classpathMode) + "\n"
@@ -45,6 +58,7 @@ public final class IndexEnvironmentFingerprint {
                 + "springXml=" + springXml + "\n"
                 + "dataflow=" + dataflow + "\n"
                 + "implicitTaint=" + implicitTaint + "\n"
+                + "scanPolicy=" + safe(scanPolicyHash) + "\n"
                 + "artifacts=" + artifacts + "\n";
         return new Snapshot(
                 FileCacheService.sha256OfString(canonical),

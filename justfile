@@ -216,6 +216,14 @@ it:
     sdk env
     mvn test -Dtest='*IT'
 
+# Exercise config selection, scan policy, CLI override, and incremental fallback through the JVM jar.
+config-e2e-jvm: jar
+    bash scripts/config-e2e.sh jvm
+
+# Exercise the same config contract through the native binary.
+config-e2e-native: native
+    bash scripts/config-e2e.sh native {{NATIVE_BIN}}
+
 # One specific test class or method
 test-one PATTERN:
     #!/usr/bin/env bash

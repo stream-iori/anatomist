@@ -80,4 +80,32 @@ class ProjectScannerTest {
 
         assertEquals(List.of(source), files);
     }
+
+    @Test
+    void scanPolicyAppliesProjectRelativeIncludeThenExclude(@TempDir Path tmp) throws Exception {
+        Path main = Files.createDirectories(tmp.resolve("src/main/java/p"));
+        Path other = Files.createDirectories(tmp.resolve("other"));
+        Path keep = main.resolve("Keep.java");
+        Files.writeString(keep, "class Keep {}");
+        Files.writeString(main.resolve("DropIT.java"), "class DropIT {}");
+        Files.writeString(other.resolve("Outside.java"), "class Outside {}");
+
+        ScanPolicy policy = new ScanPolicy(tmp,
+                List.of("src/**/*.java"), List.of("**/*IT.java"), Set.of());
+        List<Path> files = new ProjectScanner(Set.of(), policy).scan(tmp);
+
+        assertEquals(List.of(keep), files);
+    }
+
+    @Test
+    void scanPolicyFingerprintIsOrderIndependent(@TempDir Path tmp) {
+        SourceRoot root = new SourceRoot(tmp.resolve("src"), "app", SourceScope.MAIN);
+        ScanPolicy first = new ScanPolicy(tmp,
+                List.of("b/**", "a/**"), List.of("**/B.java", "**/A.java"), Set.of("foo"));
+        ScanPolicy second = new ScanPolicy(tmp,
+                List.of("a/**", "b/**"), List.of("**/A.java", "**/B.java"), Set.of("foo"));
+
+        assertEquals(first.fingerprint(List.of(root), List.of(SourceScope.MAIN)),
+                second.fingerprint(List.of(root), List.of(SourceScope.MAIN)));
+    }
 }
