@@ -56,6 +56,23 @@ class SkillCommandTest {
         assertFalse(rootSkill.toLowerCase(java.util.Locale.ROOT).contains("watch"), rootSkill);
     }
 
+    @Test
+    void indexAndDoctorHelpExposeConfigurationContracts() throws Exception {
+        CliTestSupport.RunResult index = run("index", "--help");
+        assertEquals(0, index.exitCode(), index.stderr());
+        assertTrue(index.stdout().contains("otherwise built-in defaults"), index.stdout());
+        assertTrue(index.stdout().contains("Built-in scan: MAIN + GENERATED"), index.stdout());
+        assertTrue(index.stdout().contains("Precedence: CLI,"), index.stdout());
+        assertTrue(index.stdout().contains("Maven/Gradle, then Java 8."), index.stdout());
+        assertTrue(index.stdout().contains("Add TEST to effective scan scopes"), index.stdout());
+
+        CliTestSupport.RunResult doctor = run("doctor", "--help");
+        assertEquals(0, doctor.exitCode(), doctor.stderr());
+        assertTrue(doctor.stdout().contains("config_source"), doctor.stdout());
+        assertTrue(doctor.stdout().contains("config_path"), doctor.stdout());
+        assertTrue(doctor.stdout().contains("scan_policy_hash"), doctor.stdout());
+    }
+
     private static CliTestSupport.RunResult run(String... args) throws Exception {
         return CliTestSupport.capture(() -> new CommandLine(new AnatomistCli()).execute(args));
     }

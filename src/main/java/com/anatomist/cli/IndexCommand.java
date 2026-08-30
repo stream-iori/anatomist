@@ -41,7 +41,16 @@ import java.util.stream.Collectors;
 @Command(
         name = "index",
         mixinStandardHelpOptions = true,
-        description = "Index a Java project into a SQLite database. Use --format json for a stable Agent summary."
+        description = "Index a Java project into a SQLite database. Use --format json for a stable Agent summary.",
+        footer = {
+                "",
+                "Configuration: select .anatomist/config.toml, then ~/.anatomist/config.toml,",
+                "otherwise built-in defaults. Files do not merge; missing keys use defaults,",
+                "and CLI options override the selected profile.",
+                "Built-in scan: MAIN + GENERATED, include **, no scan exclude.",
+                "Use doctor --format json --index <db> to inspect committed config_source,",
+                "config_path, and scan_policy_hash."
+        }
 )
 public class IndexCommand implements Callable<Integer> {
 
@@ -51,7 +60,8 @@ public class IndexCommand implements Callable<Integer> {
     @Parameters(index = "0", description = "Path to the Java project to index.")
     Path projectPath;
 
-    @Option(names = "--java-version", description = "Target Java language version (default: 8).")
+    @Option(names = "--java-version",
+            description = "Target Java language version. Precedence: CLI, config, Maven/Gradle, then Java 8.")
     Integer javaVersion;
 
     @Option(names = "--jdk-home", description = "Local target JDK home for native catalog resolution. "
@@ -68,20 +78,20 @@ public class IndexCommand implements Callable<Integer> {
     String classpath;
 
     @Option(names = "--project-source",
-            description = "Override project source roots (path-separator delimited). "
+            description = "Override configured project source roots (path-separator delimited). "
                     + "Usually unnecessary: when omitted, multi-module Maven "
                     + "projects have every module's src/main/java auto-discovered. "
                     + "Relative roots resolve against the project path argument.")
     String projectSource;
 
     @Option(names = "--source-root",
-            description = "Explicit source identity: <module>@<MAIN|TEST|GENERATED>=<path>. Repeatable.")
+            description = "Explicit source identity: <module>@<MAIN|TEST|GENERATED>=<path>. "
+                    + "Replaces configured source roots. Repeatable.")
     List<String> sourceRootSpecs = new ArrayList<>();
 
     @Option(names = "--include-tests",
-            description = "Also index src/test/java (test-only modules included). "
-                    + "Off by default — only main sources are indexed. Ignored when "
-                    + "--project-source is given (you control the roots explicitly).")
+            description = "Add TEST to effective scan scopes (including test-only modules). "
+                    + "Ignored when explicit source roots are selected.")
     boolean includeTests;
 
     @Option(names = "--scan-scope",

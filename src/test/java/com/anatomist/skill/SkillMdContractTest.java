@@ -35,6 +35,9 @@ class SkillMdContractTest {
         assertTrue(text.contains("anatomist skill core"));
         assertTrue(text.contains("anatomist skill topics"));
         assertTrue(text.contains("incremental"));
+        assertTrue(text.contains("otherwise built-in defaults"));
+        assertTrue(text.contains("CLI flags override"));
+        assertTrue(text.contains("config_source"));
         assertFalse(text.toLowerCase().contains("watch"));
         assertFalse(text.contains("## Task details"));
     }
@@ -94,6 +97,15 @@ class SkillMdContractTest {
         assertTrue(flow.contains("flow-summary"));
         assertTrue(flow.contains("full exact source"));
         assertTrue(flow.contains("never falls back"));
+    }
+
+    @Test
+    void coreExplainsConfigurationProfileDiagnostics() throws Exception {
+        String core = Files.readString(sceneDir().resolve("core.md"));
+        assertTrue(core.contains("config_source"));
+        assertTrue(core.contains("config_path"));
+        assertTrue(core.contains("scan_policy_hash"));
+        assertTrue(core.contains("profile committed into the index"));
     }
 
     private static Path repo() {

@@ -15,6 +15,11 @@ Use this guide for every independent static-analysis session.
 6. For declaration seeds from known files, use `declarations-of`; do not infer
    Java declarations with source-text regular expressions.
 
+For an unexpected missing symbol, inspect `doctor --format json --index <db>`
+for `config_source`, `config_path`, and `scan_policy_hash`. They describe the
+profile committed into the index, not a later filesystem change. Compare it
+with the intended roots, then run the incremental gate after a policy change.
+
 Interpret evidence conservatively:
 
 - Positive indexed facts are usable but may not be exhaustive when coverage is partial.

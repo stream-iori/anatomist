@@ -16,7 +16,11 @@ import java.util.concurrent.Callable;
 
 @Command(name = "doctor",
         mixinStandardHelpOptions = true,
-        description = "Report anatomist runtime, index, schema, and Agent-facing capabilities.")
+        description = "Report anatomist runtime, index, schema, and Agent-facing capabilities.",
+        footer = {
+                "",
+                "JSON includes committed config_source, config_path, and scan_policy_hash."
+        })
 public class DoctorCommand implements Callable<Integer> {
 
     @Option(names = "--format", description = "Output format: json | text.", defaultValue = "text")
