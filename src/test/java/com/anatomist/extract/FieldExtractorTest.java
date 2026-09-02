@@ -3,6 +3,8 @@ package com.anatomist.extract;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
+import com.anatomist.framework.ExtensionNodeMetadata;
+import com.anatomist.json.Json;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -50,6 +53,23 @@ class FieldExtractorTest {
 
         Set<String> ids = r.nodes.stream().map(n -> n.id).collect(Collectors.toSet());
         assertEquals(Set.of("pkg.A#a", "pkg.A#b", "pkg.A#c"), ids);
+    }
+
+    @Test
+    void emitsExtensionMetadataOnEveryVariableInAnnotatedDeclaration() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; public class A { String first, second; }");
+        var field = cu.getClassByName("A").orElseThrow().getFields().getFirst();
+        ExtensionNodeMetadata.put(field, "lombok", Map.of("coverage", "complete"));
+        ExtractionResult result = new ExtractionResult();
+
+        new FieldExtractor(ctx).extract(cu, result);
+
+        for (Node node : result.nodes) {
+            Map<?, ?> metadata = (Map<?, ?>) Json.parseTree(node.metadata);
+            assertEquals(Map.of("coverage", "complete"), metadata.get("lombok"));
+            assertEquals("java.lang.String", metadata.get("type"));
+        }
     }
 
     @Test

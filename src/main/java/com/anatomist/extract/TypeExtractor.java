@@ -98,6 +98,7 @@ public class TypeExtractor implements Extractor {
         n.javadoc = com.anatomist.core.JavadocSummary.extract(
                 decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = metadataJson(decl, rt);
+        com.anatomist.framework.ExtensionNodeMetadata.apply(decl, n);
         result.nodes.add(n);
     }
 

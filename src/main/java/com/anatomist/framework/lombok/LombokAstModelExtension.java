@@ -3,6 +3,7 @@ package com.anatomist.framework.lombok;
 import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.framework.AstModelExtension;
 import com.anatomist.framework.ExtensionAstData;
+import com.anatomist.framework.ExtensionNodeMetadata;
 import com.anatomist.framework.SyntheticOrigin;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.ProducerIds;
@@ -36,6 +37,7 @@ import java.util.Set;
 
 /** Signature-only Lombok model. It never invokes Lombok or creates method bodies with facts. */
 public final class LombokAstModelExtension implements AstModelExtension {
+    static final String VERSION = "2";
     private static final Set<String> SUPPORTED = Set.of(
             "Getter", "Setter", "NoArgsConstructor", "RequiredArgsConstructor",
             "AllArgsConstructor", "Data", "Value", "NonNull",
@@ -65,7 +67,7 @@ public final class LombokAstModelExtension implements AstModelExtension {
 
     @Override public String id() { return ProducerIds.LOMBOK_AST; }
     @Override public String producerId() { return ProducerIds.LOMBOK_AST; }
-    @Override public String version() { return "1"; }
+    @Override public String version() { return VERSION; }
     @Override public String fingerprintMaterial() {
         return "strict=" + strict + "|config=" + configuration.fingerprint();
     }
@@ -92,32 +94,52 @@ public final class LombokAstModelExtension implements AstModelExtension {
         for (ClassOrInterfaceDeclaration type : unit.findAll(ClassOrInterfaceDeclaration.class)) {
             if (type.isInterface()) continue;
             Map<String, AnnotationExpr> typeAnnotations = annotations(unit, type.getAnnotations());
-            for (String unsupported : UNSUPPORTED) {
-                if (typeAnnotations.containsKey(unsupported)) unsupported(unit, type, unsupported);
-            }
+            LombokCapabilitySummary typePolicy = summary(unit, type, typeAnnotations);
             boolean data = typeAnnotations.containsKey("Data");
             boolean value = typeAnnotations.containsKey("Value");
             AnnotationExpr typeGetter = typeAnnotations.get("Getter");
             AnnotationExpr typeSetter = typeAnnotations.get("Setter");
-            int before = generatedMemberCount(type);
+            boolean typeAccessors = typeAnnotations.containsKey("Accessors");
+            boolean typeGetterEffective = typeGetter != null || data || value;
+            boolean typeSetterEffective = typeSetter != null || data;
+            if (typeAccessors && typeGetterEffective) typePolicy.partial(LombokCapabilitySummary.GETTER);
+            if (typeAccessors && typeSetterEffective) typePolicy.partial(LombokCapabilitySummary.SETTER);
+            LombokCapabilitySummary aggregate = new LombokCapabilitySummary();
+            aggregate.merge(typePolicy);
+            int before = lombokGeneratedMemberCount(type);
 
             List<FieldDeclaration> originalFields = new ArrayList<>(type.getFields());
             for (FieldDeclaration field : originalFields) {
                 Map<String, AnnotationExpr> fieldAnnotations = annotations(unit, field.getAnnotations());
-                for (String unsupported : UNSUPPORTED) {
-                    if (fieldAnnotations.containsKey(unsupported)) unsupported(unit, field, unsupported);
+                LombokCapabilitySummary fieldSummary = summary(unit, field, fieldAnnotations);
+                boolean fieldAccessors = fieldAnnotations.containsKey("Accessors");
+                boolean fieldGetterEffective = fieldAnnotations.containsKey("Getter") || typeGetterEffective;
+                boolean fieldSetterEffective = fieldAnnotations.containsKey("Setter") || typeSetterEffective;
+                if ((typeAccessors || fieldAccessors) && fieldGetterEffective) {
+                    fieldSummary.partial(LombokCapabilitySummary.GETTER);
                 }
+                if ((typeAccessors || fieldAccessors) && fieldSetterEffective) {
+                    fieldSummary.partial(LombokCapabilitySummary.SETTER);
+                }
+                if (fieldSummary.hasEvidence()) {
+                    ExtensionNodeMetadata.put(field, "lombok", fieldSummary.toMap());
+                    aggregate.merge(fieldSummary);
+                }
+                boolean getterBlocked = typePolicy.isPartial(LombokCapabilitySummary.GETTER)
+                        || fieldSummary.isPartial(LombokCapabilitySummary.GETTER);
+                boolean setterBlocked = typePolicy.isPartial(LombokCapabilitySummary.SETTER)
+                        || fieldSummary.isPartial(LombokCapabilitySummary.SETTER);
                 for (VariableDeclarator variable : field.getVariables()) {
                     if (field.isStatic()) continue;
                     AnnotationExpr getter = fieldAnnotations.getOrDefault("Getter", typeGetter);
                     AnnotationExpr setter = fieldAnnotations.getOrDefault("Setter", typeSetter);
-                    if (getter != null || data || value) {
+                    if (!getterBlocked && (getter != null || data || value)) {
                         Access access = access(getter);
                         if (access != Access.NONE) addGetter(type, field, variable, access,
                                 getter != null ? getter : typeAnnotations.get(data ? "Data" : "Value"),
                                 getter != null ? "@Getter" : data ? "@Data" : "@Value");
                     }
-                    if (!value && !field.isFinal() && (setter != null || data)) {
+                    if (!setterBlocked && !value && !field.isFinal() && (setter != null || data)) {
                         Access access = access(setter);
                         if (access != Access.NONE) addSetter(type, field, variable, access,
                                 setter != null ? setter : typeAnnotations.get("Data"),
@@ -126,26 +148,37 @@ public final class LombokAstModelExtension implements AstModelExtension {
                 }
             }
 
-            addConstructors(type, typeAnnotations, originalFields);
+            addConstructors(type, typeAnnotations, originalFields, typePolicy);
             if (data || value) {
                 AnnotationExpr source = typeAnnotations.get(data ? "Data" : "Value");
-                addObjectMethod(type, "equals", "boolean", List.of(new Parameter(
-                        typeOf("java.lang.Object"), "other")), source,
-                        data ? "@Data" : "@Value");
-                addObjectMethod(type, "hashCode", "int", List.of(), source, data ? "@Data" : "@Value");
-                addObjectMethod(type, "toString", "java.lang.String", List.of(), source,
-                        data ? "@Data" : "@Value");
-                bodyDiagnostic = true;
+                if (!typePolicy.isPartial(LombokCapabilitySummary.EQUALS_HASH_CODE)) {
+                    addObjectMethod(type, "equals", "boolean", List.of(new Parameter(
+                            typeOf("java.lang.Object"), "other")), source,
+                            data ? "@Data" : "@Value");
+                    addObjectMethod(type, "hashCode", "int", List.of(), source,
+                            data ? "@Data" : "@Value");
+                }
+                if (!typePolicy.isPartial(LombokCapabilitySummary.TO_STRING)) {
+                    addObjectMethod(type, "toString", "java.lang.String", List.of(), source,
+                            data ? "@Data" : "@Value");
+                }
                 if (value) diagnostic(unit, "LOMBOK_VALUE_MODIFIER_SEMANTICS_OMITTED", type.getNameAsString(),
                         "AST mode recovers generated signatures but does not rewrite explicit field/type modifiers.");
             }
-            addLogger(type, typeAnnotations);
+            if (!typePolicy.isPartial(LombokCapabilitySummary.LOGGER_FIELD)) {
+                addLogger(type, typeAnnotations);
+            }
 
-            int generated = generatedMemberCount(type) - before;
+            int generatedTotal = lombokGeneratedMemberCount(type);
+            int generated = Math.max(0, generatedTotal - before);
             if (generated > 0) {
                 ExtensionAstData.increment(unit, "lombok_types_augmented", 1);
                 ExtensionAstData.increment(unit, "lombok_members_generated", generated);
                 bodyDiagnostic = true;
+            }
+            if (aggregate.hasEvidence()) {
+                aggregate.generatedMemberCount(generatedTotal);
+                ExtensionNodeMetadata.put(type, "lombok", aggregate.toMap());
             }
         }
         if (bodyDiagnostic) diagnostic(unit, "LOMBOK_BODY_SEMANTICS_OMITTED", null,
@@ -176,14 +209,18 @@ public final class LombokAstModelExtension implements AstModelExtension {
 
     private void addConstructors(ClassOrInterfaceDeclaration type,
                                  Map<String, AnnotationExpr> annotations,
-                                 List<FieldDeclaration> fields) {
+                                 List<FieldDeclaration> fields,
+                                 LombokCapabilitySummary policy) {
         AnnotationExpr noArgs = annotations.get("NoArgsConstructor");
         AnnotationExpr required = annotations.get("RequiredArgsConstructor");
         AnnotationExpr all = annotations.get("AllArgsConstructor");
         AnnotationExpr data = annotations.get("Data");
         AnnotationExpr value = annotations.get("Value");
-        if (noArgs != null) addConstructor(type, List.of(), access(noArgs), noArgs, "@NoArgsConstructor");
-        if (required != null || data != null) {
+        if (noArgs != null && !policy.isPartial(LombokCapabilitySummary.NO_ARGS_CONSTRUCTOR)) {
+            addConstructor(type, List.of(), access(noArgs), noArgs, "@NoArgsConstructor");
+        }
+        if ((required != null || data != null)
+                && !policy.isPartial(LombokCapabilitySummary.REQUIRED_CONSTRUCTOR)) {
             AnnotationExpr source = required != null ? required : data;
             List<VariableDeclarator> variables = instanceVariables(fields).stream()
                     .filter(variable -> !variable.getInitializer().isPresent())
@@ -193,7 +230,8 @@ public final class LombokAstModelExtension implements AstModelExtension {
             addConstructor(type, variables, access(required), source,
                     required != null ? "@RequiredArgsConstructor" : "@Data");
         }
-        if (all != null || value != null) {
+        if ((all != null || value != null)
+                && !policy.isPartial(LombokCapabilitySummary.ALL_ARGS_CONSTRUCTOR)) {
             AnnotationExpr source = all != null ? all : value;
             addConstructor(type, instanceVariables(fields), access(all), source,
                     all != null ? "@AllArgsConstructor" : "@Value");
@@ -313,8 +351,79 @@ public final class LombokAstModelExtension implements AstModelExtension {
                 .toString();
     }
 
-    private static int generatedMemberCount(ClassOrInterfaceDeclaration type) {
-        return type.getMembers().size();
+    private static int lombokGeneratedMemberCount(ClassOrInterfaceDeclaration type) {
+        return (int) type.getMembers().stream()
+                .map(SyntheticOrigin::of)
+                .filter(origin -> origin != null && ProducerIds.LOMBOK_AST.equals(origin.producerId()))
+                .count();
+    }
+
+    private LombokCapabilitySummary summary(CompilationUnit unit, Node owner,
+                                             Map<String, AnnotationExpr> annotations) {
+        LombokCapabilitySummary out = new LombokCapabilitySummary();
+        for (Map.Entry<String, AnnotationExpr> annotation : annotations.entrySet()) {
+            String name = annotation.getKey();
+            out.detect(name);
+            if (UNSUPPORTED.contains(name)) unsupported(unit, owner, name);
+            Set<String> uncertain = uncertainAnnotationCapabilities(name, annotation.getValue());
+            if (!uncertain.isEmpty()) {
+                uncertain.forEach(out::partial);
+                diagnostic(unit, "LOMBOK_SIGNATURE_UNCERTAIN", name,
+                        "Unsupported @" + name + " arguments may change generated signatures.");
+            }
+        }
+        out.degrade(configuration.uncertainCapabilities());
+        return out;
+    }
+
+    private static Set<String> uncertainAnnotationCapabilities(String name, AnnotationExpr annotation) {
+        boolean supported = switch (name) {
+            case "Getter", "Setter", "NoArgsConstructor", "RequiredArgsConstructor",
+                 "AllArgsConstructor" -> accessArgumentsSupported(annotation);
+            case "Data", "Value" -> markerOrEmpty(annotation);
+            default -> true;
+        };
+        if (supported) return Set.of();
+        return switch (name) {
+            case "Getter" -> Set.of(LombokCapabilitySummary.GETTER);
+            case "Setter" -> Set.of(LombokCapabilitySummary.SETTER);
+            case "NoArgsConstructor" -> Set.of(LombokCapabilitySummary.NO_ARGS_CONSTRUCTOR);
+            case "RequiredArgsConstructor" -> Set.of(LombokCapabilitySummary.REQUIRED_CONSTRUCTOR);
+            case "AllArgsConstructor" -> Set.of(LombokCapabilitySummary.ALL_ARGS_CONSTRUCTOR);
+            case "Data" -> Set.of(LombokCapabilitySummary.REQUIRED_CONSTRUCTOR);
+            case "Value" -> Set.of(LombokCapabilitySummary.ALL_ARGS_CONSTRUCTOR);
+            default -> Set.of();
+        };
+    }
+
+    private static boolean markerOrEmpty(AnnotationExpr annotation) {
+        return annotation.isMarkerAnnotationExpr()
+                || annotation instanceof NormalAnnotationExpr normal && normal.getPairs().isEmpty();
+    }
+
+    private static boolean accessArgumentsSupported(AnnotationExpr annotation) {
+        if (annotation.isMarkerAnnotationExpr()) return true;
+        if (annotation instanceof SingleMemberAnnotationExpr single) {
+            return accessValueSupported(single.getMemberValue());
+        }
+        if (annotation instanceof NormalAnnotationExpr normal) {
+            return normal.getPairs().stream().allMatch(pair ->
+                    Set.of("value", "access").contains(pair.getNameAsString())
+                            && accessValueSupported(pair.getValue()));
+        }
+        return false;
+    }
+
+    private static boolean accessValueSupported(Expression value) {
+        String name = value.toString();
+        int dot = name.lastIndexOf('.');
+        if (dot >= 0) name = name.substring(dot + 1);
+        try {
+            Access.valueOf(name.toUpperCase(Locale.ROOT));
+            return true;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private Map<String, AnnotationExpr> annotations(CompilationUnit unit,

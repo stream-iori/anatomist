@@ -25,7 +25,8 @@ final class RowMappers {
           + "json_extract(n.metadata, '$.generatorMode') AS synthetic_generator_mode, "
           + "json_extract(n.metadata, '$.generatedFrom') AS synthetic_generated_from, "
           + "json_extract(n.metadata, '$.confidence') AS synthetic_confidence, "
-          + "json_extract(n.metadata, '$.bodyAvailable') AS synthetic_body_available";
+          + "json_extract(n.metadata, '$.bodyAvailable') AS synthetic_body_available, "
+          + "json_extract(n.metadata, '$.lombok') AS lombok_metadata";
 
     /** {@code FROM edges e} + the two LEFT JOINs onto src/tgt nodes used by flat edge queries. */
     static final String EDGE_FROM_JOINS =
@@ -79,7 +80,21 @@ final class RowMappers {
             origin.put("body_available", rs.getInt("synthetic_body_available") == 1);
             n.syntheticOrigin = origin;
         }
+        n.lombok = parseObject(rs.getString("lombok_metadata"));
         return n;
+    }
+
+    static java.util.Map<String, Object> parseObject(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            Object parsed = com.anatomist.json.Json.parseTree(json);
+            if (!(parsed instanceof java.util.Map<?, ?> map)) return null;
+            java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+            map.forEach((key, value) -> out.put(String.valueOf(key), value));
+            return out;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     static EdgeRow mapEdge(ResultSet rs) throws SQLException {

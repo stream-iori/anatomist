@@ -104,8 +104,12 @@ strict = false
 
 `ast` covers `@Getter`, `@Setter`, constructor annotations, `@Data`, `@Value`,
 and standard logger annotations. Generated rows use `producer_id=lombok-ast` and
-query results include `synthetic_origin`. Unsupported transformations such as
-`@Builder` and `@Accessors` produce coverage diagnostics instead of guessed facts.
+query results include `synthetic_origin`. Type/field results from `search`,
+`context`, and `declarations-of` also expose a structured `lombok` object with
+detected annotations plus modeled, partial, and unmodeled capabilities.
+Unsupported transformations such as `@Builder` are disclosed without invented
+members. `@Accessors` makes affected Getter/Setter capabilities partial and
+suppresses uncertain default names instead of guessing `getX/setX`.
 `strict=true` promotes Lombok coverage diagnostics to the complete health gate.
 
 | `[scan]` key | Meaning | Default |

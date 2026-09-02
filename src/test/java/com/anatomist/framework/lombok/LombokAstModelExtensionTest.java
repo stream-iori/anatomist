@@ -1,6 +1,7 @@
 package com.anatomist.framework.lombok;
 
 import com.anatomist.framework.ExtensionAstData;
+import com.anatomist.framework.ExtensionNodeMetadata;
 import com.anatomist.framework.SyntheticOrigin;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
@@ -11,6 +12,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -50,6 +53,11 @@ class LombokAstModelExtensionTest {
         assertNotNull(origin);
         assertEquals("lombok-ast", origin.producerId());
         assertFalse(origin.bodyAvailable());
+        Map<String, Object> lombok = ExtensionNodeMetadata.of(type).get("lombok");
+        assertEquals("complete", lombok.get("coverage"));
+        assertEquals(List.of("equals_hash_code", "getter", "required_constructor", "setter", "to_string"),
+                lombok.get("modeled_capabilities"));
+        assertEquals(8L, lombok.get("generated_member_count"));
         assertTrue(ExtensionAstData.diagnostics(unit).stream()
                 .anyMatch(diagnostic -> diagnostic.code().equals("LOMBOK_BODY_SEMANTICS_OMITTED")));
     }
@@ -82,7 +90,6 @@ class LombokAstModelExtensionTest {
         Files.writeString(root.resolve("lombok.config"), """
                 lombok.getter.noIsPrefix = true
                 lombok.log.fieldName = LOGGER
-                lombok.unknown.signature.option = true
                 """);
         CompilationUnit unit = StaticJavaParser.parse("""
                 import lombok.Getter;
@@ -96,8 +103,90 @@ class LombokAstModelExtensionTest {
         assertEquals(1, type.getMethodsByName("getReady").size());
         assertTrue(type.getMethodsByName("isReady").isEmpty());
         assertTrue(type.getFieldByName("LOGGER").isPresent());
+        assertFalse(ExtensionAstData.diagnostics(unit).stream()
+                .anyMatch(diagnostic -> diagnostic.code().equals("LOMBOK_CONFIG_PARTIAL")));
+    }
+
+    @Test
+    void unknownConfigSuppressesOnlyUncertainFacts(@TempDir Path root) throws Exception {
+        Files.writeString(root.resolve("lombok.config"), "lombok.unknown.signature.option = true\n");
+        CompilationUnit unit = StaticJavaParser.parse("""
+                import lombok.Getter;
+                import lombok.extern.slf4j.Slf4j;
+                @Getter @Slf4j class Flag { private boolean ready; }
+                """);
+
+        new LombokAstModelExtension(root, false).augment(unit);
+
+        ClassOrInterfaceDeclaration type = unit.getClassByName("Flag").orElseThrow();
+        assertTrue(type.getMethodsByName("isReady").isEmpty());
+        assertTrue(type.getFieldByName("log").isEmpty());
+        Map<String, Object> lombok = ExtensionNodeMetadata.of(type).get("lombok");
+        assertEquals(List.of("getter", "logger_field"), lombok.get("partial_capabilities"));
         assertTrue(ExtensionAstData.diagnostics(unit).stream()
                 .anyMatch(diagnostic -> diagnostic.code().equals("LOMBOK_CONFIG_PARTIAL")));
+    }
+
+    @Test
+    void accessorsMakesGetterSetterPartialWithoutBlockingOtherDataMembers(@TempDir Path root) {
+        CompilationUnit unit = StaticJavaParser.parse("""
+                import lombok.Data;
+                import lombok.experimental.Accessors;
+                @Data @Accessors(fluent = true) class Fluent { private String name; }
+                """);
+
+        new LombokAstModelExtension(root, false).augment(unit);
+
+        ClassOrInterfaceDeclaration type = unit.getClassByName("Fluent").orElseThrow();
+        assertTrue(type.getMethodsByName("getName").isEmpty());
+        assertTrue(type.getMethodsByName("setName").isEmpty());
+        assertEquals(1, type.getConstructors().size());
+        assertEquals(1, type.getMethodsByName("equals").size());
+        Map<String, Object> lombok = ExtensionNodeMetadata.of(type).get("lombok");
+        assertEquals(List.of("getter", "setter"), lombok.get("partial_capabilities"));
+        assertEquals(List.of("accessors"), lombok.get("unmodeled_capabilities"));
+        assertEquals("partial", lombok.get("coverage"));
+    }
+
+    @Test
+    void fieldAccessorsOnlySuppressesThatFieldsAccessors(@TempDir Path root) {
+        CompilationUnit unit = StaticJavaParser.parse("""
+                import lombok.Data;
+                import lombok.experimental.Accessors;
+                @Data class Mixed {
+                  @Accessors(fluent = true) private String special;
+                  private String normal;
+                }
+                """);
+
+        new LombokAstModelExtension(root, false).augment(unit);
+
+        ClassOrInterfaceDeclaration type = unit.getClassByName("Mixed").orElseThrow();
+        assertTrue(type.getMethodsByName("getSpecial").isEmpty());
+        assertTrue(type.getMethodsByName("setSpecial").isEmpty());
+        assertEquals(1, type.getMethodsByName("getNormal").size());
+        assertEquals(1, type.getMethodsByName("setNormal").size());
+        var field = type.getFieldByName("special").orElseThrow();
+        Map<String, Object> fieldLombok = ExtensionNodeMetadata.of(field).get("lombok");
+        assertEquals(List.of("getter", "setter"), fieldLombok.get("partial_capabilities"));
+    }
+
+    @Test
+    void unsupportedStaticConstructorDoesNotInventConstructorContract(@TempDir Path root) {
+        CompilationUnit unit = StaticJavaParser.parse("""
+                import lombok.Data;
+                @Data(staticConstructor = "of") class Item { private final String name; }
+                """);
+
+        new LombokAstModelExtension(root, false).augment(unit);
+
+        ClassOrInterfaceDeclaration type = unit.getClassByName("Item").orElseThrow();
+        assertTrue(type.getConstructors().isEmpty());
+        assertEquals(1, type.getMethodsByName("getName").size());
+        Map<String, Object> lombok = ExtensionNodeMetadata.of(type).get("lombok");
+        assertEquals(List.of("required_constructor"), lombok.get("partial_capabilities"));
+        assertTrue(ExtensionAstData.diagnostics(unit).stream()
+                .anyMatch(diagnostic -> diagnostic.code().equals("LOMBOK_SIGNATURE_UNCERTAIN")));
     }
 
     @Test
@@ -114,5 +203,9 @@ class LombokAstModelExtensionTest {
                 .findFirst().orElseThrow();
         assertEquals("error", diagnostic.severity());
         assertEquals("Builder", diagnostic.symbol());
+        var type = unit.getClassByName("Item").orElseThrow();
+        Map<String, Object> lombok = ExtensionNodeMetadata.of(type).get("lombok");
+        assertEquals(List.of("builder"), lombok.get("unmodeled_capabilities"));
+        assertEquals("none", lombok.get("coverage"));
     }
 }

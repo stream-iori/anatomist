@@ -3,6 +3,8 @@ package com.anatomist.extract;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
+import com.anatomist.framework.ExtensionNodeMetadata;
+import com.anatomist.json.Json;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
 import com.github.javaparser.ast.CompilationUnit;
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -67,6 +70,20 @@ class TypeExtractorTest {
         Optional<Node> inner = result.nodes.stream().filter(n -> n.id.equals("pkg.A.B")).findFirst();
         assertTrue(outer.isPresent());
         assertTrue(inner.isPresent());
+    }
+
+    @Test
+    void extract_mergesNamespacedExtensionMetadata() {
+        CompilationUnit cu = JavaParserTestSupport.parse("package pkg; public class A {}");
+        var type = cu.getClassByName("A").orElseThrow();
+        ExtensionNodeMetadata.put(type, "lombok", Map.of("coverage", "complete"));
+        ExtractionResult result = new ExtractionResult();
+
+        new TypeExtractor(ctx).extract(cu, result);
+
+        Map<?, ?> metadata = (Map<?, ?>) Json.parseTree(byId(result, "pkg.A").metadata);
+        assertEquals(Map.of("coverage", "complete"), metadata.get("lombok"));
+        assertEquals(false, metadata.get("isAbstract"));
     }
 
     @Test

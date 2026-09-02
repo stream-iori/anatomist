@@ -1,6 +1,7 @@
 package com.anatomist.query;
 
 import java.util.List;
+import java.util.Map;
 
 /** Public JSON contract for declarations-of. */
 public class DeclarationRow {
@@ -23,4 +24,6 @@ public class DeclarationRow {
     public boolean directMember;
     public boolean synthetic;
     public String producerId;
+    /** Signature-level Lombok coverage joined from the declaration node. */
+    public Map<String, Object> lombok;
 }

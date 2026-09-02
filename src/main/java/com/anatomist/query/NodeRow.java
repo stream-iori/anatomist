@@ -17,6 +17,8 @@ public class NodeRow {
     public String producerId;
     /** Present only for declarations synthesized by an extension. */
     public Map<String, Object> syntheticOrigin;
+    /** Signature-level Lombok coverage attached to source type/field nodes. */
+    public Map<String, Object> lombok;
     /** True for a query-only aggregation of external edges, never a source node. */
     public Boolean externalTarget;
     public Long externalEdgeCount;

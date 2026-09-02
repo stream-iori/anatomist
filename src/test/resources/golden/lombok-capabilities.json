@@ -1,0 +1,35 @@
+{
+  "context_accessor_user": {
+    "mode": "ast",
+    "semantic_level": "signature-only",
+    "detected_annotations": ["Accessors", "Data"],
+    "modeled_capabilities": ["equals_hash_code", "required_constructor", "to_string"],
+    "partial_capabilities": ["getter", "setter"],
+    "unmodeled_capabilities": ["accessors"],
+    "coverage": "partial",
+    "generated_member_count": 4,
+    "inference_policy": "hypothesis_only"
+  },
+  "declarations_builder": {
+    "mode": "ast",
+    "semantic_level": "signature-only",
+    "detected_annotations": ["Builder"],
+    "modeled_capabilities": [],
+    "partial_capabilities": [],
+    "unmodeled_capabilities": ["builder"],
+    "coverage": "none",
+    "generated_member_count": 0,
+    "inference_policy": "hypothesis_only"
+  },
+  "search_user": {
+    "mode": "ast",
+    "semantic_level": "signature-only",
+    "detected_annotations": ["Data", "NonNull"],
+    "modeled_capabilities": ["equals_hash_code", "getter", "required_constructor", "setter", "to_string"],
+    "partial_capabilities": [],
+    "unmodeled_capabilities": [],
+    "coverage": "complete",
+    "generated_member_count": 9,
+    "inference_policy": "hypothesis_only"
+  }
+}

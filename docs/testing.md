@@ -81,11 +81,12 @@ Java 21 小项目，专门锁定 `declarations-of` 的 AST/JSON 契约：公开�
 synthetic record accessor、分页、增量替换和 fail-closed evidence。
 `DeclarationsOfCommandIT` 走完整 index → SQLite → CLI 流程。
 
-### Fixture E — `fixtures/extension-lifecycle/`（扩展生命周期）
+### Fixture E — 扩展生命周期与 Lombok
 
-JDK 25 小项目，包含 record、跨文件 accessor 调用、Spring stereotype，以及两个
-共享 bean 资源视图的 XML 文件。它验证 `producer_id`、Java/XML 同次增量合并、
-XML 删除清理和 record 不依赖扩展。
+`fixtures/extension-lifecycle/` 是 JDK 25 小项目，包含 record、Spring stereotype，
+以及两个共享 bean 资源视图的 XML 文件；`fixtures/lombok-sample/` 提供 Data、Value、
+Getter/Setter、Builder、Accessors 和日志注解场景。两者共同验证 `producer_id`、
+Java/XML 同次增量合并、XML 删除清理、record 不依赖扩展，以及 Lombok 结构化能力披露。
 
 ## 三、JDK 8 语义边界验证
 
@@ -134,8 +135,8 @@ sdk env
 |------|----------|------|
 | `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | 包含 `context --enrich`；recipe 使用 fail-fast，命令失败不会被 `head` 掩盖。 |
 | `just native-smoke` | JVM jar 与 native binary 输出一致性 | 失败时保留 `/tmp/anatomist-native-smoke-*.log` 并打印 native 诊断。 |
-| `just extension-e2e-jvm` | SPI/producer/record/Spring XML 全量与增量 | 自建临时 fixture 副本，不修改仓库 fixture。 |
-| `just extension-e2e-native` | 上述场景 + JVM/native JSON 对拍 | 使用 SDKMAN JDK 25 构建 native binary。 |
+| `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |
+| `just extension-e2e-native` | 上述场景 + JVM/native JSON 对拍 | 使用 SDKMAN JDK 25 构建 native binary；对比前归一化回显的临时 index 路径。 |
 | `just external-cli PROJECT=/path/to/project` | 大型外部项目复杂 CLI | opt-in，本地手动跑；默认目标是 `/Users/stream/codes/antcodes/ipay/imerchantsettle`。 |
 
 `external-cli` 会重建临时 DB，并固定验证 Facade API、Handler 入口、DAO 正反查、字段访问和调用链，不进入默认 CI。

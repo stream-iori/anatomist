@@ -132,6 +132,21 @@ XML_*:                  parent XML id + segment + source location      → bean:
   "interfaces": ["Serializable", "Runnable"]
 }
 
+// optional on Lombok-affected CLASS/FIELD nodes; FIELD omits generated_member_count
+{
+  "lombok": {
+    "mode": "ast",
+    "semantic_level": "signature-only",
+    "detected_annotations": ["Builder", "Getter", "Setter"],
+    "modeled_capabilities": ["getter", "setter"],
+    "partial_capabilities": [],
+    "unmodeled_capabilities": ["builder"],
+    "coverage": "partial",
+    "generated_member_count": 2,
+    "inference_policy": "hypothesis_only"
+  }
+}
+
 // kind = METHOD
 {
   "returnType": "OrderResult",

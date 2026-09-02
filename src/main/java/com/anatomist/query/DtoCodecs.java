@@ -78,6 +78,7 @@ public final class DtoCodecs {
             putNullable(m, "javadoc", n.javadoc);
             put(m, "producer_id", n.producerId);
             put(m, "synthetic_origin", n.syntheticOrigin);
+            put(m, "lombok", n.lombok);
             put(m, "external_target", n.externalTarget);
             put(m, "external_edge_count", n.externalEdgeCount);
             put(m, "relation_counts", n.relationCounts);
@@ -99,7 +100,8 @@ public final class DtoCodecs {
             put(m, "declaring_type", d.declaringType); put(m, "source_file", d.sourceFile);
             put(m, "source_location", d.sourceLocation); put(m, "module", d.module); put(m, "scope", d.scope);
             put(m, "nesting_depth", d.nestingDepth); put(m, "direct_member", d.directMember);
-            put(m, "synthetic", d.synthetic); put(m, "producer_id", d.producerId); return m;
+            put(m, "synthetic", d.synthetic); put(m, "producer_id", d.producerId);
+            put(m, "lombok", d.lombok); return m;
         }
         @Override public DeclarationRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };

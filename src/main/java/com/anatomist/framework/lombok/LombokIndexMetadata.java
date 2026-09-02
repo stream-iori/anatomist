@@ -21,7 +21,8 @@ public final class LombokIndexMetadata {
         LombokMode mode = config == null ? LombokMode.OFF : config.lombokMode();
         Map<String, String> values = new LinkedHashMap<>();
         values.put("lombok_mode", mode.optionValue());
-        values.put("lombok_extension_version", mode == LombokMode.AST ? "1" : "");
+        values.put("lombok_extension_version", mode == LombokMode.AST
+                ? LombokAstModelExtension.VERSION : "");
         values.put("lombok_fingerprint", extensions == null ? "" : extensions.fingerprint());
         values.put("lombok_generated_members", String.valueOf(
                 store == null ? 0 : store.countNodesByProducer(ProducerIds.LOMBOK_AST)));

@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.json.Json;
 import com.anatomist.query.QueryService;
 import com.anatomist.test.CliTestSupport;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,11 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import picocli.CommandLine;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -29,6 +35,8 @@ class LombokExtensionIT {
              Statement statement = connection.createStatement()) {
             assertEquals(0, scalar(statement,
                     "SELECT count(*) FROM nodes WHERE producer_id='lombok-ast'"));
+            assertEquals(0, scalar(statement,
+                    "SELECT count(*) FROM nodes WHERE json_extract(metadata,'$.lombok') IS NOT NULL"));
             assertEquals("off", scalarString(statement,
                     "SELECT value FROM project_meta WHERE key='lombok_mode'"));
         }
@@ -76,13 +84,27 @@ class LombokExtensionIT {
                     + "WHERE code='LOMBOK_FEATURE_UNSUPPORTED' AND symbol='Builder'") >= 1);
             assertEquals(Path.of("src/main/java/sample/UnsupportedBuilder.java").toString(), scalarString(statement,
                     "SELECT source_file FROM index_diagnostics "
-                            + "WHERE code='LOMBOK_FEATURE_UNSUPPORTED' LIMIT 1"));
+                            + "WHERE code='LOMBOK_FEATURE_UNSUPPORTED' AND symbol='Builder' LIMIT 1"));
             assertEquals("ast", scalarString(statement,
                     "SELECT value FROM project_meta WHERE key='lombok_mode'"));
+            assertEquals("2", scalarString(statement,
+                    "SELECT value FROM project_meta WHERE key='lombok_extension_version'"));
             assertEquals("partial", scalarString(statement,
                     "SELECT value FROM project_meta WHERE key='lombok_coverage'"));
             assertTrue(Long.parseLong(scalarString(statement,
                     "SELECT value FROM project_meta WHERE key='lombok_generated_members'")) > 0);
+            assertEquals("complete", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok.coverage') FROM nodes "
+                            + "WHERE symbol_id='sample.User'"));
+            assertEquals("none", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok.coverage') FROM nodes "
+                            + "WHERE symbol_id='sample.UnsupportedBuilder'"));
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM nodes "
+                    + "WHERE symbol_id IN ('sample.AccessorUser#getName()',"
+                    + "'sample.AccessorUser#setName(java.lang.String)')"));
+            assertEquals("partial", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok.coverage') FROM nodes "
+                            + "WHERE symbol_id='sample.AccessorUser'"));
         }
 
         try (QueryService query = new QueryService(db)) {
@@ -93,7 +115,31 @@ class LombokExtensionIT {
             assertEquals("lombok", getter.syntheticOrigin.get("generator"));
             assertEquals("ast", getter.syntheticOrigin.get("generator_mode"));
             assertEquals(false, getter.syntheticOrigin.get("body_available"));
+            var user = query.searchByName("User", "CLASS", 20).stream()
+                    .filter(row -> "sample.User".equals(row.qualifiedName)).findFirst().orElseThrow();
+            assertEquals("complete", user.lombok.get("coverage"));
+            assertTrue(((List<?>) user.lombok.get("modeled_capabilities")).contains("getter"));
+            var context = query.context("sample.User", 0);
+            assertEquals(user.lombok, context.node.lombok);
+            var name = context.members.stream().filter(row -> "sample.User#name".equals(row.qualifiedName))
+                    .findFirst().orElseThrow();
+            assertEquals(List.of("NonNull"), name.lombok.get("detected_annotations"));
+
+            Map<String, Object> golden = new LinkedHashMap<>();
+            golden.put("search_user", user.lombok);
+            golden.put("context_accessor_user", query.context("sample.AccessorUser", 0).node.lombok);
+            assertCapabilityGolden(golden, db);
         }
+
+        var declarations = runCli("declarations-of", "--file", "src/main/java/sample/User.java",
+                "--format", "json", "--index", db.toString());
+        assertEquals(0, declarations.exitCode(), declarations.stderr());
+        Map<?, ?> envelope = (Map<?, ?>) Json.parseTree(declarations.stdout());
+        @SuppressWarnings("unchecked")
+        List<Map<?, ?>> rows = (List<Map<?, ?>>) envelope.get("results");
+        Map<?, ?> type = rows.stream().filter(row -> "sample.User".equals(row.get("symbol_id")))
+                .findFirst().orElseThrow();
+        assertEquals("complete", ((Map<?, ?>) type.get("lombok")).get("coverage"));
     }
 
     @Test
@@ -118,6 +164,51 @@ class LombokExtensionIT {
                     + "WHERE symbol_id='sample.User#setName(java.lang.String)'"));
             assertEquals(1, scalar(statement, "SELECT count(*) FROM nodes "
                     + "WHERE symbol_id='sample.User#getName()' AND producer_id='lombok-ast'"));
+            assertEquals("partial", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok.coverage') FROM nodes "
+                            + "WHERE symbol_id='sample.User'"));
+        }
+
+        Files.writeString(user, Files.readString(user)
+                .replace("import lombok.Value;", "import lombok.Value;\nimport lombok.experimental.Accessors;")
+                .replace("@Value", "@Value @Accessors(fluent = true)"));
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "25", "--lombok", "ast", "--incremental",
+                "--output", db.toString(), "--format", "json");
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM nodes "
+                    + "WHERE symbol_id='sample.User#getName()'"));
+            assertEquals("partial", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok.coverage') FROM nodes "
+                            + "WHERE symbol_id='sample.User'"));
+        }
+
+        Files.writeString(user, Files.readString(user)
+                .replace("\nimport lombok.experimental.Accessors;", "")
+                .replace(" @Accessors(fluent = true)", ""));
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "25", "--lombok", "ast", "--incremental",
+                "--output", db.toString(), "--format", "json");
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            assertEquals(1, scalar(statement, "SELECT count(*) FROM nodes "
+                    + "WHERE symbol_id='sample.User#getName()' AND producer_id='lombok-ast'"));
+        }
+
+        Path builder = project.resolve("src/main/java/sample/UnsupportedBuilder.java");
+        Files.writeString(builder, "package sample; public class UnsupportedBuilder { private String value; }\n");
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--java-version", "25", "--lombok", "ast", "--incremental",
+                "--output", db.toString(), "--format", "json");
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            assertNull(scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok') FROM nodes "
+                            + "WHERE symbol_id='sample.UnsupportedBuilder'"));
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM index_diagnostics "
+                    + "WHERE source_file='src/main/java/sample/UnsupportedBuilder.java' "
+                    + "AND code='LOMBOK_FEATURE_UNSUPPORTED'"));
         }
 
         Files.writeString(project.resolve("lombok.config"), "lombok.getter.noIsPrefix = true\n");
@@ -147,6 +238,29 @@ class LombokExtensionIT {
             }
         }
         return target;
+    }
+
+    private static CliTestSupport.RunResult runCli(String... args) throws Exception {
+        return CliTestSupport.capture(() -> new CommandLine(new AnatomistCli()).execute(args));
+    }
+
+    private static void assertCapabilityGolden(Map<String, Object> actual, Path db) throws Exception {
+        var declarations = runCli("declarations-of", "--file",
+                "src/main/java/sample/UnsupportedBuilder.java", "--format", "json",
+                "--index", db.toString());
+        assertEquals(0, declarations.exitCode(), declarations.stderr());
+        Map<?, ?> envelope = (Map<?, ?>) Json.parseTree(declarations.stdout());
+        @SuppressWarnings("unchecked")
+        List<Map<?, ?>> rows = (List<Map<?, ?>>) envelope.get("results");
+        Map<?, ?> type = rows.stream()
+                .filter(row -> "sample.UnsupportedBuilder".equals(row.get("symbol_id")))
+                .findFirst().orElseThrow();
+        actual.put("declarations_builder", type.get("lombok"));
+
+        Path expectedPath = Path.of(System.getProperty("user.dir"), "src", "test", "resources",
+                "golden", "lombok-capabilities.json");
+        String expected = Json.writeCanonical(Json.parseTree(Files.readString(expectedPath)));
+        assertEquals(expected, Json.writeCanonical(actual));
     }
 
     private static int scalar(Statement statement, String sql) throws Exception {

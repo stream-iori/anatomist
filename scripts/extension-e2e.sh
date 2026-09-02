@@ -26,6 +26,14 @@ DB="$WORK/index.db"
 "${RUNNER[@]}" search getName --kind METHOD --index "$DB" | grep -q '"producer_id" : "lombok-ast"'
 "${RUNNER[@]}" search getName --kind METHOD --index "$DB" | grep -q '"synthetic_origin"'
 "${RUNNER[@]}" callees-of 'sample.UserService#display' --index "$DB" | grep -q 'sample.User#getName()'
+"${RUNNER[@]}" search --name User --kind CLASS --index "$DB" | grep -q '"lombok"'
+"${RUNNER[@]}" context sample.AccessorUser --index "$DB" | grep -q '"coverage" : "partial"'
+if "${RUNNER[@]}" context sample.AccessorUser --index "$DB" | grep -q '"label" : "getName"'; then
+  echo "Accessors must not expose an uncertain getName signature" >&2
+  exit 1
+fi
+"${RUNNER[@]}" declarations-of --file src/main/java/sample/User.java --index "$DB" \
+  | grep -q '"lombok"'
 
 sed -i.bak 's/sharedService/freshShared/g' \
   "$WORK/project/src/main/java/example/SharedService.java" \
@@ -58,12 +66,19 @@ if [[ "$MODE" == "native" ]]; then
     "search Account --kind RECORD" \
     "callees-of example.AccountReader#read" \
     "search getName --kind METHOD" \
+    "search --name User --kind CLASS" \
+    "context sample.AccessorUser" \
+    "declarations-of --file src/main/java/sample/User.java" \
     "callees-of sample.UserService#display" \
     "bean-config --format=json holder" \
     "overview --deps-only"; do
     read -r -a args <<< "$query"
-    "${JVM[@]}" "${args[@]}" --index "$JVM_DB" | jq -S . > "$WORK/jvm.json"
-    "$NATIVE_BIN" "${args[@]}" --index "$DB" | jq -S . > "$WORK/native.json"
+    "${JVM[@]}" "${args[@]}" --index "$JVM_DB" \
+      | jq -S 'if (.query | type) == "string" then .query |= sub("--index [^ ]+"; "--index <INDEX>") else . end' \
+      > "$WORK/jvm.json"
+    "$NATIVE_BIN" "${args[@]}" --index "$DB" \
+      | jq -S 'if (.query | type) == "string" then .query |= sub("--index [^ ]+"; "--index <INDEX>") else . end' \
+      > "$WORK/native.json"
     diff -u "$WORK/jvm.json" "$WORK/native.json"
   done
 fi

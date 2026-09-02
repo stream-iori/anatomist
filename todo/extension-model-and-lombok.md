@@ -1,6 +1,6 @@
 # 扩展能力与 Lombok 支持方案
 
-> 状态：扩展 SPI、通用资源 Provider、Spring XML 迁移、`producer_id`、record 回归、Lombok AST P0 已实施。
+> 状态：扩展 SPI、通用资源 Provider、Spring XML 迁移、`producer_id`、record 回归、Lombok AST P0 与结构化能力披露已实施。
 
 | 能力 | 状态 | 代码入口 |
 |---|---|---|
@@ -12,6 +12,7 @@
 | 结构事实 `producer_id` | ✅ | schema v14；flow 表不变 |
 | record | ✅ 核心能力 | 不做扩展；由 JavaParser + 核心 Extractor 处理 |
 | Lombok AST P0 | ✅ 默认关闭 | `framework/lombok`；`--lombok ast` 显式启用 |
+| Lombok 结构化能力披露 | ✅ | 类型/字段节点 `metadata.lombok`；`search/context/declarations-of` 直接返回 |
 | Lombok bytecode/delombok | ⏳ 可选后续 | 不在默认路径，也不在本轮范围 |
 
 ## 结论
@@ -627,6 +628,118 @@ Watch Session 中的 AST 增强器必须：
 - 不在每次事件重新扫描整个项目；
 - 配置变化时重建 ExtensionProcessor 和 Parser Session。
 
+## Lombok 结构化能力披露（已实施）
+
+### 结论
+
+Getter、Setter、Builder、Accessors 使用同一套结构化字段，但必须把三件事分开：
+
+```text
+检测到注解 ──→ 已准确建模 ──→ 索引中存在 synthetic member
+      │               │
+      └── 未建模/受污染 └── 只允许 Agent 提出假设，不能当成图事实
+```
+
+不能只输出 `lombok: true`。它只能证明源码使用了 Lombok，不能证明 Builder、
+Getter 或 Setter 已经存在于索引中。
+
+### 节点字段
+
+类型节点保存聚合摘要；字段级 Lombok 注解同时在对应字段节点保存局部摘要：
+
+```json
+{
+  "lombok": {
+    "mode": "ast",
+    "semantic_level": "signature-only",
+    "detected_annotations": ["Accessors", "Builder", "Data"],
+    "modeled_capabilities": [
+      "equals_hash_code",
+      "required_constructor",
+      "to_string"
+    ],
+    "partial_capabilities": ["getter", "setter"],
+    "unmodeled_capabilities": ["accessors", "builder"],
+    "coverage": "partial",
+    "generated_member_count": 5,
+    "inference_policy": "hypothesis_only"
+  }
+}
+```
+
+字段语义：
+
+| 字段 | 含义 |
+|---|---|
+| `detected_annotations` | 源码中实际识别到的 Lombok 注解；只表示证据 |
+| `modeled_capabilities` | 当前实现能按 Lombok 规则恢复的签名能力 |
+| `partial_capabilities` | 能力受未支持配置/注解影响，不能保证成员名或签名 |
+| `unmodeled_capabilities` | 已识别但未生成结构事实的能力 |
+| `coverage` | `complete`、`partial`、`none`；仅针对签名级语义 |
+| `generated_member_count` | 当前类型实际生成且进入索引的成员数；字段节点不输出 |
+| `inference_policy` | 对 partial/unmodeled 能力只允许 Agent 作为假设使用 |
+
+三个能力数组必须去重、排序且互斥。注解使用 Lombok 名称，能力使用稳定的
+`snake_case` token，避免把 `@Data` 直接等同于一个生成成员。
+
+### Getter/Setter 与复合注解
+
+Getter/Setter 不是特殊例外，同样作为 capability 表达：
+
+| 源码 | 结构化结果 |
+|---|---|
+| `@Getter` | `detected_annotations=[Getter]`，`modeled_capabilities=[getter]` |
+| `@Setter` | `detected_annotations=[Setter]`，`modeled_capabilities=[setter]` |
+| `@Data` | 展开为 getter、setter、required constructor、equals/hashCode、toString |
+| `@Value` | 展开为 getter、all-args constructor、equals/hashCode、toString |
+| `@Getter(AccessLevel.NONE)` | getter 规则已建模，但正确结果是生成数为 0 |
+| 显式 `getX()`/`setX()` | capability 仍是 modeled；显式成员优先，不重复生成 |
+
+`modeled` 表示“这条 Lombok 规则已实现”，不表示“一定生成了新节点”。实际成员
+是否存在，以普通声明节点或带 `producer_id=lombok-ast` 的 synthetic 节点为准。
+
+### Builder/Accessors 与 Agent 推断边界
+
+| 情况 | 索引行为 | Agent 行为 |
+|---|---|---|
+| 仅 `@Builder` | `builder` 放入 `unmodeled_capabilities`，不伪造 Builder 节点 | 可提示“可能存在 Builder API”，必须标为假设 |
+| `@Data + @Builder` | Data 能力照常 modeled；Builder 单独 unmodeled | 可使用已生成 Getter/Setter；Builder 仍是假设 |
+| `@Getter/@Setter + @Accessors` | `accessors` unmodeled，受其影响的 getter/setter 降为 partial | 不猜 `getX`、`x()`、链式 Setter 的准确签名 |
+| 未知签名配置 | 受影响能力降为 partial，并保留 `LOMBOK_CONFIG_PARTIAL` | 不把默认命名当成事实 |
+
+第一性原则：一个未支持特性如果会改变另一个特性的成员名或签名，不能只记录
+unsupported 后继续生成默认签名。`@Accessors` 命中时，受影响的 Getter/Setter
+应停止生成不确定成员，直到 Accessors 规则被实现。
+
+### 存储与查询
+
+```text
+LombokAstModelExtension
+  └── ExtensionNodeMetadata DataKey
+        ├── TypeExtractor  ──→ nodes.metadata.lombok（类型聚合）
+        └── FieldExtractor ──→ nodes.metadata.lombok（字段局部）
+
+nodes.metadata.lombok
+  └── RowMappers ──→ NodeRow.lombok ──→ search/context JSON
+```
+
+核心 extractor 不直接依赖 Lombok 类。新增通用 `ExtensionNodeMetadata` DataKey，
+以扩展声明的稳定 namespace 合并 metadata；Lombok 只负责写入 `lombok` 子对象。
+不同扩展可以同时写不同 namespace，同名冲突 fail-fast。
+
+partial/unmodeled 的具体原因和源码位置继续由 `index_diagnostics` 承担，不在每个
+节点重复保存长文本；结构化摘要只保存 Agent 做决策所需的低基数状态。
+
+不在类型 metadata 中保存完整 `generated_members` 数组：
+
+- 成员已经以节点形式存在，并带 `producer_id` 和 `synthetic_origin`；
+- 重复保存会增加索引体积、增量写放大和 JSON 编解码成本；
+- `context` 需要列表时，按 `CONTAINS + producer_id=lombok-ast` 在查询时组装；
+- 类型摘要只保存 `generated_member_count`。
+
+该方案不修改 schema，只扩展现有 `nodes.metadata` 和查询 DTO。`--lombok off`
+不写 `lombok` 字段，也不增加 AST 遍历。
+
 ## 查询与证据披露
 
 查询默认显示生成成员，但必须明确来源：
@@ -676,6 +789,8 @@ reason = LOMBOK_BODY_SEMANTICS_OMITTED
 | `LombokMemberDeduplicationTest` | 显式成员优先、重载不误删 |
 | `LombokMetadataTest` | synthetic 来源和 confidence |
 | `LombokConfigTest` | 已支持配置、partial diagnostics |
+| `ExtensionNodeMetadataTest` | 扩展 metadata 命名空间、合并、排序和幂等 |
+| `LombokCapabilitySummaryTest` | Getter/Setter/Data/Value 展开及 Builder/Accessors 状态 |
 
 ### 集成测试
 
@@ -702,6 +817,11 @@ fixtures/lombok-sample/
 - `declarations-of` 返回 synthetic 标记；
 - unsupported feature 产生 coverage diagnostic；
 - golden JSON 明确披露生成来源。
+- 类型和字段查询返回结构化 `lombok` 字段；
+- `@Builder` 可见但没有虚假 Builder 成员；
+- `@Accessors` 使受影响的 Getter/Setter 降为 partial，且不生成默认名称；
+- `--lombok off` 不输出 `lombok` 字段；
+- JVM/native E2E 的结构化字段一致。
 
 ### 性能测试
 
@@ -760,11 +880,57 @@ generated fact count
   ├── fixture benchmark
   └── `< 3%` 全量索引门槛
 
-阶段 6：可选增强
-  ├── Builder/Accessors
+阶段 6：结构化能力披露 ✅
+  ├── 通用 ExtensionNodeMetadata DataKey
+  ├── 类型/字段 Lombok capability summary
+  ├── Getter/Setter 与 Data/Value 能力展开
+  ├── Builder/Accessors 的 unmodeled/partial 边界
+  ├── NodeRow / RowMappers / JSON codec 查询披露
+  └── 单测、集测、golden、JVM/native E2E 和性能回归
+
+阶段 7：可选增强
+  ├── Builder/Accessors 的准确签名实现
   ├── Bytecode Overlay
   ├── Getter/Setter flow summary
   └── Delombok backend
+```
+
+### 阶段 6 实施结果
+
+| 步骤 | 修改点 | 完成条件 |
+|---:|---|---|
+| 6.1 合同 | 新增 `ExtensionNodeMetadata`、`LombokCapabilitySummary`；固定 token、coverage 和 Agent 推断语义 | 单元测试锁定 JSON 结构、排序、互斥和幂等 |
+| 6.2 AST 收集 | 在 `LombokAstModelExtension` 现有类型/字段循环内同步收集，不增加第二次 AST 遍历 | Data/Value 正确展开；字段级 Getter/Setter 聚合到类型并保留字段局部证据 |
+| 6.3 降级规则 | Builder 保持 unmodeled；Accessors/未知签名配置将相关 Getter/Setter 标为 partial，并停止不确定生成；配置结果从单一 `partial` 扩展为受影响 capability 集合 | 不再出现“诊断为 unsupported，但仍写入错误默认签名” |
+| 6.4 持久化 | `TypeExtractor`、`FieldExtractor` 通过通用 helper 合并 `nodes.metadata` | 不覆盖现有 metadata 和 `SyntheticOrigin`；schema v14 不变 |
+| 6.5 查询 | `NodeRow` / `DeclarationRow` 增加 `lombok`；`RowMappers` 和 `DeclarationQueryService` 从 JSON 提取；`DtoCodecs` 输出 | `search/context/declarations-of` 可直接区分 modeled、partial、unmodeled |
+| 6.6 增量 | Lombok 扩展版本从 `1` 升级，触发一次安全全量重建 | 注解删除、Data↔Value、配置变化后无旧摘要和旧 synthetic 成员 |
+| 6.7 验证 | 扩展 unit/IT，补 Accessors fixture、golden、JVM/native E2E | record、Spring XML、producer 共享回归继续通过 |
+| 6.8 性能 | JDK 25 下复测 off/ast 全量与单文件增量 | 非 Lombok 全量增幅 `< 3%`；Lombok 单文件扩展中位数 `< 10ms` |
+
+建议文件落点：
+
+| 文件 | 变更 |
+|---|---|
+| `framework/ExtensionNodeMetadata.java` | 通用 AST DataKey 与 metadata merge helper |
+| `framework/lombok/LombokCapabilitySummary.java` | Lombok 注解到 capability 的稳定映射和 coverage 计算 |
+| `framework/lombok/LombokAstModelExtension.java` | 单遍收集、Accessors 降级、写入摘要、版本升级 |
+| `framework/lombok/LombokConfiguration.java` | 返回受未知配置影响的 capability，不再只有一个 `partial` boolean |
+| `extract/TypeExtractor.java`、`extract/FieldExtractor.java` | 持久化扩展节点 metadata |
+| `query/NodeRow.java`、`query/RowMappers.java`、`query/DtoCodecs.java` | 查询披露 `lombok` 对象 |
+| `fixtures/lombok-sample/` | 增加 field-level Getter/Setter、Accessors 和组合场景 |
+| `LombokAstModelExtensionTest`、`LombokExtensionIT`、codec tests | unit、integration、查询合同和增量验证 |
+
+统一使用 SDKMAN JDK 25 验证：
+
+```bash
+source "$SDKMAN_DIR/bin/sdkman-init.sh"
+sdk env
+java -version
+mvn -q test
+scripts/extension-e2e.sh jvm
+just native
+scripts/extension-e2e.sh native
 ```
 
 ## 本轮完成证据与下一步
@@ -775,16 +941,15 @@ generated fact count
 | 单测/集测 | Lombok 规则、失败隔离、资源共享、配置、查询 codec、全量与增量 E2E |
 | JVM E2E | `scripts/extension-e2e.sh jvm` 覆盖 record、Spring XML、Lombok、producer 共享 |
 | Native E2E | GraalVM JDK 25 构建成功；同一脚本 native/JVM JSON 对齐 |
-| 非 Lombok 268 文件全量 | 五次中位数：off `12536ms`，ast `11905ms`；未见可测回归 |
-| 单 Lombok 文件增量 | 五次 `extension_ast_augment`：`8/7/8/6/8ms`，中位数 `8ms` |
+| 非 Lombok 270 文件全量 | 五次中位数：off `7577ms`，ast `7489ms`；未见可测回归，满足 `< 3%` 门槛 |
+| 单 Lombok 文件增量 | 五次 `extension_ast_augment`：`7/9/8/8/7ms`，中位数 `8ms` |
 | 默认成本 | `mode=off` 不注册 Lombok Processor；无 AST 增强和额外文件 IO |
 
-下一步只有可选增强，不阻塞 P0：
+结构化能力披露已完成。下一步仍不猜 Builder/Accessors 的成员签名：
 
-1. `@Builder` / `@Accessors`；
-2. Getter/Setter 结构化 flow summary；
-3. 显式启用的 Bytecode Overlay；
-4. Delombok 后端。
+1. 独立评估 `@Builder` / `@Accessors` 的准确签名实现；
+2. 评估 Getter/Setter/构造器的结构化 flow summary；
+3. Bytecode Overlay、Delombok 继续作为显式开启的可选后端。
 
 ## 验收标准
 
@@ -810,7 +975,20 @@ generated fact count
 - [x] unsupported feature 和配置明确披露；
 - [x] 字段/注解变化后的增量清理正确；
 - [x] 非 Lombok 项目全量性能增幅接近 0；
-- [x] 268 文件全量五次中位数性能增幅 `< 3%`。
+- [x] 270 文件全量五次中位数性能增幅 `< 3%`。
+
+### Lombok 结构化能力披露
+
+- [x] 类型节点聚合 `metadata.lombok`，字段级注解保留局部摘要；
+- [x] Getter/Setter 与 Data/Value 使用同一 capability 结构；
+- [x] `modeled_capabilities`、`partial_capabilities`、`unmodeled_capabilities` 互斥且稳定排序；
+- [x] Builder 被识别但不伪造成员，Agent 只能作 hypothesis；
+- [x] Accessors/未知签名配置使相关 Getter/Setter 降为 partial；
+- [x] 查询输出 `lombok`，实际生成成员仍以 `producer_id`/`synthetic_origin` 为准；
+- [x] 不重复持久化完整 `generated_members`；
+- [x] `off` 模式零新增字段、零新增 AST 遍历；
+- [x] 全量、增量、Watch 共用扩展入口，JVM/native 输出一致；
+- [x] record、Spring XML 和多 producer 共享资源回归通过。
 
 ### Bytecode 模式
 
