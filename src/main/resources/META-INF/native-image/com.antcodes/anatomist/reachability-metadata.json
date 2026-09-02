@@ -160,9 +160,6 @@
       "type": "com.anatomist.cli.UsedByCommand"
     },
     {
-      "type": "com.anatomist.cli.WatchCommand"
-    },
-    {
       "type": "com.sun.org.apache.xerces.internal.jaxp.SAXParserFactoryImpl",
       "methods": [
         {

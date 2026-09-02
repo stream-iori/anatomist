@@ -12,7 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,11 +70,10 @@ public final class ProjectMetadata {
                                                String classpathOverride,
                                                boolean springXml,
                                                Map<String, FileCacheEntry> fileCache,
-                                               FingerprintCache fingerprintCache,
                                                IndexTimings timings) {
         return writeIncremental(store, projectRoot, sourcePaths, sourceRoots, javaVersion,
                 classpathMode, classpathEntries, classpathOverride, springXml, fileCache,
-                fingerprintCache, timings, null, null, null, List.of());
+                timings, null, null, null, List.of());
     }
 
     public static WriteResult writeIncremental(SqliteStore store,
@@ -88,12 +86,11 @@ public final class ProjectMetadata {
                                                String classpathOverride,
                                                boolean springXml,
                                                Map<String, FileCacheEntry> fileCache,
-                                               FingerprintCache fingerprintCache,
                                                IndexTimings timings,
                                                GitSnapshotTask gitTask) {
         return writeIncremental(store, projectRoot, sourcePaths, sourceRoots, javaVersion,
                 classpathMode, classpathEntries, classpathOverride, springXml, fileCache,
-                fingerprintCache, timings, gitTask, null, null, List.of());
+                timings, gitTask, null, null, List.of());
     }
 
     public static WriteResult writeIncremental(SqliteStore store,
@@ -106,7 +103,6 @@ public final class ProjectMetadata {
                                                String classpathOverride,
                                                boolean springXml,
                                                Map<String, FileCacheEntry> fileCache,
-                                               FingerprintCache fingerprintCache,
                                                IndexTimings timings,
                                                GitSnapshotTask gitTask,
                                                LoadedConfig loadedConfig,
@@ -117,14 +113,13 @@ public final class ProjectMetadata {
                 : fileCache;
 
         long phaseStarted = System.nanoTime();
-        String fingerprint = sourceSnapshotFingerprint(
-                projectRoot, sourceRoots, effectiveCache, fingerprintCache);
+        String fingerprint = sourceSnapshotFingerprint(projectRoot, sourceRoots, effectiveCache);
         addTiming(timings, "metadata_fingerprint", phaseStarted);
 
         Map<String, String> prior = store.readProjectMeta();
         phaseStarted = System.nanoTime();
         GitRead git = gitTask == null
-                ? GitSnapshot.readIncremental(projectRoot, prior, fingerprintCache)
+                ? GitSnapshot.readIncremental(projectRoot, prior)
                 : gitTask.await();
         addTiming(timings, "git_status_wait", phaseStarted);
         if (git != null && timings != null) timings.addNanos("metadata_git", git.statusNanos());
@@ -142,10 +137,9 @@ public final class ProjectMetadata {
     }
 
     public static GitSnapshotTask startIncrementalGitRead(Path projectRoot,
-                                                           Map<String, String> prior,
-                                                           FingerprintCache cache) {
+                                                           Map<String, String> prior) {
         return new GitSnapshotTask(CompletableFuture.supplyAsync(
-                () -> GitSnapshot.readIncremental(projectRoot, prior, cache)));
+                () -> GitSnapshot.readIncremental(projectRoot, prior)));
     }
 
     public static final class GitSnapshotTask {
@@ -195,6 +189,7 @@ public final class ProjectMetadata {
                 IndexOrchestrator.classpathFingerprint(classpathEntries, classpathOverride)));
         values.put("spring_xml", String.valueOf(springXml));
         values.put("index_version", String.valueOf(FileCacheService.CURRENT_SCHEMA_VERSION));
+        values.put(GraphSemantics.META_KEY, String.valueOf(GraphSemantics.VERSION));
         List<SourceScope> effectiveScopes = scanScopes == null ? List.of() : scanScopes;
         String scanCanonical = scanPolicy == null ? "" : scanPolicy.canonical(sourceRoots, effectiveScopes);
         String scanHash = scanPolicy == null ? "" : scanPolicy.fingerprint(sourceRoots, effectiveScopes);
@@ -234,24 +229,15 @@ public final class ProjectMetadata {
     public static String sourceSnapshotFingerprint(Path projectRoot,
                                                    List<SourceRoot> sourceRoots,
                                                    Map<String, FileCacheEntry> cache) {
-        return sourceSnapshotFingerprint(projectRoot, sourceRoots, cache, null);
-    }
-
-    private static String sourceSnapshotFingerprint(Path projectRoot,
-                                                    List<SourceRoot> sourceRoots,
-                                                    Map<String, FileCacheEntry> cache,
-                                                    FingerprintCache identityCache) {
         Path root = projectRoot.toAbsolutePath().normalize();
         List<SourceRoot> roots = normalizedRoots(sourceRoots);
-        if (identityCache != null) identityCache.prepare(root, roots);
         StringBuilder canonical = new StringBuilder("anatomist-source-snapshot-v1\n");
         if (cache != null) {
             cache.values().stream()
                     .map(entry -> portableFileIdentity(
-                            root, roots, entry.sourceFile(), identityCache) + "\u0000" + entry.hash())
+                            root, roots, entry.sourceFile()) + "\u0000" + entry.hash())
                     .sorted()
                     .forEach(line -> canonical.append("file\u0000").append(line).append('\n'));
-            if (identityCache != null) identityCache.retain(cache);
         }
         return "sha256:" + FileCacheService.sha256OfString(canonical.toString());
     }
@@ -267,12 +253,7 @@ public final class ProjectMetadata {
 
     private static String portableFileIdentity(Path projectRoot,
                                                List<SourceRoot> roots,
-                                               String sourceFile,
-                                               FingerprintCache identityCache) {
-        if (identityCache != null) {
-            return identityCache.identity(sourceFile,
-                    () -> portableFileIdentity(projectRoot, roots, sourceFile, null));
-        }
+                                               String sourceFile) {
         Path file = Path.of(sourceFile);
         if (!file.isAbsolute()) file = projectRoot.resolve(file);
         Path normalized = file.toAbsolutePath().normalize();
@@ -335,39 +316,6 @@ public final class ProjectMetadata {
 
     public record WriteResult(long gitStatusMillis) {}
 
-    /** Watch-owned cache of stable source-file to portable-identity mappings. */
-    public static final class FingerprintCache {
-        private String signature;
-        private boolean splitGitStatus;
-        private final Map<String, String> identities = new HashMap<>();
-
-        private synchronized void prepare(Path projectRoot, List<SourceRoot> roots) {
-            String next = projectRoot + "\n" + sourceLayout(roots);
-            if (!next.equals(signature)) {
-                identities.clear();
-                splitGitStatus = false;
-                signature = next;
-            }
-        }
-
-        private synchronized String identity(String sourceFile,
-                                             java.util.function.Supplier<String> resolver) {
-            return identities.computeIfAbsent(sourceFile, ignored -> resolver.get());
-        }
-
-        private synchronized void retain(Map<String, FileCacheEntry> cache) {
-            identities.keySet().retainAll(cache.keySet());
-        }
-
-        private synchronized boolean splitGitStatus() {
-            return splitGitStatus;
-        }
-
-        private synchronized void preferSplitGitStatus(long elapsedNanos) {
-            if (elapsedNanos >= TimeUnit.MILLISECONDS.toNanos(150)) splitGitStatus = true;
-        }
-    }
-
     private record GitRead(GitSnapshot snapshot, long statusNanos) {}
 
     private record GitSnapshot(String root, String commit, String branch, boolean dirty,
@@ -384,25 +332,16 @@ public final class ProjectMetadata {
                     status != null && !status.isBlank(), commitTime, remote);
         }
 
-        static GitRead readIncremental(Path projectRoot, Map<String, String> prior,
-                                       FingerprintCache cache) {
+        static GitRead readIncremental(Path projectRoot, Map<String, String> prior) {
             long statusStarted = System.nanoTime();
-            IncrementalStatus status;
-            if (cache != null && cache.splitGitStatus()) {
-                status = splitIncrementalStatus(projectRoot);
-            } else {
-                String fullStatus = git(projectRoot, "status", "--porcelain=v2", "--branch");
-                long probeNanos = System.nanoTime() - statusStarted;
-                if (cache != null) cache.preferSplitGitStatus(probeNanos);
-                status = fullStatus == null ? null : new IncrementalStatus(fullStatus, false);
-            }
+            String status = git(projectRoot, "status", "--porcelain=v2", "--branch");
             long statusNanos = System.nanoTime() - statusStarted;
             if (status == null) return new GitRead(null, statusNanos);
 
             String commit = null;
             String branch = null;
-            boolean dirty = status.untracked();
-            for (String line : status.tracked().split("\\R")) {
+            boolean dirty = false;
+            for (String line : status.split("\\R")) {
                 if (line.startsWith("# branch.oid ")) {
                     commit = line.substring("# branch.oid ".length()).trim();
                     if ("(initial)".equals(commit)) commit = null;
@@ -432,53 +371,6 @@ public final class ProjectMetadata {
                     root, commit, branch, dirty, commitTime, remote), statusNanos);
         }
 
-        private static IncrementalStatus splitIncrementalStatus(Path cwd) {
-            Process tracked = null;
-            Process untracked = null;
-            try {
-                tracked = startGit(cwd, "status", "--porcelain=v2", "--branch",
-                        "--untracked-files=no");
-                untracked = startGit(cwd, "ls-files", "--others", "--exclude-standard",
-                        "--directory", "--no-empty-directory");
-                CompletableFuture<String> trackedOutput = readOutput(tracked);
-                CompletableFuture<String> untrackedOutput = readOutput(untracked);
-                if (!tracked.waitFor(2, TimeUnit.SECONDS)
-                        || !untracked.waitFor(2, TimeUnit.SECONDS)) {
-                    return null;
-                }
-                String trackedText = trackedOutput.get(2, TimeUnit.SECONDS).trim();
-                String untrackedText = untrackedOutput.get(2, TimeUnit.SECONDS).trim();
-                if (tracked.exitValue() != 0 || untracked.exitValue() != 0) return null;
-                return new IncrementalStatus(trackedText, !untrackedText.isBlank());
-            } catch (IOException | InterruptedException | ExecutionException | TimeoutException e) {
-                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-                return null;
-            } finally {
-                if (tracked != null && tracked.isAlive()) tracked.destroyForcibly();
-                if (untracked != null && untracked.isAlive()) untracked.destroyForcibly();
-            }
-        }
-
-        private static Process startGit(Path cwd, String... args) throws IOException {
-            java.util.ArrayList<String> cmd = new java.util.ArrayList<>();
-            cmd.add("git");
-            cmd.addAll(List.of(args));
-            return new ProcessBuilder(cmd)
-                    .directory(cwd.toFile())
-                    .redirectErrorStream(true)
-                    .start();
-        }
-
-        private static CompletableFuture<String> readOutput(Process process) {
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                } catch (IOException e) {
-                    return "";
-                }
-            });
-        }
-
         private static String git(Path cwd, String... args) {
             try {
                 java.util.ArrayList<String> cmd = new java.util.ArrayList<>();
@@ -501,7 +393,5 @@ public final class ProjectMetadata {
                 return null;
             }
         }
-
-        private record IncrementalStatus(String tracked, boolean untracked) {}
     }
 }

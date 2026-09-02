@@ -86,6 +86,17 @@ public class DoctorCommand implements Callable<Integer> {
         out.put("index_path", db.toString());
         out.put("index_exists", exists);
         out.put("index_state", exists ? "unknown" : "missing");
+        out.put("required_graph_semantics_version",
+                com.anatomist.core.GraphSemantics.VERSION);
+        out.put("query_json_contract_version", 2);
+        com.anatomist.store.IndexCompatibility.Report compatibility =
+                com.anatomist.store.IndexCompatibility.inspect(db);
+        out.put("compatibility_action", compatibility.action().name().toLowerCase());
+        out.put("compatibility_reasons", compatibility.reasons());
+        if (exists) {
+            out.put("index_schema_version", compatibility.schemaVersion());
+            out.put("graph_semantics_version", compatibility.graphSemanticsVersion());
+        }
         IndexStateStore.Snapshot freshness = IndexStateStore.read(db);
         out.put("freshness_state", freshness.state().name().toLowerCase());
         if (freshness.reason() != null) out.put("rebuild_reason", freshness.reason());
@@ -97,9 +108,10 @@ public class DoctorCommand implements Callable<Integer> {
                 "flow-of", "flow-path", "flow-materialize", "taint-path", "exception-flow", "guards-of",
                 "flow-summary", "annotate", "doctor"));
         out.put("capabilities", List.of(
-                "json-query-output", "index-json-summary",
+                "json-query-output-v2", "index-json-summary",
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
-                "branch-context-slices", "source-snapshot-fingerprint",
+                "branch-context-slices", "source-snapshot-fingerprint", "context-source-view-v2",
+                "graph-semantics-version",
                 "core-reflection",
                 "cfg", "def-use", "interprocedural-flow", "exception-flow", "taint-flow",
                 "progressive-dataflow", "agent-preflight", "agent-skill-topics"));
@@ -109,9 +121,36 @@ public class DoctorCommand implements Callable<Integer> {
         capabilities.add("declarations-by-file-v1");
         out.put("capabilities", List.copyOf(capabilities));
 
+        if (exists && compatibility.requiresRecreate()) {
+            String reason = compatibility.primaryReason();
+            String state = switch (reason) {
+                case "SCHEMA_MISMATCH" -> "incompatible";
+                case "GRAPH_SEMANTICS_MISMATCH" -> "semantic_incompatible";
+                case "INDEX_EMPTY" -> "empty";
+                case "DATABASE_CORRUPT" -> "corrupt";
+                default -> "integrity_failed";
+            };
+            out.put("index_state", state);
+            out.put("status", "degraded");
+            String sample = switch (reason) {
+                case "SCHEMA_MISMATCH" -> "required=" + FileCacheService.CURRENT_SCHEMA_VERSION
+                        + ", actual=" + compatibility.schemaVersion();
+                case "GRAPH_SEMANTICS_MISMATCH" -> "required="
+                        + com.anatomist.core.GraphSemantics.VERSION + ", actual="
+                        + compatibility.graphSemanticsVersion();
+                default -> "index requires a clean rebuild";
+            };
+            com.anatomist.core.IndexDiagnostic diagnostic =
+                    new com.anatomist.core.IndexDiagnostic(
+                            "error", reason, "COMPATIBILITY",
+                            null, null, null, null, 1, sample);
+            addHealth(out, com.anatomist.core.IndexHealthReport.of(List.of(diagnostic)), policy);
+            addAgentPreflight(out, db, exists);
+            return emit(out, db, exists, policy);
+        }
+
         if (exists) {
             try (SqliteStore store = new SqliteStore(db)) {
-                out.put("index_schema_version", store.schemaVersion());
                 if (!store.schemaCompatible()) {
                     out.put("index_state", "incompatible");
                     out.put("status", "degraded");
@@ -251,8 +290,16 @@ public class DoctorCommand implements Callable<Integer> {
         if (!exists || "missing".equals(state)) {
             blockers.add("INDEX_MISSING");
             next.add(indexCommand(root, db, false));
-        } else if ("incompatible".equals(state) || "empty".equals(state)) {
-            blockers.add("incompatible".equals(state) ? "SCHEMA_MISMATCH" : "INDEX_EMPTY");
+        } else if (java.util.Set.of("incompatible", "semantic_incompatible", "empty",
+                "corrupt", "integrity_failed").contains(state)) {
+            String blocker = switch (state) {
+                case "incompatible" -> "SCHEMA_MISMATCH";
+                case "semantic_incompatible" -> "GRAPH_SEMANTICS_MISMATCH";
+                case "empty" -> "INDEX_EMPTY";
+                case "corrupt" -> "DATABASE_CORRUPT";
+                default -> "INDEX_INTEGRITY_FAILED";
+            };
+            blockers.add(blocker);
             next.add(indexCommand(root, db, true));
         } else {
             if (out.get("source_snapshot") instanceof Map<?, ?> snapshot

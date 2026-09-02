@@ -22,7 +22,6 @@ class JavaParserFactoryTest {
             System.setProperty(JavaParserFactory.SOURCE_CACHE_PROPERTY, "64");
             System.setProperty(JavaParserFactory.COMBINED_CACHE_PROPERTY, "10000");
             assertEquals(64, JavaParserFactory.fullSourceCacheSize());
-            assertEquals(64, JavaParserFactory.watchSourceCacheSize());
             assertEquals(10_000, JavaParserFactory.combinedTypeCacheSize());
 
             System.setProperty(JavaParserFactory.SOURCE_CACHE_PROPERTY, "0");
@@ -93,24 +92,7 @@ class JavaParserFactoryTest {
     }
 
     @Test
-    void watchSessionSourceSolverAstUsesTheCombinedSymbolResolver(@TempDir Path tmp) throws Exception {
-        Path src = Files.createDirectories(tmp.resolve("src/p"));
-        Path dep = src.resolve("Dep.java");
-        Path use = src.resolve("Use.java");
-        Files.writeString(dep, "package p; class Dep { String value() { return \"ok\"; } }");
-        Files.writeString(use, "package p; class Use { String run() { return new Dep().value(); } }");
-
-        try (JavaParserFactory.SessionCache sessions = new JavaParserFactory.SessionCache()) {
-            JavaParserFactory factory = new JavaParserFactory(
-                    25, List.of(), List.of(tmp.resolve("src")), true, sessions);
-            CompilationUnit unit = factory.parseFiles(List.of(use)).get(0);
-            MethodCallExpr call = unit.findFirst(MethodCallExpr.class).orElseThrow();
-            assertEquals("p.Dep", call.resolve().declaringType().getQualifiedName());
-        }
-    }
-
-    @Test
-    void classpathDirectoryIsUsedByRegularAndWatchSessions(@TempDir Path tmp) throws Exception {
+    void classpathDirectoryIsUsedByParser(@TempDir Path tmp) throws Exception {
         Path classes = Files.createDirectories(tmp.resolve("classes/com/dep"));
         Files.write(classes.resolve("External.class"),
                 miniClass("com.dep.External"));
@@ -126,12 +108,6 @@ class JavaParserFactoryTest {
         assertEquals("com.dep.External", resolvedFieldType(regular.parseFiles(List.of(source)).get(0)));
         assertTrue(timings.millis().containsKey("classpath_index_build"));
         assertTrue(timings.millis().containsKey("type_cache_load"));
-
-        try (JavaParserFactory.SessionCache sessions = new JavaParserFactory.SessionCache()) {
-            JavaParserFactory watched = new JavaParserFactory(
-                    21, List.of(tmp.resolve("classes")), List.of(sourceRoot), true, sessions);
-            assertEquals("com.dep.External", resolvedFieldType(watched.parseFiles(List.of(source)).get(0)));
-        }
     }
 
     private static String resolvedFieldType(CompilationUnit unit) {
@@ -184,34 +160,6 @@ class JavaParserFactoryTest {
         assertEquals(1, inventory.failedFiles());
         assertFalse(inventory.complete());
         assertEquals(List.of(valid.toAbsolutePath().normalize()), parsed);
-    }
-
-    @Test
-    void watchSessionInvalidatesChangedSourceAst(@TempDir Path tmp) throws Exception {
-        Path src = Files.createDirectories(tmp.resolve("src"));
-        Path pkg = Files.createDirectories(src.resolve("p"));
-        Path a = pkg.resolve("A.java");
-        Path b = pkg.resolve("B.java");
-        Files.writeString(a, "package p; class A { String foo() { return \"x\"; } }");
-        Files.writeString(b, "package p; class B { String run() { return new A().foo(); } }");
-
-        try (JavaParserFactory.SessionCache sessions = new JavaParserFactory.SessionCache()) {
-            JavaParserFactory factory = new JavaParserFactory(
-                    21, List.of(), List.of(src), true, sessions);
-            factory.invalidate(List.of(a, b), true);
-            CompilationUnit first = factory.parseFiles(List.of(b)).get(0);
-            assertEquals("foo", first.findFirst(
-                    com.github.javaparser.ast.expr.MethodCallExpr.class).orElseThrow()
-                    .resolve().getName());
-
-            Files.writeString(a, "package p; class A { String bar() { return \"x\"; } }");
-            Files.writeString(b, "package p; class B { String run() { return new A().bar(); } }");
-            factory.invalidate(List.of(a, b), true);
-            CompilationUnit second = factory.parseFiles(List.of(b)).get(0);
-            assertEquals("bar", second.findFirst(
-                    com.github.javaparser.ast.expr.MethodCallExpr.class).orElseThrow()
-                    .resolve().getName());
-        }
     }
 
     @Test

@@ -36,6 +36,7 @@ public final class DtoCodecs {
         JsonCodecRegistry.register(DeclarationRow.class, DECLARATION_ROW);
         JsonCodecRegistry.register(EdgeRow.class, EDGE_ROW);
         JsonCodecRegistry.register(SourceWindow.class, SOURCE_WINDOW);
+        JsonCodecRegistry.register(SourceContext.class, SOURCE_CONTEXT);
         JsonCodecRegistry.register(HierarchyResult.Entry.class, HIERARCHY_ENTRY);
         JsonCodecRegistry.register(HierarchyResult.class, HIERARCHY);
         JsonCodecRegistry.register(ContextResult.class, CONTEXT);
@@ -76,7 +77,7 @@ public final class DtoCodecs {
             put(m, "module", n.module);
             put(m, "scope", n.scope);
             putNullable(m, "javadoc", n.javadoc);
-            put(m, "producer_id", n.producerId);
+            if (!"java-core".equals(n.producerId)) put(m, "producer_id", n.producerId);
             put(m, "synthetic_origin", n.syntheticOrigin);
             put(m, "lombok", n.lombok);
             put(m, "external_target", n.externalTarget);
@@ -100,7 +101,8 @@ public final class DtoCodecs {
             put(m, "declaring_type", d.declaringType); put(m, "source_file", d.sourceFile);
             put(m, "source_location", d.sourceLocation); put(m, "module", d.module); put(m, "scope", d.scope);
             put(m, "nesting_depth", d.nestingDepth); put(m, "direct_member", d.directMember);
-            put(m, "synthetic", d.synthetic); put(m, "producer_id", d.producerId);
+            put(m, "synthetic", d.synthetic);
+            if (!"java-core".equals(d.producerId)) put(m, "producer_id", d.producerId);
             put(m, "lombok", d.lombok); return m;
         }
         @Override public DeclarationRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -111,29 +113,21 @@ public final class DtoCodecs {
             Map<String, Object> m = obj();
             put(m, "source", e.source);
             put(m, "source_label", e.sourceLabel);
-            put(m, "source_symbol_id", e.sourceSymbolId);
-            put(m, "source_module", e.sourceModule);
-            put(m, "source_scope", e.sourceScope);
             put(m, "target", e.target);
             put(m, "target_label", e.targetLabel);
-            put(m, "target_qualified_name", e.targetQualifiedName);
-            put(m, "target_symbol_id", e.targetSymbolId);
-            put(m, "target_module", e.targetModule);
-            put(m, "target_scope", e.targetScope);
             put(m, "external_target_fqn", e.externalTargetFqn);
             put(m, "relation", e.relation);
             put(m, "call_kind", e.callKind);
-            put(m, "confidence", e.confidence);
+            if (!"EXTRACTED".equals(e.confidence)) put(m, "confidence", e.confidence);
             put(m, "resolution", e.resolution);
-            put(m, "external_target", e.externalTarget);
-            put(m, "is_external", e.isExternal);
+            if (Boolean.TRUE.equals(e.isExternal)) put(m, "is_external", true);
             put(m, "depth", e.depth);
             put(m, "source_file", e.sourceFile);
             put(m, "source_location", e.sourceLocation);
             put(m, "source_window", e.sourceWindow);
             put(m, "context", e.context);
             put(m, "metadata", e.metadata);
-            put(m, "producer_id", e.producerId);
+            if (!"java-core".equals(e.producerId)) put(m, "producer_id", e.producerId);
             put(m, "via", e.via);
             return m;
         }
@@ -143,14 +137,29 @@ public final class DtoCodecs {
     private static final JsonCodec<SourceWindow> SOURCE_WINDOW = new JsonCodec<>() {
         @Override public Object toTree(SourceWindow s) {
             Map<String, Object> m = obj();
-            put(m, "path", s.path);
-            put(m, "line", s.line);
             put(m, "start_line", s.startLine);
             put(m, "end_line", s.endLine);
             put(m, "snippet", s.snippet);
             return m;
         }
         @Override public SourceWindow fromTree(Object tree) { throw new UnsupportedOperationException(); }
+    };
+
+    private static final JsonCodec<SourceContext> SOURCE_CONTEXT = new JsonCodec<>() {
+        @Override public Object toTree(SourceContext s) {
+            Map<String, Object> m = obj();
+            put(m, "status", s.status);
+            put(m, "source_range", s.sourceRange);
+            put(m, "total_lines", s.totalLines);
+            put(m, "offset", s.offset);
+            put(m, "limit", s.limit);
+            put(m, "truncated", s.truncated);
+            put(m, "snippet", s.snippet);
+            put(m, "warning_code", s.warningCode);
+            put(m, "warning_message", s.warningMessage);
+            return m;
+        }
+        @Override public SourceContext fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };
 
     private static final JsonCodec<HierarchyResult.Entry> HIERARCHY_ENTRY = new JsonCodec<>() {
@@ -190,6 +199,7 @@ public final class DtoCodecs {
             put(m, "members", r.members);
             put(m, "annotations", r.annotations);
             put(m, "framework", r.framework);
+            put(m, "source", r.source);
             put(m, "callees", r.callees);
             return m;
         }
@@ -243,9 +253,10 @@ public final class DtoCodecs {
     private static final JsonCodec<QueryEnvelope> QUERY_ENVELOPE = new JsonCodec<>() {
         @Override public Object toTree(QueryEnvelope env) {
             Map<String, Object> m = obj();
+            put(m, "contract_version", QueryJsonContract.VERSION);
             put(m, "query", env.query);
             put(m, "results", env.results);
-            put(m, "stats", env.stats);
+            if (!env.stats.isEmpty()) put(m, "stats", env.stats);
             if (env.budget != null) put(m, "budget", env.budget.toMap());
             if (env.evidence != null) put(m, "evidence", env.evidence.toMap());
             put(m, "next_queries", env.nextQueries);

@@ -41,6 +41,10 @@ CREATE TABLE declarations (
     declaring_type TEXT,
     source_file TEXT NOT NULL,
     source_location TEXT,
+    begin_line INTEGER,
+    begin_column INTEGER,
+    end_line INTEGER,
+    end_column INTEGER,
     module TEXT NOT NULL,
     scope TEXT NOT NULL CHECK (scope IN ('MAIN','TEST','GENERATED')),
     nesting_depth INTEGER NOT NULL,
@@ -48,6 +52,12 @@ CREATE TABLE declarations (
     synthetic INTEGER NOT NULL DEFAULT 0,
     binding_resolved INTEGER NOT NULL DEFAULT 1,
     producer_id TEXT NOT NULL DEFAULT 'java-core',
+    CHECK (
+        (begin_line IS NULL AND begin_column IS NULL AND end_line IS NULL AND end_column IS NULL)
+        OR
+        (begin_line > 0 AND begin_column > 0 AND end_line > 0 AND end_column > 0
+         AND (end_line > begin_line OR (end_line = begin_line AND end_column >= begin_column)))
+    ),
     PRIMARY KEY (symbol_id,module,scope,source_file,producer_id)
 );
 

@@ -1,8 +1,7 @@
 {
+  "contract_version" : 2,
   "evidence" : {
-    "affected_dimensions" : [ ],
     "coverage" : "complete",
-    "diagnostic_counts" : { },
     "negative_conclusion_safe" : true,
     "status" : "positive"
   },
@@ -12,26 +11,17 @@
     "framework" : [ {
       "confidence" : "CONFIGURED",
       "depth" : 1,
-      "is_external" : false,
       "producer_id" : "spring-components",
       "relation" : "DEFINED_BY",
       "source" : "service::MAIN::bean:orderService",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_label" : "orderService",
       "source_location" : "L18",
-      "source_module" : "service",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "bean:orderService",
       "target" : "service::MAIN::com.example.shop.service.OrderService",
-      "target_label" : "OrderService",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.service.OrderService",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.service.OrderService"
+      "target_label" : "OrderService"
     }, {
       "confidence" : "CONFIGURED",
       "depth" : 1,
-      "is_external" : false,
       "metadata" : "{\"injectedType\":\"com.example.shop.service.OrderService\",\"annotation\":\"Autowired\"}",
       "producer_id" : "spring-components",
       "relation" : "INJECTS",
@@ -39,19 +29,11 @@
       "source_file" : "api/src/main/java/com/example/shop/controller/OrderController.java",
       "source_label" : "OrderController",
       "source_location" : "L20",
-      "source_module" : "api",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "com.example.shop.controller.OrderController",
       "target" : "service::MAIN::com.example.shop.service.OrderService",
-      "target_label" : "OrderService",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.service.OrderService",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.service.OrderService"
+      "target_label" : "OrderService"
     }, {
       "confidence" : "CONFIGURED",
       "depth" : 1,
-      "is_external" : false,
       "metadata" : "{\"injectedType\":\"com.example.shop.repository.OrderRepository\",\"annotation\":\"Autowired\"}",
       "producer_id" : "spring-components",
       "relation" : "INJECTS",
@@ -59,19 +41,11 @@
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_label" : "OrderService",
       "source_location" : "L22",
-      "source_module" : "service",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "com.example.shop.service.OrderService",
       "target" : "service::MAIN::com.example.shop.repository.OrderRepository",
-      "target_label" : "OrderRepository",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.repository.OrderRepository",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.repository.OrderRepository"
+      "target_label" : "OrderRepository"
     }, {
       "confidence" : "CONFIGURED",
       "depth" : 1,
-      "is_external" : false,
       "metadata" : "{\"injectedType\":\"com.example.shop.service.OrderValidator\",\"annotation\":\"Autowired\"}",
       "producer_id" : "spring-components",
       "relation" : "INJECTS",
@@ -79,19 +53,11 @@
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_label" : "OrderService",
       "source_location" : "L24",
-      "source_module" : "service",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "com.example.shop.service.OrderService",
       "target" : "service::MAIN::com.example.shop.service.OrderValidator",
-      "target_label" : "OrderValidator",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.service.OrderValidator",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.service.OrderValidator"
+      "target_label" : "OrderValidator"
     }, {
       "confidence" : "CONFIGURED",
       "depth" : 1,
-      "is_external" : false,
       "metadata" : "{\"injectedType\":\"com.example.shop.service.PriceCalculator\",\"annotation\":\"Autowired\"}",
       "producer_id" : "spring-components",
       "relation" : "INJECTS",
@@ -99,19 +65,11 @@
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_label" : "OrderService",
       "source_location" : "L26",
-      "source_module" : "service",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "com.example.shop.service.OrderService",
       "target" : "service::MAIN::com.example.shop.service.PriceCalculator",
-      "target_label" : "PriceCalculator",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.service.PriceCalculator",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.service.PriceCalculator"
+      "target_label" : "PriceCalculator"
     }, {
       "confidence" : "CONFIGURED",
       "depth" : 1,
-      "is_external" : false,
       "metadata" : "{\"injectedType\":\"com.example.shop.event.OrderEventPublisher\",\"annotation\":\"Autowired\"}",
       "producer_id" : "spring-components",
       "relation" : "INJECTS",
@@ -119,19 +77,11 @@
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_label" : "OrderService",
       "source_location" : "L28",
-      "source_module" : "service",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "com.example.shop.service.OrderService",
       "target" : "service::MAIN::com.example.shop.event.OrderEventPublisher",
-      "target_label" : "OrderEventPublisher",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.event.OrderEventPublisher",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.event.OrderEventPublisher"
+      "target_label" : "OrderEventPublisher"
     }, {
       "confidence" : "INFERRED",
       "depth" : 1,
-      "is_external" : false,
       "metadata" : "{\"via\":\"injection\",\"source\":\"service::MAIN::com.example.shop.repository.OrderRepository\",\"candidates\":[\"service::MAIN::com.example.shop.repository.InMemoryOrderRepository\"]}",
       "producer_id" : "derived-wiring",
       "relation" : "WIRES",
@@ -139,15 +89,8 @@
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_label" : "OrderService",
       "source_location" : "L22",
-      "source_module" : "service",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "com.example.shop.service.OrderService",
       "target" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-      "target_label" : "InMemoryOrderRepository",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.repository.InMemoryOrderRepository"
+      "target_label" : "InMemoryOrderRepository"
     } ],
     "members" : [ {
       "id" : "service::MAIN::com.example.shop.service.OrderService#orderRepository",
@@ -155,7 +98,6 @@
       "kind" : "FIELD",
       "label" : "orderRepository",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#orderRepository",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -167,7 +109,6 @@
       "kind" : "FIELD",
       "label" : "validator",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#validator",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -179,7 +120,6 @@
       "kind" : "FIELD",
       "label" : "calculator",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#calculator",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -191,7 +131,6 @@
       "kind" : "FIELD",
       "label" : "publisher",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#publisher",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -203,7 +142,6 @@
       "kind" : "METHOD",
       "label" : "createOrder",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#createOrder",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -215,7 +153,6 @@
       "kind" : "METHOD",
       "label" : "createOrder",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#createOrder",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -227,7 +164,6 @@
       "kind" : "METHOD",
       "label" : "applyDiscount",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#applyDiscount",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -239,7 +175,6 @@
       "kind" : "METHOD",
       "label" : "countExpensiveItems",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#countExpensiveItems",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -251,7 +186,6 @@
       "kind" : "METHOD",
       "label" : "cleanupTask",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService#cleanupTask",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
@@ -264,17 +198,11 @@
       "kind" : "CLASS",
       "label" : "OrderService",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_location" : "L18",
       "symbol_id" : "com.example.shop.service.OrderService"
     }
-  } ],
-  "stats" : {
-    "annotations" : 0,
-    "framework" : 7,
-    "members" : 9
-  }
+  } ]
 }

@@ -24,7 +24,7 @@ class AgentContractIT {
     @Test
     void everySubcommand_acceptsHelp() {
         String[] commands = {
-                "skill", "index", "index-docs", "watch", "search", "context", "callees-of",
+                "skill", "index", "index-docs", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "flow-materialize", "overview", "survey-baseline",
                 "annotate", "doctor"
@@ -39,6 +39,13 @@ class AgentContractIT {
     @Test
     void exportIsNoLongerACliCommand() {
         RunResult r = runCli("export");
+        assertEquals(2, r.exitCode);
+        assertTrue((r.stdout + r.stderr).contains("Unmatched argument"));
+    }
+
+    @Test
+    void watchIsNoLongerACliCommand() {
+        RunResult r = runCli("watch");
         assertEquals(2, r.exitCode);
         assertTrue((r.stdout + r.stderr).contains("Unmatched argument"));
     }
@@ -65,6 +72,9 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
         assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));
         assertTrue(((List<?>) json.get("capabilities")).contains("source-snapshot-fingerprint"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("context-source-view-v2"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("json-query-output-v2"));
+        assertEquals(1, ((Number) json.get("graph_semantics_version")).intValue());
         assertTrue(((List<?>) json.get("capabilities")).contains("core-reflection"));
         assertTrue(((List<?>) json.get("capabilities")).contains("progressive-dataflow"));
         assertTrue(((List<?>) json.get("capabilities")).contains("file-resolution-coverage"));
@@ -394,6 +404,19 @@ class AgentContractIT {
                     + "(severity,code,phase,source_file,module,scope,occurrence_count,sample) VALUES "
                     + "('warning','THIRDPARTY_SYMBOL_MISSING','full_extract_call_graph',"
                     + "'service/src/main/java/example/Unknown.java','service','MAIN',2,'missing')");
+            statement.executeUpdate("""
+                    INSERT INTO analysis_coverage(
+                      source_file,module,scope,capability,status,occurrences,
+                      groups_count,codes,code_counts,details_truncated)
+                    VALUES ('service/src/main/java/example/Unknown.java','service','MAIN',
+                      'CALL_INCOMING','partial',2,1,
+                      '["THIRDPARTY_SYMBOL_MISSING"]',
+                      '{"THIRDPARTY_SYMBOL_MISSING":2}',0)
+                    ON CONFLICT(source_file,module,scope,capability) DO UPDATE SET
+                      status=excluded.status, occurrences=excluded.occurrences,
+                      groups_count=excluded.groups_count, codes=excluded.codes,
+                      code_counts=excluded.code_counts
+                    """);
         }
 
         RunResult callers = runCli("callers-of",

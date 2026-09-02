@@ -838,7 +838,7 @@ fixtures/lombok-sample/
 ```text
 full index: off vs ast
 incremental one-file: off vs ast
-watch repeated edit: off vs ast
+repeated incremental edit: off vs ast
 peak RSS: off vs ast
 generated fact count
 ```

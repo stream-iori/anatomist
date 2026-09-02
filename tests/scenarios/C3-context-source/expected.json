@@ -1,0 +1,36 @@
+{
+  "contract_version" : 2,
+  "evidence" : {
+    "coverage" : "complete",
+    "negative_conclusion_safe" : true,
+    "status" : "positive"
+  },
+  "next_queries" : [ "context com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest) --source --source-limit 5 --scope MAIN --source-offset 5 --index ${INDEX}" ],
+  "query" : "context com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest) --source --source-limit 5 --scope MAIN",
+  "results" : [ {
+    "annotations" : [ ],
+    "framework" : [ ],
+    "members" : [ ],
+    "node" : {
+      "id" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+      "javadoc" : null,
+      "kind" : "METHOD",
+      "label" : "createOrder",
+      "module" : "service",
+      "qualified_name" : "com.example.shop.service.OrderService#createOrder",
+      "scope" : "MAIN",
+      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+      "source_location" : "L30",
+      "symbol_id" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)"
+    },
+    "source" : {
+      "limit" : 5,
+      "offset" : 0,
+      "snippet" : "30 | @Transactional\n31 |     public OrderResult createOrder(CreateOrderRequest request) {\n32 |         Objects.requireNonNull(request, \"request\");\n33 |         validator.validate(request);\n34 |         double total = calculator.calculate(request.getItems());",
+      "source_range" : "L30:C5-L41:C5",
+      "status" : "ok",
+      "total_lines" : 12,
+      "truncated" : true
+    }
+  } ]
+}

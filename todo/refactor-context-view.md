@@ -1,6 +1,6 @@
 # Refactor：以 Method Source Context View 为主的 Agent 阅读路径
 
-> 结论性质：待实施方案。
+> 状态：P0-P2 已实施并通过稳固验收；P3-P4 保留为后续评测项。
 
 ## 结论
 
@@ -38,11 +38,11 @@ for@L40>if-else@L42
 
 LLM 能直接理解 Java。已经找到方法后，再把方法体转换成一套更冗长的 block JSON，通常会增加 token，却丢失源码中的命名、条件和顺序信息。
 
-## 当前实现缺口
+## 实施结果
 
-当前 `context` 不是 source context view。
+`context --source` 已提供精确的 source context view。
 
-[`ContextResult`](../src/main/java/com/anatomist/query/ContextResult.java) 只返回：
+[`ContextResult`](../src/main/java/com/anatomist/query/ContextResult.java) 现在返回：
 
 ```text
 node
@@ -50,22 +50,39 @@ members
 annotations
 framework
 callees（可选）
+source（可选）
 ```
 
-[`TypeContextService`](../src/main/java/com/anatomist/query/TypeContextService.java) 查询成员、注解、框架关系和可选调用关系，没有读取方法体。
+[`SourceContextService`](../src/main/java/com/anatomist/query/SourceContextService.java)
+按 `declarations` 中的精确范围读取类型、方法或构造器源码，并进行 snapshot
+和 source-root 校验。
 
-当前 [`nodes`](../src/main/resources/schema.sql) 只有字符串 `source_location`，没有声明结束位置，因此无法直接、精确地截取整个方法体。
+[`declarations`](../src/main/resources/schema.sql) 已增加 `begin_line`、
+`begin_column`、`end_line`、`end_column`；`nodes` 保持原结构，默认输出兼容。
 
 现有 [`SourceWindowService`](../src/main/java/com/anatomist/query/SourceWindowService.java) 只能围绕单个行号读取固定窗口，适合查看调用点，不适合表达完整方法边界。
 
 ```text
-当前 context
-    method 元数据 + 关系
-                × 没有方法体
-
-目标 context --source
+context --source
     method 元数据 + 精确方法源码 + 可选关系
 ```
+
+## 稳固验收（2026-09-02）
+
+| 检查 | 结果 |
+|---|---|
+| 完整测试 | 827 项通过，0 失败 |
+| Golden 场景 | 19 项通过 |
+| JVM / native 对照 | 7 条核心命令输出一致 |
+| Commons Lang 三轮索引耗时中位数 | schema 14：4068 ms；schema 15：3947 ms（-3.0%） |
+| Commons Lang 数据库体积中位数 | schema 14：34.84 MiB；schema 15：34.88 MiB（+0.09%） |
+| 索引事实 | 节点 4961、声明 3889，前后相同；Commons Lang 三次重复索引的 `CALLS` 边集合一致 |
+| 默认索引 | 已重建为 schema 15，`committed`，完整性门禁通过 |
+| 真实源码查询 | `SourceContextService#read(...)` 返回精确范围、截断标记和续页命令 |
+
+原先设想的“数据库绝对小于 30 MiB”不适合作为本改动门槛：schema 14
+基线已经是 34.84 MiB。这里按可归因的相对回归判断，体积增长 0.09%，远低于
+20% 上限。
 
 ## 目标 Agent 工作流
 
@@ -238,13 +255,13 @@ control_regions + innermost FK
 ## 实施顺序
 
 ```text
-P0  声明提取阶段保存 begin/end range
+P0  声明提取阶段保存 begin/end range        ✓
  │
-P1  增加 SourceContextService
+P1  增加 SourceContextService                ✓
  │
-P2  context --source + 分页 + snapshot warning
+P2  context --source + 分页 + snapshot warning ✓
  │
-P3  优化 JSON，避免 context 和 node 元数据重复
+P3  优化 JSON，避免 context 和 node 元数据重复 ✓
  │
 P4  用 Agent 任务评测决定是否建设 control_regions
 ```
@@ -260,8 +277,8 @@ P4  用 Agent 任务评测决定是否建设 control_regions
 
 - 按 begin/end range 读取；
 - 每次查询内缓存文件内容；
-- 校验文件位于 source root；
-- 避免路径穿越；
+- 严格校验持久化的 `module@scope=source-root` profile，损坏时 fail-closed；
+- 防止词法路径穿越和 symlink 越界；
 - 输出带原始文件行号的 snippet。
 
 ### P2：查询契约

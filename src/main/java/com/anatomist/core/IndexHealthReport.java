@@ -14,7 +14,10 @@ public record IndexHealthReport(Status status, List<IndexDiagnostic> diagnostics
             "DANGLING_FACTS_DROPPED",
             "SCHEMA_MISMATCH",
             "INDEX_EMPTY",
-            "INDEX_PROMOTION_FAILED");
+            "INDEX_PROMOTION_FAILED",
+            "DATABASE_CORRUPT",
+            "INDEX_INTEGRITY_FAILED",
+            "GRAPH_SEMANTICS_MISMATCH");
     private static final Set<String> INTERNAL_CODES = Set.of("INTERNAL_SYMBOL_MISSING");
     private static final Set<String> EXTERNAL_CODES = Set.of(
             "THIRDPARTY_SYMBOL_MISSING",
@@ -69,7 +72,8 @@ public record IndexHealthReport(Status status, List<IndexDiagnostic> diagnostics
         List<IndexDiagnostic> parse = matching(Set.of("JAVA_PARSE_FAILED"));
         List<IndexDiagnostic> graph = matching(Set.of(
                 "DANGLING_FACTS_DROPPED", "SCHEMA_MISMATCH",
-                "INDEX_EMPTY", "INDEX_PROMOTION_FAILED"));
+                "INDEX_EMPTY", "INDEX_PROMOTION_FAILED", "DATABASE_CORRUPT",
+                "INDEX_INTEGRITY_FAILED", "GRAPH_SEMANTICS_MISMATCH"));
         out.put("parse", dimension(parse, "complete", "partial"));
         out.put("graph_integrity", dimension(graph, "healthy", "degraded"));
 

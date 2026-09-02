@@ -43,13 +43,23 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v14)
+## Node identity, declarations, and ownership (schema v15)
 
-Schema v14 adds `producer_id` to all structural fact tables. An older index must
-be rebuilt; no migration or compatibility read path is provided. Declaration rows preserve AST-derived
+Schema v15 adds nullable declaration range columns to `declarations`; v14 added
+`producer_id` to all structural fact tables. An older index must be rebuilt; no
+migration or compatibility read path is provided. Declaration rows preserve AST-derived
 kind, effective/declared/implicit modifiers, visibility, lexical ownership,
 nesting, source location, module, and scope. Query-time declaration discovery
 uses this table only.
+
+| Declaration range column | Meaning |
+|---|---|
+| `begin_line`, `begin_column` | JavaParser declaration start, one-based |
+| `end_line`, `end_column` | JavaParser declaration end, one-based and inclusive |
+
+All four values are present together or all are `NULL`. Synthetic declarations
+keep them `NULL`. Source text remains in the checkout; the database stores only
+the range and snapshot hash evidence used by `context --source`.
 
 | Table | Ownership |
 |---|---|
@@ -299,6 +309,12 @@ Outgoing queries narrow file-scoped diagnostics to their anchor files;
 incoming/global queries remain conservative because an unresolved caller can
 originate anywhere.
 
+Query JSON contract v2 is a compact public projection. Storage-only aliases are
+not exposed twice: `source`/`target` are the edge identities; source windows
+inherit file/line identity from their parent; context source views inherit the
+file and declaration range from their node. Default `java-core`, `EXTRACTED`,
+and false external markers are implicit.
+
 `analysis_coverage` stores file-level aggregates before the 5,000-row storage
 retention step. The upstream resolution tracker still has a 50,000-group bound;
 when it is reached, `diagnostic_aggregation.truncated=true` discloses that
@@ -314,7 +330,7 @@ later source-level detail is unavailable.
 | `details_truncated` | Whether detail samples were truncated |
 
 Query safety is derived from this table, not from the bounded
-`index_diagnostics` sample. Schema v14 has no migration path; older indexes
+`index_diagnostics` sample. Schema v15 has no migration path; older indexes
 must be rebuilt.
 
 ## Core reflection facts

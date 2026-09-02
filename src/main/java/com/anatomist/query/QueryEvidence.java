@@ -66,8 +66,12 @@ public record QueryEvidence(
         out.put("coverage", coverage);
         out.put("negative_conclusion_safe", negativeConclusionSafe);
         if (code != null) out.put("code", code);
-        if (affectedDimensions != null) out.put("affected_dimensions", affectedDimensions);
-        if (diagnosticCounts != null) out.put("diagnostic_counts", diagnosticCounts);
+        if (affectedDimensions != null && !affectedDimensions.isEmpty()) {
+            out.put("affected_dimensions", affectedDimensions);
+        }
+        if (diagnosticCounts != null && !diagnosticCounts.isEmpty()) {
+            out.put("diagnostic_counts", diagnosticCounts);
+        }
         if (diagnosticQuery != null) out.put("diagnostic_query", diagnosticQuery);
         if (message != null) out.put("message", message);
         return out;

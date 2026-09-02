@@ -1,8 +1,7 @@
 {
+  "contract_version" : 2,
   "evidence" : {
-    "affected_dimensions" : [ ],
     "coverage" : "complete",
-    "diagnostic_counts" : { },
     "negative_conclusion_safe" : true,
     "status" : "positive"
   },
@@ -34,10 +33,5 @@
       "role" : "extends"
     } ],
     "implements_list" : [ ]
-  } ],
-  "stats" : {
-    "extends_depth" : 1,
-    "found" : true,
-    "implements" : 0
-  }
+  } ]
 }

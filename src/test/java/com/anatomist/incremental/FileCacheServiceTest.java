@@ -15,7 +15,6 @@ import java.nio.file.attribute.FileTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -57,7 +56,7 @@ class FileCacheServiceTest {
     }
 
     @Test
-    void verifyContentAndWatchCandidatesCatchRestoredTimestampChange(@TempDir Path tmp) throws Exception {
+    void verifyContentCatchesRestoredTimestampChange(@TempDir Path tmp) throws Exception {
         Path source = tmp.resolve("A.java");
         Files.writeString(source, "class A { int v=1; }");
         FileCacheEntry prior = FileCacheService.buildEntries(
@@ -71,33 +70,8 @@ class FileCacheServiceTest {
                 tmp, List.of(source), Map.of("A.java", prior), false, null);
         FileCacheService.CandidateScan verified = service.detectChangesFast(
                 tmp, List.of(source), Map.of("A.java", prior), true, null);
-        FileCacheService.CandidateScan watched = service.detectCandidateChanges(
-                tmp, Set.of("A.java"), Map.of("A.java", prior), false);
-
         assertTrue(trustedStat.changes().isEmpty(), "default CLI trusts a stable size/mtime pair");
         assertEquals(List.of("A.java"), verified.changes().changed);
-        assertEquals(List.of("A.java"), watched.changes().changed);
-    }
-
-    @Test
-    void candidateScanClassifiesFinalDiskStateWithoutDroppingUnchangedCache(@TempDir Path tmp) throws Exception {
-        Path changed = tmp.resolve("Changed.java");
-        Path added = tmp.resolve("Added.java");
-        Files.writeString(changed, "class Changed { int v = 2; }");
-        Files.writeString(added, "class Added {}");
-
-        Map<String, FileCacheEntry> cache = new HashMap<>();
-        cache.put("Changed.java", new FileCacheEntry("Changed.java", "old", 5, "x", 0, 0));
-        cache.put("Deleted.java", new FileCacheEntry("Deleted.java", "gone", 5, "x", 0, 0));
-        cache.put("Untouched.java", new FileCacheEntry("Untouched.java", "keep", 5, "x", 0, 0));
-
-        FileCacheService.CandidateScan scan = new FileCacheService().detectCandidateChanges(
-                tmp, Set.of("Changed.java", "Added.java", "Deleted.java"), cache, false);
-
-        assertEquals(List.of("Changed.java"), scan.changes().changed);
-        assertEquals(List.of("Added.java"), scan.changes().added);
-        assertEquals(List.of("Deleted.java"), scan.changes().deleted);
-        assertEquals("keep", scan.diskHashes().get("Untouched.java"));
     }
 
     @Test

@@ -11,12 +11,15 @@ import picocli.CommandLine;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -145,6 +148,74 @@ class CommonsLangSmokeIT {
                     .requireExact();
             assertEquals("isEmpty", method.label);
             assertDoesNotThrow(() -> q.calleesOf(method.id, 1));
+        }
+    }
+
+    @Test
+    void repeatedFullIndexHasIdenticalSemanticGraphHash(@TempDir Path tmp) throws Exception {
+        requireSubmodule();
+        Path first = tmp.resolve("commons-lang-first.db");
+        Path repeated = tmp.resolve("commons-lang-repeat.db");
+        indexForDigest(first);
+        indexForDigest(repeated);
+        assertEquals(graphDigest(first), graphDigest(repeated),
+                "same source snapshot must produce the same semantic graph; first="
+                        + first + ", repeated=" + repeated);
+    }
+
+    private static void indexForDigest(Path output) throws Exception {
+        Path java = Path.of(System.getProperty("java.home"), "bin", "java");
+        Process process = new ProcessBuilder(
+                java.toString(), "-cp", System.getProperty("java.class.path"),
+                AnatomistCli.class.getName(), "index", commonsLang.toString(),
+                "--project-source", commonsLangSrc.toString(),
+                "--no-classpath", "--java-version", "8",
+                "--output", output.toString(), "--format", "json")
+                .redirectErrorStream(true)
+                .start();
+        String outputText = new String(process.getInputStream().readAllBytes(),
+                StandardCharsets.UTF_8);
+        assertEquals(0, process.waitFor(), outputText);
+    }
+
+    private static String graphDigest(Path database) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + database)) {
+            updateDigest(connection, digest, """
+                    SELECT id,symbol_id,label,kind,qualified_name,package,source_file,
+                           source_location,module,scope,javadoc,metadata,producer_id
+                    FROM nodes ORDER BY id
+                    """);
+            updateDigest(connection, digest, """
+                    SELECT source_id,target_id,external_target_fqn,relation,call_kind,
+                           confidence,resolution,context,is_external,source_file,
+                           source_location,metadata,producer_id
+                    FROM edges
+                    ORDER BY source_id,target_id,external_target_fqn,relation,call_kind,
+                             confidence,resolution,context,is_external,source_file,
+                             source_location,metadata,producer_id
+                    """);
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static void updateDigest(Connection connection, MessageDigest digest, String sql)
+            throws Exception {
+        try (Statement statement = connection.createStatement();
+             ResultSet rows = statement.executeQuery(sql)) {
+            int columns = rows.getMetaData().getColumnCount();
+            while (rows.next()) {
+                for (int column = 1; column <= columns; column++) {
+                    String value = rows.getString(column);
+                    if (value == null) {
+                        digest.update(ByteBuffer.allocate(4).putInt(-1).array());
+                    } else {
+                        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+                        digest.update(ByteBuffer.allocate(4).putInt(bytes.length).array());
+                        digest.update(bytes);
+                    }
+                }
+            }
         }
     }
 

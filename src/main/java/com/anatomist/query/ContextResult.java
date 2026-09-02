@@ -13,6 +13,8 @@ public class ContextResult {
     public List<NodeRow> members = new ArrayList<>();
     public List<Map<String, Object>> annotations = new ArrayList<>();
     public List<EdgeRow> framework = new ArrayList<>();
+    /** Only populated when {@code context --source} was requested. */
+    public SourceContext source;
     /** Only populated when {@code --with-callees[=N]} was requested. */
     public List<EdgeRow> callees;
 
@@ -21,6 +23,7 @@ public class ContextResult {
         s.put("members", members.size());
         s.put("annotations", annotations.size());
         s.put("framework", framework.size());
+        if (source != null) s.put("source_status", source.status);
         if (callees != null) s.put("callees", callees.size());
         return s;
     }

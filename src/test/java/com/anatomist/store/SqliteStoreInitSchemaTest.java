@@ -9,6 +9,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -72,6 +73,22 @@ class SqliteStoreInitSchemaTest {
             assertTrue(rs.next());
             assertEquals(IndexSchema.VERSION, rs.getInt(1));
         }
+    }
+
+    @Test
+    void splitSqlStatements_doesNotTreatRangeColumnsAsTriggerBegin() {
+        List<String> statements = SchemaManager.splitSqlStatements("""
+                CREATE TABLE declarations (
+                    begin_line INTEGER,
+                    end_line INTEGER,
+                    CHECK (end_line >= begin_line)
+                );
+                CREATE TABLE after_ranges (id INTEGER);
+                """);
+
+        assertEquals(2, statements.size());
+        assertTrue(statements.get(0).contains("CREATE TABLE declarations"));
+        assertTrue(statements.get(1).contains("CREATE TABLE after_ranges"));
     }
 
     private static Set<String> listObjects(Connection c, String type) throws Exception {

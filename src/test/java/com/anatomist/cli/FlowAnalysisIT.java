@@ -1,5 +1,6 @@
 package com.anatomist.cli;
 
+import com.anatomist.json.Json;
 import com.anatomist.test.CliTestSupport;
 import com.anatomist.test.CliTestSupport.RunResult;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,8 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -49,7 +52,7 @@ class FlowAnalysisIT {
                 "--from-slot", "arg:0", "--to-slot", "return", "--depth", "1",
                 "--index", db.toString());
         assertEquals(0, shallow.exitCode(), shallow.stderr());
-        assertTrue(shallow.stdout().contains("\"found\" : false"), shallow.stdout());
+        assertTrue(!hasResults(shallow), shallow.stdout());
         assertTrue(shallow.stdout().contains("\"depth_truncated\" : true"), shallow.stdout());
         assertTrue(shallow.stdout().contains("QUERY_DEPTH_TRUNCATED"), shallow.stdout());
         assertTrue(shallow.stdout().contains("--depth 2"), shallow.stdout());
@@ -214,12 +217,12 @@ class FlowAnalysisIT {
         RunResult taint = runCli("taint-path", "*", "*",
                 "--depth", "30", "--index", flow.toString());
         assertEquals(0, taint.exitCode(), taint.stderr());
-        assertTrue(taint.stdout().contains("\"found\" : true"), taint.stdout());
+        assertTrue(hasResults(taint), taint.stdout());
 
         RunResult shallowTaint = runCli("taint-path", "*", "*",
                 "--depth", "1", "--index", flow.toString());
         assertEquals(0, shallowTaint.exitCode(), shallowTaint.stderr());
-        assertTrue(shallowTaint.stdout().contains("\"found\" : false"), shallowTaint.stdout());
+        assertTrue(!hasResults(shallowTaint), shallowTaint.stdout());
         assertTrue(shallowTaint.stdout().contains("\"depth_truncated\" : true"),
                 shallowTaint.stdout());
         assertTrue(shallowTaint.stdout().contains("--depth 2"), shallowTaint.stdout());
@@ -318,7 +321,7 @@ class FlowAnalysisIT {
                 "--index", db.toString());
 
         assertEquals(0, path.exitCode(), path.stderr());
-        assertTrue(path.stdout().contains("\"found\" : true"), path.stdout());
+        assertTrue(hasResults(path), path.stdout());
         assertTrue(path.stdout().contains("\"source_slot\" : \"arg:0\""), path.stdout());
         assertTrue(path.stdout().contains("\"target_slot\" : \"return\""), path.stdout());
         assertTrue(!path.stdout().contains("\"CONTROL_FLOW\""), path.stdout());
@@ -370,7 +373,7 @@ class FlowAnalysisIT {
                 "--from-slot", "arg:0", "--to-slot", "return",
                 "--index", db.toString());
         assertEquals(0, exactPath.exitCode(), exactPath.stdout());
-        assertTrue(exactPath.stdout().contains("\"found\" : true"), exactPath.stdout());
+        assertTrue(hasResults(exactPath), exactPath.stdout());
         assertTrue(!exactPath.stdout().contains(otherOverload), exactPath.stdout());
 
         RunResult exactSummary = runCli("flow-summary", exactString,
@@ -452,7 +455,7 @@ class FlowAnalysisIT {
         RunResult missing = runCli("taint-path", "*", "*",
                 "--index", wrongSlot.toString());
         assertEquals(0, missing.exitCode(), missing.stderr());
-        assertTrue(missing.stdout().contains("\"found\" : false"), missing.stdout());
+        assertTrue(!hasResults(missing), missing.stdout());
 
         Files.writeString(source, """
                 package p;
@@ -470,7 +473,7 @@ class FlowAnalysisIT {
         RunResult found = runCli("taint-path", "*", "*",
                 "--index", rightSlot.toString());
         assertEquals(0, found.exitCode(), found.stderr());
-        assertTrue(found.stdout().contains("\"found\" : true"), found.stdout());
+        assertTrue(hasResults(found), found.stdout());
     }
 
     @Test
@@ -502,7 +505,7 @@ class FlowAnalysisIT {
         RunResult path = runCli("flow-path", "p.A#copy", "p.A#copy",
                 "--from-slot", "arg:0", "--to-slot", "return", "--index", db.toString());
         assertEquals(0, path.exitCode(), path.stderr());
-        assertTrue(path.stdout().contains("\"found\" : true"), path.stdout());
+        assertTrue(hasResults(path), path.stdout());
         assertTrue(path.stdout().contains("\"coverage\" : \"partial\""), path.stdout());
     }
 
@@ -622,5 +625,10 @@ class FlowAnalysisIT {
 
     private static RunResult runCli(String... args) throws Exception {
         return CliTestSupport.capture(() -> new CommandLine(new AnatomistCli()).execute(args));
+    }
+
+    private static boolean hasResults(RunResult result) {
+        Map<?, ?> envelope = (Map<?, ?>) Json.parseTree(result.stdout());
+        return !((List<?>) envelope.get("results")).isEmpty();
     }
 }

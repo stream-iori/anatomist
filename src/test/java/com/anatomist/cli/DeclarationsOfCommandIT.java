@@ -11,6 +11,7 @@ import picocli.CommandLine;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.util.List;
 import java.util.Map;
 
@@ -120,6 +121,20 @@ class DeclarationsOfCommandIT {
         var missing = command("--file", "src/main/java/com/example/Missing.java", "--format", "json");
         assertEquals(3, missing.exitCode());
         assertTrue(missing.stdout().contains("FILE_NOT_INDEXED"), missing.stdout());
+    }
+
+    @Test void incompleteSourceLayoutFailsClosed() throws Exception {
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             var statement = connection.createStatement()) {
+            assertEquals(1, statement.executeUpdate(
+                    "UPDATE project_meta SET value='broken' WHERE key='source_layout'"));
+        }
+
+        var run = command("--file", AUTH, "--format", "json");
+
+        assertEquals(3, run.exitCode());
+        assertTrue(run.stdout().contains("SOURCE_PROFILE_INCOMPLETE"), run.stdout());
+        assertTrue(run.stdout().contains("\"negative_conclusion_safe\" : false"), run.stdout());
     }
 
     @Test void persistedParseFailureFailsClosed() throws Exception {

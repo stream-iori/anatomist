@@ -5,6 +5,7 @@ import com.anatomist.query.FlowCoverageException;
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
+import com.anatomist.query.QueryJsonContract;
 import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Option;
 
@@ -43,6 +44,7 @@ abstract class FlowQueryCommand implements Callable<Integer> {
                 return 0;
             } catch (FlowCoverageException coverage) {
                 Map<String, Object> error = new LinkedHashMap<>();
+                error.put("contract_version", QueryJsonContract.VERSION);
                 error.put("status", "error");
                 error.put("code", coverage.code());
                 error.put("message", coverage.getMessage());

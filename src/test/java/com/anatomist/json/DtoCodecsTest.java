@@ -12,6 +12,7 @@ import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.SemanticAnnotationRow;
 import com.anatomist.query.SourceWindow;
+import com.anatomist.query.SourceContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -158,6 +159,22 @@ class DtoCodecsTest {
         assertTrue(got.contains("\"annotations\" : [ ]"), got);
         // callees is null → suppressed (NON_NULL)
         assertFalse(got.contains("callees"), got);
+    }
+
+    @Test
+    void sourceContext_usesCompactSnakeCaseContract() {
+        SourceContext source = new SourceContext();
+        source.status = "ok";
+        source.sourceFile = "src/A.java";
+        source.sourceRange = "L2:C1-L4:C2";
+        source.totalLines = 3;
+        source.truncated = false;
+        source.snippet = "2 | void run() {";
+        String got = Json.writePretty(source);
+        assertFalse(got.contains("source_file"), got);
+        assertTrue(got.contains("\"source_range\" : \"L2:C1-L4:C2\""), got);
+        assertTrue(got.contains("\"total_lines\" : 3"), got);
+        assertFalse(got.contains("warning_code"), got);
     }
 
     @Test

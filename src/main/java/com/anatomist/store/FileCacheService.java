@@ -4,7 +4,6 @@ import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.Node;
-import com.anatomist.core.SpringBeanParser;
 import com.anatomist.core.IndexTimings;
 
 import java.io.IOException;
@@ -18,7 +17,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.LinkedHashSet;
 import java.util.HexFormat;
 import java.util.concurrent.TimeUnit;
 
@@ -56,66 +54,6 @@ public class FileCacheService {
                                 List<FileCacheEntry> statRefreshes) {}
 
     private record FileState(long size, long mtimeNs) {}
-
-    /**
-     * Reconcile a complete Watch event batch without reading every cached file.
-     * Cached hashes seed the disk view; candidate paths are then classified from
-     * their final on-disk state.
-     */
-    public CandidateScan detectCandidateChanges(Path projectRoot,
-                                                Set<String> candidates,
-                                                Map<String, FileCacheEntry> cache,
-                                                boolean springXml) {
-        return detectCandidateChanges(projectRoot, candidates, cache, springXml, null);
-    }
-
-    public CandidateScan detectCandidateChanges(Path projectRoot,
-                                                Set<String> candidates,
-                                                Map<String, FileCacheEntry> cache,
-                                                boolean springXml,
-                                                IndexTimings timings) {
-        Map<String, String> diskHashes = new LinkedHashMap<>();
-        cache.forEach((path, entry) -> diskHashes.put(path, entry.hash()));
-        List<String> changed = new ArrayList<>();
-        List<String> added = new ArrayList<>();
-        List<String> deleted = new ArrayList<>();
-        if (candidates == null || candidates.isEmpty()) {
-            return new CandidateScan(new Changes(changed, added, deleted), diskHashes, List.of());
-        }
-        Path root = projectRoot.toAbsolutePath().normalize();
-        for (String candidate : new LinkedHashSet<>(candidates)) {
-            if (candidate == null || candidate.isBlank()) continue;
-            Path supplied = Path.of(candidate);
-            Path absolute = supplied.isAbsolute() ? supplied : root.resolve(supplied);
-            absolute = absolute.toAbsolutePath().normalize();
-            String relative;
-            try {
-                relative = root.relativize(absolute).toString();
-            } catch (IllegalArgumentException ex) {
-                continue;
-            }
-            FileCacheEntry prior = cache.get(relative);
-            boolean javaSource = relative.endsWith(".java") && Files.isRegularFile(absolute);
-            boolean springSource = springXml && relative.endsWith(".xml")
-                    && SpringBeanParser.isSpringBeansFile(absolute);
-            boolean indexableNow = javaSource || springSource;
-            if (!indexableNow) {
-                diskHashes.remove(relative);
-                if (prior != null) deleted.add(relative);
-                continue;
-            }
-            long hashStarted = startTiming(timings);
-            String hash = sha256(absolute);
-            stopTiming(timings, "file_hash", hashStarted);
-            diskHashes.put(relative, hash);
-            if (prior == null) {
-                added.add(relative);
-            } else if (!prior.hash().equals(hash)) {
-                changed.add(relative);
-            }
-        }
-        return new CandidateScan(new Changes(changed, added, deleted), diskHashes, List.of());
-    }
 
     /**
      * Standalone incremental scan. Stable size/mtime pairs reuse the prior SHA;

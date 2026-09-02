@@ -63,15 +63,16 @@ fixtures/micro/
 
 git submodule 锁版本，vendored 到 `fixtures/external/`，**不联网即跑测试**。具体接入命令、跳过语义、为什么选这个 fixture 见 [`fixtures/external/README.md`](../fixtures/external/README.md)。
 
-`CommonsLangSmokeIT` 三条断言：
+`CommonsLangSmokeIT` 关键断言：
 
 1. **规模基线** — `types ≥ 100 && methods ≥ 1000 && edges ≥ 1000`
 2. **关键类存在** — `org.apache.commons.lang3.StringUtils` / `ObjectUtils` / `ArrayUtils` 都能在 nodes 表精确找到
 3. **查询层联通** — `QueryService.search(...)` 在 `StringUtils` / `ObjectUtils` / `ArrayUtils` / `Validate` 任一上返回非空
+4. **重复构建稳定** — 两个独立 CLI 进程对同一源码全量索引，按稳定字段排序后的 nodes + edges SHA-256 必须完全一致
 
 **Dropped-edges 基线**：commons-lang 3.12.0 当前会触发 `Pruned dangling = 188`。这个数字应**单调下降**——任何 extractor 修复都会带它一起降低；如果它涨了，说明回归了或上游 fixture 升了。
 
-**跳过语义**：每个 @Test 顶部调 `requireSubmodule()` → `assumeTrue(...)`，submodule 未 checkout 时 Surefire 报 `Tests run: 3, Skipped: 3`（不是误导性的 `Tests run: 0`），并在 stderr 打一行接入提示。
+**跳过语义**：每个 @Test 顶部调 `requireSubmodule()` → `assumeTrue(...)`，submodule 未 checkout 时每条用例都明确记为 Skipped（不是误导性的 `Tests run: 0`），并在 stderr 打一行接入提示。
 
 ### Fixture D — `fixtures/declarations/`（声明契约）
 
@@ -134,7 +135,7 @@ sdk env
 | 命令 | 验证什么 | 说明 |
 |------|----------|------|
 | `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | 包含 `context --enrich`；recipe 使用 fail-fast，命令失败不会被 `head` 掩盖。 |
-| `just native-smoke` | JVM jar 与 native binary 输出一致性 | 失败时保留 `/tmp/anatomist-native-smoke-*.log` 并打印 native 诊断。 |
+| `just native-smoke` | JVM jar 与 native binary 输出一致性 | 包含精确方法 `context --source`；失败时保留 `/tmp/anatomist-native-smoke-*.log` 并打印 native 诊断。 |
 | `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |
 | `just extension-e2e-native` | 上述场景 + JVM/native JSON 对拍 | 使用 SDKMAN JDK 25 构建 native binary；对比前归一化回显的临时 index 路径。 |
 | `just external-cli PROJECT=/path/to/project` | 大型外部项目复杂 CLI | opt-in，本地手动跑；默认目标是 `/Users/stream/codes/antcodes/ipay/imerchantsettle`。 |
@@ -147,11 +148,10 @@ sdk env
 
 | 测试 | 走什么路径 | 目的 |
 |------|----------|------|
-| 增量 diff 正确性 | `anatomist index --incremental`（合成 diff,无 WatchService） | 主路径,覆盖率高 |
+| 增量 diff 正确性 | `anatomist index --incremental`（合成 diff，无文件系统事件） | 主路径，覆盖率高 |
 | Agent 查询门禁 | 无变更增量 + `--health-policy integrity`，随后才允许查询 | 确保无变更不触发 Maven/JavaParser/图重建，失败时 Agent 不应使用旧索引结论 |
 | 健康策略 | external resolution、parse failure、dangling facts 分别跑 `integrity` / `complete` | 防止第三方缺失误杀正常 Agent 查询，同时守住索引完整性 |
 | 查询证据 | 正结果、可信空结果、覆盖不全的空结果 | 空结果仍 exit 0，但必须披露 `confirmed_empty` / `indeterminate` |
-| WatchService 集成 | 真启 watch 改文件 | 仅 1-2 个 happy-path,Linux 跑 |
 
 数据流回归额外覆盖：分支合流、循环回边、参数/局部变量 def-use、返回值、
 跨方法调用、显式 throw/catch、guard 极性、taint source/sink/sanitizer，

@@ -64,13 +64,13 @@ final class AstTypeNames {
         if (type.isVarType()) return "<unresolved>";
         if (type.isUnionType()) {
             return type.asUnionType().getElements().stream()
-                    .map(t -> of(t, context))
+                    .map(t -> ofAst(t, context))
                     .filter(AstTypeNames::resolved)
                     .findFirst().orElse("<unresolved>");
         }
         if (type.isIntersectionType()) {
             return type.asIntersectionType().getElements().stream()
-                    .map(t -> of(t, context))
+                    .map(t -> ofAst(t, context))
                     .filter(AstTypeNames::resolved)
                     .findFirst().orElse("<unresolved>");
         }
@@ -85,6 +85,12 @@ final class AstTypeNames {
         } catch (RuntimeException ignore) {
             return ofExpressionAst(expr);
         }
+    }
+
+    static String ofExpressionStable(Expression expr) {
+        if (expr == null) return "<unresolved>";
+        String lexical = ofExpressionAst(expr);
+        return resolved(lexical) ? lexical : ofExpression(expr);
     }
 
     private static String ofExpressionAst(Expression expr) {
@@ -116,19 +122,19 @@ final class AstTypeNames {
         Optional<MethodDeclaration> method = context.findAncestor(MethodDeclaration.class);
         if (method.isPresent()) {
             for (Parameter p : method.get().getParameters()) {
-                if (name.equals(p.getNameAsString())) return of(p.getType(), p);
+                if (name.equals(p.getNameAsString())) return ofAst(p.getType(), p);
             }
             int line = lineOf(context);
             for (VariableDeclarator v : method.get().findAll(VariableDeclarator.class)) {
                 if (!name.equals(v.getNameAsString())) continue;
                 if (lineOf(v) > line) continue;
-                return of(v.getType(), v);
+                return ofAst(v.getType(), v);
             }
         }
 
         Optional<CatchClause> catchClause = context.findAncestor(CatchClause.class);
         if (catchClause.isPresent() && name.equals(catchClause.get().getParameter().getNameAsString())) {
-            return of(catchClause.get().getParameter().getType(), catchClause.get().getParameter());
+            return ofAst(catchClause.get().getParameter().getType(), catchClause.get().getParameter());
         }
 
         Optional<TypeDeclaration> type = context.findAncestor(TypeDeclaration.class);
@@ -137,7 +143,7 @@ final class AstTypeNames {
             java.util.List<FieldDeclaration> fields = (java.util.List<FieldDeclaration>) type.get().getFields();
             for (FieldDeclaration f : fields) {
                 for (VariableDeclarator v : f.getVariables()) {
-                    if (name.equals(v.getNameAsString())) return of(v.getType(), v);
+                    if (name.equals(v.getNameAsString())) return ofAst(v.getType(), v);
                 }
             }
         }
@@ -192,7 +198,7 @@ final class AstTypeNames {
             dims++;
             t = t.asArrayType().getComponentType();
         }
-        StringBuilder out = new StringBuilder(of(t, context));
+        StringBuilder out = new StringBuilder(ofAst(t, context));
         for (int i = 0; i < dims; i++) out.append("[]");
         return out.toString();
     }

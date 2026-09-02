@@ -41,7 +41,9 @@ IndexCommand (picocli adapter)
   → ExtractorPipeline provenance → source_file on Java facts
   → GraphIdentityRewriter        → module::scope::symbol_id storage keys
   → GraphPostProcessor           → bind/prune graph facts
-  → StagedGraphStore → SqliteStore (single promotion transaction)
+  → StagedGraphStore → sibling temporary SQLite DB
+  → quick_check + foreign_key_check + schema/semantics gate
+  → atomic replacement of the live index
   → IndexHealthService           → persisted index_diagnostics
 ```
 
@@ -86,6 +88,12 @@ participate in this ownership model.
 - **`edges` CHECK constraint:** `is_external=0 ⇒ target_id NOT NULL & external_target_fqn NULL` and vice versa.
 - **Symbol resolution failure → skip the entity.** Catch `RuntimeException`, call `ctx.incrementUnresolved()`.
 - **Index and Query are separate.** Query-side code must never import `com.github.javaparser.*`.
+- **Graph meaning is versioned separately from schema.** Missing metadata is
+  legacy semantics version 0; a mismatch requires a clean rebuild even when
+  SQLite schema columns are compatible.
+- **A full build never mutates the last good DB.** It builds a sibling DB,
+  validates it, and promotes it only after success. All SQLite content,
+  including indexed documents and manual semantic annotations, is renewable.
 - **No architecture role inference.** The index stores code facts and lightweight semantic annotations. Higher-level architecture judgment belongs to the calling Agent.
 - **JavaDoc stored as summary only.** Extracted via `JavadocSummary.extract()` (strips @tags, first sentence rule).
 - **Query output is Agent-bounded and discloses each bound.** Call traversals use
@@ -99,7 +107,22 @@ participate in this ownership model.
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Schema v14 has no migration path. Structural tables `nodes`, `edges`, `declarations`, `annotations`, and `semantic_annotations` carry `producer_id`; flow tables do not.
+Schema v15 has no migration path. `graph_semantics_version=1` identifies the
+meaning of the generated graph independently of the table layout.
+`declarations` carries exact nullable source
+ranges; structural tables `nodes`, `edges`, `declarations`, `annotations`, and
+`semantic_annotations` carry `producer_id`; flow tables do not.
+
+```text
+startup / doctor
+  ├─ corrupt, integrity failure, schema mismatch, empty graph ──> RECREATE
+  ├─ graph semantics mismatch ──────────────────────────────────> RECREATE
+  ├─ JDK/classpath/source-root environment change ──────────────> FULL
+  └─ source changes only ───────────────────────────────────────> INCREMENTAL
+```
+
+There is no timed GC. The index is derived state, so deterministic compatibility
+checks and safe replacement remove stale facts without background mutation.
 
 ## Fixtures
 

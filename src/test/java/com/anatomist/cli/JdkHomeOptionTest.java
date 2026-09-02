@@ -15,11 +15,4 @@ class JdkHomeOptionTest {
         new CommandLine(command).parseArgs(".", "--jdk-home", "/opt/jdk-17");
         assertEquals(Path.of("/opt/jdk-17"), command.jdkHome);
     }
-
-    @Test
-    void watchParsesJdkHome() {
-        WatchCommand command = new WatchCommand();
-        new CommandLine(command).parseArgs(".", "--jdk-home", "/opt/jdk-17");
-        assertEquals(Path.of("/opt/jdk-17"), command.jdkHome);
-    }
 }

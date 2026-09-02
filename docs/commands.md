@@ -243,8 +243,10 @@ JSON includes:
 | `config_source` / `config_path` / `scan_policy_hash` | Selected configuration and the scan-policy identity committed into the index |
 | `classpath_detection` | Detection status plus `origin`; `maven_classpath_files` counts Maven output files and `build_output_entries` counts discovered `target/classes` / `target/test-classes`. Legacy `module_output_files` is deprecated. |
 | `commands` | Supported subcommands for Agent self-discovery |
-| `capabilities` | Stable feature flags such as Spring facts and JSON summaries |
-| `index_state` | `committed`, `empty`, `incompatible`, `missing`, or `unknown` |
+| `capabilities` | Stable feature flags such as `json-query-output-v2` and `context-source-view-v2` |
+| `required_graph_semantics_version` / `graph_semantics_version` | Writer-required and stored graph meaning versions |
+| `compatibility_action` / `compatibility_reasons` | `create`, `incremental`, `full`, or `recreate`, with a stable reason code |
+| `index_state` | `committed`, `empty`, `incompatible`, `semantic_incompatible`, `corrupt`, `integrity_failed`, `missing`, or `unknown` |
 | `health` / `health_dimensions` / `gate` | Legacy summary, dimension detail, and selected policy result |
 | `resolution_diagnostic_counts` | Occurrences grouped by resolution diagnostic code, independent of diagnostic page size |
 | `resolution_diagnostic_groups` | Retained distinct file/phase/code/symbol/source-site groups; unlike counts, this is bounded by diagnostic retention |
@@ -344,6 +346,12 @@ All node-oriented query commands accept `--module <name>` and
 when duplicate symbols across scopes are intentional.
 
 JSON query responses include top-level `evidence`:
+
+Every read-only JSON response uses `contract_version: 2`. V2 deliberately
+removes aliases and defaults: edge endpoints use `source`/`target`, external
+edges use `external_target_fqn` plus `is_external:true`, `java-core` producer
+IDs and `EXTRACTED` confidence are implicit, and counts derivable from
+`results` are not repeated in `stats`.
 
 | `evidence.status` | Meaning | Safe conclusion |
 |---|---|---|
@@ -578,6 +586,7 @@ Show node structure + optional enrichment.
 
 ```bash
 anatomist context <fqn> [--with-callees=N] [--format markdown|json] --index <db>
+anatomist context '<exact-method-signature>' --source [--source-limit N] [--source-offset N] --index <db>
 anatomist context <fqn> --enrich [--with-docs] [--format markdown|json] --index <db>
 anatomist context --enrich --package <pkg> [--with-docs] [--format markdown|json] --index <db>
 anatomist context <fqn> --members-limit 50 --members-offset 50 --index <db>
@@ -588,6 +597,17 @@ anatomist context <fqn> --members-limit 50 --members-offset 50 --index <db>
 - `--format markdown`: 200-line budgeted output
 - `--members-limit` / `--members-offset`: page class members for large classes
 - `--methods-only` / `--fields-only`: narrow member paging by kind
+- `--source`: return only the exact non-synthetic type, method, or constructor
+  declaration. Source lines are numbered and bounded by the persisted JavaParser range.
+- `--source-limit` defaults to 200 lines and is capped at 1000;
+  `--source-offset` is zero-based within the declaration. Truncated results include
+  a directly executable `next_queries` entry.
+- Source snapshot handling is explicit: `ok` returns a snippet, `stale` returns exit 0
+  with `INDEX_STALE` and no snippet, while `unavailable` / `error` return exit 3.
+  Missing or malformed committed source-root metadata fails closed with
+  `SOURCE_PROFILE_INCOMPLETE`; lexical or symlink root escapes use `SOURCE_PATH_INVALID`.
+- `--source` is rejected with `--enrich` / `--package`; source paging flags require
+  `--source`.
 - `--package` and `--with-docs` require `--enrich`; package lookup obeys
   `--module` and `--scope`
 - Member paging/filter flags belong to the non-enriched node view and are
@@ -644,10 +664,11 @@ anatomist callees-of <method-fqn> --depth 2 --source-window=3 --index <db>
 
 | Field | Meaning |
 |-------|---------|
-| `path` | Absolute source file path |
-| `line` | Edge line number |
 | `start_line` / `end_line` | Included snippet range |
 | `snippet` | Numbered source lines |
+
+The parent edge already carries `source_file` and `source_location`; v2 does
+not repeat them as `path` and `line` inside `source_window`.
 
 ### `callers-of`
 Incoming call chain (impact analysis).
@@ -666,9 +687,9 @@ anatomist callers-of com.vendor.json.SafeFastjsonParser#parseObject(java.lang.St
   exact match; `com.vendor.Type#method` matches all indexed overloads of that method.
   The external edge is depth 1, and `--depth N` continues upward only through
   project-internal callers. It does not index or traverse the dependency JAR.
-- External edge identity is explicit in JSON: `external_target=true`, `is_external=true`,
-  `external_target_fqn`, `resolution`, and the extractor's `confidence`. Do not treat it as a
-  project declaration (`target` and `target_symbol_id` are null).
+- External edge identity is explicit in JSON: `is_external=true`,
+  `external_target_fqn`, optional `resolution`, and non-default `confidence`.
+  It has no project `target`.
 - `--through-callbacks`: when an incoming call originates inside an anonymous-class / lambda body, attribute it to the enclosing real method (tagged `via=<body-id>`, `call_kind=CALLBACK`) instead of reporting the synthetic `$anon@…#process()` node — so impact analysis reaches the actual caller.
 - `--source-window[=N]`: attach numbered source snippets to returned caller edges. Good for impact reports where each caller needs file/line evidence.
 - `--limit` / `--offset` / `--filter`: page wide impact graphs and continue with `stats.next_offset`. JSON always includes paging stats and `budget`, including the first page.
@@ -819,9 +840,10 @@ Use this progressive path instead of asking for everything at once:
 | 3. Package skeleton | `anatomist overview --deps-only --limit 50 --offset 0 --index <db>` |
 | 4. Symbol search | `anatomist search <term> --limit 50 --offset 0 --index <db>` |
 | 5. Type drill-down | `anatomist context <type> --members-limit 50 --index <db>` |
-| 6. Flow drill-down | `anatomist callees-of <method> --depth 3 --limit 50 --index <db>` |
-| 7. Source-backed proof | `anatomist callees-of <method> --depth 2 --limit 20 --source-window=3 --index <db>` |
-| 8. Branch slice | `anatomist branches-of <method> --depth 3 --source-window=3 --index <db>` |
+| 6. Method understanding | `anatomist context '<exact-method>' --source --index <db>` |
+| 7. Flow drill-down | `anatomist callees-of <method> --depth 3 --limit 50 --index <db>` |
+| 8. Call-site proof | `anatomist callees-of <method> --depth 2 --limit 20 --source-window=3 --index <db>` |
+| 9. Branch slice | `anatomist branches-of <method> --depth 3 --source-window=3 --index <db>` |
 
 ## Context Filters
 

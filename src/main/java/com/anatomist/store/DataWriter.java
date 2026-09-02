@@ -86,8 +86,9 @@ public class DataWriter {
             "INSERT INTO annotations(node_id,annotation_fqn,attributes,source_file,producer_id) VALUES (?,?,?,?,?)";
     private static final String SQL_INSERT_DECLARATION = "INSERT OR REPLACE INTO declarations(symbol_id,"
             + "qualified_name,label,kind,declaration_kind,type_kind,visibility,modifiers,declared_modifiers,"
-            + "implicit_modifiers,declaring_type,source_file,source_location,module,scope,nesting_depth,direct_member,"
-            + "synthetic,binding_resolved,producer_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            + "implicit_modifiers,declaring_type,source_file,source_location,begin_line,begin_column,end_line,end_column,"
+            + "module,scope,nesting_depth,direct_member,synthetic,binding_resolved,producer_id) "
+            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
     private final ConnectionSupplier connSupplier;
 
@@ -813,6 +814,8 @@ public class DataWriter {
                 ps.setString(i++, com.anatomist.json.Json.writeCompact(declaration.implicitModifiers));
                 ps.setString(i++, declaration.declaringType); ps.setString(i++, declaration.sourceFile);
                 ps.setString(i++, declaration.sourceLocation);
+                setNullableInt(ps, i++, declaration.beginLine); setNullableInt(ps, i++, declaration.beginColumn);
+                setNullableInt(ps, i++, declaration.endLine); setNullableInt(ps, i++, declaration.endColumn);
                 ps.setString(i++, declaration.module == null ? "." : declaration.module);
                 ps.setString(i++, declaration.scope == null ? GraphConstants.Scope.MAIN : declaration.scope);
                 ps.setInt(i++, declaration.nestingDepth);

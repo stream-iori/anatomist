@@ -154,8 +154,10 @@ class ProgressiveDisclosureIT {
         Map<?, ?> edge = (Map<?, ?>) ((List<?>) json.get("results")).get(0);
         Map<?, ?> window = (Map<?, ?>) edge.get("source_window");
         assertNotNull(window, "source_window should be attached when requested: " + r.stdout);
-        assertNotNull(window.get("path"));
-        assertNotNull(window.get("line"));
+        assertNotNull(window.get("start_line"));
+        assertNotNull(window.get("end_line"));
+        assertFalse(window.containsKey("path"));
+        assertFalse(window.containsKey("line"));
         assertTrue(((String) window.get("snippet")).contains("|"));
     }
 

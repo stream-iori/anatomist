@@ -32,8 +32,8 @@ class ReflectionAnalysisIT {
                 "--index", fixture.db().toString());
         Map<?, ?> reflectionCall = results(callees).stream()
                 .filter(row -> "REFLECTION".equals(row.get("call_kind")))
-                .filter(row -> "p.Target#echo(java.lang.String)"
-                        .equals(row.get("target_symbol_id")))
+                .filter(row -> String.valueOf(row.get("target"))
+                        .endsWith("::MAIN::p.Target#echo(java.lang.String)"))
                 .findFirst().orElseThrow(() -> new AssertionError(callees.toString()));
         assertEquals("INFERRED", reflectionCall.get("confidence"));
         assertTrue(((String) reflectionCall.get("metadata"))
@@ -48,23 +48,23 @@ class ReflectionAnalysisIT {
                 "--index", fixture.db().toString());
         assertTrue(results(deps).stream().anyMatch(row ->
                 "REFERENCES".equals(row.get("relation"))
-                        && "p.Target".equals(row.get("target_symbol_id"))
+                        && String.valueOf(row.get("target")).endsWith("::MAIN::p.Target")
                         && ((String) row.get("metadata"))
                         .contains("\"operation\":\"CLASS_FOR_NAME\"")), deps.toString());
         assertTrue(results(deps).stream().anyMatch(row ->
                 "REFERENCES".equals(row.get("relation"))
-                        && "p.Target#echo(java.lang.String)"
-                        .equals(row.get("target_symbol_id"))), deps.toString());
+                        && String.valueOf(row.get("target"))
+                        .endsWith("::MAIN::p.Target#echo(java.lang.String)")), deps.toString());
         assertTrue(results(deps).stream().anyMatch(row ->
                 "REFERENCES".equals(row.get("relation"))
-                        && "p.Outer.Inner".equals(row.get("target_symbol_id"))),
+                        && String.valueOf(row.get("target")).endsWith("::MAIN::p.Outer.Inner")),
                 deps.toString());
 
         Map<?, ?> callers = query("callers-of", "p.Target#echo",
                 "--index", fixture.db().toString());
         assertTrue(results(callers).stream().anyMatch(row ->
                 "REFLECTION".equals(row.get("call_kind"))
-                        && "p.Caller#run()".equals(row.get("source_symbol_id"))),
+                        && String.valueOf(row.get("source")).endsWith("::MAIN::p.Caller#run()")),
                 callers.toString());
 
         Map<?, ?> path = query("call-path", "p.Caller#run", "p.Helper#done",
@@ -72,7 +72,8 @@ class ReflectionAnalysisIT {
         assertTrue(results(path).stream().anyMatch(row ->
                 "REFLECTION".equals(row.get("call_kind"))), path.toString());
         assertTrue(results(path).stream().anyMatch(row ->
-                "p.Helper#done(java.lang.String)".equals(row.get("target_symbol_id"))),
+                String.valueOf(row.get("target"))
+                        .endsWith("::MAIN::p.Helper#done(java.lang.String)")),
                 path.toString());
 
         assertEquals(0, scalar(fixture.db(),

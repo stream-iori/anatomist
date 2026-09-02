@@ -9,6 +9,8 @@ import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryEnvelope;
 import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.SourceContext;
+import com.anatomist.query.SourceRequest;
 import com.anatomist.query.SymbolResolution;
 import com.anatomist.query.SymbolResolutionException;
 import picocli.CommandLine.Command;
@@ -22,11 +24,15 @@ import java.util.concurrent.Callable;
 @Command(name = "context",
         mixinStandardHelpOptions = true,
         description = "Show node + contained members + annotations. "
+                    + "Add --source for the exact source-backed declaration. "
                     + "Add --with-callees[=N] for outgoing CALLS. "
                     + "Add --enrich for semantic annotations, docs and suggested queries.")
 public class ContextCommand implements Callable<Integer> {
 
-    @Parameters(index = "0", arity = "0..1", description = "Unique type or method selector; use a full signature for overloaded methods.")
+    private static final int DEFAULT_SOURCE_LIMIT = 200;
+    private static final int MAX_SOURCE_LIMIT = 1000;
+
+    @Parameters(index = "0", arity = "0..1", description = "Unique type, method, or constructor selector; use a full signature for overloaded methods.")
     String target;
 
     @Option(names = "--enrich",
@@ -40,6 +46,15 @@ public class ContextCommand implements Callable<Integer> {
     @Option(names = "--with-callees", arity = "0..1", fallbackValue = "1",
             description = "Include outgoing CALLS, N hops (default 1 when flag present).")
     Integer withCallees;
+
+    @Option(names = "--source", description = "Return the exact source-backed declaration.")
+    boolean source;
+
+    @Option(names = "--source-limit", description = "Maximum source lines to emit (default 200, max 1000).")
+    Integer sourceLimit;
+
+    @Option(names = "--source-offset", description = "Zero-based line offset within the declaration.")
+    Integer sourceOffset;
 
     @Option(names = "--members-limit", description = "Max contained members to emit (default 0 = all).")
     int membersLimit = 0;
@@ -92,6 +107,12 @@ public class ContextCommand implements Callable<Integer> {
         if (withDocs && !enrich) {
             throw new IllegalArgumentException("--with-docs requires --enrich");
         }
+        if (source && (enrich || pkg != null)) {
+            throw new IllegalArgumentException("--source is not supported with --enrich or --package");
+        }
+        if (!source && (sourceLimit != null || sourceOffset != null)) {
+            throw new IllegalArgumentException("--source-limit and --source-offset require --source");
+        }
         if (methodsOnly && fieldsOnly) {
             throw new IllegalArgumentException("--methods-only and --fields-only are mutually exclusive");
         }
@@ -105,6 +126,14 @@ public class ContextCommand implements Callable<Integer> {
         CliValidation.nonNegative("--members-limit", membersLimit);
         CliValidation.nonNegative("--members-offset", membersOffset);
         if (withCallees != null) CliValidation.nonNegative("--with-callees", withCallees);
+        if (sourceLimit != null) {
+            CliValidation.positive("--source-limit", sourceLimit);
+            if (sourceLimit > MAX_SOURCE_LIMIT) {
+                throw new IllegalArgumentException("--source-limit must be <= " + MAX_SOURCE_LIMIT
+                        + "; got " + sourceLimit);
+            }
+        }
+        if (sourceOffset != null) CliValidation.nonNegative("--source-offset", sourceOffset);
         format = CliValidation.choice("--format", format, "markdown", "json");
     }
 
@@ -113,7 +142,10 @@ public class ContextCommand implements Callable<Integer> {
             q.selectNodes(module, scope);
             SymbolResolution resolution = q.resolveNode(target);
             NodeRow selected = resolution.requireUnique();
-            ContextResult r = q.context(selected.id, withCallees == null ? 0 : withCallees);
+            SourceRequest sourceRequest = source
+                    ? new SourceRequest(effectiveSourceLimit(), effectiveSourceOffset()) : null;
+            ContextResult r = q.context(selected.id, withCallees == null ? 0 : withCallees, sourceRequest);
+            List<String> nextQueries = new java.util.ArrayList<>();
             int membersTotal = 0;
             int safeOffset = 0;
             boolean membersTruncated = false;
@@ -150,19 +182,35 @@ public class ContextCommand implements Callable<Integer> {
                 if (membersTruncated) {
                     int nextOffset = safeOffset + membersLimit;
                     env.stats.put("members_next_offset", nextOffset);
-                    env.nextQueries = List.of(buildQueryString(nextOffset, true) + " "
-                            + Disclosure.renderCommand(List.of("--index", db.toString())));
+                    nextQueries.add(withIndex(buildQueryString(nextOffset, true,
+                            effectiveSourceOffset(), false, source), db));
                 }
                 Disclosure.putBudget(env, "members", r.members.size(), membersTotal);
             }
-            attachEvidence(q, env, r != null);
+            SourceContext sourceContext = r == null ? null : r.source;
+            if (sourceContext != null && "ok".equals(sourceContext.status)
+                    && Boolean.TRUE.equals(sourceContext.truncated)) {
+                int emitted = sourceContext.startLine == null ? 0
+                        : sourceContext.endLine - sourceContext.startLine + 1;
+                int nextOffset = sourceContext.offset + emitted;
+                nextQueries.add(withIndex(buildQueryString(safeOffset, false,
+                        nextOffset, true, true), db));
+            }
+            if (!nextQueries.isEmpty()) env.nextQueries = List.copyOf(nextQueries);
+            boolean fatalSource = sourceContext != null && sourceContext.fatal();
+            if (fatalSource) {
+                env.evidence = com.anatomist.query.QueryEvidence.indeterminate(
+                        sourceContext.warningCode, sourceContext.warningMessage);
+            } else {
+                attachEvidence(q, env, r != null);
+            }
             String effectiveFormat = format == null ? "json" : format;
             if ("markdown".equals(effectiveFormat)) {
-                System.out.print(MarkdownFormatter.format(r));
+                System.out.print(MarkdownFormatter.format(r, nextQueries));
             } else {
                 JsonFormatter.emit(System.out, env);
             }
-            return r == null ? 2 : 0;
+            return r == null ? 2 : fatalSource ? 3 : 0;
         } catch (SymbolResolutionException failure) {
             return SymbolResolutionOutput.emit(failure, db, module, scope);
         }
@@ -205,10 +253,12 @@ public class ContextCommand implements Callable<Integer> {
     }
 
     private String buildQueryString() {
-        return buildQueryString(membersOffset, false);
+        return buildQueryString(membersOffset, false, effectiveSourceOffset(), false, false);
     }
 
-    private String buildQueryString(int effectiveMembersOffset, boolean offsetLast) {
+    private String buildQueryString(int effectiveMembersOffset, boolean memberOffsetLast,
+                                    int effectiveSourceOffset, boolean sourceOffsetLast,
+                                    boolean forceSourceLimit) {
         List<String> args = new java.util.ArrayList<>();
         args.add("context");
         Disclosure.addFlag(args, enrich, "--enrich");
@@ -217,6 +267,7 @@ public class ContextCommand implements Callable<Integer> {
             args.add("--package");
             args.add(pkg);
         }
+        Disclosure.addFlag(args, source, "--source");
         if (withCallees != null) args.add("--with-callees=" + withCallees);
         if (format != null) {
             args.add("--format");
@@ -225,17 +276,38 @@ public class ContextCommand implements Callable<Integer> {
         if (membersLimit > 0) {
             Disclosure.addOption(args, "--members-limit", membersLimit);
         }
-        if (effectiveMembersOffset > 0 && !offsetLast) {
+        if (effectiveMembersOffset > 0 && !memberOffsetLast) {
             Disclosure.addOption(args, "--members-offset", effectiveMembersOffset);
+        }
+        if (source && (sourceLimit != null || forceSourceLimit)) {
+            Disclosure.addOption(args, "--source-limit", effectiveSourceLimit());
+        }
+        if (source && effectiveSourceOffset > 0 && !sourceOffsetLast) {
+            Disclosure.addOption(args, "--source-offset", effectiveSourceOffset);
         }
         Disclosure.addFlag(args, methodsOnly, "--methods-only");
         Disclosure.addFlag(args, fieldsOnly, "--fields-only");
         Disclosure.addFlag(args, withDocs, "--with-docs");
         Disclosure.addOption(args, "--module", module);
         Disclosure.addOption(args, "--scope", scope);
-        if (effectiveMembersOffset > 0 && offsetLast) {
+        if (effectiveMembersOffset > 0 && memberOffsetLast) {
             Disclosure.addOption(args, "--members-offset", effectiveMembersOffset);
         }
+        if (source && effectiveSourceOffset > 0 && sourceOffsetLast) {
+            Disclosure.addOption(args, "--source-offset", effectiveSourceOffset);
+        }
         return String.join(" ", args);
+    }
+
+    private int effectiveSourceLimit() {
+        return sourceLimit == null ? DEFAULT_SOURCE_LIMIT : sourceLimit;
+    }
+
+    private int effectiveSourceOffset() {
+        return sourceOffset == null ? 0 : sourceOffset;
+    }
+
+    private static String withIndex(String query, Path db) {
+        return query + " " + Disclosure.renderCommand(List.of("--index", db.toString()));
     }
 }

@@ -17,6 +17,10 @@ public class Declaration {
     public String declaringType;
     public String sourceFile;
     public String sourceLocation;
+    public Integer beginLine;
+    public Integer beginColumn;
+    public Integer endLine;
+    public Integer endColumn;
     public String module;
     public String scope;
     public int nestingDepth;

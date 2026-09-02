@@ -307,7 +307,7 @@ smoke-installed:
     anatomist search OrderService --index {{SMOKE_DB}} | head -10
 
 # Verify native binary produces identical JSON output to JVM jar.
-# Indexes fixture with both, runs 6 query commands, diffs output.
+# Indexes fixture with both, runs 7 query commands, diffs output.
 native-smoke: jar native
     #!/usr/bin/env bash
     export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
@@ -364,6 +364,7 @@ native-smoke: jar native
         "search OrderService"
         "callees-of com.example.shop.service.OrderService#createOrder --depth 2"
         "context com.example.shop.service.OrderService"
+        "context com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest) --source --source-limit 5"
         "deps-of com.example.shop.service.OrderService --limit 50"
         "overview --deps-only"
         "hierarchy com.example.shop.service.OrderService"
@@ -373,8 +374,12 @@ native-smoke: jar native
     for cmd in "${CMDS[@]}"; do
         echo "--- $cmd ---"
         read -r -a args <<< "$cmd"
-        "${JVM[@]}" "${args[@]}" --index "$DB_JVM" 2>/dev/null | sed 's/"query"[[:space:]]*:[[:space:]]*"[^"]*",*//' > "${OUT}-jvm.json"
-        "$NATIVE" "${args[@]}" --index "$DB_NAT" 2>/dev/null | sed 's/"query"[[:space:]]*:[[:space:]]*"[^"]*",*//' > "${OUT}-native.json"
+        "${JVM[@]}" "${args[@]}" --index "$DB_JVM" 2>/dev/null \
+            | sed -e 's/"query"[[:space:]]*:[[:space:]]*"[^"]*",*//' -e "s|$DB_JVM|<INDEX>|g" \
+            > "${OUT}-jvm.json"
+        "$NATIVE" "${args[@]}" --index "$DB_NAT" 2>/dev/null \
+            | sed -e 's/"query"[[:space:]]*:[[:space:]]*"[^"]*",*//' -e "s|$DB_NAT|<INDEX>|g" \
+            > "${OUT}-native.json"
         if ! diff -q "${OUT}-jvm.json" "${OUT}-native.json" > /dev/null 2>&1; then
             echo "FAIL: output differs for: $cmd"
             diff "${OUT}-jvm.json" "${OUT}-native.json" | head -20

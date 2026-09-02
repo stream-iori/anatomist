@@ -1,11 +1,6 @@
 package com.anatomist.query;
 
 import com.anatomist.json.Json;
-import com.anatomist.model.FileCacheEntry;
-import com.anatomist.store.FileCacheService;
-import com.anatomist.store.IndexStateStore;
-
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -23,26 +18,13 @@ public final class DeclarationQueryService {
     public DeclarationQueryService(Connection connection) { this.connection = connection; }
 
     public void verifyFile(Path index, String file, String module, String scope) {
-        IndexStateStore.Snapshot state = IndexStateStore.read(index);
-        if (!state.fresh()) fail("INDEX_STALE", "index state is " + state.state().name().toLowerCase());
         try {
             if (exists("SELECT 1 FROM index_diagnostics WHERE code='JAVA_PARSE_FAILED' AND source_file=?", file)) {
                 fail("FILE_PARSE_FAILED", "Java parsing failed for " + file);
             }
-            StringBuilder cacheSql = new StringBuilder("SELECT hash FROM file_cache WHERE source_file=?");
-            String cachedHash = scalar(cacheSql.toString(), file);
-            if (cachedHash == null) fail("FILE_NOT_INDEXED", "file is not present in the committed index: " + file);
-
-            String sourceRoot = scalar("SELECT value FROM project_meta WHERE key='source_root'");
-            if (sourceRoot != null && !sourceRoot.isBlank()) {
-                Path source = Path.of(sourceRoot).resolve(file).normalize();
-                if (!source.startsWith(Path.of(sourceRoot).normalize()) || !Files.isRegularFile(source)) {
-                    fail("INDEX_STALE", "indexed source file is missing: " + file);
-                }
-                if (!cachedHash.equals(FileCacheService.sha256(source))) {
-                    fail("INDEX_STALE", "indexed source file has changed: " + file);
-                }
-            }
+            IndexedSourceVerifier.Verification verification =
+                    new IndexedSourceVerifier(connection, index).verify(file);
+            if (!verification.current()) fail(verification.code(), verification.message());
 
             StringBuilder dangling = new StringBuilder("SELECT 1 FROM declarations d WHERE d.source_file=? ")
                     .append("AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.symbol_id=d.symbol_id ")

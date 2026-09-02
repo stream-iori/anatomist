@@ -11,7 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Canonical file-eligibility policy shared by index, incremental, and watch. */
+/** Canonical file-eligibility policy shared by full and incremental indexing. */
 public final class ScanPolicy {
     public static final String HARD_EXCLUDE_POLICY_VERSION = "v1";
 

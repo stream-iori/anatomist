@@ -15,7 +15,6 @@ import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
-import com.anatomist.incremental.IncrementalSessionState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,28 +33,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StagedGraphStoreTest {
-
-    @Test
-    void watchSessionReusesEmptyStagingSchemaAndDeletesItOnClose(@TempDir Path tmp) throws Exception {
-        Path index = tmp.resolve("index.db");
-        Path reusable;
-        try (IncrementalSessionState session = new IncrementalSessionState()) {
-            reusable = session.stagingPath(index);
-            try (StagedGraphStore first = new StagedGraphStore(index, identities(tmp), reusable)) {
-                ExtractionResult result = new ExtractionResult();
-                result.nodes.add(node("p.A", "m1/src/main/java/A.java"));
-                first.writeRawBatch(result);
-            }
-            assertTrue(Files.exists(reusable));
-
-            try (StagedGraphStore second = new StagedGraphStore(index, identities(tmp), reusable);
-                 Connection check = DriverManager.getConnection("jdbc:sqlite:" + reusable);
-                 Statement statement = check.createStatement()) {
-                assertEquals(0, scalar(statement, "SELECT count(*) FROM stage_nodes"));
-            }
-        }
-        assertFalse(Files.exists(reusable));
-    }
 
     @Test
     void rawFactsResolveAcrossFilesAndAmbiguityBecomesExternal(@TempDir Path tmp) throws Exception {

@@ -28,7 +28,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +54,6 @@ import com.google.common.cache.CacheBuilder;
 public class JavaParserFactory {
 
     private static final int FULL_SOURCE_CACHE_SIZE = 256;
-    private static final int WATCH_SOURCE_CACHE_SIZE = 1_024;
     private static final long COMBINED_TYPE_CACHE_SIZE = 20_000;
     static final String SOURCE_CACHE_PROPERTY = "anatomist.typeCache.sourceMaxEntries";
     static final String COMBINED_CACHE_PROPERTY = "anatomist.typeCache.combinedMaxEntries";
@@ -65,9 +63,7 @@ public class JavaParserFactory {
     private final List<Path> sourcePaths;
     private final boolean includeRunningVmClasspath;
     private final Path jdkHome;
-    private final Session session;
     private final List<Supplier<Processor>> extensionProcessors;
-    private final String extensionFingerprint;
     private IndexTimings timings;
 
     public JavaParserFactory(int javaVersion,
@@ -83,7 +79,7 @@ public class JavaParserFactory {
                              boolean includeRunningVmClasspath,
                              Path jdkHome) {
         this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath,
-                jdkHome, List.of(), "");
+                jdkHome, List.of());
     }
 
     public JavaParserFactory(int javaVersion,
@@ -91,54 +87,13 @@ public class JavaParserFactory {
                              List<Path> sourcePaths,
                              boolean includeRunningVmClasspath,
                              Path jdkHome,
-                             List<Supplier<Processor>> extensionProcessors,
-                             String extensionFingerprint) {
-        this.javaVersion = javaVersion;
-        this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
-        this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
-        this.includeRunningVmClasspath = includeRunningVmClasspath;
-        this.jdkHome = jdkHome == null ? null : jdkHome.toAbsolutePath().normalize();
-        this.session = null;
-        this.extensionProcessors = extensionProcessors == null ? List.of() : List.copyOf(extensionProcessors);
-        this.extensionFingerprint = extensionFingerprint == null ? "" : extensionFingerprint;
-    }
-
-    public JavaParserFactory(int javaVersion,
-                             List<Path> classpathEntries,
-                             List<Path> sourcePaths,
-                             boolean includeRunningVmClasspath,
-                             SessionCache sessions) {
-        this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath, sessions, null);
-    }
-
-    public JavaParserFactory(int javaVersion,
-                             List<Path> classpathEntries,
-                             List<Path> sourcePaths,
-                             boolean includeRunningVmClasspath,
-                             SessionCache sessions,
-                             Path jdkHome) {
-        this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath,
-                sessions, jdkHome, List.of(), "");
-    }
-
-    public JavaParserFactory(int javaVersion,
-                             List<Path> classpathEntries,
-                             List<Path> sourcePaths,
-                             boolean includeRunningVmClasspath,
-                             SessionCache sessions,
-                             Path jdkHome,
-                             List<Supplier<Processor>> extensionProcessors,
-                             String extensionFingerprint) {
+                             List<Supplier<Processor>> extensionProcessors) {
         this.javaVersion = javaVersion;
         this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
         this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
         this.includeRunningVmClasspath = includeRunningVmClasspath;
         this.jdkHome = jdkHome == null ? null : jdkHome.toAbsolutePath().normalize();
         this.extensionProcessors = extensionProcessors == null ? List.of() : List.copyOf(extensionProcessors);
-        this.extensionFingerprint = extensionFingerprint == null ? "" : extensionFingerprint;
-        this.session = sessions == null ? null : sessions.acquire(
-                javaVersion, this.classpathEntries, this.sourcePaths, includeRunningVmClasspath,
-                this.jdkHome, this.extensionFingerprint, this);
     }
 
     /** Build the combined TypeSolver matching the configured environment. */
@@ -233,9 +188,8 @@ public class JavaParserFactory {
      * fail per file).</p>
      */
     public void parseAll(BiConsumer<Path, CompilationUnit> consumer) {
-        Session ownedSession = session == null ? openSession(fullSourceCacheSize()) : null;
-        ParserConfiguration cfg = session == null ? ownedSession.configuration : session.configuration;
-        try {
+        try (Session ownedSession = openSession(fullSourceCacheSize())) {
+            ParserConfiguration cfg = ownedSession.configuration;
             for (Path src : sourcePaths) {
                 if (src == null || !Files.isDirectory(src)) continue;
                 SourceRoot root = new SourceRoot(src, cfg);
@@ -257,8 +211,6 @@ public class JavaParserFactory {
                     consumer.accept(file, cu);
                 }
             }
-        } finally {
-            if (ownedSession != null) ownedSession.close();
         }
     }
 
@@ -275,11 +227,8 @@ public class JavaParserFactory {
                 .toList();
         Map<Path, List<String>> failures = new LinkedHashMap<>();
         int parsed = 0;
-        Session ownedSession = session == null ? openSession(fullSourceCacheSize()) : null;
-        ParserConfiguration configuration =
-                session == null ? ownedSession.configuration : session.configuration;
-        JavaParser parser = new JavaParser(configuration);
-        try {
+        try (Session ownedSession = openSession(fullSourceCacheSize())) {
+            JavaParser parser = new JavaParser(ownedSession.configuration);
             for (Path file : inventory) {
                 try {
                     ParseResult<CompilationUnit> result = parser.parse(file);
@@ -301,8 +250,6 @@ public class JavaParserFactory {
                     failures.put(file, List.of("parser failed: " + e.getMessage()));
                 }
             }
-        } finally {
-            if (ownedSession != null) ownedSession.close();
         }
         return new ParseInventory(inventory.size(), inventory.size(), parsed, failures);
     }
@@ -319,7 +266,7 @@ public class JavaParserFactory {
     public ParseFilesResult parseFilesDetailed(List<Path> files) {
         List<CompilationUnit> out = new ArrayList<>();
         Map<Path, List<String>> problems = new LinkedHashMap<>();
-        JavaParser parser = new JavaParser(session == null ? newConfiguration() : session.configuration);
+        JavaParser parser = new JavaParser(newConfiguration());
         for (Path f : files) {
             Path normalized = f.toAbsolutePath().normalize();
             try {
@@ -350,88 +297,18 @@ public class JavaParserFactory {
     public record ParseFilesResult(List<CompilationUnit> compilationUnits,
                                    Map<Path, List<String>> problems) {}
 
-    /** Invalidate source-backed caches before an incremental batch. */
-    public void invalidate(Collection<Path> files, boolean directoryShapeMayHaveChanged) {
-        invalidate(files, directoryShapeMayHaveChanged, null);
-    }
-
-    /** Invalidate changed source declarations without discarding unrelated classpath results. */
-    public void invalidate(Collection<Path> files, boolean directoryShapeMayHaveChanged,
-                           Collection<String> declaredTypeNames) {
-        if (session != null) session.invalidate(files, directoryShapeMayHaveChanged, declaredTypeNames);
-    }
-
-    /** Watch-owned cache. A changed runtime signature atomically replaces the old session. */
-    public static final class SessionCache implements AutoCloseable {
-        private Session session;
-        private String signature;
-
-        private synchronized Session acquire(int javaVersion,
-                                              List<Path> classpathEntries,
-                                              List<Path> sourcePaths,
-                                              boolean vmClasspath,
-                                              Path jdkHome,
-                                              String extensionFingerprint,
-                                              JavaParserFactory factory) {
-            String next = javaVersion + "|" + vmClasspath + "|" + jdkHome + "|" + sourcePaths
-                    + "|" + classpathEntries + "|" + extensionFingerprint;
-            if (session == null || !next.equals(signature)) {
-                close();
-                session = factory.openSession(watchSourceCacheSize());
-                signature = next;
-            }
-            return session;
-        }
-
-        public synchronized void clear() {
-            close();
-        }
-
-        @Override
-        public synchronized void close() {
-            if (session != null) session.close();
-            session = null;
-            signature = null;
-        }
-    }
-
-    /** Persistent source/type caches used only by a single-threaded Watch session. */
-    static final class Session implements AutoCloseable {
+    /** Resources owned by one parse operation. */
+    private static final class Session implements AutoCloseable {
         private final ParserConfiguration configuration;
-        private final Map<Path, ReloadableSourceSolver> sources;
         private final Cache<String, SymbolReference<ResolvedReferenceTypeDeclaration>> combinedTypes;
         private final List<AutoCloseable> closeables;
 
         private Session(ParserConfiguration configuration,
-                        Map<Path, ReloadableSourceSolver> sources,
                         Cache<String, SymbolReference<ResolvedReferenceTypeDeclaration>> combinedTypes,
                         List<AutoCloseable> closeables) {
             this.configuration = configuration;
-            this.sources = sources;
             this.combinedTypes = combinedTypes;
             this.closeables = closeables;
-        }
-
-        private void invalidate(Collection<Path> files, boolean directoryShapeMayHaveChanged,
-                                Collection<String> declaredTypeNames) {
-            if (declaredTypeNames == null || declaredTypeNames.isEmpty()) {
-                combinedTypes.removeAll();
-            } else {
-                declaredTypeNames.forEach(combinedTypes::remove);
-            }
-            if (files == null) return;
-            java.util.Set<Path> invalidatedRoots = new java.util.HashSet<>();
-            for (Path file : files) {
-                if (file == null) continue;
-                Path normalized = file.toAbsolutePath().normalize();
-                for (Map.Entry<Path, ReloadableSourceSolver> entry : sources.entrySet()) {
-                    if (normalized.startsWith(entry.getKey())) {
-                        invalidatedRoots.add(entry.getKey());
-                        break;
-                    }
-                }
-            }
-            invalidatedRoots.forEach(root -> sources.get(root).reload());
         }
 
         @Override
@@ -440,47 +317,6 @@ public class JavaParserFactory {
                 try { closeable.close(); } catch (Exception ignore) {}
             }
             combinedTypes.removeAll();
-            sources.clear();
-        }
-    }
-
-    private static final class ReloadableSourceSolver implements TypeSolver {
-        private final Path root;
-        private final ParserConfiguration configuration;
-        private TypeSolver parent;
-        private JavaParserTypeSolver delegate;
-
-        private ReloadableSourceSolver(Path root, ParserConfiguration configuration) {
-            this.root = root;
-            this.configuration = configuration;
-            this.delegate = new JavaParserTypeSolver(root, configuration, watchSourceCacheSize());
-        }
-
-        private void reload() {
-            JavaParserTypeSolver replacement = new JavaParserTypeSolver(
-                    root, configuration, watchSourceCacheSize());
-            if (parent != null) replacement.setParent(this);
-            delegate = replacement;
-        }
-
-        @Override public TypeSolver getParent() { return parent; }
-
-        @Override
-        public void setParent(TypeSolver parent) {
-            if (this.parent != null) throw new IllegalStateException("This TypeSolver already has a parent.");
-            this.parent = parent;
-            delegate.setParent(this);
-        }
-
-        @Override
-        public SymbolReference<ResolvedReferenceTypeDeclaration> tryToSolveType(String name) {
-            return delegate.tryToSolveType(name);
-        }
-
-        @Override
-        public SymbolReference<ResolvedReferenceTypeDeclaration> tryToSolveTypeInModule(
-                String moduleName, String name) {
-            return delegate.tryToSolveTypeInModule(moduleName, name);
         }
     }
 
@@ -489,21 +325,13 @@ public class JavaParserFactory {
                 boundedCache(combinedTypeCacheSize());
         CombinedTypeSolver ts = new CombinedTypeSolver(
                 exception -> false, List.<TypeSolver>of(), combinedTypes);
-        Map<Path, ReloadableSourceSolver> sourceSolvers = new LinkedHashMap<>();
         ParserConfiguration sourceConfiguration = configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
                 .setSymbolResolver(new JavaSymbolSolver(ts)));
         for (Path src : sourcePaths) {
             if (src == null || !Files.isDirectory(src)) continue;
             Path normalized = src.toAbsolutePath().normalize();
-            ReloadableSourceSolver solver = sourceCacheSize == watchSourceCacheSize()
-                    ? new ReloadableSourceSolver(normalized, sourceConfiguration)
-                    : null;
-            TypeSolver sourceSolver = solver != null
-                    ? solver
-                    : new JavaParserTypeSolver(normalized, sourceConfiguration, sourceCacheSize);
-            ts.add(sourceSolver);
-            if (solver != null) sourceSolvers.put(normalized, solver);
+            ts.add(new JavaParserTypeSolver(normalized, sourceConfiguration, sourceCacheSize));
         }
         if (includeRunningVmClasspath) {
             if (isNativeImage()) {
@@ -522,7 +350,7 @@ public class JavaParserFactory {
         ParserConfiguration configuration = configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
                 .setSymbolResolver(new JavaSymbolSolver(ts)));
-        return new Session(configuration, sourceSolvers, combinedTypes, closeables);
+        return new Session(configuration, combinedTypes, closeables);
     }
 
     private boolean hasUsableClasspathEntry() {
@@ -544,10 +372,6 @@ public class JavaParserFactory {
 
     static int fullSourceCacheSize() {
         return positiveIntProperty(SOURCE_CACHE_PROPERTY, FULL_SOURCE_CACHE_SIZE);
-    }
-
-    static int watchSourceCacheSize() {
-        return positiveIntProperty(SOURCE_CACHE_PROPERTY, WATCH_SOURCE_CACHE_SIZE);
     }
 
     static long combinedTypeCacheSize() {

@@ -19,6 +19,7 @@ public final class JsonFormatter {
     }
 
     public static void emit(PrintStream out, QueryEnvelope env) {
+        QueryJsonContract.compact(env);
         out.println(toJson(env));
     }
 }

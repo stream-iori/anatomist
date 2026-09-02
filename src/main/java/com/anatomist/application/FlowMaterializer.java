@@ -113,7 +113,7 @@ public final class FlowMaterializer {
             }
             JavaParserFactory parser = new JavaParserFactory(javaVersion,
                     parsePaths(meta.get("classpath_entries")), sourcePaths, true, null,
-                    extensions.processorSuppliers(), extensions.fingerprint());
+                    extensions.processorSuppliers());
             FlowAnalyzer analyzer = new FlowAnalyzer(root, sourcePaths, roots,
                     TaintRules.load(root), false, FlowProfile.full());
             FlowResult output = new FlowResult();

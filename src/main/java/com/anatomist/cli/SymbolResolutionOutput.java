@@ -2,6 +2,7 @@ package com.anatomist.cli;
 
 import com.anatomist.query.JsonFormatter;
 import com.anatomist.query.NodeRow;
+import com.anatomist.query.QueryJsonContract;
 import com.anatomist.query.SymbolResolutionException;
 
 import java.nio.file.Path;
@@ -20,6 +21,7 @@ final class SymbolResolutionOutput {
                     String module,
                     String scope) {
         Map<String, Object> out = new LinkedHashMap<>();
+        out.put("contract_version", QueryJsonContract.VERSION);
         out.put("status", "error");
         out.put("code", failure.code());
         out.put("message", failure.getMessage());

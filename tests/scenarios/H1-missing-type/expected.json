@@ -1,6 +1,7 @@
 {
   "candidates" : [ ],
   "code" : "SYMBOL_NOT_FOUND",
+  "contract_version" : 2,
   "message" : "no type matches selector 'com.example.shop.missing.DoesNotExist'",
   "results" : [ ],
   "selector" : "com.example.shop.missing.DoesNotExist",

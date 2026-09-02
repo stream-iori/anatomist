@@ -8,7 +8,7 @@ import com.anatomist.framework.lombok.LombokMode;
 
 import java.util.ArrayList;
 
-/** Single compile-time registration point used by full, incremental and watch indexing. */
+/** Single compile-time registration point used by full and incremental indexing. */
 public final class BuiltInExtensions {
     private BuiltInExtensions() {}
 

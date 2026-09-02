@@ -61,9 +61,21 @@ public class CallGraphExtractor implements Extractor {
             public void visit(MethodCallExpr n, Void arg) {
                 ResolvedMethodDeclaration target;
                 try {
+                    if (emitDeterministicLexicalScopedCall(n, result)) {
+                        super.visit(n, arg);
+                        return;
+                    }
+                    if (emitDeterministicLexicalOverload(n, result)) {
+                        super.visit(n, arg);
+                        return;
+                    }
                     target = n.resolve();
                     if (unreliableSignature(target)) {
                         emitFallback(n, result);
+                        super.visit(n, arg);
+                        return;
+                    }
+                    if (emitDeterministicProjectOverload(n, target, result)) {
                         super.visit(n, arg);
                         return;
                     }
@@ -274,10 +286,13 @@ public class CallGraphExtractor implements Extractor {
                 .collect(Collectors.toList());
         Map<String, Object> meta = new LinkedHashMap<>();
         if (ambiguous) meta.put("reason", "overload");
-        meta.put("arguments", call.getArguments().stream()
-                .map(this::fallbackTypeOfArgument).collect(Collectors.toList()));
-        meta.put("candidates", candidates);
-        String metadata = Json.writeCompact(meta);
+        String metadata = null;
+        if (ambiguous) {
+            meta.put("arguments", call.getArguments().stream()
+                    .map(this::fallbackTypeOfArgument).collect(Collectors.toList()));
+            meta.put("candidates", candidates);
+            metadata = Json.writeCompact(meta);
+        }
         for (MethodDeclaration target : targets) {
             String targetId = methodId(target);
             if (targetId == null || targetId.equals(enclosingId)) continue;
@@ -373,6 +388,88 @@ public class CallGraphExtractor implements Extractor {
         return true;
     }
 
+    /**
+     * JavaParser's resolved declaration can depend on iteration order when a
+     * project-source type has same-arity overloads. Re-select from its AST so
+     * the emitted graph follows source declaration order and the call argument
+     * types, rather than an implementation-set traversal order.
+     */
+    private boolean emitDeterministicProjectOverload(MethodCallExpr call,
+                                                     ResolvedMethodDeclaration resolved,
+                                                     ExtractionResult result) {
+        ResolvedReferenceTypeDeclaration owner;
+        try {
+            owner = resolved.declaringType();
+        } catch (RuntimeException e) {
+            return false;
+        }
+        if (!ctx.isProjectInternal(owner)) return false;
+
+        List<MethodDeclaration> candidates = astOverloadCandidates(owner, call);
+        if (candidates.size() < 2) return false;
+        List<MethodDeclaration> targets = deterministicAstTargets(candidates, call);
+        emitAstCandidates(call, owner, targets, result);
+        return true;
+    }
+
+    private boolean emitDeterministicLexicalOverload(MethodCallExpr call, ExtractionResult result) {
+        if (call.getScope().isPresent()) return false;
+        Optional<TypeDeclaration> owner = call.findAncestor(TypeDeclaration.class);
+        if (owner.isEmpty()) return false;
+        List<MethodDeclaration> candidates = astOverloadCandidates(owner.get(), call);
+        if (candidates.size() < 2) return false;
+        List<MethodDeclaration> targets = deterministicAstTargets(candidates, call);
+        String enclosingId = enclosingMethodId(call);
+        if (enclosingId == null) return false;
+        emitLocalAstCandidates(call, enclosingId, targets, result);
+        return true;
+    }
+
+    private boolean emitDeterministicLexicalScopedCall(MethodCallExpr call,
+                                                        ExtractionResult result) {
+        Optional<Expression> scope = call.getScope();
+        if (scope.isEmpty()) return false;
+        String typeName = null;
+        String callKind = GraphConstants.CallKind.INSTANCE;
+        Expression expression = scope.get();
+        if (looksLikeTypeName(expression.toString())) {
+            typeName = resolveStaticScopeName(call, expression.toString());
+            callKind = GraphConstants.CallKind.STATIC;
+        } else if (expression.isNameExpr()) {
+            typeName = AstTypeNames.findVisibleNameType(
+                    expression.asNameExpr().getNameAsString(), expression);
+        } else if (expression.isThisExpr()) {
+            Optional<TypeDeclaration> owner = call.findAncestor(TypeDeclaration.class);
+            if (owner.isPresent()) {
+                typeName = AstTypeNames.qualifySimpleName(owner.get(), owner.get().getNameAsString());
+            }
+        } else if (expression.isSuperExpr()) {
+            Optional<ClassOrInterfaceDeclaration> owner =
+                    call.findAncestor(ClassOrInterfaceDeclaration.class);
+            if (owner.isPresent() && !owner.get().getExtendedTypes().isEmpty()) {
+                typeName = AstTypeNames.ofAst(owner.get().getExtendedTypes().get(0), owner.get());
+                callKind = GraphConstants.CallKind.SUPER;
+            }
+        }
+        if (!AstTypeNames.resolved(typeName)) return false;
+        String parameters = call.getArguments().stream()
+                .map(AstTypeNames::ofExpressionStable)
+                .collect(Collectors.joining(","));
+        if (parameters.contains("<unresolved>")) return false;
+
+        String enclosingId = enclosingMethodId(call);
+        if (enclosingId == null) return false;
+        Edge edge = baseEdge(call, enclosingId);
+        edge.callKind = callKind;
+        edge.confidence = GraphConstants.Confidence.INFERRED;
+        edge.externalTargetFqn = typeName + "#" + call.getNameAsString()
+                + "(" + parameters + ")";
+        edge.isExternal = true;
+        edge.resolution = GraphConstants.Resolution.AST_FALLBACK;
+        result.edges.add(edge);
+        return true;
+    }
+
     private String lexicalScopeType(Expression scope) {
         if (scope == null) return null;
         if (lexicalScopeTypes.containsKey(scope)) return lexicalScopeTypes.get(scope);
@@ -385,16 +482,21 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private List<MethodDeclaration> resolveByAstOverload(ResolvedReferenceTypeDeclaration decl, MethodCallExpr call) {
+        List<MethodDeclaration> candidates = astOverloadCandidates(decl, call);
+        if (candidates.size() <= 1) return candidates;
+        return deterministicAstTargets(candidates, call);
+    }
+
+    private List<MethodDeclaration> astOverloadCandidates(ResolvedReferenceTypeDeclaration decl,
+                                                            MethodCallExpr call) {
         Optional<com.github.javaparser.ast.Node> ast;
         try { ast = decl.toAst(); }
         catch (RuntimeException e) { return List.of(); }
         if (ast.isEmpty() || !(ast.get() instanceof TypeDeclaration<?> type)) return List.of();
-        List<MethodDeclaration> candidates = type.getMethods().stream()
+        return type.getMethods().stream()
                 .filter(m -> m.getNameAsString().equals(call.getNameAsString()))
-                .filter(m -> m.getParameters().size() == call.getArguments().size())
+                .filter(m -> CallOverloadResolver.matchesArity(m, call.getArguments().size()))
                 .toList();
-        if (candidates.size() <= 1) return candidates;
-        return CallOverloadResolver.bestAst(candidates, call, this::overloadTypeOfArgument);
     }
 
     private List<MethodDeclaration> resolveByLexicalAstOverload(ResolvedReferenceTypeDeclaration decl, MethodCallExpr call) {
@@ -425,12 +527,26 @@ public class CallGraphExtractor implements Extractor {
     }
 
     private List<MethodDeclaration> resolveByAstOverload(TypeDeclaration<?> type, MethodCallExpr call) {
-        List<MethodDeclaration> candidates = type.getMethods().stream()
-                .filter(m -> m.getNameAsString().equals(call.getNameAsString()))
-                .filter(m -> m.getParameters().size() == call.getArguments().size())
-                .toList();
+        List<MethodDeclaration> candidates = astOverloadCandidates(type, call);
         if (candidates.size() <= 1) return candidates;
-        return CallOverloadResolver.bestAst(candidates, call, this::overloadTypeOfArgument);
+        return deterministicAstTargets(candidates, call);
+    }
+
+    private List<MethodDeclaration> deterministicAstTargets(List<MethodDeclaration> candidates,
+                                                              MethodCallExpr call) {
+        List<MethodDeclaration> best = CallOverloadResolver.bestAst(
+                candidates, call, this::overloadTypeOfArgument);
+        // The AST-only matcher intentionally does not model full inheritance
+        // conversion. Keep every applicable source overload rather than let a
+        // hash-backed SymbolSolver traversal choose one arbitrarily.
+        return best.isEmpty() ? candidates : best;
+    }
+
+    private List<MethodDeclaration> astOverloadCandidates(TypeDeclaration<?> type, MethodCallExpr call) {
+        return type.getMethods().stream()
+                .filter(m -> m.getNameAsString().equals(call.getNameAsString()))
+                .filter(m -> CallOverloadResolver.matchesArity(m, call.getArguments().size()))
+                .toList();
     }
 
     private void emitAstCandidates(MethodCallExpr call, ResolvedReferenceTypeDeclaration owner,
@@ -445,12 +561,17 @@ public class CallGraphExtractor implements Extractor {
                 .collect(Collectors.toList());
         Map<String, Object> meta = new LinkedHashMap<>();
         if (ambiguous) meta.put("reason", "overload");
-        meta.put("arguments", call.getArguments().stream()
-                .map(this::fallbackTypeOfArgument).collect(Collectors.toList()));
-        meta.put("candidates", candidates);
-        String metadata = Json.writeCompact(meta);
+        String metadata = null;
+        if (ambiguous) {
+            meta.put("arguments", call.getArguments().stream()
+                    .map(this::fallbackTypeOfArgument).collect(Collectors.toList()));
+            meta.put("candidates", candidates);
+            metadata = Json.writeCompact(meta);
+        }
 
-        for (MethodDeclaration target : targets) {
+        for (MethodDeclaration target : targets.stream()
+                .sorted(java.util.Comparator.comparing(method -> astMethodId(owner, method)))
+                .toList()) {
             Edge e = baseEdge(call, enclosingId);
             e.callKind = target.isStatic() ? GraphConstants.CallKind.STATIC
                     : (owner.isInterface() ? GraphConstants.CallKind.INTERFACE : GraphConstants.CallKind.INSTANCE);
@@ -607,7 +728,7 @@ public class CallGraphExtractor implements Extractor {
 
     private String overloadTypeOfArgument(Expression argument) {
         if (overloadTypes.containsKey(argument)) return overloadTypes.get(argument);
-        String rendered = AstTypeNames.ofExpression(argument);
+        String rendered = AstTypeNames.ofExpressionStable(argument);
         overloadTypes.put(argument, rendered);
         return rendered;
     }

@@ -40,7 +40,6 @@ import picocli.CommandLine.HelpCommand;
                 SkillCommand.class,
                 IndexCommand.class,
                 IndexDocsCommand.class,
-                WatchCommand.class,
                 SearchCommand.class,
                 ContextCommand.class,
                 DeclarationsOfCommand.class,

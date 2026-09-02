@@ -55,7 +55,7 @@ class ExtensionLifecycleTest {
         PreparedExtensions prepared = PreparedExtensions.prepare(new AnalyzerRegistry(
                 List.of(generatedMethod), List.of(), List.of()));
         JavaParserFactory factory = new JavaParserFactory(25, List.of(), List.of(src), true,
-                (Path) null, prepared.processorSuppliers(), prepared.fingerprint());
+                (Path) null, prepared.processorSuppliers());
 
         List<CompilationUnit> units = factory.parseFiles(List.of(a, b));
         CompilationUnit aUnit = units.stream().filter(unit -> unit.getStorage()
@@ -107,7 +107,7 @@ class ExtensionLifecycleTest {
         Path source = tmp.resolve("A.java");
         Files.writeString(source, "class A {}");
         JavaParserFactory factory = new JavaParserFactory(25, List.of(), List.of(tmp), true,
-                (Path) null, prepared.processorSuppliers(), prepared.fingerprint());
+                (Path) null, prepared.processorSuppliers());
 
         CompilationUnit unit = factory.parseFiles(List.of(source)).getFirst();
 

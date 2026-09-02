@@ -5,6 +5,7 @@ import com.anatomist.query.DtoCodecs;
 import com.anatomist.json.Json;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.QueryJsonContract;
 import com.anatomist.store.SqliteStore;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -77,6 +78,7 @@ public class SurveyBaselineCommand implements Callable<Integer> {
             OverviewResult overview = q.overview();
 
             Map<String, Object> out = new LinkedHashMap<>();
+            out.put("contract_version", QueryJsonContract.VERSION);
             out.put("command", "survey-baseline");
             out.put("status", "ok");
             out.put("index_state", "committed");
@@ -122,6 +124,7 @@ public class SurveyBaselineCommand implements Callable<Integer> {
 
     private Integer emitProjectError(String error, String requestedProject, String indexedProject) {
         Map<String, Object> out = new LinkedHashMap<>();
+        out.put("contract_version", QueryJsonContract.VERSION);
         out.put("command", "survey-baseline");
         out.put("status", "error");
         out.put("error", error);

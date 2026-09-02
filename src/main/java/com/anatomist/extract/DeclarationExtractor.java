@@ -9,6 +9,7 @@ import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.Range;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -163,7 +164,15 @@ public final class DeclarationExtractor implements Extractor {
         out.sourceLocation = "L" + declarationLine(ast);
         out.module = ctx.module(); out.scope = ctx.scope();
         com.anatomist.framework.SyntheticOrigin.apply(ast, out);
+        if (!out.synthetic) ast.getRange().ifPresent(range -> applyRange(out, range));
         return out;
+    }
+
+    private static void applyRange(Declaration declaration, Range range) {
+        declaration.beginLine = range.begin.line;
+        declaration.beginColumn = range.begin.column;
+        declaration.endLine = range.end.line;
+        declaration.endColumn = range.end.column;
     }
 
     private static int declarationLine(com.github.javaparser.ast.Node ast) {

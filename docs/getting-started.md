@@ -227,11 +227,16 @@ Every query outputs a JSON envelope:
 
 ```json
 {
+  "contract_version": 2,
   "query": "deps-of OrderService --limit 20",
   "results": [...],
   "stats": {"total": 45, "offset": 0, "truncated": true}
 }
 ```
+
+Query JSON is a versioned projection, not a database-row dump. Version 2 omits
+default provenance and fields already represented by `source`, `target`, the
+parent node, or `source_range`.
 
 - `total` — full result count before pagination
 - `truncated` — whether there are more results on the current depth/page, or a

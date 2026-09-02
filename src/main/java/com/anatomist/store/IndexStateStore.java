@@ -80,7 +80,7 @@ public final class IndexStateStore {
         Snapshot snapshot = read(indexPath);
         if (snapshot.state != State.REBUILDING && snapshot.state != State.INCREMENTAL) return;
         cleanupTemporary(snapshot.temporaryIndex);
-        write(indexPath, State.STALE, "previous watch process interrupted", snapshot.dirtyGeneration, null);
+        write(indexPath, State.STALE, "previous indexing process interrupted", snapshot.dirtyGeneration, null);
     }
 
     public static void cleanupTemporary(String temporaryIndex) {

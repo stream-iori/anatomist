@@ -2,6 +2,7 @@ package com.anatomist.query;
 
 import com.anatomist.store.IndexLock;
 import com.anatomist.store.IndexSchema;
+import com.anatomist.core.GraphSemantics;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -34,6 +35,7 @@ public class QueryService implements AutoCloseable {
     private final DependencyService dependency;
     private final OverviewService overview;
     private final EnrichmentService enrichment;
+    private final SourceContextService sourceContext;
     private final SourceWindowService sourceWindows;
     private final BranchSliceService branchSlices;
 
@@ -57,6 +59,20 @@ public class QueryService implements AutoCloseable {
                             + ", required " + IndexSchema.VERSION + "; re-index required");
                 }
             }
+            try (java.sql.PreparedStatement st = conn.prepareStatement(
+                    "SELECT value FROM project_meta WHERE key=?")) {
+                st.setString(1, GraphSemantics.META_KEY);
+                try (java.sql.ResultSet rs = st.executeQuery()) {
+                    int actual = rs.next() ? GraphSemantics.parse(rs.getString(1)) : 0;
+                    if (actual != GraphSemantics.VERSION) {
+                        conn.close();
+                        lock.close();
+                        throw new IllegalStateException("GRAPH_SEMANTICS_MISMATCH: index graph semantics "
+                                + actual + ", required " + GraphSemantics.VERSION
+                                + "; re-index with --recreate");
+                    }
+                }
+            }
             try (java.sql.Statement st = conn.createStatement()) {
                 st.execute("PRAGMA query_only=ON");
             }
@@ -71,6 +87,7 @@ public class QueryService implements AutoCloseable {
         this.dependency = new DependencyService(conn, resolver);
         this.overview = new OverviewService(conn, resolver);
         this.enrichment = new EnrichmentService(conn, resolver, typeContext, overview);
+        this.sourceContext = new SourceContextService(conn, dbPath);
         this.sourceWindows = new SourceWindowService(conn);
         this.branchSlices = new BranchSliceService(conn, resolver, callGraph, sourceWindows);
     }
@@ -135,6 +152,14 @@ public class QueryService implements AutoCloseable {
 
     public ContextResult context(String fqnOrShorthand, int withCalleesDepth) {
         return typeContext.context(fqnOrShorthand, withCalleesDepth);
+    }
+
+    public ContextResult context(String fqnOrShorthand, int withCalleesDepth, SourceRequest sourceRequest) {
+        ContextResult result = typeContext.context(fqnOrShorthand, withCalleesDepth);
+        if (result != null && sourceRequest != null) {
+            result.source = sourceContext.read(result.node, sourceRequest);
+        }
+        return result;
     }
 
     public HierarchyResult hierarchy(String typeRef) {

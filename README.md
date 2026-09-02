@@ -109,7 +109,6 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 | [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
 | [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Indexing, cache, and environment diagnosis |
-| [docs/developer-watch.md](docs/developer-watch.md) | Human-only local development watcher |
 | [AGENTS.md](AGENTS.md) | Contributor and Agent collaboration guide |
 | [SKILL.md](SKILL.md) | Compact Agent bootstrap; task guidance is embedded behind `anatomist skill [scene]` |
 | [todo.md](todo.md) | Future work |

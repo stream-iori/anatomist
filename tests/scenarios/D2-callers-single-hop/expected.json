@@ -5,57 +5,34 @@
     "total" : 2,
     "truncated" : false
   },
+  "contract_version" : 2,
   "evidence" : {
-    "affected_dimensions" : [ "other_resolution" ],
-    "coverage" : "partial",
-    "diagnostic_counts" : {
-      "METHOD_NOT_FOUND" : 4
-    },
-    "diagnostic_query" : "anatomist doctor --format json --diagnostic-code METHOD_NOT_FOUND --index <same-index>",
-    "negative_conclusion_safe" : false,
+    "coverage" : "complete",
+    "negative_conclusion_safe" : true,
     "status" : "positive"
   },
   "query" : "callers-of 'com.example.shop.service.OrderService#createOrder' --depth 1 --scope MAIN",
   "results" : [ {
     "call_kind" : "INSTANCE",
-    "confidence" : "EXTRACTED",
+    "confidence" : "INFERRED",
     "depth" : 1,
-    "is_external" : false,
-    "producer_id" : "java-core",
     "relation" : "CALLS",
     "source" : "api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
     "source_file" : "api/src/main/java/com/example/shop/controller/OrderController.java",
     "source_label" : "create",
     "source_location" : "L24",
-    "source_module" : "api",
-    "source_scope" : "MAIN",
-    "source_symbol_id" : "com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
     "target" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
-    "target_label" : "createOrder",
-    "target_module" : "service",
-    "target_qualified_name" : "com.example.shop.service.OrderService#createOrder",
-    "target_scope" : "MAIN",
-    "target_symbol_id" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)"
+    "target_label" : "createOrder"
   }, {
     "call_kind" : "INSTANCE",
-    "confidence" : "EXTRACTED",
     "depth" : 1,
-    "is_external" : false,
-    "producer_id" : "java-core",
     "relation" : "CALLS",
     "source" : "service::MAIN::com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
     "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
     "source_label" : "createOrder",
     "source_location" : "L47",
-    "source_module" : "service",
-    "source_scope" : "MAIN",
-    "source_symbol_id" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
     "target" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
-    "target_label" : "createOrder",
-    "target_module" : "service",
-    "target_qualified_name" : "com.example.shop.service.OrderService#createOrder",
-    "target_scope" : "MAIN",
-    "target_symbol_id" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)"
+    "target_label" : "createOrder"
   } ],
   "stats" : {
     "depth_effective" : 1,

@@ -28,6 +28,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -233,7 +234,9 @@ public final class StagedGraphStore implements AutoCloseable {
                 resolveReference(c, "stage_edges", "resolved_target", "target_ref", "is_external=0");
                 resolveReference(c, "stage_edges", "resolved_target", "external_target_fqn", "is_external=1");
                 try (Statement statement = c.createStatement()) {
-                    statement.executeUpdate("UPDATE stage_edges SET external_target_fqn=NULL,is_external=0 "
+                    statement.executeUpdate("UPDATE stage_edges SET external_target_fqn=NULL,is_external=0,"
+                            + "resolution=CASE WHEN relation='CALLS' AND confidence='"
+                            + GraphConstants.Confidence.INFERRED + "' THEN NULL ELSE resolution END "
                             + "WHERE is_external=1 AND resolved_target IS NOT NULL");
                     statement.executeUpdate("UPDATE stage_edges SET external_target_fqn=target_ref,"
                             + "target_ref=NULL,is_external=1,confidence='" + GraphConstants.Confidence.AMBIGUOUS
@@ -665,25 +668,33 @@ public final class StagedGraphStore implements AutoCloseable {
     private void bindRemainingExternalTargets(Connection c) throws SQLException {
         try (Statement statement = c.createStatement()) {
             reboundExternalTargets += statement.executeUpdate("UPDATE stage_edges SET "
-                    + "resolved_target=external_target_fqn,external_target_fqn=NULL,is_external=0 "
+                    + "resolved_target=external_target_fqn,external_target_fqn=NULL,is_external=0,"
+                    + "resolution=CASE WHEN relation='CALLS' AND confidence='"
+                    + GraphConstants.Confidence.INFERRED + "' THEN NULL ELSE resolution END "
                     + "WHERE is_external=1 AND EXISTS (SELECT 1 FROM stage_nodes n "
                     + "WHERE n.id=stage_edges.external_target_fqn)");
             reboundExternalTargets += statement.executeUpdate("UPDATE stage_edges SET "
                     + "resolved_target=(SELECT min(n.id) FROM stage_nodes n "
-                    + "WHERE n.symbol_id=stage_edges.external_target_fqn),external_target_fqn=NULL,is_external=0 "
+                    + "WHERE n.symbol_id=stage_edges.external_target_fqn),external_target_fqn=NULL,is_external=0,"
+                    + "resolution=CASE WHEN relation='CALLS' AND confidence='"
+                    + GraphConstants.Confidence.INFERRED + "' THEN NULL ELSE resolution END "
                     + "WHERE is_external=1 AND (SELECT count(*) FROM stage_nodes n "
                     + "WHERE n.symbol_id=stage_edges.external_target_fqn)=1");
             reboundExternalTargets += statement.executeUpdate("UPDATE stage_edges SET "
                     + "resolved_target=(SELECT min(n.id) FROM stage_nodes n "
                     + "WHERE n.symbol_id=replace(stage_edges.external_target_fqn,'$','.')),"
-                    + "external_target_fqn=NULL,is_external=0 "
+                    + "external_target_fqn=NULL,is_external=0,"
+                    + "resolution=CASE WHEN relation='CALLS' AND confidence='"
+                    + GraphConstants.Confidence.INFERRED + "' THEN NULL ELSE resolution END "
                     + "WHERE is_external=1 AND instr(external_target_fqn,'$')>0 "
                     + "AND metadata LIKE '%\"via\":\"reflection\"%' "
                     + "AND (SELECT count(*) FROM stage_nodes n "
                     + "WHERE n.symbol_id=replace(stage_edges.external_target_fqn,'$','.'))=1");
             reboundExternalTargets += statement.executeUpdate("UPDATE stage_edges SET "
                     + "resolved_target=(SELECT min(n.id) FROM stage_nodes n "
-                    + "WHERE n.arity_key=stage_edges.target_arity_key),external_target_fqn=NULL,is_external=0 "
+                    + "WHERE n.arity_key=stage_edges.target_arity_key),external_target_fqn=NULL,is_external=0,"
+                    + "resolution=CASE WHEN relation='CALLS' AND confidence='"
+                    + GraphConstants.Confidence.INFERRED + "' THEN NULL ELSE resolution END "
                     + "WHERE is_external=1 AND target_arity_key IS NOT NULL AND "
                     + "(SELECT count(*) FROM stage_nodes n "
                     + "WHERE n.arity_key=stage_edges.target_arity_key)=1");
@@ -808,6 +819,10 @@ public final class StagedGraphStore implements AutoCloseable {
         statement.setString(i++, declaration.declaringType);
         statement.setString(i++, declaration.sourceFile);
         statement.setString(i++, declaration.sourceLocation);
+        setNullableInt(statement, i++, declaration.beginLine);
+        setNullableInt(statement, i++, declaration.beginColumn);
+        setNullableInt(statement, i++, declaration.endLine);
+        setNullableInt(statement, i++, declaration.endColumn);
         statement.setString(i++, identity.module());
         statement.setString(i++, identity.scope().name());
         statement.setInt(i++, declaration.nestingDepth);
@@ -884,9 +899,11 @@ public final class StagedGraphStore implements AutoCloseable {
     private static void insertFactsFromStage(Statement statement) throws SQLException {
         statement.executeUpdate("INSERT OR REPLACE INTO declarations(symbol_id,qualified_name,label,kind,"
                 + "declaration_kind,type_kind,visibility,modifiers,declared_modifiers,implicit_modifiers,"
-                + "declaring_type,source_file,source_location,module,scope,nesting_depth,direct_member,synthetic,"
+                + "declaring_type,source_file,source_location,begin_line,begin_column,end_line,end_column,"
+                + "module,scope,nesting_depth,direct_member,synthetic,"
                 + "binding_resolved,producer_id) SELECT symbol_id,qualified_name,label,kind,declaration_kind,type_kind,visibility,"
-                + "modifiers,declared_modifiers,implicit_modifiers,declaring_type,source_file,source_location,module,"
+                + "modifiers,declared_modifiers,implicit_modifiers,declaring_type,source_file,source_location,"
+                + "begin_line,begin_column,end_line,end_column,module,"
                 + "scope,nesting_depth,direct_member,synthetic,binding_resolved,producer_id FROM " + ALIAS
                 + ".stage_declarations ORDER BY seq");
         statement.executeUpdate("INSERT INTO edges(source_id,target_id,external_target_fqn,relation,call_kind,"
@@ -997,8 +1014,9 @@ public final class StagedGraphStore implements AutoCloseable {
             + "source_scope,node_is_key,resolved_node,producer_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String DECLARATION_INSERT = "INSERT OR REPLACE INTO stage_declarations(symbol_id,"
             + "qualified_name,label,kind,declaration_kind,type_kind,visibility,modifiers,declared_modifiers,"
-            + "implicit_modifiers,declaring_type,source_file,source_location,module,scope,nesting_depth,direct_member,"
-            + "synthetic,binding_resolved,producer_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            + "implicit_modifiers,declaring_type,source_file,source_location,begin_line,begin_column,end_line,end_column,"
+            + "module,scope,nesting_depth,direct_member,synthetic,binding_resolved,producer_id) "
+            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String FLOW_NODE_INSERT = "INSERT OR REPLACE INTO stage_flow_nodes"
             + "(id,method_id,kind,label,source_file,module,scope,line,column_no,callee_method,slot,metadata)"
             + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
@@ -1047,6 +1065,7 @@ public final class StagedGraphStore implements AutoCloseable {
                     + "qualified_name TEXT NOT NULL,label TEXT NOT NULL,kind TEXT NOT NULL,declaration_kind TEXT NOT NULL,"
                     + "type_kind TEXT,visibility TEXT NOT NULL,modifiers TEXT NOT NULL,declared_modifiers TEXT NOT NULL,"
                     + "implicit_modifiers TEXT NOT NULL,declaring_type TEXT,source_file TEXT NOT NULL,source_location TEXT,"
+                    + "begin_line INTEGER,begin_column INTEGER,end_line INTEGER,end_column INTEGER,"
                     + "module TEXT NOT NULL,scope TEXT NOT NULL,nesting_depth INTEGER NOT NULL,direct_member INTEGER NOT NULL,"
                     + "synthetic INTEGER NOT NULL,binding_resolved INTEGER NOT NULL,producer_id TEXT NOT NULL,"
                     + "UNIQUE(symbol_id,module,scope,source_file,producer_id))",
@@ -1079,4 +1098,9 @@ public final class StagedGraphStore implements AutoCloseable {
             "CREATE TABLE stage_flow_coverage(seq INTEGER PRIMARY KEY AUTOINCREMENT,method_id TEXT NOT NULL UNIQUE,"
                     + "source_file TEXT NOT NULL,detail_level TEXT NOT NULL)"
     );
+
+    private static void setNullableInt(PreparedStatement statement, int index, Integer value) throws SQLException {
+        if (value == null) statement.setNull(index, Types.INTEGER);
+        else statement.setInt(index, value);
+    }
 }

@@ -1,10 +1,10 @@
 {
+  "contract_version" : 2,
   "evidence" : {
     "affected_dimensions" : [ "external_resolution", "other_resolution" ],
     "coverage" : "partial",
     "diagnostic_counts" : {
       "FIELD_NOT_FOUND" : 3,
-      "METHOD_NOT_FOUND" : 4,
       "THIRDPARTY_SYMBOL_MISSING" : 24,
       "UNSUPPORTED_RESOLUTION" : 2
     },
@@ -15,7 +15,7 @@
   "query" : "overview --format json",
   "results" : [ {
     "external_edge_counts" : {
-      "CALLS" : 22,
+      "CALLS" : 23,
       "REFERENCES" : 13
     },
     "internal_edge_counts" : {
@@ -267,15 +267,9 @@
     } ],
     "producer_counts" : {
       "derived-wiring" : 3,
-      "java-core" : 379,
+      "java-core" : 380,
       "spring-components" : 17,
       "spring-mvc" : 4
     }
-  } ],
-  "stats" : {
-    "methods" : 47,
-    "package_deps" : 20,
-    "packages" : 8,
-    "types" : 17
-  }
+  } ]
 }

@@ -31,7 +31,6 @@ import com.anatomist.flow.TaintRules;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
-import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.anatomist.store.FileCacheService;
 import com.anatomist.store.SqliteStore;
@@ -46,8 +45,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.TypeDeclaration;
 
 public class IncrementalIndexer {
 
@@ -63,7 +60,6 @@ public class IncrementalIndexer {
     private final ProjectConfig projectConfig;
     private final List<SourceRoot> sourceRoots;
     private final IndexTimings timings;
-    private final IncrementalSessionState sessionState;
     private final boolean dataflow;
     private final boolean implicitTaint;
     private final FlowProfile flowProfile;
@@ -109,7 +105,7 @@ public class IncrementalIndexer {
                               ProjectConfig projectConfig,
                               List<SourceRoot> sourceRoots) {
         this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
-                springXml, projectConfig, sourceRoots, null, null);
+                springXml, projectConfig, sourceRoots, null);
     }
 
     public IncrementalIndexer(Path projectRoot,
@@ -123,7 +119,7 @@ public class IncrementalIndexer {
                               List<SourceRoot> sourceRoots,
                               IndexTimings timings) {
         this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
-                springXml, projectConfig, sourceRoots, timings, null);
+                springXml, projectConfig, sourceRoots, timings, FlowProfile.off(), false);
     }
 
     public IncrementalIndexer(Path projectRoot,
@@ -136,41 +132,6 @@ public class IncrementalIndexer {
                               ProjectConfig projectConfig,
                               List<SourceRoot> sourceRoots,
                               IndexTimings timings,
-                              IncrementalSessionState sessionState) {
-        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
-                springXml, projectConfig, sourceRoots, timings,
-                sessionState, false, false);
-    }
-
-    public IncrementalIndexer(Path projectRoot,
-                              List<Path> sourcePaths,
-                              JavaParserFactory parserFactory,
-                              SqliteStore store,
-                              int javaVersion,
-                              int maxRealignFiles,
-                              boolean springXml,
-                              ProjectConfig projectConfig,
-                              List<SourceRoot> sourceRoots,
-                              IndexTimings timings,
-                              IncrementalSessionState sessionState,
-                              boolean dataflow,
-                              boolean implicitTaint) {
-        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
-                springXml, projectConfig, sourceRoots, timings,
-                sessionState, dataflow ? FlowProfile.full() : FlowProfile.off(), implicitTaint);
-    }
-
-    public IncrementalIndexer(Path projectRoot,
-                              List<Path> sourcePaths,
-                              JavaParserFactory parserFactory,
-                              SqliteStore store,
-                              int javaVersion,
-                              int maxRealignFiles,
-                              boolean springXml,
-                              ProjectConfig projectConfig,
-                              List<SourceRoot> sourceRoots,
-                              IndexTimings timings,
-                              IncrementalSessionState sessionState,
                               FlowProfile flowProfile,
                               boolean implicitTaint) {
         this.projectRoot = projectRoot;
@@ -183,7 +144,6 @@ public class IncrementalIndexer {
         this.projectConfig = projectConfig != null ? projectConfig : new ProjectConfig();
         this.sourceRoots = sourceRoots == null ? List.of() : List.copyOf(sourceRoots);
         this.timings = timings;
-        this.sessionState = sessionState;
         this.flowProfile = flowProfile == null ? FlowProfile.off() : flowProfile;
         this.dataflow = this.flowProfile.enabled();
         this.implicitTaint = implicitTaint;
@@ -244,19 +204,11 @@ public class IncrementalIndexer {
         Map<String, Node> deletedNodeSnapshot = deletedJavaPaths.isEmpty() ? Map.of()
                 : store.readNodesBySourceFiles(deletedFiles.stream()
                         .filter(path -> path.endsWith(".java")).toList());
-        if (!deletedJavaPaths.isEmpty()) {
-            long invalidateStarted = startTiming();
-            parserFactory.invalidate(deletedJavaPaths, true,
-                    declaredTypeNames(deletedNodeSnapshot.values()));
-            stopTiming("session_invalidate", invalidateStarted);
-        }
-
         Set<String> processedJava = new LinkedHashSet<>();
         Set<String> pendingJava = javaFiles(primaryFiles, diskHashes);
         Set<String> realignTargets = new LinkedHashSet<>();
         long knownIdsStarted = startTiming();
-        Set<String> knownIds = sessionState == null
-                ? new HashSet<>(store.allNodeIds()) : sessionState.knownNodeIds(store);
+        Set<String> knownIds = new HashSet<>(store.allNodeIds());
         knownIds.removeAll(deletedNodeSnapshot.keySet());
         stopTiming("known_ids", knownIdsStarted);
         Map<String, FileCacheEntry> priorFileCache = store.readFileCache();
@@ -269,10 +221,7 @@ public class IncrementalIndexer {
                 : SourceIdentityResolver.fromRoots(projectRoot, sourceRoots);
 
         long stagingStarted = startTiming();
-        StagedGraphStore stagingStore = sessionState == null
-                ? new StagedGraphStore(store.dbPath(), identities)
-                : new StagedGraphStore(store.dbPath(), identities,
-                        sessionState.stagingPath(store.dbPath()));
+        StagedGraphStore stagingStore = new StagedGraphStore(store.dbPath(), identities);
         stopTiming("staging_setup", stagingStarted);
         try (StagedGraphStore staging = stagingStore) {
 
@@ -443,8 +392,6 @@ public class IncrementalIndexer {
         s.deletedEdges += promoted.deletedEdges();
         s.writtenNodes = promoted.writtenNodes();
         s.writtenEdges = promoted.writtenEdges();
-        if (sessionState != null) sessionState.replaceKnownNodeIds(knownIds);
-
         if (dataflow) {
             FlowPersistence.Stats flowStats =
                     staging.promoteIncrementalFlow(store, affectedFiles, timings);
@@ -533,9 +480,7 @@ public class IncrementalIndexer {
         }
 
         Map<String, String> batchContractHashes = new LinkedHashMap<>();
-        List<Path> contractChangedPaths = new ArrayList<>();
-        Set<String> contractChangedTypes = new LinkedHashSet<>();
-        boolean directoryShapeChanged = false;
+        boolean contractChanged = false;
         for (var cu : parsedBatch.compilationUnits()) {
             Path abs = cu.getStorage().map(storage -> storage.getPath().toAbsolutePath().normalize())
                     .orElse(null);
@@ -546,16 +491,8 @@ public class IncrementalIndexer {
             FileCacheEntry prior = priorFileCache.get(relative);
             if (prior == null || prior.contractHash() == null
                     || !contractHash.equals(prior.contractHash())) {
-                contractChangedPaths.add(abs);
-                contractChangedTypes.addAll(declaredTypeNames(cu));
-                if (prior == null) directoryShapeChanged = true;
+                contractChanged = true;
             }
-        }
-        if (!contractChangedPaths.isEmpty()) {
-            long invalidateStarted = startTiming();
-            parserFactory.invalidate(contractChangedPaths, directoryShapeChanged,
-                    contractChangedTypes);
-            stopTiming("session_invalidate", invalidateStarted);
         }
         parsed.clear();
         for (var cu : parsedBatch.compilationUnits()) {
@@ -590,7 +527,7 @@ public class IncrementalIndexer {
         }
         boolean noClasspath = "none".equals(store.readProjectMeta("classpath_mode").orElse(""));
         return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
-                Map.copyOf(batchContractHashes), !contractChangedPaths.isEmpty(),
+                Map.copyOf(batchContractHashes), contractChanged,
                 ctx.resolutionSummary(noClasspath).diagnostics(), extensionReport.diagnostics(),
                 extensionReport.counters(), batchFlow);
     }
@@ -671,23 +608,6 @@ public class IncrementalIndexer {
             if (rel.endsWith(".java")) {
                 out.add(projectRoot.resolve(rel).toAbsolutePath().normalize());
             }
-        }
-        return out;
-    }
-
-    private static Set<String> declaredTypeNames(CompilationUnit cu) {
-        Set<String> out = new LinkedHashSet<>();
-        for (TypeDeclaration<?> type : cu.findAll(TypeDeclaration.class)) {
-            type.getFullyQualifiedName().ifPresent(out::add);
-        }
-        return out;
-    }
-
-    private static Set<String> declaredTypeNames(Iterable<Node> nodes) {
-        Set<String> out = new LinkedHashSet<>();
-        for (Node node : nodes) {
-            if (node != null && GraphConstants.DECLARED_TYPE_KINDS.contains(node.kind)
-                    && node.qualifiedName != null) out.add(node.qualifiedName);
         }
         return out;
     }

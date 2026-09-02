@@ -55,7 +55,7 @@ class LombokExtensionIT {
         assertEquals(3, strict.exitCode(), strict.stderr());
         assertTrue(strict.stdout().contains("\"health\" : \"unhealthy\""), strict.stdout());
         assertTrue(strict.stdout().contains("LOMBOK_FEATURE_UNSUPPORTED"), strict.stdout());
-        assertTrue(Files.isRegularFile(strictDb), "strict gate evaluates the committed index");
+        assertFalse(Files.exists(strictDb), "a failed initial build must not publish an index");
     }
 
     @Test

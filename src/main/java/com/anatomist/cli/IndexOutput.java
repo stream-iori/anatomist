@@ -30,6 +30,12 @@ final class IndexOutput {
 
     static void emitFullJson(IndexResult result, IndexConfig config,
                              Map<String, Long> timingsMs, HealthPolicy policy) {
+        emitFullJson(result, config, timingsMs, policy, Map.of());
+    }
+
+    static void emitFullJson(IndexResult result, IndexConfig config,
+                             Map<String, Long> timingsMs, HealthPolicy policy,
+                             Map<String, Object> rebuild) {
         Map<String, Object> stats = new LinkedHashMap<>();
         Map<String, Long> kinds = result.kindCounts();
         Map<String, Long> relations = result.relationCounts();
@@ -89,6 +95,7 @@ final class IndexOutput {
         out.put("stats", stats);
         out.put("node_kinds", kinds);
         out.put("relations", relations);
+        if (rebuild != null && !rebuild.isEmpty()) out.put("rebuild", rebuild);
         if (timingsMs != null && !timingsMs.isEmpty()) out.put("timings_ms", timingsMs);
         addHealth(out, IndexHealthService.fromResult(result), policy);
         System.out.println(Json.writePretty(out));
@@ -99,6 +106,11 @@ final class IndexOutput {
     }
 
     static void emitStrictParseFailure(Path dbPath, ParseInventory parse, HealthPolicy policy) {
+        emitStrictParseFailure(dbPath, parse, policy, Map.of());
+    }
+
+    static void emitStrictParseFailure(Path dbPath, ParseInventory parse, HealthPolicy policy,
+                                       Map<String, Object> rebuild) {
         Map<String, Object> stats = new LinkedHashMap<>();
         addParseStats(stats, parse);
         Map<String, Object> out = new LinkedHashMap<>();
@@ -108,6 +120,7 @@ final class IndexOutput {
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("index_path", dbPath.toString());
         out.put("stats", stats);
+        if (rebuild != null && !rebuild.isEmpty()) out.put("rebuild", rebuild);
         java.util.List<com.anatomist.core.IndexDiagnostic> diagnostics =
                 parse.failures().entrySet().stream()
                         .map(entry -> new com.anatomist.core.IndexDiagnostic(

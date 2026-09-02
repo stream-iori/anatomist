@@ -16,6 +16,10 @@ public final class MarkdownFormatter {
 
     /** Render the non-enriched context result without inventing semantic sections. */
     public static String format(ContextResult r) {
+        return format(r, List.of());
+    }
+
+    public static String format(ContextResult r, List<String> nextQueries) {
         if (r == null || r.node == null) return "";
         StringBuilder sb = new StringBuilder();
         sb.append("# ").append(r.node.label).append(" (").append(r.node.kind).append(")\n\n");
@@ -36,6 +40,19 @@ public final class MarkdownFormatter {
                 sb.append("- `@").append(annotation.get("annotation_fqn")).append("`\n");
             }
         }
+        if (r.source != null) {
+            sb.append("\n## Source\n\n");
+            SourceContext source = r.source;
+            if ("ok".equals(source.status)) {
+                sb.append('`').append(source.sourceFile).append("` — ")
+                        .append(source.sourceRange).append("\n\n");
+                sb.append("```java\n").append(source.snippet == null ? "" : source.snippet)
+                        .append("\n```\n");
+            } else {
+                sb.append("> ").append(source.warningCode).append(": ")
+                        .append(source.warningMessage).append("\n");
+            }
+        }
         if (r.callees != null) {
             sb.append("\n## Callees\n\n");
             if (r.callees.isEmpty()) sb.append("_None._\n");
@@ -43,6 +60,10 @@ public final class MarkdownFormatter {
                 String target = edge.target != null ? edge.target : edge.externalTargetFqn;
                 sb.append("- `").append(edge.source).append("` -> `").append(target).append("`\n");
             }
+        }
+        if (nextQueries != null && !nextQueries.isEmpty()) {
+            sb.append("\n## Next queries\n\n");
+            for (String query : nextQueries) sb.append("- `").append(query).append("`\n");
         }
         return sb.toString();
     }

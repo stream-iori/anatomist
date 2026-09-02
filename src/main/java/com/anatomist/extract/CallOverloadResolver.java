@@ -45,15 +45,24 @@ final class CallOverloadResolver {
     }
 
     private static int score(MethodDeclaration method, List<String> arguments) {
-        if (method.getParameters().size() != arguments.size()) return Integer.MAX_VALUE;
+        if (!matchesArity(method, arguments.size())) return Integer.MAX_VALUE;
         int score = 0;
         for (int i = 0; i < arguments.size(); i++) {
-            String parameter = AstTypeNames.of(method.getParameter(i).getType(), method.getParameter(i));
+            int parameterIndex = Math.min(i, method.getParameters().size() - 1);
+            String parameter = AstTypeNames.of(method.getParameter(parameterIndex).getType(),
+                    method.getParameter(parameterIndex));
             int match = typeMatchScore(arguments.get(i), parameter);
             if (match == Integer.MAX_VALUE) return match;
             score += match;
         }
         return score;
+    }
+
+    static boolean matchesArity(MethodDeclaration method, int argumentCount) {
+        int parameterCount = method.getParameters().size();
+        if (parameterCount == argumentCount) return true;
+        return parameterCount > 0 && method.getParameter(parameterCount - 1).isVarArgs()
+                && argumentCount >= parameterCount - 1;
     }
 
     private static int score(ResolvedMethodDeclaration method, List<String> arguments) {

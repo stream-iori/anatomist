@@ -39,6 +39,29 @@ class CallGraphExtractorTest {
     }
 
     @Test
+    void projectSourceOverloadUsesArgumentTypeDeterministically() {
+        String source = "package pkg;\n"
+                + "class A {\n"
+                + "  void caller(float[] value) { clone(value); }\n"
+                + "  void clone(double[] value) {}\n"
+                + "  void clone(float[] value) {}\n"
+                + "}\n";
+
+        for (int run = 0; run < 12; run++) {
+            ExtractionResult result = new ExtractionResult();
+            new CallGraphExtractor(ctx).extract(JavaParserTestSupport.parse(source), result);
+            List<Edge> calls = result.edges.stream()
+                    .filter(edge -> "CALLS".equals(edge.relation))
+                    .filter(edge -> "pkg.A#caller(float[])".equals(edge.sourceId))
+                    .toList();
+
+            assertEquals(List.of("pkg.A#clone(float[])"),
+                    calls.stream().map(edge -> edge.targetId).toList(),
+                    "run " + run + " must not select a same-arity sibling overload: " + describe(calls));
+        }
+    }
+
+    @Test
     void staticCallToExternal() {
         CompilationUnit cu = JavaParserTestSupport.parse(
                 "package pkg;\n"

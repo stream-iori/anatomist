@@ -9,6 +9,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -32,6 +33,14 @@ public class SchemaManager {
                 st.execute(trimmed);
             }
             st.execute("PRAGMA user_version = " + IndexSchema.VERSION);
+            try (PreparedStatement ps = connSupplier.get().prepareStatement("""
+                    INSERT INTO project_meta(key, value) VALUES (?, ?)
+                    ON CONFLICT(key) DO NOTHING
+                    """)) {
+                ps.setString(1, com.anatomist.core.GraphSemantics.META_KEY);
+                ps.setString(2, String.valueOf(com.anatomist.core.GraphSemantics.VERSION));
+                ps.executeUpdate();
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to initialize schema", e);
         }
@@ -108,7 +117,7 @@ public class SchemaManager {
             current.append(raw).append('\n');
             if (stripped.isEmpty()) continue;
             String upper = stripped.toUpperCase(Locale.ROOT);
-            if (upper.endsWith("BEGIN") || upper.contains(" BEGIN") || upper.equals("BEGIN")) {
+            if (upper.endsWith(" BEGIN") || upper.equals("BEGIN")) {
                 depth++;
             }
             if (upper.startsWith("END;") || upper.equals("END")) {

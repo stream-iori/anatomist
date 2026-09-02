@@ -1,8 +1,7 @@
 {
+  "contract_version" : 2,
   "evidence" : {
-    "affected_dimensions" : [ ],
     "coverage" : "complete",
-    "diagnostic_counts" : { },
     "negative_conclusion_safe" : true,
     "status" : "positive"
   },
@@ -12,26 +11,17 @@
     "framework" : [ {
       "confidence" : "CONFIGURED",
       "depth" : 1,
-      "is_external" : false,
       "producer_id" : "spring-components",
       "relation" : "DEFINED_BY",
       "source" : "service::MAIN::bean:inMemoryOrderRepository",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
       "source_label" : "inMemoryOrderRepository",
       "source_location" : "L11",
-      "source_module" : "service",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "bean:inMemoryOrderRepository",
       "target" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-      "target_label" : "InMemoryOrderRepository",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.repository.InMemoryOrderRepository"
+      "target_label" : "InMemoryOrderRepository"
     }, {
       "confidence" : "INFERRED",
       "depth" : 1,
-      "is_external" : false,
       "metadata" : "{\"via\":\"injection\",\"source\":\"service::MAIN::com.example.shop.repository.OrderRepository\",\"candidates\":[\"service::MAIN::com.example.shop.repository.InMemoryOrderRepository\"]}",
       "producer_id" : "derived-wiring",
       "relation" : "WIRES",
@@ -39,15 +29,8 @@
       "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
       "source_label" : "OrderService",
       "source_location" : "L22",
-      "source_module" : "service",
-      "source_scope" : "MAIN",
-      "source_symbol_id" : "com.example.shop.service.OrderService",
       "target" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-      "target_label" : "InMemoryOrderRepository",
-      "target_module" : "service",
-      "target_qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
-      "target_scope" : "MAIN",
-      "target_symbol_id" : "com.example.shop.repository.InMemoryOrderRepository"
+      "target_label" : "InMemoryOrderRepository"
     } ],
     "members" : [ {
       "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#store",
@@ -55,7 +38,6 @@
       "kind" : "FIELD",
       "label" : "store",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#store",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
@@ -67,7 +49,6 @@
       "kind" : "FIELD",
       "label" : "seq",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#seq",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
@@ -79,7 +60,6 @@
       "kind" : "METHOD",
       "label" : "save",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
@@ -91,7 +71,6 @@
       "kind" : "METHOD",
       "label" : "findById",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#findById",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
@@ -103,7 +82,6 @@
       "kind" : "METHOD",
       "label" : "deleteAll",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#deleteAll",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
@@ -116,17 +94,11 @@
       "kind" : "CLASS",
       "label" : "InMemoryOrderRepository",
       "module" : "service",
-      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
       "scope" : "MAIN",
       "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
       "source_location" : "L11",
       "symbol_id" : "com.example.shop.repository.InMemoryOrderRepository"
     }
-  } ],
-  "stats" : {
-    "annotations" : 0,
-    "framework" : 2,
-    "members" : 5
-  }
+  } ]
 }
