@@ -162,6 +162,7 @@ public final class DeclarationExtractor implements Extractor {
         out.declarationKind = declarationKind; out.sourceFile = sourceFile;
         out.sourceLocation = "L" + declarationLine(ast);
         out.module = ctx.module(); out.scope = ctx.scope();
+        com.anatomist.framework.SyntheticOrigin.apply(ast, out);
         return out;
     }
 
@@ -292,6 +293,7 @@ public final class DeclarationExtractor implements Extractor {
         node.qualifiedName = declaration.qualifiedName; node.pkg = pkg; node.sourceFile = declaration.sourceFile;
         node.sourceLocation = declaration.sourceLocation; node.module = declaration.module; node.scope = declaration.scope;
         node.metadata = Json.writeCompact(Map.of("bindingResolved", declaration.bindingResolved));
+        node.producerId = declaration.producerId;
         result.nodes.add(node);
     }
 

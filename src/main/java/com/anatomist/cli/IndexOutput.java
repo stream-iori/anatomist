@@ -71,6 +71,7 @@ final class IndexOutput {
         stats.put("flow_summary_only_methods", result.flowSummaryOnlyMethods());
         stats.put("dataflow_mode", config.flowProfile().mode().name().toLowerCase());
         stats.put("dataflow_scopes", config.flowProfile().scopes());
+        if (result.extensionCounters() != null) stats.putAll(result.extensionCounters());
         stats.put("elapsed_ms", result.elapsedMs());
 
         Map<String, Object> out = new LinkedHashMap<>();
@@ -203,6 +204,7 @@ final class IndexOutput {
         stats.put("flow_summary_only_methods", summary.flowSummaryOnlyMethods);
         stats.put("unresolved", summary.unresolvedSymbols);
         stats.put("dropped_dangling_edges", summary.droppedDanglingFacts);
+        stats.putAll(summary.extensionCounters);
         stats.put("file_cache_entries", fileCacheSize);
         stats.put("elapsed_ms", elapsedMs);
 

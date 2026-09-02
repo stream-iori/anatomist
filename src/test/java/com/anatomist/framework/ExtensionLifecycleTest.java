@@ -87,6 +87,74 @@ class ExtensionLifecycleTest {
         assertTrue(result.edges.stream().allMatch(edge -> "app.xml".equals(edge.sourceFile)));
     }
 
+    @Test
+    void astFailureRollsBackThatExtensionAndContinues(@TempDir Path tmp) throws Exception {
+        AstModelExtension broken = new AstModelExtension() {
+            @Override public String id() { return "broken-model"; }
+            @Override public void augment(CompilationUnit unit) {
+                unit.getClassByName("A").orElseThrow().addMethod("mustNotLeak");
+                throw new IllegalStateException("boom");
+            }
+        };
+        AstModelExtension healthy = new AstModelExtension() {
+            @Override public String id() { return "healthy-model"; }
+            @Override public void augment(CompilationUnit unit) {
+                unit.getClassByName("A").orElseThrow().addMethod("survives");
+            }
+        };
+        PreparedExtensions prepared = PreparedExtensions.prepare(new AnalyzerRegistry(
+                List.of(broken, healthy), List.of(), List.of()));
+        Path source = tmp.resolve("A.java");
+        Files.writeString(source, "class A {}");
+        JavaParserFactory factory = new JavaParserFactory(25, List.of(), List.of(tmp), true,
+                (Path) null, prepared.processorSuppliers(), prepared.fingerprint());
+
+        CompilationUnit unit = factory.parseFiles(List.of(source)).getFirst();
+
+        var type = unit.getClassByName("A").orElseThrow();
+        assertTrue(type.getMethodsByName("mustNotLeak").isEmpty());
+        assertEquals(1, type.getMethodsByName("survives").size());
+        assertTrue(ExtensionAstData.diagnostics(unit).stream()
+                .anyMatch(value -> value.code().equals("EXTENSION_AST_FAILED")
+                        && value.symbol().equals("broken-model")));
+    }
+
+    @Test
+    void resourceProviderFailureIsIsolatedAndInventoryIsShared() {
+        ProjectResourceProvider broken = new ProjectResourceProvider() {
+            @Override public String id() { return "broken-resource"; }
+            @Override public boolean enabled(AnalysisContext context) { return true; }
+            @Override public Set<String> kinds() { return Set.of("test"); }
+            @Override public boolean mayContain(Path path) { return true; }
+            @Override public List<ProjectResource> discover(AnalysisContext context,
+                                                             com.anatomist.core.ProjectScanner scanner) {
+                throw new IllegalStateException("boom");
+            }
+        };
+        ProjectResourceProvider healthy = new ProjectResourceProvider() {
+            @Override public String id() { return "healthy-resource"; }
+            @Override public boolean enabled(AnalysisContext context) { return true; }
+            @Override public Set<String> kinds() { return Set.of("test"); }
+            @Override public boolean mayContain(Path path) { return true; }
+            @Override public List<ProjectResource> discover(AnalysisContext context,
+                                                             com.anatomist.core.ProjectScanner scanner) {
+                return List.of(new ProjectResource(Path.of("app.xml"), "app.xml", "test"));
+            }
+        };
+        PreparedExtensions prepared = PreparedExtensions.prepare(new AnalyzerRegistry(
+                List.of(), List.of(), List.of(broken, healthy), List.of()));
+        ExtensionReport report = new ExtensionReport();
+
+        List<ProjectResource> resources = new ProjectResourceDiscovery().discover(
+                prepared, new AnalysisContext(Path.of("."), List.of(), null, null, true),
+                new com.anatomist.core.ProjectScanner(), report);
+
+        assertEquals(List.of("app.xml"), resources.stream().map(ProjectResource::sourceFile).toList());
+        assertTrue(report.diagnostics().stream()
+                .anyMatch(value -> value.code().equals("EXTENSION_RESOURCE_DISCOVERY_FAILED")
+                        && value.symbol().equals("broken-resource")));
+    }
+
     private static JavaUnitAnalyzer analyzer(String id, String version) {
         return new JavaUnitAnalyzer() {
             @Override public String id() { return id; }

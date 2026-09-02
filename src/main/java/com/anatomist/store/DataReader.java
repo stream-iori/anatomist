@@ -74,6 +74,18 @@ public class DataReader {
         }
     }
 
+    public long countNodesByProducer(String producerId) {
+        try (PreparedStatement statement = conn().prepareStatement(
+                "SELECT count(*) FROM nodes WHERE producer_id=?")) {
+            statement.setString(1, producerId);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getLong(1) : 0L;
+            }
+        } catch (SQLException failure) {
+            throw new RuntimeException("Failed to count nodes by producer", failure);
+        }
+    }
+
     public Map<String, String> readProjectMeta() {
         Map<String, String> out = new LinkedHashMap<>();
         try (Statement st = conn().createStatement();

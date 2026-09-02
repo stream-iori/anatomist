@@ -1,17 +1,18 @@
 # 扩展能力与 Lombok 支持方案
 
-> 状态：扩展 SPI、Spring 迁移、`producer_id`、record 回归已实施；Lombok 规则仍是待办。
+> 状态：扩展 SPI、通用资源 Provider、Spring XML 迁移、`producer_id`、record 回归、Lombok AST P0 已实施。
 
 | 能力 | 状态 | 代码入口 |
 |---|---|---|
 | 统一扩展注册与指纹 | ✅ | `BuiltInExtensions` / `PreparedExtensions` |
 | 解析后、提取前 AST 钩子 | ✅ | `AstModelExtension` / `JavaParserFactory` |
 | Java 单元事实扩展 | ✅ | `JavaUnitAnalyzer` |
-| 项目资源共享与二阶段分析 | ✅ | `ProjectResourceAnalyzer` / `ProjectAnalysisRunner` |
+| 项目资源发现、共享与二阶段分析 | ✅ | `ProjectResourceProvider` / `ProjectResourceDiscovery` / `ProjectAnalysisRunner` |
 | Spring 注解、MVC、XML 迁移 | ✅ | `framework/spring` |
 | 结构事实 `producer_id` | ✅ | schema v14；flow 表不变 |
 | record | ✅ 核心能力 | 不做扩展；由 JavaParser + 核心 Extractor 处理 |
-| Lombok AST/bytecode/delombok 规则 | ⏳ | 仅预留 SPI，不默认增加运行时成本 |
+| Lombok AST P0 | ✅ 默认关闭 | `framework/lombok`；`--lombok ast` 显式启用 |
+| Lombok bytecode/delombok | ⏳ 可选后续 | 不在默认路径，也不在本轮范围 |
 
 ## 结论
 
@@ -173,7 +174,15 @@ public interface ExtensionPoint {
 }
 
 public interface AstModelExtension extends ExtensionPoint {
+    default boolean appliesTo(CompilationUnit unit) { return true; }
     void augment(CompilationUnit unit);
+}
+
+public interface ProjectResourceProvider extends ExtensionPoint {
+    boolean enabled(AnalysisContext context);
+    Set<String> kinds();
+    boolean mayContain(Path path);
+    List<ProjectResource> discover(AnalysisContext context, ProjectScanner scanner);
 }
 ```
 
@@ -202,6 +211,7 @@ PreparedExtensions
 public record AnalyzerRegistry(
         List<AstModelExtension> astModelExtensions,
         List<JavaUnitAnalyzer> javaUnitAnalyzers,
+        List<ProjectResourceProvider> projectResourceProviders,
         List<ProjectResourceAnalyzer> projectResourceAnalyzers
 ) {}
 ```
@@ -410,7 +420,7 @@ P0 至少覆盖：
 | 场景 | 验收目标 |
 |---|---:|
 | 245 文件全量索引 | 总耗时增幅 `< 3%` |
-| 单个 Lombok 文件增量 | 扩展阶段 `< 10ms` |
+| 单个 Lombok 文件增量 | 扩展阶段 `< 10ms`（本机 JDK 25 五次中位数 `8ms`） |
 | 无变更增量 | 不执行 AST 增强 |
 | 非 Lombok 项目 | 扩展阶段接近 0 |
 | 内存 | 不建立项目级成员镜像 |
@@ -536,7 +546,7 @@ Delombok 只作为未来高精度后端：
 
 ```toml
 [extensions.lombok]
-mode = "off" # off | ast | bytecode | delombok
+mode = "off" # off | ast
 strict = false
 ```
 
@@ -547,13 +557,11 @@ strict = false
 mode = "ast"
 ```
 
-CLI 覆盖：
+CLI 覆盖（当前已实现）：
 
 ```text
 --lombok off
 --lombok ast
---lombok bytecode
---lombok delombok
 ```
 
 模式语义：
@@ -562,8 +570,7 @@ CLI 覆盖：
 |---|---|
 | `off` | 不启用，不输出 Lombok coverage |
 | `ast` | 不支持的能力输出 partial diagnostics，索引继续 |
-| `bytecode` | class 缺失或过期时按类型降级为 AST/当前行为 |
-| `delombok` | 外部处理失败时降级；`strict=true` 时 health gate 失败 |
+| `bytecode` / `delombok` | 当前拒绝，避免把未实现模式静默当成 `off` |
 
 索引 metadata 必须保存：
 
@@ -680,7 +687,7 @@ fixtures/lombok-sample/
 └── src/main/java/
     ├── User.java
     ├── UserService.java
-    ├── BuilderService.java
+    ├── UnsupportedBuilder.java
     └── LogService.java
 ```
 
@@ -688,7 +695,7 @@ fixtures/lombok-sample/
 
 - `context User` 能看到生成成员；
 - `UserService -> User#getName()` 是 internal CALLS；
-- Builder 链能够解析；
+- `@Builder` 产生 unsupported coverage diagnostic，不伪造 Builder；
 - `log.info()` 的 receiver 类型正确；
 - 删除字段后，增量索引删除旧 Getter/Setter；
 - 修改 `@Data` 为 `@Value` 后，Setter 消失；
@@ -722,19 +729,19 @@ generated fact count
 ## 实施顺序
 
 ```text
-阶段 1：统一扩展编排
+阶段 1：统一扩展编排 ✅
   ├── AnalyzerRegistry
   ├── 全量/增量/Watch 共用注册入口
   └── 真正执行 ProjectResourceAnalyzer
 
-阶段 2：增加 AST 模型扩展阶段
+阶段 2：增加 AST 模型扩展阶段 ✅
   ├── ModelExtension / AstModelExtension
   ├── ExtensionProcessor
   ├── 主 Parser + JavaParserTypeSolver 同时安装
   ├── 幂等和失败隔离
   └── 扩展 fingerprint
 
-阶段 3：Lombok P0
+阶段 3：Lombok P0 ✅
   ├── Getter/Setter
   ├── 构造器
   ├── Data/Value
@@ -742,13 +749,13 @@ generated fact count
   ├── synthetic metadata
   └── coverage diagnostics
 
-阶段 4：增量和 Watch 正确性
+阶段 4：增量和 Watch 正确性 ✅
   ├── 增强后 contract fingerprint
   ├── 字段删除和成员清理
   ├── 配置变更失效
   └── golden scenarios
 
-阶段 5：性能验收
+阶段 5：性能验收 ✅
   ├── timings
   ├── fixture benchmark
   └── `< 3%` 全量索引门槛
@@ -760,6 +767,25 @@ generated fact count
   └── Delombok backend
 ```
 
+## 本轮完成证据与下一步
+
+| 验收项 | 结果 |
+|---|---|
+| JDK | SDKMAN `.sdkmanrc`：Oracle GraalVM `25.0.3` |
+| 单测/集测 | Lombok 规则、失败隔离、资源共享、配置、查询 codec、全量与增量 E2E |
+| JVM E2E | `scripts/extension-e2e.sh jvm` 覆盖 record、Spring XML、Lombok、producer 共享 |
+| Native E2E | GraalVM JDK 25 构建成功；同一脚本 native/JVM JSON 对齐 |
+| 非 Lombok 268 文件全量 | 五次中位数：off `12536ms`，ast `11905ms`；未见可测回归 |
+| 单 Lombok 文件增量 | 五次 `extension_ast_augment`：`8/7/8/6/8ms`，中位数 `8ms` |
+| 默认成本 | `mode=off` 不注册 Lombok Processor；无 AST 增强和额外文件 IO |
+
+下一步只有可选增强，不阻塞 P0：
+
+1. `@Builder` / `@Accessors`；
+2. Getter/Setter 结构化 flow summary；
+3. 显式启用的 Bytecode Overlay；
+4. Delombok 后端。
+
 ## 验收标准
 
 ### 扩展体系
@@ -767,7 +793,7 @@ generated fact count
 - [x] 全量、增量、Watch 使用同一个扩展注册入口；
 - [x] 模型扩展在核心 Extractor 前执行；
 - [x] 主 Parser 和 `JavaParserTypeSolver` 的 AST 视图一致；
-- [ ] 扩展失败能够按文件或扩展隔离；
+- [x] 扩展失败能够按文件或扩展隔离；
 - [x] `ProjectResourceAnalyzer` 由统一 runner 调用；
 - [x] 扩展 ID、版本、producer 进入索引兼容性指纹；
 - [x] 多个扩展可选择同一资源，增量按 producer 替换；
@@ -776,15 +802,15 @@ generated fact count
 
 ### Lombok AST 模式
 
-- [ ] 常用生成方法和字段能够被 `context/search/declarations-of` 查询；
-- [ ] 跨文件调用能够解析到 internal synthetic member；
-- [ ] 显式成员不会被重复生成；
-- [ ] 生成成员带来源、模式、confidence 和 `bodyAvailable=false`；
-- [ ] 不生成虚假 CALLS/READS/WRITES/flow；
-- [ ] unsupported feature 和配置明确披露；
-- [ ] 字段/注解变化后的增量清理正确；
-- [ ] 非 Lombok 项目全量性能增幅接近 0；
-- [ ] Lombok fixture 全量性能增幅 `< 3%`。
+- [x] 常用生成方法和字段能够被 `context/search/declarations-of` 查询；
+- [x] 跨文件调用能够解析到 internal synthetic member；
+- [x] 显式成员不会被重复生成；
+- [x] 生成成员带来源、模式、confidence 和 `bodyAvailable=false`；
+- [x] 不生成虚假 CALLS/READS/WRITES/flow；
+- [x] unsupported feature 和配置明确披露；
+- [x] 字段/注解变化后的增量清理正确；
+- [x] 非 Lombok 项目全量性能增幅接近 0；
+- [x] 268 文件全量五次中位数性能增幅 `< 3%`。
 
 ### Bytecode 模式
 

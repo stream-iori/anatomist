@@ -31,6 +31,9 @@ class RowMappersTest {
             Node a = new Node();
             a.id = "p.A"; a.label = "A"; a.kind = "CLASS"; a.qualifiedName = "p.A";
             a.pkg = "p"; a.sourceFile = "p/A.java"; a.sourceLocation = "L1"; a.scope = "MAIN";
+            a.metadata = "{\"isSynthetic\":true,\"generator\":\"lombok\","
+                    + "\"generatorMode\":\"ast\",\"generatedFrom\":\"@Data\","
+                    + "\"confidence\":\"INFERRED\",\"bodyAvailable\":false}";
             Node m = new Node();
             m.id = "p.A#run()"; m.label = "run"; m.kind = "METHOD"; m.qualifiedName = "p.A#run";
             m.pkg = "p"; m.sourceFile = "p/A.java"; m.sourceLocation = "L2"; m.scope = "MAIN";
@@ -87,6 +90,8 @@ class RowMappersTest {
             assertEquals("p.A", n.qualifiedName);
             assertEquals("p/A.java", n.sourceFile);
             assertEquals("L1", n.sourceLocation);
+            assertEquals("lombok", n.syntheticOrigin.get("generator"));
+            assertEquals(false, n.syntheticOrigin.get("body_available"));
         }
     }
 

@@ -20,6 +20,7 @@ public record IndexExecutionRequest(
         Path output,
         boolean incremental,
         boolean springXml,
+        String lombokMode,
         boolean dataflow,
         String dataflowMode,
         List<String> dataflowScopes,

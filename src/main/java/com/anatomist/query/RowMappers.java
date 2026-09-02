@@ -19,7 +19,13 @@ final class RowMappers {
     /** Node projection (alias {@code n}). Mapped by column name, so the alias is cosmetic. */
     static final String NODE_COLS =
             "n.id, n.symbol_id, n.label, n.kind, n.qualified_name, n.source_file, "
-          + "n.source_location, n.module, n.scope, n.javadoc, n.producer_id AS producer_id";
+          + "n.source_location, n.module, n.scope, n.javadoc, n.producer_id AS producer_id, "
+          + "json_extract(n.metadata, '$.isSynthetic') AS synthetic, "
+          + "json_extract(n.metadata, '$.generator') AS synthetic_generator, "
+          + "json_extract(n.metadata, '$.generatorMode') AS synthetic_generator_mode, "
+          + "json_extract(n.metadata, '$.generatedFrom') AS synthetic_generated_from, "
+          + "json_extract(n.metadata, '$.confidence') AS synthetic_confidence, "
+          + "json_extract(n.metadata, '$.bodyAvailable') AS synthetic_body_available";
 
     /** {@code FROM edges e} + the two LEFT JOINs onto src/tgt nodes used by flat edge queries. */
     static final String EDGE_FROM_JOINS =
@@ -64,6 +70,15 @@ final class RowMappers {
         n.scope = rs.getString("scope");
         n.javadoc = rs.getString("javadoc");
         n.producerId = rs.getString("producer_id");
+        if (rs.getInt("synthetic") == 1) {
+            java.util.Map<String, Object> origin = new java.util.LinkedHashMap<>();
+            origin.put("generator", rs.getString("synthetic_generator"));
+            origin.put("generator_mode", rs.getString("synthetic_generator_mode"));
+            origin.put("generated_from", rs.getString("synthetic_generated_from"));
+            origin.put("confidence", rs.getString("synthetic_confidence"));
+            origin.put("body_available", rs.getInt("synthetic_body_available") == 1);
+            n.syntheticOrigin = origin;
+        }
         return n;
     }
 

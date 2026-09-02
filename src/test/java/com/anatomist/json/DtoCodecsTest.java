@@ -37,10 +37,12 @@ class DtoCodecsTest {
         n.kind = "CLASS";
         n.qualifiedName = "com.x.A";
         n.sourceFile = "A.java";
+        n.syntheticOrigin = Map.of("generator", "lombok", "generator_mode", "ast");
         // sourceLocation, module = null → must NOT appear (@JsonInclude(NON_NULL))
         String got = Json.writePretty(n);
         assertTrue(got.contains("\"qualified_name\" : \"com.x.A\""), got);
         assertTrue(got.contains("\"source_file\" : \"A.java\""), got);
+        assertTrue(got.contains("\"synthetic_origin\""), got);
         assertFalse(got.contains("source_location"), "null fields suppressed: " + got);
         assertFalse(got.contains("\"module\""), "null fields suppressed: " + got);
     }

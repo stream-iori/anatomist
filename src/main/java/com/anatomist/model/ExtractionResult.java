@@ -21,6 +21,23 @@ public class ExtractionResult {
                 + declarations.size();
     }
 
+    /** Merge one successfully isolated extension result into this batch. */
+    public void addFacts(ExtractionResult other) {
+        if (other == null) return;
+        nodes.addAll(other.nodes);
+        edges.addAll(other.edges);
+        annotations.addAll(other.annotations);
+        semanticAnnotations.addAll(other.semanticAnnotations);
+        declarations.addAll(other.declarations);
+        other.stats.forEach((key, value) -> {
+            if (value instanceof Number number && stats.get(key) instanceof Number current) {
+                stats.put(key, current.longValue() + number.longValue());
+            } else {
+                stats.put(key, value);
+            }
+        });
+    }
+
     /** Release all graph facts after a staging flush while preserving aggregate stats. */
     public void clearFacts() {
         nodes.clear();

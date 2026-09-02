@@ -11,4 +11,9 @@ public interface ExtensionPoint {
     default String producerId() {
         return id();
     }
+
+    /** Stable configuration material that changes the facts emitted by this extension. */
+    default String fingerprintMaterial() {
+        return "";
+    }
 }

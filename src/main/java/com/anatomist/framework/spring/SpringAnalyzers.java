@@ -18,6 +18,7 @@ public final class SpringAnalyzers {
                 List.of(
                         new SpringComponentAnalyzer(extractionContext),
                         new SpringMvcAnalyzer(extractionContext)),
+                List.of(new SpringXmlResourceProvider()),
                 List.of(new SpringXmlAnalyzer()));
     }
 }

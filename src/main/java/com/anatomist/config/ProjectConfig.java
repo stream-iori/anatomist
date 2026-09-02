@@ -13,6 +13,9 @@ public class ProjectConfig {
     private String dataflowMode;
     private List<String> dataflowScopes = List.of();
     private boolean implicitTaint = false;
+    private com.anatomist.framework.lombok.LombokMode lombokMode =
+            com.anatomist.framework.lombok.LombokMode.OFF;
+    private boolean lombokStrict;
 
     private List<SourceScope> scanScopes = List.of(SourceScope.MAIN, SourceScope.GENERATED);
     private boolean scanScopesConfigured;
@@ -54,6 +57,13 @@ public class ProjectConfig {
 
     public boolean implicitTaint() { return implicitTaint; }
     public void setImplicitTaint(boolean value) { this.implicitTaint = value; }
+
+    public com.anatomist.framework.lombok.LombokMode lombokMode() { return lombokMode; }
+    public void setLombokMode(String value) {
+        this.lombokMode = com.anatomist.framework.lombok.LombokMode.parse(value);
+    }
+    public boolean lombokStrict() { return lombokStrict; }
+    public void setLombokStrict(boolean value) { this.lombokStrict = value; }
 
     public List<SourceScope> scanScopes() { return scanScopes; }
     public boolean scanScopesConfigured() { return scanScopesConfigured; }

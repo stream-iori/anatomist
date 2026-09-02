@@ -13,7 +13,6 @@ import java.util.Set;
 public record IndexExecutionHints(
         List<SourceRoot> sourceRoots,
         Set<String> candidateFiles,
-        List<Path> springXmlFiles,
         JavaParserFactory.SessionCache parserSessions,
         ProjectMetadata.FingerprintCache fingerprintCache,
         IncrementalSessionState incrementalSession,
@@ -22,7 +21,6 @@ public record IndexExecutionHints(
     public IndexExecutionHints {
         sourceRoots = sourceRoots == null ? List.of() : List.copyOf(sourceRoots);
         candidateFiles = candidateFiles == null ? Set.of() : Set.copyOf(candidateFiles);
-        springXmlFiles = springXmlFiles == null ? List.of() : List.copyOf(springXmlFiles);
     }
 
     public boolean canUseFastPath() {

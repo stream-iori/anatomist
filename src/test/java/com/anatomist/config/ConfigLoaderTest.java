@@ -39,6 +39,10 @@ class ConfigLoaderTest {
 
                 [external]
                 exclude_patterns = ["java.lang.*", "com.google.**"]
+
+                [extensions.lombok]
+                mode = "ast"
+                strict = true
                 """);
 
         ProjectConfig config = new ProjectConfig();
@@ -47,6 +51,8 @@ class ConfigLoaderTest {
         assertEquals(17, config.javaVersion());
         assertTrue(config.springXml());
         assertFalse(config.vmClasspath());
+        assertEquals(com.anatomist.framework.lombok.LombokMode.AST, config.lombokMode());
+        assertTrue(config.lombokStrict());
         assertEquals(List.of(SourceScope.MAIN, SourceScope.TEST), config.scanScopes());
         assertEquals(List.of("src/**"), config.scanIncludes());
         assertEquals(List.of("**/generated/**", "**/*IT.java"), config.scanExcludes());
@@ -116,6 +122,9 @@ class ConfigLoaderTest {
         assertConfigError(tmp, "[index]\nexclude = [\"target\"]\n", "removed key index.exclude");
         assertConfigError(tmp, "[scan]\nunknown = true\n", "unknown key scan.unknown");
         assertConfigError(tmp, "[index]\nspring_xml = yes\n", "expected true or false");
+        assertConfigError(tmp, "[extensions.lombok]\nmode = \"bytecode\"\n", "off or ast");
+        assertConfigError(tmp, "[extensions.lombok]\nunknown = true\n",
+                "unknown key extensions.lombok.unknown");
         assertConfigError(tmp, "[scan]\ninclude = [\"../outside/**\"]\n", "cannot contain '..'");
         assertConfigError(tmp, "[scan]\nscopes = [\"MAIN\"]\nsource_roots = [\"x@MAIN=src\"]\n",
                 "mutually exclusive");

@@ -143,6 +143,9 @@ public class SqliteStore implements IndexWriter {
     public Map<String, FileCacheEntry> readFileCache() { return reader.readFileCache(); }
     public Optional<String> readProjectMeta(String key) { return reader.readProjectMeta(key); }
     public Map<String, String> readProjectMeta() { return reader.readProjectMeta(); }
+    public long countNodesByProducer(String producerId) {
+        return reader.countNodesByProducer(producerId);
+    }
     public Map<String, Long> readResolutionDiagnosticCounts() {
         return reader.readResolutionDiagnosticCounts();
     }

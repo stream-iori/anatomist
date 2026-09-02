@@ -77,7 +77,7 @@ public final class ConfigLoader {
                     throw error(file, lineNumber, "malformed section header");
                 }
                 section = line.substring(1, line.length() - 1).strip();
-                if (!Set.of("index", "scan", "external").contains(section)) {
+                if (!Set.of("index", "scan", "external", "extensions.lombok").contains(section)) {
                     throw error(file, lineNumber, "unknown section [" + section + "]");
                 }
                 continue;
@@ -104,7 +104,24 @@ public final class ConfigLoader {
                 if (!"exclude_patterns".equals(key)) throw unknown(file, line, section, key);
                 config.setExternalExcludePatterns(parseStringArray(value, file, line));
             }
+            case "extensions.lombok" -> applyLombok(config, key, value, file, line);
             default -> throw unknown(file, line, section, key);
+        }
+    }
+
+    private static void applyLombok(ProjectConfig config, String key, String value,
+                                    Path file, int line) {
+        switch (key) {
+            case "mode" -> {
+                String mode = parseString(value, file, line);
+                try {
+                    config.setLombokMode(mode);
+                } catch (IllegalArgumentException failure) {
+                    throw error(file, line, failure.getMessage());
+                }
+            }
+            case "strict" -> config.setLombokStrict(parseBool(value, file, line));
+            default -> throw unknown(file, line, "extensions.lombok", key);
         }
     }
 

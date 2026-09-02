@@ -98,8 +98,19 @@ public final class FlowMaterializer {
                         "index is missing persisted source roots; rebuild the structural index first");
             }
             int javaVersion = parseJavaVersion(meta.get("java_version"));
+            com.anatomist.config.ProjectConfig projectConfig =
+                    com.anatomist.config.ConfigLoader.load(root);
+            projectConfig.setLombokMode(meta.getOrDefault("lombok_mode", "off"));
             com.anatomist.framework.PreparedExtensions extensions =
-                    com.anatomist.framework.spring.BuiltInExtensions.current();
+                    com.anatomist.framework.spring.BuiltInExtensions.prepare(
+                            new com.anatomist.framework.AnalysisContext(
+                                    root, sourcePaths, null, projectConfig,
+                                    Boolean.parseBoolean(meta.getOrDefault("spring_xml", "false"))));
+            if (!extensions.fingerprint().equals(meta.get(
+                    com.anatomist.framework.PreparedExtensions.META_KEY))) {
+                throw new FlowMaterializationException("INDEX_STALE",
+                        "extension configuration differs from the structural index; re-index first");
+            }
             JavaParserFactory parser = new JavaParserFactory(javaVersion,
                     parsePaths(meta.get("classpath_entries")), sourcePaths, true, null,
                     extensions.processorSuppliers(), extensions.fingerprint());

@@ -20,5 +20,6 @@ public record IndexResult(
         int flowEdges,
         int flowSummaries,
         int flowDetailedMethods,
-        int flowSummaryOnlyMethods
+        int flowSummaryOnlyMethods,
+        Map<String, Long> extensionCounters
 ) {}

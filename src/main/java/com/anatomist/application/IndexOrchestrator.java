@@ -11,6 +11,8 @@ import com.anatomist.framework.DefaultProjectFactView;
 import com.anatomist.framework.PreparedExtensions;
 import com.anatomist.framework.ProjectAnalysisRunner;
 import com.anatomist.framework.ProjectResource;
+import com.anatomist.framework.ProjectResourceDiscovery;
+import com.anatomist.framework.ExtensionReport;
 import com.anatomist.incremental.JavaContractFingerprint;
 import com.anatomist.flow.FlowAnalyzer;
 import com.anatomist.store.FlowPersistence;
@@ -64,9 +66,12 @@ public class IndexOrchestrator {
                 cfg.projectRoot(), cfg.sourcePaths(), idGen, null, "MAIN", cfg.config());
         AnalysisContext analysisContext = new AnalysisContext(
                 cfg.projectRoot(), cfg.sourcePaths(), ctx, cfg.config(), cfg.springXml());
+        phaseStarted = startTiming(timings);
         PreparedExtensions extensions = BuiltInExtensions.prepare(analysisContext);
+        stopTiming(timings, "extension_prepare", phaseStarted);
+        ExtensionReport extensionReport = new ExtensionReport(timings);
         ExtractorPipeline pipeline = new ExtractorPipeline(
-                ctx, extensions.registry().javaUnitAnalyzers(), timings);
+                ctx, extensions.registry().javaUnitAnalyzers(), timings, extensionReport);
 
         SourceIdentityResolver identityResolver = cfg.sourceRoots() == null || cfg.sourceRoots().isEmpty()
                 ? new SourceIdentityResolver(cfg.projectRoot(), cfg.sourcePaths())
@@ -151,17 +156,16 @@ public class IndexOrchestrator {
             }
 
             phaseStarted = startTiming(timings);
-            if (cfg.springXml()) {
-                xmlFiles = new ProjectScanner().scanSpringXml(cfg.projectRoot());
-                if (!xmlFiles.isEmpty()) {
+            {
+                List<ProjectResource> resources = new ProjectResourceDiscovery().discover(
+                        extensions, analysisContext,
+                        new ProjectScanner(java.util.Set.of(), cfg.scanPolicy()), extensionReport);
+                xmlFiles = resources.stream().map(ProjectResource::path).toList();
+                if (!resources.isEmpty()) {
                     ExtractionResult xmlResult = new ExtractionResult();
-                    List<ProjectResource> resources = xmlFiles.stream()
-                            .map(path -> new ProjectResource(path,
-                                    relativize(cfg.projectRoot(), path), "spring-xml"))
-                            .toList();
                     new ProjectAnalysisRunner().run(extensions, analysisContext, resources,
                             new DefaultProjectFactView(staging.allSymbolIds(), staging.rawBeanTargets()),
-                            xmlResult);
+                            xmlResult, extensionReport);
                     staging.writeRawBatch(xmlResult);
                     xmlResult.clearFacts();
                 }
@@ -215,6 +219,8 @@ public class IndexOrchestrator {
         phaseStarted = startTiming(timings);
         ProjectMetadata.write(store, cfg, dropped, rebound, wired, timings);
         store.upsertProjectMeta(Map.of(PreparedExtensions.META_KEY, extensions.fingerprint()));
+        store.upsertProjectMeta(com.anatomist.framework.lombok.LombokIndexMetadata.snapshot(
+                cfg.config(), extensions, store, extensionReport.diagnostics()));
         stopTiming(timings, "full_metadata", phaseStarted);
         phaseStarted = startTiming(timings);
         store.refreshFileDependencies();
@@ -239,6 +245,7 @@ public class IndexOrchestrator {
         detailedDiagnostics.addAll(resolution.diagnostics());
         detailedDiagnostics.addAll(taintRules.diagnostics());
         detailedDiagnostics.addAll(flowResult.diagnostics);
+        detailedDiagnostics.addAll(extensionReport.diagnostics());
         IndexResult indexResult = new IndexResult(
                 store.queryKindCounts(),
                 store.queryRelationCounts(),
@@ -257,7 +264,8 @@ public class IndexOrchestrator {
                 flowStats.edges(),
                 flowStats.summaries(),
                 flowStats.detailedMethods(),
-                flowStats.summaryOnlyMethods()
+                flowStats.summaryOnlyMethods(),
+                extensionReport.counters()
         );
         List<IndexDiagnostic> rawDiagnostics =
                 IndexHealthService.diagnosticsFromResult(indexResult);

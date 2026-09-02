@@ -84,6 +84,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
   CFG/def-use/return/exception/guard/taint analysis
 - Data-only flow paths by default, with exact endpoint slots and opt-in control/exception edges
 - Spring XML bean wiring (`--spring-xml`)
+- Optional low-overhead Lombok signature recovery (`--lombok ast`) with synthetic provenance
 - Pagination + keyword filter on all list queries
 - GraalVM native binary (~10ms cold start vs ~300ms JVM)
 

@@ -6,6 +6,7 @@ public final class ProducerIds {
     public static final String SPRING_COMPONENTS = "spring-components";
     public static final String SPRING_MVC = "spring-mvc";
     public static final String SPRING_XML = "spring-xml";
+    public static final String LOMBOK_AST = "lombok-ast";
     public static final String SEMANTIC_JAVADOC = "semantic-javadoc";
     public static final String DERIVED_WIRING = "derived-wiring";
     public static final String MANUAL_ANNOTATION = "manual-annotation";

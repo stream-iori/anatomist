@@ -53,6 +53,7 @@ anatomist index <project-path> [options]
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
 | `--verify-content` | Hash every indexed source during incremental change detection instead of trusting unchanged size/mtime. | false |
 | `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts and XML property/map/list/ref config trees. Spring annotation Bean/MVC facts are indexed by default. | false |
+| `--lombok off\|ast` | Recover common Lombok-generated signatures in memory. `ast` never runs Lombok, reads bytecode, or emits generated bodies. | off |
 | `--timings` | Add per-phase milliseconds to text output or JSON `timings_ms`, including incremental `symbol_delta`, `impact_analysis`, `graph_replace`, and metadata sub-phases. Output is unchanged when omitted. | false |
 | `--format json` | Emit a stable Agent summary: `command`, `status`, `schema_version`, `index_path`, `stats`, `warnings`, `errors` | text |
 | `--health-policy none\|integrity\|complete` | Select the health gate; see the table below | none |
@@ -95,7 +96,17 @@ exclude = ["**/*IT.java", "**/generated/**"]
 
 [external]
 exclude_patterns = ["java.lang.*", "com.example.generated.**"]
+
+[extensions.lombok]
+mode = "off" # off | ast
+strict = false
 ```
+
+`ast` covers `@Getter`, `@Setter`, constructor annotations, `@Data`, `@Value`,
+and standard logger annotations. Generated rows use `producer_id=lombok-ast` and
+query results include `synthetic_origin`. Unsupported transformations such as
+`@Builder` and `@Accessors` produce coverage diagnostics instead of guessed facts.
+`strict=true` promotes Lombok coverage diagnostics to the complete health gate.
 
 | `[scan]` key | Meaning | Default |
 |---|---|---|

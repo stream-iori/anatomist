@@ -143,6 +143,9 @@ public class IndexCommand implements Callable<Integer> {
                     + "+ DEFINED_BY / WIRES edges. Off by default.")
     Boolean springXml;
 
+    @Option(names = "--lombok", description = "Lombok structural model: off | ast. Off by default.")
+    String lombokMode;
+
     @Option(names = "--debug",
             description = "Write detailed diagnostics (classpath detection, symbol "
                     + "resolution failures, dropped dangling edges) to "
@@ -218,6 +221,7 @@ public class IndexCommand implements Callable<Integer> {
         command.incremental = request.incremental();
         command.full = !request.incremental();
         command.springXml = request.springXml();
+        command.lombokMode = request.lombokMode();
         command.dataflow = request.dataflow();
         command.dataflowMode = request.dataflowMode();
         command.dataflowScopes = new ArrayList<>(request.dataflowScopes());
@@ -277,6 +281,9 @@ public class IndexCommand implements Callable<Integer> {
         ProjectConfig config = loadedConfig.config();
         configureEffectiveOptions(projectRoot, config);
         effectiveHealthPolicy = com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
+        if (config.lombokStrict()) {
+            effectiveHealthPolicy = com.anatomist.core.HealthPolicy.COMPLETE;
+        }
         flowProfile = resolveFlowProfile(config);
         dataflow = flowProfile.enabled();
         if (externalExclude != null && !externalExclude.isBlank()) {
@@ -364,8 +371,8 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
-                String currentExtensions =
-                        com.anatomist.framework.spring.BuiltInExtensions.currentFingerprint();
+                String currentExtensions = preparedExtensions(
+                        projectRoot, sourcePaths).fingerprint();
                 if (!currentExtensions.equals(store.readProjectMeta(
                         com.anatomist.framework.PreparedExtensions.META_KEY).orElse(""))) {
                     String reason = "extension fingerprint changed";
@@ -471,12 +478,15 @@ public class IndexCommand implements Callable<Integer> {
                     }
                 } else {
                     List<Path> hashTargets = sourceFiles;
-                    if (springXml) {
-                        List<Path> xmlFiles = scanner.scanSpringXml(projectRoot);
-                        if (!xmlFiles.isEmpty()) {
-                            hashTargets = new ArrayList<>(sourceFiles);
-                            hashTargets.addAll(xmlFiles);
-                        }
+                    List<Path> projectResources = new com.anatomist.framework.ProjectResourceDiscovery()
+                            .discover(preparedExtensions(projectRoot, sourcePaths),
+                                    new com.anatomist.framework.AnalysisContext(
+                                            projectRoot, sourcePaths, null, config, springXml),
+                                    scanner, new com.anatomist.framework.ExtensionReport())
+                            .stream().map(com.anatomist.framework.ProjectResource::path).toList();
+                    if (!projectResources.isEmpty()) {
+                        hashTargets = new ArrayList<>(sourceFiles);
+                        hashTargets.addAll(projectResources);
                     }
                     FileCacheService.CandidateScan scan = fcs.detectChangesFast(
                             projectRoot, hashTargets, cache, verifyContent, phaseTimings);
@@ -541,7 +551,7 @@ public class IndexCommand implements Callable<Integer> {
                 IncrementalIndexer ii = new IncrementalIndexer(
                         projectRoot, sourcePaths, runtime.factory(), store, runtime.javaVersion(),
                         maxRealignFiles, springXml, config, resolvedSourceRoots,
-                        executionHints == null ? null : executionHints.springXmlFiles(), phaseTimings,
+                        phaseTimings,
                         executionHints == null ? null : executionHints.incrementalSession(),
                         flowProfile, implicitTaint);
                 IncrementalIndexer.Summary summary = ii.indexIncremental(
@@ -719,6 +729,8 @@ public class IndexCommand implements Callable<Integer> {
     private void configureEffectiveOptions(Path projectRoot, ProjectConfig config) {
         vmClasspath = vmClasspath == null ? config.vmClasspath() : vmClasspath;
         springXml = springXml == null ? config.springXml() : springXml;
+        if (lombokMode != null && !lombokMode.isBlank()) config.setLombokMode(lombokMode);
+        lombokMode = config.lombokMode().optionValue();
         implicitTaint = implicitTaint == null ? config.implicitTaint() : implicitTaint;
 
         boolean cliRoots = !sourceRootSpecs.isEmpty()
@@ -794,7 +806,7 @@ public class IndexCommand implements Callable<Integer> {
         Path configuredJdkHome = validatedJdkHome(jv);
         System.err.println("Parsing with Java " + jv);
         com.anatomist.framework.PreparedExtensions extensions =
-                com.anatomist.framework.spring.BuiltInExtensions.current();
+                preparedExtensions(projectRoot, sourcePaths);
         JavaParserFactory factory = new JavaParserFactory(
                 jv, classpathEntries, sourcePaths, vmClasspath,
                 executionHints == null ? null : executionHints.parserSessions(), configuredJdkHome,
@@ -885,7 +897,7 @@ public class IndexCommand implements Callable<Integer> {
         currentClasspathDetection = com.anatomist.core.ClasspathDetectionResult.indexMetadata(
                 cachedClasspath.stream().map(Path::toString).toList());
         com.anatomist.framework.PreparedExtensions extensions =
-                com.anatomist.framework.spring.BuiltInExtensions.current();
+                preparedExtensions(projectRoot, sourcePaths);
         JavaParserFactory factory = new JavaParserFactory(
                 cachedJavaVersion, cachedClasspath, sourcePaths, vmClasspath,
                 executionHints == null ? null : executionHints.parserSessions(), resolveJdkHome(),
@@ -894,6 +906,15 @@ public class IndexCommand implements Callable<Integer> {
                 cachedJavaVersion, com.anatomist.core.JavaVersionDetection.Source.MAVEN,
                 null, "project_meta.java_version=" + cachedJavaVersion, java.util.List.of());
         return new IndexRuntime(cachedClasspath, cachedJavaVersion, factory, "detected");
+    }
+
+    private com.anatomist.framework.PreparedExtensions preparedExtensions(
+            Path projectRoot, List<Path> sourcePaths) {
+        ProjectConfig config = loadedConfig == null
+                ? ConfigLoader.load(projectRoot) : loadedConfig.config();
+        return com.anatomist.framework.spring.BuiltInExtensions.prepare(
+                new com.anatomist.framework.AnalysisContext(
+                        projectRoot, sourcePaths, null, config, Boolean.TRUE.equals(springXml)));
     }
 
     private String classpathMode() {

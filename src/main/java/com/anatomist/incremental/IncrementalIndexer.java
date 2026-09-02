@@ -7,6 +7,8 @@ import com.anatomist.framework.DefaultProjectFactView;
 import com.anatomist.framework.PreparedExtensions;
 import com.anatomist.framework.ProjectAnalysisRunner;
 import com.anatomist.framework.ProjectResource;
+import com.anatomist.framework.ProjectResourceDiscovery;
+import com.anatomist.framework.ExtensionReport;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.GraphPostProcessor;
 import com.anatomist.core.JavaParserFactory;
@@ -60,7 +62,6 @@ public class IncrementalIndexer {
     private final boolean springXml;
     private final ProjectConfig projectConfig;
     private final List<SourceRoot> sourceRoots;
-    private final List<Path> springXmlInventory;
     private final IndexTimings timings;
     private final IncrementalSessionState sessionState;
     private final boolean dataflow;
@@ -120,10 +121,9 @@ public class IncrementalIndexer {
                               boolean springXml,
                               ProjectConfig projectConfig,
                               List<SourceRoot> sourceRoots,
-                              List<Path> springXmlInventory,
                               IndexTimings timings) {
         this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
-                springXml, projectConfig, sourceRoots, springXmlInventory, timings, null);
+                springXml, projectConfig, sourceRoots, timings, null);
     }
 
     public IncrementalIndexer(Path projectRoot,
@@ -135,11 +135,10 @@ public class IncrementalIndexer {
                               boolean springXml,
                               ProjectConfig projectConfig,
                               List<SourceRoot> sourceRoots,
-                              List<Path> springXmlInventory,
                               IndexTimings timings,
                               IncrementalSessionState sessionState) {
         this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
-                springXml, projectConfig, sourceRoots, springXmlInventory, timings,
+                springXml, projectConfig, sourceRoots, timings,
                 sessionState, false, false);
     }
 
@@ -152,13 +151,12 @@ public class IncrementalIndexer {
                               boolean springXml,
                               ProjectConfig projectConfig,
                               List<SourceRoot> sourceRoots,
-                              List<Path> springXmlInventory,
                               IndexTimings timings,
                               IncrementalSessionState sessionState,
                               boolean dataflow,
                               boolean implicitTaint) {
         this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
-                springXml, projectConfig, sourceRoots, springXmlInventory, timings,
+                springXml, projectConfig, sourceRoots, timings,
                 sessionState, dataflow ? FlowProfile.full() : FlowProfile.off(), implicitTaint);
     }
 
@@ -171,7 +169,6 @@ public class IncrementalIndexer {
                               boolean springXml,
                               ProjectConfig projectConfig,
                               List<SourceRoot> sourceRoots,
-                              List<Path> springXmlInventory,
                               IndexTimings timings,
                               IncrementalSessionState sessionState,
                               FlowProfile flowProfile,
@@ -185,7 +182,6 @@ public class IncrementalIndexer {
         this.springXml = springXml;
         this.projectConfig = projectConfig != null ? projectConfig : new ProjectConfig();
         this.sourceRoots = sourceRoots == null ? List.of() : List.copyOf(sourceRoots);
-        this.springXmlInventory = springXmlInventory == null ? null : List.copyOf(springXmlInventory);
         this.timings = timings;
         this.sessionState = sessionState;
         this.flowProfile = flowProfile == null ? FlowProfile.off() : flowProfile;
@@ -211,6 +207,7 @@ public class IncrementalIndexer {
         public int flowSummaries;
         public int flowDetailedMethods;
         public int flowSummaryOnlyMethods;
+        public final Map<String, Long> extensionCounters = new LinkedHashMap<>();
         public boolean degradedToFull;
         public String degradationReason;
     }
@@ -336,6 +333,9 @@ public class IncrementalIndexer {
             s.droppedDanglingFacts += post.droppedDanglingFacts();
             s.unresolvedSymbols += batch.unresolvedSymbols();
             resolutionDiagnostics.addAll(batch.resolutionDiagnostics());
+            resolutionDiagnostics.addAll(batch.extensionDiagnostics());
+            batch.extensionCounters().forEach((key, value) ->
+                    s.extensionCounters.merge(key, value, Long::sum));
             if (dataflow) {
                 long flowStageStarted = startTiming();
                 staging.writeFlowBatch(batch.flowResult());
@@ -380,29 +380,39 @@ public class IncrementalIndexer {
         toReparse.addAll(realignTargets);
         Set<String> replaceFiles = new LinkedHashSet<>(toReparse);
         replaceFiles.addAll(deletedFiles);
-        boolean rebuildSpringBeanGraph = springXml
-                && (touchesSpringXml(toReparse, toDelete) || javaContractChanged);
+        ExtractionContext projectCtx = new ExtractionContext(
+                projectRoot, sourcePaths, new NodeIdGenerator(), null, "MAIN", projectConfig);
+        AnalysisContext projectAnalysisContext = new AnalysisContext(
+                projectRoot, sourcePaths, projectCtx, projectConfig, springXml);
+        PreparedExtensions projectExtensions = BuiltInExtensions.prepare(projectAnalysisContext);
+        Set<String> resourceChanges = new LinkedHashSet<>(toReparse);
+        resourceChanges.addAll(toDelete);
+        boolean resourceTouched = projectExtensions.registry().projectResourceProviders().stream()
+                .filter(provider -> provider.enabled(projectAnalysisContext))
+                .anyMatch(provider -> resourceChanges.stream()
+                        .map(projectRoot::resolve).anyMatch(provider::mayContain));
+        boolean rebuildProjectResources = !projectExtensions.registry().projectResourceProviders().isEmpty()
+                && (resourceTouched || javaContractChanged);
         boolean rebuildDerivedWiring = javaContractChanged;
         List<String> affectedFiles = new ArrayList<>(replaceFiles);
         List<Path> rebuiltXml = new ArrayList<>();
         Set<String> rebuiltProjectProducers = new LinkedHashSet<>();
-        if (rebuildSpringBeanGraph) {
+        if (rebuildProjectResources) {
             long springStarted = startTiming();
-            rebuiltXml = springXmlInventory == null
-                    ? new ProjectScanner().scanSpringXml(projectRoot)
-                    : new ArrayList<>(springXmlInventory);
-            ExtractionContext projectCtx = new ExtractionContext(
-                    projectRoot, sourcePaths, new NodeIdGenerator(), null, "MAIN", projectConfig);
-            AnalysisContext projectAnalysisContext = new AnalysisContext(
-                    projectRoot, sourcePaths, projectCtx, projectConfig, springXml);
-            PreparedExtensions projectExtensions = BuiltInExtensions.prepare(projectAnalysisContext);
-            ProjectResource springXmlProbe = new ProjectResource(projectRoot, "", "spring-xml");
+            ExtensionReport projectReport = new ExtensionReport(timings);
+            List<ProjectResource> resources = new ProjectResourceDiscovery().discover(
+                    projectExtensions, projectAnalysisContext, new ProjectScanner(), projectReport);
+            rebuiltXml = resources.stream().map(ProjectResource::path).toList();
+            Set<String> activeKinds = projectExtensions.registry().projectResourceProviders().stream()
+                    .filter(provider -> provider.enabled(projectAnalysisContext))
+                    .flatMap(provider -> provider.kinds().stream()).collect(java.util.stream.Collectors.toSet());
             projectExtensions.registry().projectResourceAnalyzers().stream()
                     .filter(analyzer -> analyzer.enabled(projectAnalysisContext))
-                    .filter(analyzer -> analyzer.selector().matches(springXmlProbe))
+                    .filter(analyzer -> activeKinds.stream().anyMatch(kind ->
+                            analyzer.selector().matches(new ProjectResource(projectRoot, "", kind))))
                     .map(com.anatomist.framework.ProjectResourceAnalyzer::producerId)
                     .forEach(rebuiltProjectProducers::add);
-            if (!rebuiltXml.isEmpty()) {
+            if (!resources.isEmpty()) {
                 Set<String> extractionIds = new HashSet<>(knownIds);
                 knownIds.stream().map(NodeKeyFactory::symbolId).forEach(extractionIds::add);
                 extractionIds.addAll(staging.allSymbolIds());
@@ -411,16 +421,14 @@ public class IncrementalIndexer {
                                 .fromBeanClassMap(store.readBeanClassTargets()));
                 beanTargets.putAll(staging.rawBeanTargets());
                 ExtractionResult beanResult = new ExtractionResult();
-                List<ProjectResource> resources = rebuiltXml.stream()
-                        .map(path -> new ProjectResource(path, relativePath(path), "spring-xml"))
-                        .toList();
                 new ProjectAnalysisRunner().run(projectExtensions, projectAnalysisContext, resources,
-                        new DefaultProjectFactView(extractionIds, beanTargets), beanResult);
+                        new DefaultProjectFactView(extractionIds, beanTargets), beanResult, projectReport);
                 GraphIdentityRewriter.rewrite(beanResult, identities, knownIds);
                 new GraphPostProcessor().process(beanResult, knownIds);
                 staging.writeNormalizedBatch(beanResult);
                 beanResult.clearFacts();
             }
+            resolutionDiagnostics.addAll(projectReport.diagnostics());
             stopTiming("spring_graph", springStarted);
         }
 
@@ -477,6 +485,8 @@ public class IncrementalIndexer {
         PreparedExtensions fingerprintExtensions = BuiltInExtensions.prepare(new AnalysisContext(
                 projectRoot, sourcePaths, fingerprintCtx, projectConfig, springXml));
         store.upsertProjectMeta(Map.of(PreparedExtensions.META_KEY, fingerprintExtensions.fingerprint()));
+        store.upsertProjectMeta(com.anatomist.framework.lombok.LombokIndexMetadata.snapshot(
+                projectConfig, fingerprintExtensions, store, resolutionDiagnostics));
         return s;
         }
     }
@@ -498,9 +508,12 @@ public class IncrementalIndexer {
                 projectRoot, sourcePaths, idGen, null, "MAIN", projectConfig);
         AnalysisContext analysisContext = new AnalysisContext(
                 projectRoot, sourcePaths, ctx, projectConfig, springXml);
+        long extensionPrepareStarted = startTiming();
         PreparedExtensions extensions = BuiltInExtensions.prepare(analysisContext);
+        stopTiming("extension_prepare", extensionPrepareStarted);
+        ExtensionReport extensionReport = new ExtensionReport(timings);
         ExtractorPipeline pipeline = new ExtractorPipeline(
-                ctx, extensions.registry().javaUnitAnalyzers());
+                ctx, extensions.registry().javaUnitAnalyzers(), timings, extensionReport);
         Set<String> parsed = new LinkedHashSet<>();
         JavaParserFactory.ParseFilesResult parsedBatch =
                 parserFactory.parseFilesDetailed(targetJavaFiles(files));
@@ -515,7 +528,8 @@ public class IncrementalIndexer {
         missing.removeAll(parsed);
         if (!missing.isEmpty()) {
             return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
-                    Map.of(), false, List.of(), new FlowResult());
+                    Map.of(), false, List.of(), extensionReport.diagnostics(),
+                    extensionReport.counters(), new FlowResult());
         }
 
         Map<String, String> batchContractHashes = new LinkedHashMap<>();
@@ -577,7 +591,8 @@ public class IncrementalIndexer {
         boolean noClasspath = "none".equals(store.readProjectMeta("classpath_mode").orElse(""));
         return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
                 Map.copyOf(batchContractHashes), !contractChangedPaths.isEmpty(),
-                ctx.resolutionSummary(noClasspath).diagnostics(), batchFlow);
+                ctx.resolutionSummary(noClasspath).diagnostics(), extensionReport.diagnostics(),
+                extensionReport.counters(), batchFlow);
     }
 
     private Set<String> impactedSourceFiles(SymbolGraphDelta.Impact impact) {
@@ -618,6 +633,8 @@ public class IncrementalIndexer {
                                    Map<String, String> contractHashes,
                                    boolean contractChanged,
                                    List<com.anatomist.core.IndexDiagnostic> resolutionDiagnostics,
+                                   List<com.anatomist.core.IndexDiagnostic> extensionDiagnostics,
+                                   Map<String, Long> extensionCounters,
                                    FlowResult flowResult) {}
 
     private long startTiming() {
@@ -646,12 +663,6 @@ public class IncrementalIndexer {
                 || com.anatomist.model.GraphConstants.Relation.IMPLEMENTS.equals(edge.relation)
                 || com.anatomist.model.GraphConstants.Relation.OVERRIDES.equals(edge.relation)
                 || com.anatomist.model.GraphConstants.Relation.CALLS.equals(edge.relation);
-    }
-
-    private static boolean touchesSpringXml(Set<String> reparse, Set<String> delete) {
-        for (String f : reparse) if (f.endsWith(".xml")) return true;
-        for (String f : delete) if (f.endsWith(".xml")) return true;
-        return false;
     }
 
     private List<Path> targetJavaFiles(Set<String> toReparse) {

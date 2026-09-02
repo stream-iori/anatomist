@@ -5,8 +5,9 @@
 - `model/` — Plain data: `Node`, `Edge`, `Annotation`, `ExtractionResult`
 - `core/` — Index application boundary and plumbing: `IndexRequest`, `IndexApplicationService`, `IndexOutcome`, `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, identity/health services, and extraction context.
 - `extract/` — `Extractor` implementations. `CallGraphExtractor` handles traversal/emission while `CallOverloadResolver` owns shared AST/SymbolSolver overload ranking. Plus `XmlBeanExtractor` for Spring XML beans.
-- `framework/` — Compile-time extension SPI. `AstModelExtension` augments the in-memory AST, `JavaUnitAnalyzer` emits per-unit facts, and `ProjectResourceAnalyzer` emits project-resource facts. `AnalyzerRegistry` wires built-ins.
+- `framework/` — Compile-time extension SPI. `AstModelExtension` augments the in-memory AST, `JavaUnitAnalyzer` emits per-unit facts, `ProjectResourceProvider` discovers shared resources, and `ProjectResourceAnalyzer` emits project-resource facts. `AnalyzerRegistry` wires built-ins.
 - `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
+- `framework/lombok/` — Opt-in signature-only Lombok AST model and root `lombok.config` subset.
 - `store/` — `SqliteStore` (schema + atomic batched write)
 - `semantic/` — Post-index annotations from direct code evidence: `SemanticPostProcessor` writes Javadoc summaries only; it does not infer architecture roles or business categories from names/annotations.
 - `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `CallGraphService`, `BranchSliceService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs: `QueryEnvelope`, `NodeRow`, `EdgeRow`, `BranchSlice`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `CallChainSlicer` groups call chains into class/package blocks. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
@@ -22,6 +23,7 @@ IndexCommand (picocli adapter)
   → BuiltInExtensions → PreparedExtensions (validate IDs + fingerprint)
   → JavaParserFactory.parseAll(consumer)
       AstModelExtension (main parser + every JavaParserTypeSolver)
+          LombokAstModelExtension → synthetic methods/constructors/logger fields (--lombok ast)
       for each CompilationUnit:
           TypeExtractor    → CLASS/INTERFACE/ENUM/ANONYMOUS_CLASS nodes
           MethodExtractor  → METHOD nodes + CONTAINS edges
@@ -51,9 +53,13 @@ Framework support must add graph facts, not hard-code logic into `IndexOrchestra
 |---|---|---|
 | `AstModelExtension` | Parse 后、contract hash/core extractor 前 | Lombok-like generated signatures; must be idempotent. |
 | `JavaUnitAnalyzer` | Core extractor 后 | Source annotations and declarations, e.g. Spring MVC and `@Autowired`. |
-| `ProjectResourceAnalyzer` | Java facts staged 后 | XML/YAML/generated metadata; analyzers share one inventory and read-only fact view. |
+| `ProjectResourceProvider` | 项目分析前 | Discover and de-duplicate non-Java resources into one shared inventory. |
+| `ProjectResourceAnalyzer` | Java facts staged 后 | XML/YAML/generated metadata; analyzers share the inventory and read-only fact view. |
 
 Built-ins are registered once in `BuiltInExtensions`; no `ServiceLoader`, reflection scan, or external-jar loading is used. `PreparedExtensions` rejects blank/duplicate IDs and persists a fingerprint of implementation class, ID, version, and producer.
+
+Each extension runs in isolation. A failure records `EXTENSION_*_FAILED`, discards
+that extension's partial output, and lets the remaining producers continue.
 
 ```text
 resource inventory ─┬─ selector A → producer-a facts

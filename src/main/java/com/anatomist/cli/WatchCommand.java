@@ -16,7 +16,6 @@ import com.anatomist.application.ProjectMetadata;
 import com.anatomist.core.JavaParserFactory;
 import com.anatomist.core.SourceIdentityResolver;
 import com.anatomist.core.SourceRoot;
-import com.anatomist.core.SpringBeanParser;
 import com.anatomist.incremental.IncrementalParseException;
 import com.anatomist.incremental.FullRebuildRequiredException;
 import com.anatomist.incremental.IncrementalSessionState;
@@ -153,6 +152,9 @@ public class WatchCommand implements Callable<Integer> {
             description = "Also watch + index Spring bean XML (<beans>) configs. Off by default.")
     Boolean springXml;
 
+    @Option(names = "--lombok", description = "Lombok structural model: off | ast. Off by default.")
+    String lombokMode;
+
     @Option(names = "--fail-fast",
             description = "Exit immediately when auto-index fails instead of retaining pending changes.")
     boolean failFast;
@@ -286,7 +288,6 @@ public class WatchCommand implements Callable<Integer> {
                 .map(String::trim).filter(s -> !s.isEmpty())
                 .map(s -> s.startsWith(".") ? s : "." + s)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (springXml) exts.add(".xml");
 
         Set<String> extraExcludes = exclude == null || exclude.isEmpty()
                 ? Collections.emptySet()
@@ -296,6 +297,15 @@ public class WatchCommand implements Callable<Integer> {
                 scanIncludeSpecs.isEmpty() ? effectiveProjectConfig.scanIncludes() : scanIncludeSpecs,
                 scanExcludeSpecs.isEmpty() ? effectiveProjectConfig.scanExcludes() : scanExcludeSpecs,
                 extraExcludes);
+        com.anatomist.framework.PreparedExtensions watchExtensions =
+                com.anatomist.framework.spring.BuiltInExtensions.prepare(
+                        new com.anatomist.framework.AnalysisContext(
+                                projectRoot, sourcePaths, null, effectiveProjectConfig, springXml));
+        List<com.anatomist.framework.ProjectResourceProvider> resourceProviders =
+                watchExtensions.registry().projectResourceProviders().stream()
+                        .filter(provider -> provider.enabled(new com.anatomist.framework.AnalysisContext(
+                                projectRoot, sourcePaths, null, effectiveProjectConfig, springXml)))
+                        .toList();
         ConfigSelectionSnapshot initialConfig = ConfigSelectionSnapshot.capture(projectRoot);
 
         Path dbPath = output == null
@@ -325,10 +335,6 @@ public class WatchCommand implements Callable<Integer> {
 
         List<SourceRoot> resolvedRoots = new ArrayList<>(resolveSourceRoots(projectRoot, sourcePaths));
         Set<Path> watchedBuildFiles = discoverBuildFiles(projectRoot, sourcePaths);
-        Set<Path> springXmlInventory = springXml
-                ? new LinkedHashSet<>(new ProjectScanner(extraExcludes, scanPolicy).scanSpringXml(projectRoot))
-                : new LinkedHashSet<>();
-
         ExecutorService fullRebuildWorker = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "anatomist-watch-full-rebuild");
             thread.setDaemon(true);
@@ -351,9 +357,8 @@ public class WatchCommand implements Callable<Integer> {
                 Path parent = buildFile.getParent();
                 if (parent != null && Files.isDirectory(parent)) registerSingle(ws, parent, keys);
             }
-            // Spring XML lives under resources/, outside the Java source roots — watch
-            // the whole tree so <beans> config edits are seen.
-            if (springXml) registerRecursive(ws, projectRoot, keys, extraExcludes);
+            // Resource providers may own files outside Java source roots.
+            if (!resourceProviders.isEmpty()) registerRecursive(ws, projectRoot, keys, extraExcludes);
 
             System.out.println("Watching " + projectRoot + " (extensions=" + exts + ", debounce=" + debounceMs + "ms"
                     + (autoIndex ? ", auto-index" : "") + ")");
@@ -419,20 +424,15 @@ public class WatchCommand implements Callable<Integer> {
                         String fname = full.getFileName().toString();
                         boolean isBuildFile = watchedBuildFiles.contains(
                                 full.toAbsolutePath().normalize());
-                        boolean matchesExt = exts.stream().anyMatch(fname::endsWith);
+                        boolean matchesExt = exts.stream().anyMatch(fname::endsWith)
+                                || resourceProviders.stream().anyMatch(provider -> provider.mayContain(full))
+                                || (effectiveProjectConfig.lombokMode()
+                                        == com.anatomist.framework.lombok.LombokMode.AST
+                                        && "lombok.config".equals(fname));
                         if (!matchesExt && !isBuildFile) continue;
                         if (!isBuildFile && !scanPolicy.includes(full)) continue;
                         // For build files we always care
                         if (isBuildFile) buildFileTouched = true;
-
-                        if (springXml && fname.endsWith(".xml")) {
-                            Path normalized = full.toAbsolutePath().normalize();
-                            if (SpringBeanParser.isSpringBeansFile(normalized)) {
-                                springXmlInventory.add(normalized);
-                            } else {
-                                springXmlInventory.remove(normalized);
-                            }
-                        }
 
                         String rel;
                         try {
@@ -529,7 +529,7 @@ public class WatchCommand implements Callable<Integer> {
                     } else {
                         result = flush(projectRoot, sourcePaths, classpath, noClasspath,
                                 vmClasspath, javaVersion, jdkHome, dbPath, attempt, forceFull, autoIndex,
-                                resolvedRoots, new ArrayList<>(springXmlInventory), parserSessions,
+                                resolvedRoots, parserSessions,
                                 fingerprintCache, incrementalSession, completeEvents, eventFlushDue);
                     }
                     lastActivityAt = now;
@@ -709,7 +709,7 @@ public class WatchCommand implements Callable<Integer> {
                 projectRoot, projectSource, sourceRootSpecs, includeTests,
                 scanScopeSpecs, scanIncludeSpecs, scanExcludeSpecs,
                 noClasspath, classpathOverride, vmClasspath, javaVersion, jdkHome,
-                outputPath, false, springXml, dataflow, dataflowMode, dataflowScopes,
+                outputPath, false, springXml, lombokMode, dataflow, dataflowMode, dataflowScopes,
                 implicitTaint, strictHealth, healthPolicy, timings, maxRealignFiles,
                 operationLockPath, null, false);
     }
@@ -722,7 +722,7 @@ public class WatchCommand implements Callable<Integer> {
                 projectRoot, projectSource, sourceRootSpecs, includeTests,
                 scanScopeSpecs, scanIncludeSpecs, scanExcludeSpecs,
                 noClasspath, classpathOverride, vmClasspath, javaVersion, jdkHome,
-                outputPath, true, springXml, dataflow, dataflowMode, dataflowScopes,
+                outputPath, true, springXml, lombokMode, dataflow, dataflowMode, dataflowScopes,
                 implicitTaint, strictHealth, healthPolicy, timings, maxRealignFiles,
                 null, hints, true);
     }
@@ -766,7 +766,6 @@ public class WatchCommand implements Callable<Integer> {
                               boolean noClasspath, boolean vmClasspath, Integer jvOverride, Path jdkHome,
                               Path dbPath, Map<String, String> buffered, boolean buildFileTouched,
                               boolean autoIndex, List<SourceRoot> resolvedRoots,
-                              List<Path> springXmlInventory,
                               JavaParserFactory.SessionCache parserSessions,
                               ProjectMetadata.FingerprintCache fingerprintCache,
                               IncrementalSessionState incrementalSession,
@@ -791,7 +790,7 @@ public class WatchCommand implements Callable<Integer> {
             }
             // Incremental
             IndexExecutionHints hints = new IndexExecutionHints(
-                    resolvedRoots, buffered.keySet(), springXmlInventory, parserSessions,
+                    resolvedRoots, buffered.keySet(), parserSessions,
                     fingerprintCache, incrementalSession, completeEvents);
             IndexExecutionRequest request = configuredIncrementalRequest(projectRoot,
                     classpathOverride, noClasspath, vmClasspath, jvOverride, jdkHome,
@@ -1160,6 +1159,8 @@ public class WatchCommand implements Callable<Integer> {
         if (javaVersion == null && config.hasJavaVersion()) javaVersion = config.javaVersion();
         vmClasspath = vmClasspath == null ? config.vmClasspath() : vmClasspath;
         springXml = springXml == null ? config.springXml() : springXml;
+        if (lombokMode != null && !lombokMode.isBlank()) config.setLombokMode(lombokMode);
+        lombokMode = config.lombokMode().optionValue();
         implicitTaint = implicitTaint == null ? config.implicitTaint() : implicitTaint;
 
         boolean cliRoots = !sourceRootSpecs.isEmpty()

@@ -121,6 +121,7 @@ public class MethodExtractor implements Extractor {
         n.javadoc = com.anatomist.core.JavadocSummary.extract(
                 decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = methodMetadata(decl, r, false);
+        com.anatomist.framework.SyntheticOrigin.apply(decl, n);
         result.nodes.add(n);
 
         result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
@@ -149,6 +150,7 @@ public class MethodExtractor implements Extractor {
         n.javadoc = com.anatomist.core.JavadocSummary.extract(
                 decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = methodMetadataFallback(decl);
+        com.anatomist.framework.SyntheticOrigin.apply(decl, n);
         result.nodes.add(n);
 
         result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
@@ -195,6 +197,7 @@ public class MethodExtractor implements Extractor {
         n.javadoc = com.anatomist.core.JavadocSummary.extract(
                 decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = methodMetadata(decl, r, true);
+        com.anatomist.framework.SyntheticOrigin.apply(decl, n);
         result.nodes.add(n);
 
         result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
@@ -248,6 +251,7 @@ public class MethodExtractor implements Extractor {
         metadata.put("isCompactConstructor", true);
         metadata.put("isAccessor", false);
         n.metadata = Json.writeCompact(metadata);
+        com.anatomist.framework.SyntheticOrigin.apply(decl, n);
         result.nodes.add(n);
         result.edges.add(containsEdge(classId, methodId, sourceFile, n.sourceLocation));
     }

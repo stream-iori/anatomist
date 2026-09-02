@@ -77,6 +77,7 @@ public final class DtoCodecs {
             put(m, "scope", n.scope);
             putNullable(m, "javadoc", n.javadoc);
             put(m, "producer_id", n.producerId);
+            put(m, "synthetic_origin", n.syntheticOrigin);
             put(m, "external_target", n.externalTarget);
             put(m, "external_edge_count", n.externalEdgeCount);
             put(m, "relation_counts", n.relationCounts);

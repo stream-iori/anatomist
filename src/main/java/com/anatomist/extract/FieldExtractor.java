@@ -275,6 +275,7 @@ public class FieldExtractor implements Extractor {
         n.javadoc = com.anatomist.core.JavadocSummary.extract(
                 decl.getJavadocComment().map(c -> c.getContent()).orElse(null));
         n.metadata = fieldMetadata(decl, var);
+        com.anatomist.framework.SyntheticOrigin.apply(decl, n);
         result.nodes.add(n);
 
         result.edges.add(containsEdge(classId, fieldId, sourceFile, n.sourceLocation));
