@@ -6,9 +6,11 @@ import com.anatomist.core.logging.AnatomistLog;
 import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
 import com.anatomist.framework.AnalysisContext;
-import com.anatomist.framework.AnalyzerRegistry;
-import com.anatomist.framework.spring.SpringAnalyzers;
-import com.anatomist.framework.spring.SpringXmlAnalyzer;
+import com.anatomist.framework.spring.BuiltInExtensions;
+import com.anatomist.framework.DefaultProjectFactView;
+import com.anatomist.framework.PreparedExtensions;
+import com.anatomist.framework.ProjectAnalysisRunner;
+import com.anatomist.framework.ProjectResource;
 import com.anatomist.incremental.JavaContractFingerprint;
 import com.anatomist.flow.FlowAnalyzer;
 import com.anatomist.store.FlowPersistence;
@@ -62,9 +64,9 @@ public class IndexOrchestrator {
                 cfg.projectRoot(), cfg.sourcePaths(), idGen, null, "MAIN", cfg.config());
         AnalysisContext analysisContext = new AnalysisContext(
                 cfg.projectRoot(), cfg.sourcePaths(), ctx, cfg.config(), cfg.springXml());
-        AnalyzerRegistry analyzers = SpringAnalyzers.registry(analysisContext);
+        PreparedExtensions extensions = BuiltInExtensions.prepare(analysisContext);
         ExtractorPipeline pipeline = new ExtractorPipeline(
-                ctx, analyzers.javaAstAnalyzers(), timings);
+                ctx, extensions.registry().javaUnitAnalyzers(), timings);
 
         SourceIdentityResolver identityResolver = cfg.sourceRoots() == null || cfg.sourceRoots().isEmpty()
                 ? new SourceIdentityResolver(cfg.projectRoot(), cfg.sourcePaths())
@@ -153,8 +155,13 @@ public class IndexOrchestrator {
                 xmlFiles = new ProjectScanner().scanSpringXml(cfg.projectRoot());
                 if (!xmlFiles.isEmpty()) {
                     ExtractionResult xmlResult = new ExtractionResult();
-                    SpringXmlAnalyzer.extractXmlBeans(cfg.projectRoot(), xmlFiles,
-                            staging.allSymbolIds(), staging.rawBeanTargets(), xmlResult);
+                    List<ProjectResource> resources = xmlFiles.stream()
+                            .map(path -> new ProjectResource(path,
+                                    relativize(cfg.projectRoot(), path), "spring-xml"))
+                            .toList();
+                    new ProjectAnalysisRunner().run(extensions, analysisContext, resources,
+                            new DefaultProjectFactView(staging.allSymbolIds(), staging.rawBeanTargets()),
+                            xmlResult);
                     staging.writeRawBatch(xmlResult);
                     xmlResult.clearFacts();
                 }
@@ -207,6 +214,7 @@ public class IndexOrchestrator {
         stopTiming(timings, "full_file_cache", phaseStarted);
         phaseStarted = startTiming(timings);
         ProjectMetadata.write(store, cfg, dropped, rebound, wired, timings);
+        store.upsertProjectMeta(Map.of(PreparedExtensions.META_KEY, extensions.fingerprint()));
         stopTiming(timings, "full_metadata", phaseStarted);
         phaseStarted = startTiming(timings);
         store.refreshFileDependencies();

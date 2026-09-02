@@ -84,7 +84,7 @@ public final class DeclarationQueryService {
                                      boolean includeSynthetic, int limit, int offset) {
         Query query = build("SELECT symbol_id,qualified_name,label,kind,declaration_kind,type_kind,visibility,"
                 + "modifiers,declared_modifiers,implicit_modifiers,declaring_type,source_file,source_location,module,"
-                + "scope,nesting_depth,direct_member,synthetic", file, module, scope, visibility, kinds,
+                + "scope,nesting_depth,direct_member,synthetic,producer_id", file, module, scope, visibility, kinds,
                 topLevelTypes, directMembers, includeSynthetic);
         query.sql.append(" ORDER BY CASE WHEN source_location GLOB 'L[0-9]*' THEN CAST(substr(source_location,2) AS INTEGER) "
                 + "ELSE 2147483647 END, CASE declaration_kind WHEN 'type' THEN 0 WHEN 'constructor' THEN 1 ELSE 2 END, symbol_id"
@@ -154,7 +154,8 @@ public final class DeclarationQueryService {
         out.declaredModifiers = strings(rows.getString(i++)); out.implicitModifiers = strings(rows.getString(i++));
         out.declaringType = rows.getString(i++); out.sourceFile = rows.getString(i++); out.sourceLocation = rows.getString(i++);
         out.module = rows.getString(i++); out.scope = rows.getString(i++); out.nestingDepth = rows.getInt(i++);
-        out.directMember = rows.getInt(i++) != 0; out.synthetic = rows.getInt(i) != 0; return out;
+        out.directMember = rows.getInt(i++) != 0; out.synthetic = rows.getInt(i++) != 0;
+        out.producerId = rows.getString(i); return out;
     }
 
     private static List<String> strings(String json) {

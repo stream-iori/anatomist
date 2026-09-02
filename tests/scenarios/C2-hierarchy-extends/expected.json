@@ -16,6 +16,7 @@
       "id" : "service::MAIN::com.example.shop.service.OrderService",
       "is_external" : null,
       "label" : "OrderService",
+      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.OrderService",
       "resolution" : null,
       "role" : "self"
@@ -27,6 +28,7 @@
       "id" : "service::MAIN::com.example.shop.service.BaseService",
       "is_external" : null,
       "label" : "BaseService",
+      "producer_id" : "java-core",
       "qualified_name" : "com.example.shop.service.BaseService",
       "resolution" : null,
       "role" : "extends"

@@ -5,7 +5,7 @@
 - `model/` — Plain data: `Node`, `Edge`, `Annotation`, `ExtractionResult`
 - `core/` — Index application boundary and plumbing: `IndexRequest`, `IndexApplicationService`, `IndexOutcome`, `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, identity/health services, and extraction context.
 - `extract/` — `Extractor` implementations. `CallGraphExtractor` handles traversal/emission while `CallOverloadResolver` owns shared AST/SymbolSolver overload ranking. Plus `XmlBeanExtractor` for Spring XML beans.
-- `framework/` — Internal analyzer SPI for framework/middleware concepts. `JavaAstAnalyzer` handles AST-backed concepts, `ProjectAnalyzer` handles project resources. `AnalyzerRegistry` wires built-ins.
+- `framework/` — Compile-time extension SPI. `AstModelExtension` augments the in-memory AST, `JavaUnitAnalyzer` emits per-unit facts, and `ProjectResourceAnalyzer` emits project-resource facts. `AnalyzerRegistry` wires built-ins.
 - `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
 - `store/` — `SqliteStore` (schema + atomic batched write)
 - `semantic/` — Post-index annotations from direct code evidence: `SemanticPostProcessor` writes Javadoc summaries only; it does not infer architecture roles or business categories from names/annotations.
@@ -19,7 +19,9 @@ IndexCommand (picocli adapter)
   → IndexRequest → IndexApplicationService → IndexOutcome
   → ClasspathDetector.{detectSourcePaths, detect}
   → ProjectScanner.scan(sourcePaths)
+  → BuiltInExtensions → PreparedExtensions (validate IDs + fingerprint)
   → JavaParserFactory.parseAll(consumer)
+      AstModelExtension (main parser + every JavaParserTypeSolver)
       for each CompilationUnit:
           TypeExtractor    → CLASS/INTERFACE/ENUM/ANONYMOUS_CLASS nodes
           MethodExtractor  → METHOD nodes + CONTAINS edges
@@ -29,14 +31,15 @@ IndexCommand (picocli adapter)
           HierarchyExtractor  → INHERITS/IMPLEMENTS/OVERRIDES edges
           ReferenceExtractor  → REFERENCES edges with context
           FieldAccessExtractor → READS/WRITES edges
-          SpringComponentAnalyzer → BEAN / DEFINED_BY / INJECTS
-          SpringMvcAnalyzer       → ROUTE / HANDLES
-  → ProjectAnalyzer pass:
+          JavaUnitAnalyzer pass:
+              SpringComponentAnalyzer → BEAN / DEFINED_BY / INJECTS
+              SpringMvcAnalyzer       → ROUTE / HANDLES
+  → ProjectResourceAnalyzer pass (shared inventory + staged Java fact view):
           SpringXmlAnalyzer       → BEAN / DEFINED_BY / WIRES (--spring-xml only)
   → ExtractorPipeline provenance → source_file on Java facts
   → GraphIdentityRewriter        → module::scope::symbol_id storage keys
   → GraphPostProcessor           → bind/prune graph facts
-  → SqliteStore.initSchema + write(result) (single transaction)
+  → StagedGraphStore → SqliteStore (single promotion transaction)
   → IndexHealthService           → persisted index_diagnostics
 ```
 
@@ -44,18 +47,33 @@ IndexCommand (picocli adapter)
 
 Framework support must add graph facts, not hard-code logic into `IndexOrchestrator`.
 
-| Analyzer type | Use |
-|---|---|
-| `JavaAstAnalyzer` | Source annotations and declarations, e.g. Spring MVC and `@Autowired`. |
-| `ProjectAnalyzer` | Non-Java resources, e.g. Spring XML, future MyBatis XML, YAML, generated metadata. |
+| Extension point | Timing | Use |
+|---|---|---|
+| `AstModelExtension` | Parse 后、contract hash/core extractor 前 | Lombok-like generated signatures; must be idempotent. |
+| `JavaUnitAnalyzer` | Core extractor 后 | Source annotations and declarations, e.g. Spring MVC and `@Autowired`. |
+| `ProjectResourceAnalyzer` | Java facts staged 后 | XML/YAML/generated metadata; analyzers share one inventory and read-only fact view. |
 
-Built-ins are registered in `AnalyzerRegistry`. Keep shared relations generic (`DEFINED_BY`, `INJECTS`, `HANDLES`, `WIRES`) so future middleware analyzers can reuse the query layer.
+Built-ins are registered once in `BuiltInExtensions`; no `ServiceLoader`, reflection scan, or external-jar loading is used. `PreparedExtensions` rejects blank/duplicate IDs and persists a fingerprint of implementation class, ID, version, and producer.
+
+```text
+resource inventory ─┬─ selector A → producer-a facts
+                    └─ selector B → producer-b facts
+
+incremental promotion: delete owned facts → upsert stable nodes
+                     → delete obsolete owned nodes → insert new facts
+```
+
+All structural rows carry `producer_id`. A node ID has exactly one producer;
+cross-producer ownership raises `EXTENSION_NODE_OWNERSHIP_CONFLICT`. Relations
+may reference nodes owned by another producer. Flow facts intentionally do not
+participate in this ownership model.
 
 ## Critical invariants
 
 - **Storage identity is `module::scope::symbol_id`.** Logical `symbol_id` still preserves original case.
 - **Callable identity is AST-aware.** If SymbolSolver cannot render a parameter, normalized AST type text keeps overloads distinct.
 - **Record members are first-class.** Explicit methods, compact/canonical constructors, component fields, and accessors receive normal graph nodes.
+- **Record is core Java semantics, not an extension.** It remains available even when all framework extensions are disabled.
 - **Candidate uniqueness is based on storage keys.** Repeated extraction of the same key is not module ambiguity; distinct module/scope keys remain ambiguous.
 - **Query scope defaults to MAIN.** Cross-scope lookup must be explicit with `--scope`.
 - **Method ID uses erased FQN signature.** `pkg.A#foo(java.lang.String,java.util.List)` — NOT generic args.
@@ -75,12 +93,13 @@ Built-ins are registered in `AnalyzerRegistry`. Keep shared relations generic (`
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Tables: `nodes`, `edges`, `annotations`, `node_names` (FTS5), `documents`, `doc_content` (FTS5), `semantic_annotations`, `file_cache`, `project_meta`, `file_dependencies`, `index_diagnostics`.
+Schema v14 has no migration path. Structural tables `nodes`, `edges`, `declarations`, `annotations`, and `semantic_annotations` carry `producer_id`; flow tables do not.
 
 ## Fixtures
 
 - `fixtures/mini-spring-shop/` — 3-module Maven project (api/domain/service). Baseline: 16 types, 47 methods, 76 CONTAINS edges, plus Spring BEAN/ROUTE framework facts.
 - `fixtures/micro/` — 8 single-file fixtures pinning one language feature each. Driven by `MicroFixtureIT`.
+- `fixtures/extension-lifecycle/` — JDK 25 record + Spring annotation/XML fixture used by full/incremental and JVM/native E2E.
 - `fixtures/external/commons-lang/` — git submodule, scale baseline. Auto-skips when missing.
 
 ## Gotchas

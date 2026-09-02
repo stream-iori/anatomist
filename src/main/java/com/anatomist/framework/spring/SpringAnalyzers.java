@@ -11,10 +11,13 @@ public final class SpringAnalyzers {
     private SpringAnalyzers() {}
 
     public static AnalyzerRegistry registry(AnalysisContext context) {
+        com.anatomist.core.ExtractionContext extractionContext =
+                context == null ? null : context.extractionContext();
         return new AnalyzerRegistry(
+                List.of(),
                 List.of(
-                        new SpringComponentAnalyzer(context.extractionContext()),
-                        new SpringMvcAnalyzer(context.extractionContext())),
+                        new SpringComponentAnalyzer(extractionContext),
+                        new SpringMvcAnalyzer(extractionContext)),
                 List.of(new SpringXmlAnalyzer()));
     }
 }

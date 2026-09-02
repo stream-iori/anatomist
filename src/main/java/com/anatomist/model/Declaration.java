@@ -23,4 +23,5 @@ public class Declaration {
     public boolean directMember;
     public boolean synthetic;
     public boolean bindingResolved;
+    public String producerId;
 }

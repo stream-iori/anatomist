@@ -29,6 +29,7 @@ public class EdgeRow {
     public SourceWindow sourceWindow;
     public String context;
     public String metadata;
+    public String producerId;
     /** P0: when this edge was synthesized by following into an anonymous-class /
      *  lambda body defined inside {@link #source}, the id of that body the call
      *  physically originated from. Null for direct edges. */

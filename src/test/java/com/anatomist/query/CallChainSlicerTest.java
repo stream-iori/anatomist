@@ -28,7 +28,7 @@ class CallChainSlicerTest {
                     + "relation TEXT NOT NULL, call_kind TEXT, "
                     + "confidence TEXT NOT NULL DEFAULT 'EXTRACTED', resolution TEXT, context TEXT, "
                     + "is_external INTEGER NOT NULL DEFAULT 0, source_file TEXT, "
-                    + "source_location TEXT, metadata TEXT)");
+                    + "source_location TEXT, metadata TEXT, producer_id TEXT NOT NULL DEFAULT 'java-core')");
             s.execute("CREATE TABLE annotations (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     + "node_id TEXT NOT NULL, annotation_fqn TEXT NOT NULL, attributes TEXT)");
             // Types

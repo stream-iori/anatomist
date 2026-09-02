@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODE="${1:-jvm}"
+NATIVE_BIN="${2:-}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+cp -R "$ROOT/fixtures/extension-lifecycle" "$WORK/project"
+
+JVM=(java --enable-native-access=ALL-UNNAMED -jar "$ROOT/target/anatomist.jar")
+if [[ "$MODE" == "native" ]]; then
+  test -x "$NATIVE_BIN"
+  RUNNER=("$NATIVE_BIN")
+else
+  RUNNER=("${JVM[@]}")
+fi
+
+DB="$WORK/index.db"
+"${RUNNER[@]}" index "$WORK/project" --no-classpath --spring-xml --output "$DB" >/dev/null
+"${RUNNER[@]}" search Account --kind RECORD --index "$DB" | grep -q '"producer_id" : "java-core"'
+"${RUNNER[@]}" callees-of 'example.AccountReader#read' --index "$DB" | grep -q 'example.Account#id()'
+"${RUNNER[@]}" bean-config --format=json holder --index "$DB" | grep -q '"producer_id" : "spring-xml"'
+
+sed -i.bak 's/sharedService/freshShared/g' \
+  "$WORK/project/src/main/java/example/SharedService.java" \
+  "$WORK/project/src/main/resources/beans-a.xml"
+rm "$WORK/project/src/main/java/example/SharedService.java.bak" \
+   "$WORK/project/src/main/resources/beans-a.xml.bak"
+"${RUNNER[@]}" index "$WORK/project" --no-classpath --spring-xml --incremental --output "$DB" \
+  >/dev/null 2>"$WORK/first-incremental.log"
+if grep -q 'degraded to full' "$WORK/first-incremental.log"; then
+  cat "$WORK/first-incremental.log" >&2
+  echo "first extension lifecycle update did not use the incremental path" >&2
+  exit 1
+fi
+"${RUNNER[@]}" bean-config --format=json holder --index "$DB" | grep -q 'bean:freshShared'
+
+rm "$WORK/project/src/main/resources/beans-b.xml"
+"${RUNNER[@]}" index "$WORK/project" --no-classpath --spring-xml --incremental --output "$DB" >/dev/null
+set +e
+"${RUNNER[@]}" bean-config --format=json peer --index "$DB" >"$WORK/deleted-peer.json"
+query_status=$?
+set -e
+test "$query_status" -eq 2
+grep -q '"total" : 0' "$WORK/deleted-peer.json"
+
+if [[ "$MODE" == "native" ]]; then
+  command -v jq >/dev/null
+  JVM_DB="$WORK/jvm.db"
+  "${JVM[@]}" index "$WORK/project" --no-classpath --spring-xml --output "$JVM_DB" >/dev/null
+  for query in \
+    "search Account --kind RECORD" \
+    "callees-of example.AccountReader#read" \
+    "bean-config --format=json holder" \
+    "overview --deps-only"; do
+    read -r -a args <<< "$query"
+    "${JVM[@]}" "${args[@]}" --index "$JVM_DB" | jq -S . > "$WORK/jvm.json"
+    "$NATIVE_BIN" "${args[@]}" --index "$DB" | jq -S . > "$WORK/native.json"
+    diff -u "$WORK/jvm.json" "$WORK/native.json"
+  done
+fi
+
+echo "extension lifecycle E2E passed ($MODE)"

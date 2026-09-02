@@ -13,6 +13,7 @@ public class Node {
     public String scope;
     public String javadoc;
     public String metadata;
+    public String producerId;
 
     public Node() {}
 
@@ -22,4 +23,5 @@ public class Node {
     public Node scope(String scope) { this.scope = scope; return this; }
     public Node javadoc(String javadoc) { this.javadoc = javadoc; return this; }
     public Node metadata(String metadata) { this.metadata = metadata; return this; }
+    public Node producerId(String producerId) { this.producerId = producerId; return this; }
 }

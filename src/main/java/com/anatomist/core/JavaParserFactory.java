@@ -3,6 +3,7 @@ package com.anatomist.core;
 import com.anatomist.core.asmsolver.AsmTypeSolver;
 import com.anatomist.core.asmsolver.ClasspathClassFileSource;
 import com.anatomist.core.logging.AnatomistLog;
+import com.github.javaparser.Processor;
 import com.anatomist.core.nativeimage.EmbeddedJdkTypeSolver;
 import com.anatomist.core.nativeimage.JdkTypeCatalog;
 import com.anatomist.core.nativeimage.LocalJdkCatalogResolver;
@@ -32,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 import com.google.common.cache.CacheBuilder;
 
@@ -64,6 +66,8 @@ public class JavaParserFactory {
     private final boolean includeRunningVmClasspath;
     private final Path jdkHome;
     private final Session session;
+    private final List<Supplier<Processor>> extensionProcessors;
+    private final String extensionFingerprint;
     private IndexTimings timings;
 
     public JavaParserFactory(int javaVersion,
@@ -78,12 +82,25 @@ public class JavaParserFactory {
                              List<Path> sourcePaths,
                              boolean includeRunningVmClasspath,
                              Path jdkHome) {
+        this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath,
+                jdkHome, List.of(), "");
+    }
+
+    public JavaParserFactory(int javaVersion,
+                             List<Path> classpathEntries,
+                             List<Path> sourcePaths,
+                             boolean includeRunningVmClasspath,
+                             Path jdkHome,
+                             List<Supplier<Processor>> extensionProcessors,
+                             String extensionFingerprint) {
         this.javaVersion = javaVersion;
         this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
         this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
         this.includeRunningVmClasspath = includeRunningVmClasspath;
         this.jdkHome = jdkHome == null ? null : jdkHome.toAbsolutePath().normalize();
         this.session = null;
+        this.extensionProcessors = extensionProcessors == null ? List.of() : List.copyOf(extensionProcessors);
+        this.extensionFingerprint = extensionFingerprint == null ? "" : extensionFingerprint;
     }
 
     public JavaParserFactory(int javaVersion,
@@ -100,13 +117,28 @@ public class JavaParserFactory {
                              boolean includeRunningVmClasspath,
                              SessionCache sessions,
                              Path jdkHome) {
+        this(javaVersion, classpathEntries, sourcePaths, includeRunningVmClasspath,
+                sessions, jdkHome, List.of(), "");
+    }
+
+    public JavaParserFactory(int javaVersion,
+                             List<Path> classpathEntries,
+                             List<Path> sourcePaths,
+                             boolean includeRunningVmClasspath,
+                             SessionCache sessions,
+                             Path jdkHome,
+                             List<Supplier<Processor>> extensionProcessors,
+                             String extensionFingerprint) {
         this.javaVersion = javaVersion;
         this.classpathEntries = classpathEntries == null ? List.of() : List.copyOf(classpathEntries);
         this.sourcePaths = sourcePaths == null ? List.of() : List.copyOf(sourcePaths);
         this.includeRunningVmClasspath = includeRunningVmClasspath;
         this.jdkHome = jdkHome == null ? null : jdkHome.toAbsolutePath().normalize();
+        this.extensionProcessors = extensionProcessors == null ? List.of() : List.copyOf(extensionProcessors);
+        this.extensionFingerprint = extensionFingerprint == null ? "" : extensionFingerprint;
         this.session = sessions == null ? null : sessions.acquire(
-                javaVersion, this.classpathEntries, this.sourcePaths, includeRunningVmClasspath, this.jdkHome, this);
+                javaVersion, this.classpathEntries, this.sourcePaths, includeRunningVmClasspath,
+                this.jdkHome, this.extensionFingerprint, this);
     }
 
     /** Build the combined TypeSolver matching the configured environment. */
@@ -122,9 +154,9 @@ public class JavaParserFactory {
                                              List<AutoCloseable> closeables) {
         CombinedTypeSolver ts = new CombinedTypeSolver(
                 exception -> false, List.<TypeSolver>of(), boundedCache(combinedTypeCacheSize()));
-        ParserConfiguration sourceConfiguration = new ParserConfiguration()
+        ParserConfiguration sourceConfiguration = configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
-                .setSymbolResolver(new JavaSymbolSolver(ts));
+                .setSymbolResolver(new JavaSymbolSolver(ts)));
         // Source paths first — project types should resolve before JDK/classpath
         for (Path src : sourcePaths) {
             if (src != null && Files.isDirectory(src)) {
@@ -182,9 +214,14 @@ public class JavaParserFactory {
     }
 
     public ParserConfiguration newConfiguration() {
-        return new ParserConfiguration()
+        return configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
-                .setSymbolResolver(new JavaSymbolSolver(newTypeSolver()));
+                .setSymbolResolver(new JavaSymbolSolver(newTypeSolver())));
+    }
+
+    private ParserConfiguration configure(ParserConfiguration configuration) {
+        configuration.getProcessors().addAll(extensionProcessors);
+        return configuration;
     }
 
     /**
@@ -334,8 +371,10 @@ public class JavaParserFactory {
                                               List<Path> sourcePaths,
                                               boolean vmClasspath,
                                               Path jdkHome,
+                                              String extensionFingerprint,
                                               JavaParserFactory factory) {
-            String next = javaVersion + "|" + vmClasspath + "|" + jdkHome + "|" + sourcePaths + "|" + classpathEntries;
+            String next = javaVersion + "|" + vmClasspath + "|" + jdkHome + "|" + sourcePaths
+                    + "|" + classpathEntries + "|" + extensionFingerprint;
             if (session == null || !next.equals(signature)) {
                 close();
                 session = factory.openSession(watchSourceCacheSize());
@@ -451,9 +490,9 @@ public class JavaParserFactory {
         CombinedTypeSolver ts = new CombinedTypeSolver(
                 exception -> false, List.<TypeSolver>of(), combinedTypes);
         Map<Path, ReloadableSourceSolver> sourceSolvers = new LinkedHashMap<>();
-        ParserConfiguration sourceConfiguration = new ParserConfiguration()
+        ParserConfiguration sourceConfiguration = configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
-                .setSymbolResolver(new JavaSymbolSolver(ts));
+                .setSymbolResolver(new JavaSymbolSolver(ts)));
         for (Path src : sourcePaths) {
             if (src == null || !Files.isDirectory(src)) continue;
             Path normalized = src.toAbsolutePath().normalize();
@@ -480,9 +519,9 @@ public class JavaParserFactory {
             ts.add(solver);
             closeables.add(solver);
         }
-        ParserConfiguration configuration = new ParserConfiguration()
+        ParserConfiguration configuration = configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
-                .setSymbolResolver(new JavaSymbolSolver(ts));
+                .setSymbolResolver(new JavaSymbolSolver(ts)));
         return new Session(configuration, sourceSolvers, combinedTypes, closeables);
     }
 

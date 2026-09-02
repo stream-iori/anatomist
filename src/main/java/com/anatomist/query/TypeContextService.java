@@ -46,7 +46,7 @@ public class TypeContextService {
         }
 
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT annotation_fqn, attributes FROM annotations WHERE node_id = ?")) {
+                "SELECT annotation_fqn, attributes, producer_id FROM annotations WHERE node_id = ?")) {
             ps.setString(1, node.id);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -57,6 +57,7 @@ public class TypeContextService {
                         try { row.put("attributes", Json.parseTree(attrs)); }
                         catch (Exception e) { row.put("attributes", attrs); }
                     }
+                    row.put("producer_id", rs.getString(3));
                     r.annotations.add(row);
                 }
             }
@@ -100,19 +101,19 @@ public class TypeContextService {
         if (self == null) return h;
         HierarchyResult.Entry s = new HierarchyResult.Entry();
         s.id = self.id; s.label = self.label; s.qualifiedName = self.qualifiedName;
-        s.role = "self"; s.depth = 0;
+        s.role = "self"; s.depth = 0; s.producerId = self.producerId;
         h.extendsChain.add(s);
 
-        String sql = "WITH RECURSIVE chain(id, label, qname, depth) AS ("
-                + "  SELECT n.id, n.label, n.qualified_name, 1 "
+        String sql = "WITH RECURSIVE chain(id, label, qname, depth, producer_id) AS ("
+                + "  SELECT n.id, n.label, n.qualified_name, 1, e.producer_id "
                 + "    FROM edges e JOIN nodes n ON e.target_id = n.id "
                 + "   WHERE e.source_id = ? AND e.relation = '" + GraphConstants.Relation.INHERITS + "' AND e.is_external = 0 "
                 + "  UNION ALL "
-                + "  SELECT n.id, n.label, n.qualified_name, c.depth + 1 "
+                + "  SELECT n.id, n.label, n.qualified_name, c.depth + 1, e.producer_id "
                 + "    FROM edges e JOIN nodes n ON e.target_id = n.id "
                 + "    JOIN chain c ON e.source_id = c.id "
                 + "   WHERE e.relation = '" + GraphConstants.Relation.INHERITS + "' AND e.is_external = 0 AND c.depth < ?"
-                + ") SELECT id, label, qname, depth FROM chain ORDER BY depth";
+                + ") SELECT id, label, qname, depth, producer_id FROM chain ORDER BY depth";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, seed);
             ps.setInt(2, MAX_DEPTH);
@@ -124,6 +125,7 @@ public class TypeContextService {
                     e.qualifiedName = rs.getString(3);
                     e.role = "extends";
                     e.depth = rs.getInt(4);
+                    e.producerId = rs.getString(5);
                     h.extendsChain.add(e);
                 }
             }
@@ -132,7 +134,7 @@ public class TypeContextService {
         }
 
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT external_target_fqn,resolution,confidence FROM edges "
+                "SELECT external_target_fqn,resolution,confidence,producer_id FROM edges "
               + " WHERE source_id = ? AND relation = '" + GraphConstants.Relation.INHERITS + "' AND is_external = 1")) {
             ps.setString(1, seed);
             try (ResultSet rs = ps.executeQuery()) {
@@ -147,6 +149,7 @@ public class TypeContextService {
                     e.label = shortName(rs.getString(1));
                     e.resolution = rs.getString(2);
                     e.confidence = rs.getString(3);
+                    e.producerId = rs.getString(4);
                     h.extendsChain.add(e);
                 }
             }
@@ -155,7 +158,7 @@ public class TypeContextService {
         }
 
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT n.id, n.label, n.qualified_name, e.is_external, e.external_target_fqn, e.resolution, e.confidence "
+                "SELECT n.id, n.label, n.qualified_name, e.is_external, e.external_target_fqn, e.resolution, e.confidence, e.producer_id "
               + " FROM edges e LEFT JOIN nodes n ON e.target_id = n.id "
               + " WHERE e.source_id = ? AND e.relation = '" + GraphConstants.Relation.IMPLEMENTS + "'")) {
             ps.setString(1, seed);
@@ -178,6 +181,7 @@ public class TypeContextService {
                         e.label = rs.getString(2);
                         e.qualifiedName = rs.getString(3);
                     }
+                    e.producerId = rs.getString(8);
                     h.implementsList.add(e);
                 }
             }

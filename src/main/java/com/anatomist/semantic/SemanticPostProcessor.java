@@ -3,6 +3,7 @@ package com.anatomist.semantic;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.Node;
 import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.model.ProducerIds;
 
 /**
  * Post-index semantic enrichment. Reads ExtractionResult.{nodes, annotations}
@@ -24,6 +25,8 @@ public class SemanticPostProcessor {
             if (summary.isEmpty()) continue;
             SemanticAnnotation sa = write(n.id, null, "JAVADOC", "HIGH");
             sa.businessDescription = summary;
+            sa.sourceFile = n.sourceFile;
+            sa.producerId = ProducerIds.SEMANTIC_JAVADOC;
             result.semanticAnnotations.add(sa);
         }
     }

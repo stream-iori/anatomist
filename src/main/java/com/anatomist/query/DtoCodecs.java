@@ -76,11 +76,13 @@ public final class DtoCodecs {
             put(m, "module", n.module);
             put(m, "scope", n.scope);
             putNullable(m, "javadoc", n.javadoc);
+            put(m, "producer_id", n.producerId);
             put(m, "external_target", n.externalTarget);
             put(m, "external_edge_count", n.externalEdgeCount);
             put(m, "relation_counts", n.relationCounts);
             put(m, "resolution_counts", n.resolutionCounts);
             put(m, "confidence_counts", n.confidenceCounts);
+            put(m, "producer_counts", n.producerCounts);
             return m;
         }
         @Override public NodeRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -96,7 +98,7 @@ public final class DtoCodecs {
             put(m, "declaring_type", d.declaringType); put(m, "source_file", d.sourceFile);
             put(m, "source_location", d.sourceLocation); put(m, "module", d.module); put(m, "scope", d.scope);
             put(m, "nesting_depth", d.nestingDepth); put(m, "direct_member", d.directMember);
-            put(m, "synthetic", d.synthetic); return m;
+            put(m, "synthetic", d.synthetic); put(m, "producer_id", d.producerId); return m;
         }
         @Override public DeclarationRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
     };
@@ -128,6 +130,7 @@ public final class DtoCodecs {
             put(m, "source_window", e.sourceWindow);
             put(m, "context", e.context);
             put(m, "metadata", e.metadata);
+            put(m, "producer_id", e.producerId);
             put(m, "via", e.via);
             return m;
         }
@@ -161,6 +164,7 @@ public final class DtoCodecs {
             putNullable(m, "external_target", e.externalTarget);
             putNullable(m, "resolution", e.resolution);
             putNullable(m, "confidence", e.confidence);
+            putNullable(m, "producer_id", e.producerId);
             return m;
         }
         @Override public HierarchyResult.Entry fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -210,6 +214,7 @@ public final class DtoCodecs {
             put(m, "domain_context", s.domainContext);
             put(m, "source", s.source);
             put(m, "confidence", s.confidence);
+            put(m, "producer_id", s.producerId);
             return m;
         }
         @Override public SemanticAnnotationRow fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -271,6 +276,7 @@ public final class DtoCodecs {
             put(m, "name", p.name);
             put(m, "types", p.types);
             put(m, "methods", p.methods);
+            put(m, "producer_counts", p.producerCounts);
             return m;
         }
         @Override public PackageStat fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -284,6 +290,7 @@ public final class DtoCodecs {
             put(m, "external_edge_counts", r.externalEdgeCounts);
             put(m, "packages", r.packages);
             put(m, "package_deps", r.packageDeps);
+            put(m, "producer_counts", r.producerCounts);
             return m;
         }
         @Override public OverviewResult fromTree(Object tree) { throw new UnsupportedOperationException(); }
@@ -299,6 +306,8 @@ public final class DtoCodecs {
             put(m, "domain_context", sa.domainContext);
             put(m, "source", sa.source);
             put(m, "confidence", sa.confidence);
+            put(m, "source_file", sa.sourceFile);
+            put(m, "producer_id", sa.producerId);
             return m;
         }
         @Override @SuppressWarnings("unchecked")

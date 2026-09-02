@@ -13,7 +13,8 @@ CREATE TABLE nodes (
     module TEXT NOT NULL,
     scope TEXT NOT NULL CHECK (scope IN ('MAIN','TEST','GENERATED')),
     javadoc TEXT,
-    metadata TEXT
+    metadata TEXT,
+    producer_id TEXT NOT NULL DEFAULT 'java-core'
 );
 
 CREATE INDEX idx_nodes_kind ON nodes(kind);
@@ -24,6 +25,7 @@ CREATE INDEX idx_nodes_package ON nodes(package);
 CREATE INDEX idx_nodes_source_file ON nodes(source_file);
 CREATE INDEX idx_nodes_module ON nodes(module);
 CREATE INDEX idx_nodes_scope ON nodes(scope);
+CREATE INDEX idx_nodes_producer_file ON nodes(producer_id, source_file);
 
 CREATE TABLE declarations (
     symbol_id TEXT NOT NULL,
@@ -45,12 +47,14 @@ CREATE TABLE declarations (
     direct_member INTEGER NOT NULL,
     synthetic INTEGER NOT NULL DEFAULT 0,
     binding_resolved INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (symbol_id,module,scope,source_file)
+    producer_id TEXT NOT NULL DEFAULT 'java-core',
+    PRIMARY KEY (symbol_id,module,scope,source_file,producer_id)
 );
 
 CREATE INDEX idx_declarations_file ON declarations(source_file,module,scope);
 CREATE INDEX idx_declarations_filters ON declarations(declaration_kind,visibility,synthetic);
 CREATE INDEX idx_declarations_owner ON declarations(declaring_type);
+CREATE INDEX idx_declarations_producer_file ON declarations(producer_id, source_file);
 
 CREATE TABLE edges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,6 +70,7 @@ CREATE TABLE edges (
     source_file TEXT,
     source_location TEXT,
     metadata TEXT,
+    producer_id TEXT NOT NULL DEFAULT 'java-core',
     CHECK (
         (is_external = 0 AND target_id IS NOT NULL AND external_target_fqn IS NULL)
         OR
@@ -85,16 +90,20 @@ CREATE INDEX idx_edges_relation_external_target ON edges(relation, is_external, 
 CREATE INDEX idx_edges_relation_external_fqn ON edges(relation, is_external, external_target_fqn);
 CREATE INDEX idx_edges_external_resolution ON edges(is_external, resolution);
 CREATE INDEX idx_edges_source_relation_external ON edges(source_id, relation, is_external);
+CREATE INDEX idx_edges_producer_file ON edges(producer_id, source_file);
 
 CREATE TABLE annotations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     annotation_fqn TEXT NOT NULL,
-    attributes TEXT
+    attributes TEXT,
+    source_file TEXT,
+    producer_id TEXT NOT NULL DEFAULT 'java-core'
 );
 
 CREATE INDEX idx_annotations_node_id ON annotations(node_id);
 CREATE INDEX idx_annotations_fqn ON annotations(annotation_fqn);
+CREATE INDEX idx_annotations_producer_file ON annotations(producer_id, source_file);
 
 CREATE VIRTUAL TABLE node_names USING fts5(
     qualified_name,
@@ -170,6 +179,8 @@ CREATE TABLE semantic_annotations (
     domain_context TEXT,
     source TEXT NOT NULL,
     confidence TEXT NOT NULL,
+    source_file TEXT,
+    producer_id TEXT NOT NULL DEFAULT 'manual-annotation',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (source IN ('CONVENTION','JAVADOC','DOC','LLM')),
     CHECK (confidence IN ('HIGH','MEDIUM','LOW'))
@@ -179,7 +190,9 @@ CREATE INDEX idx_semantic_annotations_node_id ON semantic_annotations(node_id);
 CREATE INDEX idx_semantic_annotations_doc_id ON semantic_annotations(doc_id);
 CREATE INDEX idx_semantic_annotations_category ON semantic_annotations(category);
 CREATE INDEX idx_semantic_annotations_source ON semantic_annotations(source);
-CREATE UNIQUE INDEX idx_semantic_annotations_upsert_key ON semantic_annotations(node_id, category, source);
+CREATE INDEX idx_semantic_annotations_producer_file ON semantic_annotations(producer_id, source_file);
+CREATE UNIQUE INDEX idx_semantic_annotations_upsert_key
+    ON semantic_annotations(node_id, category, source, producer_id);
 
 CREATE TABLE file_cache (
     source_file TEXT PRIMARY KEY,

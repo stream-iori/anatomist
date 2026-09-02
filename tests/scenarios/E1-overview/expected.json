@@ -48,101 +48,162 @@
     },
     "package_deps" : [ {
       "edge_count" : 1,
+      "producer_counts" : {
+        "java-core" : 1
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.controller",
       "target_package" : "com.example.shop.domain.dto"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "java-core" : 1
+      },
       "relation" : "CALLS",
       "source_package" : "com.example.shop.controller",
       "target_package" : "com.example.shop.service"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "spring-components" : 1
+      },
       "relation" : "INJECTS",
       "source_package" : "com.example.shop.controller",
       "target_package" : "com.example.shop.service"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "java-core" : 1
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.controller",
       "target_package" : "com.example.shop.service"
     }, {
       "edge_count" : 3,
+      "producer_counts" : {
+        "java-core" : 3
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.domain.dto",
       "target_package" : "com.example.shop.domain.entity"
     }, {
       "edge_count" : 2,
+      "producer_counts" : {
+        "java-core" : 2
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.domain.event",
       "target_package" : "com.example.shop.domain.entity"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "java-core" : 1
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.event",
       "target_package" : "com.example.shop.domain.event"
     }, {
       "edge_count" : 3,
+      "producer_counts" : {
+        "java-core" : 3
+      },
       "relation" : "CALLS",
       "source_package" : "com.example.shop.repository",
       "target_package" : "com.example.shop.domain.entity"
     }, {
       "edge_count" : 7,
+      "producer_counts" : {
+        "java-core" : 7
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.repository",
       "target_package" : "com.example.shop.domain.entity"
     }, {
       "edge_count" : 10,
+      "producer_counts" : {
+        "java-core" : 10
+      },
       "relation" : "CALLS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.domain.dto"
     }, {
       "edge_count" : 4,
+      "producer_counts" : {
+        "java-core" : 4
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.domain.dto"
     }, {
       "edge_count" : 3,
+      "producer_counts" : {
+        "java-core" : 3
+      },
       "relation" : "CALLS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.domain.entity"
     }, {
       "edge_count" : 3,
+      "producer_counts" : {
+        "java-core" : 3
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.domain.entity"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "java-core" : 1
+      },
       "relation" : "CALLS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.domain.event"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "java-core" : 1
+      },
       "relation" : "CALLS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.event"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "spring-components" : 1
+      },
       "relation" : "INJECTS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.event"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "java-core" : 1
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.event"
     }, {
       "edge_count" : 4,
+      "producer_counts" : {
+        "derived-wiring" : 2,
+        "java-core" : 2
+      },
       "relation" : "CALLS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.repository"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "spring-components" : 1
+      },
       "relation" : "INJECTS",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.repository"
     }, {
       "edge_count" : 1,
+      "producer_counts" : {
+        "java-core" : 1
+      },
       "relation" : "REFERENCES",
       "source_package" : "com.example.shop.service",
       "target_package" : "com.example.shop.repository"
@@ -150,36 +211,66 @@
     "packages" : [ {
       "methods" : 1,
       "name" : "com.example.shop",
+      "producer_counts" : {
+        "java-core" : 2
+      },
       "types" : 1
     }, {
       "methods" : 2,
       "name" : "com.example.shop.controller",
+      "producer_counts" : {
+        "java-core" : 4
+      },
       "types" : 1
     }, {
       "methods" : 7,
       "name" : "com.example.shop.domain.dto",
+      "producer_counts" : {
+        "java-core" : 13
+      },
       "types" : 2
     }, {
       "methods" : 18,
       "name" : "com.example.shop.domain.entity",
+      "producer_counts" : {
+        "java-core" : 34
+      },
       "types" : 3
     }, {
       "methods" : 2,
       "name" : "com.example.shop.domain.event",
+      "producer_counts" : {
+        "java-core" : 4
+      },
       "types" : 1
     }, {
       "methods" : 2,
       "name" : "com.example.shop.event",
+      "producer_counts" : {
+        "java-core" : 4
+      },
       "types" : 1
     }, {
       "methods" : 6,
       "name" : "com.example.shop.repository",
+      "producer_counts" : {
+        "java-core" : 11
+      },
       "types" : 3
     }, {
       "methods" : 9,
       "name" : "com.example.shop.service",
+      "producer_counts" : {
+        "java-core" : 18
+      },
       "types" : 5
-    } ]
+    } ],
+    "producer_counts" : {
+      "derived-wiring" : 3,
+      "java-core" : 379,
+      "spring-components" : 17,
+      "spring-mvc" : 4
+    }
   } ],
   "stats" : {
     "methods" : 47,

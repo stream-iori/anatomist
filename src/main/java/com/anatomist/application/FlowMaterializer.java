@@ -98,8 +98,11 @@ public final class FlowMaterializer {
                         "index is missing persisted source roots; rebuild the structural index first");
             }
             int javaVersion = parseJavaVersion(meta.get("java_version"));
+            com.anatomist.framework.PreparedExtensions extensions =
+                    com.anatomist.framework.spring.BuiltInExtensions.current();
             JavaParserFactory parser = new JavaParserFactory(javaVersion,
-                    parsePaths(meta.get("classpath_entries")), sourcePaths, true);
+                    parsePaths(meta.get("classpath_entries")), sourcePaths, true, null,
+                    extensions.processorSuppliers(), extensions.fingerprint());
             FlowAnalyzer analyzer = new FlowAnalyzer(root, sourcePaths, roots,
                     TaintRules.load(root), false, FlowProfile.full());
             FlowResult output = new FlowResult();

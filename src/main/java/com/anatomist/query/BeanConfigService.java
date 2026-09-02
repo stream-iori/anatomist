@@ -40,6 +40,7 @@ public final class BeanConfigService {
             bean.put("source_location", node.sourceLocation);
             bean.put("module", node.module);
             bean.put("scope", node.scope);
+            bean.put("producer_id", node.producerId);
             bean.put("metadata", parseMetadata(node.metadata));
             List<Map<String, Object>> children = childrenOf(node.id, property);
             bean.put("children", children);
@@ -51,13 +52,14 @@ public final class BeanConfigService {
     private List<Node> findBeans(String target, String module, String scope) {
         String like = "%" + escapeLike(target) + "%";
         StringBuilder sql = new StringBuilder("""
-                SELECT id,label,source_file,source_location,module,scope,metadata
+                SELECT id,label,source_file,source_location,module,scope,metadata,producer_id
                 FROM nodes
-                WHERE kind=? AND source_file LIKE '%.xml'
+                WHERE kind=? AND producer_id=?
                 AND (label=? OR label LIKE ? ESCAPE '\\' OR qualified_name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')
                 """);
         List<Object> args = new ArrayList<>();
         args.add(GraphConstants.Kind.BEAN);
+        args.add(com.anatomist.model.ProducerIds.SPRING_XML);
         args.add(target);
         args.add(like);
         args.add(like);
@@ -90,8 +92,8 @@ public final class BeanConfigService {
 
     private List<Map<String, Object>> childrenOf(String parentId, String property) {
         String sql = """
-                SELECT n.id,n.label,n.kind,n.source_file,n.source_location,n.metadata,
-                       e.target_id,e.external_target_fqn
+                SELECT n.id,n.label,n.kind,n.source_file,n.source_location,n.metadata,n.producer_id,
+                       e.target_id,e.external_target_fqn,e.producer_id AS ref_producer_id
                 FROM edges ce
                 JOIN nodes n ON n.id=ce.target_id
                 LEFT JOIN edges e ON e.source_id=n.id AND e.relation=?
@@ -130,10 +132,12 @@ public final class BeanConfigService {
         out.put("source_file", rs.getString("source_file"));
         out.put("source_location", rs.getString("source_location"));
         out.putAll(meta);
+        out.put("producer_id", rs.getString("producer_id"));
         String target = rs.getString("target_id");
         String external = rs.getString("external_target_fqn");
         if (target != null) out.put("ref_target", target);
         if (external != null) out.put("external_ref_target", external);
+        if (target != null || external != null) out.put("ref_producer_id", rs.getString("ref_producer_id"));
         return out;
     }
 
@@ -152,9 +156,9 @@ public final class BeanConfigService {
     private static Node readNode(ResultSet rs) throws SQLException {
         return new Node(rs.getString("id"), rs.getString("label"), rs.getString("source_file"),
                 rs.getString("source_location"), rs.getString("module"), rs.getString("scope"),
-                rs.getString("metadata"));
+                rs.getString("metadata"), rs.getString("producer_id"));
     }
 
     private record Node(String id, String label, String sourceFile, String sourceLocation,
-                        String module, String scope, String metadata) {}
+                        String module, String scope, String metadata, String producerId) {}
 }

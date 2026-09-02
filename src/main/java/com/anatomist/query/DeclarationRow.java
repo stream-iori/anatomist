@@ -22,4 +22,5 @@ public class DeclarationRow {
     public int nestingDepth;
     public boolean directMember;
     public boolean synthetic;
+    public String producerId;
 }

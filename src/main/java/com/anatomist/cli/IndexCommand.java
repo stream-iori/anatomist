@@ -364,6 +364,19 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
+                String currentExtensions =
+                        com.anatomist.framework.spring.BuiltInExtensions.currentFingerprint();
+                if (!currentExtensions.equals(store.readProjectMeta(
+                        com.anatomist.framework.PreparedExtensions.META_KEY).orElse(""))) {
+                    String reason = "extension fingerprint changed";
+                    System.err.println("INFO: incremental degraded to full (" + reason + ")");
+                    if (deferFullFallback) throw new FullRebuildRequiredException(reason);
+                    IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
+                            phaseTimings, totalStarted);
+                }
                 String expectedLayoutHash = sourceLayoutHash(resolvedSourceRoots);
                 if (!expectedLayoutHash.equals(store.readProjectMeta("source_layout_hash").orElse(""))) {
                     System.err.println("INFO: incremental degraded to full (source layout changed)");
@@ -780,9 +793,12 @@ public class IndexCommand implements Callable<Integer> {
         int jv = detected.version();
         Path configuredJdkHome = validatedJdkHome(jv);
         System.err.println("Parsing with Java " + jv);
+        com.anatomist.framework.PreparedExtensions extensions =
+                com.anatomist.framework.spring.BuiltInExtensions.current();
         JavaParserFactory factory = new JavaParserFactory(
                 jv, classpathEntries, sourcePaths, vmClasspath,
-                executionHints == null ? null : executionHints.parserSessions(), configuredJdkHome);
+                executionHints == null ? null : executionHints.parserSessions(), configuredJdkHome,
+                extensions.processorSuppliers(), extensions.fingerprint());
         return new IndexRuntime(classpathEntries, jv, factory, classpathMode());
     }
 
@@ -868,9 +884,12 @@ public class IndexCommand implements Callable<Integer> {
         List<Path> cachedClasspath = parsePathList(store.readProjectMeta("classpath_entries").orElse(""));
         currentClasspathDetection = com.anatomist.core.ClasspathDetectionResult.indexMetadata(
                 cachedClasspath.stream().map(Path::toString).toList());
+        com.anatomist.framework.PreparedExtensions extensions =
+                com.anatomist.framework.spring.BuiltInExtensions.current();
         JavaParserFactory factory = new JavaParserFactory(
                 cachedJavaVersion, cachedClasspath, sourcePaths, vmClasspath,
-                executionHints == null ? null : executionHints.parserSessions(), resolveJdkHome());
+                executionHints == null ? null : executionHints.parserSessions(), resolveJdkHome(),
+                extensions.processorSuppliers(), extensions.fingerprint());
         currentJavaVersionDetection = new com.anatomist.core.JavaVersionDetection(
                 cachedJavaVersion, com.anatomist.core.JavaVersionDetection.Source.MAVEN,
                 null, "project_meta.java_version=" + cachedJavaVersion, java.util.List.of());

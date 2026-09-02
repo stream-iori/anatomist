@@ -8,4 +8,5 @@ public class SemanticAnnotationRow {
     public String domainContext;
     public String source;
     public String confidence;
+    public String producerId;
 }

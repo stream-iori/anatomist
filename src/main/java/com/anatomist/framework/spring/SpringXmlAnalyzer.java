@@ -6,7 +6,10 @@ import com.anatomist.core.SpringBeanParser.ParsedBean;
 import com.anatomist.extract.XmlBeanExtractor;
 import com.anatomist.model.BeanRefTarget;
 import com.anatomist.framework.AnalysisContext;
-import com.anatomist.framework.ProjectAnalyzer;
+import com.anatomist.framework.ProjectFactView;
+import com.anatomist.framework.ProjectResource;
+import com.anatomist.framework.ProjectResourceAnalyzer;
+import com.anatomist.framework.ResourceSelector;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
@@ -20,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public final class SpringXmlAnalyzer implements ProjectAnalyzer {
+public final class SpringXmlAnalyzer implements ProjectResourceAnalyzer {
 
     @Override public String id() { return "spring-xml"; }
 
@@ -30,14 +33,17 @@ public final class SpringXmlAnalyzer implements ProjectAnalyzer {
     }
 
     @Override
-    public void analyze(AnalysisContext context, ExtractionResult result) {
-        if (!enabled(context)) return;
-        var xmlFiles = new ProjectScanner().scanSpringXml(context.projectRoot());
-        if (xmlFiles.isEmpty()) return;
+    public ResourceSelector selector() {
+        return ResourceSelector.kind("spring-xml");
+    }
 
-        Set<String> knownIds = new HashSet<>();
-        for (Node n : result.nodes) knownIds.add(n.id);
-        extractXmlBeans(context.projectRoot(), xmlFiles, knownIds, existingBeanTargets(result), result);
+    @Override
+    public void analyze(AnalysisContext context, List<ProjectResource> resources,
+                        ProjectFactView facts, ExtractionResult result) {
+        if (!enabled(context)) return;
+        var xmlFiles = resources.stream().map(ProjectResource::path).toList();
+        if (xmlFiles.isEmpty()) return;
+        extractXmlBeans(context.projectRoot(), xmlFiles, facts.knownNodeIds(), facts.beanTargets(), result);
     }
 
     public static void extractXmlBeans(Path projectRoot, List<Path> xmlFiles, Set<String> knownIds,

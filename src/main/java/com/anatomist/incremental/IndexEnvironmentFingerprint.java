@@ -2,6 +2,7 @@ package com.anatomist.incremental;
 
 import com.anatomist.core.SourceRoot;
 import com.anatomist.store.FileCacheService;
+import com.anatomist.framework.spring.BuiltInExtensions;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -59,6 +60,7 @@ public final class IndexEnvironmentFingerprint {
                 + "dataflow=" + dataflow + "\n"
                 + "implicitTaint=" + implicitTaint + "\n"
                 + "scanPolicy=" + safe(scanPolicyHash) + "\n"
+                + "extensions=" + BuiltInExtensions.currentFingerprint() + "\n"
                 + "artifacts=" + artifacts + "\n";
         return new Snapshot(
                 FileCacheService.sha256OfString(canonical),

@@ -17,6 +17,7 @@ public class Edge {
     public String sourceFile;
     public String sourceLocation;
     public String metadata;
+    public String producerId;
 
     public Edge() {}
 
@@ -77,4 +78,5 @@ public class Edge {
     public Edge context(String context) { this.context = context; return this; }
     public Edge sourceFile(String sourceFile) { this.sourceFile = sourceFile; return this; }
     public Edge metadata(String metadata) { this.metadata = metadata; return this; }
+    public Edge producerId(String producerId) { this.producerId = producerId; return this; }
 }

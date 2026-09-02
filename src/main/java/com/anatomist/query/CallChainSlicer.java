@@ -32,7 +32,7 @@ public class CallChainSlicer {
     private static final String SQL_ANNOTATIONS_TEMPLATE =
             "SELECT node_id, annotation_fqn FROM annotations WHERE node_id IN (%s)";
     private static final String SQL_FIELD_ACCESSES_TEMPLATE = """
-            SELECT source_id, target_id, relation, is_external, external_target_fqn, resolution, context
+            SELECT source_id, target_id, relation, is_external, external_target_fqn, resolution, context, producer_id
             FROM edges
             WHERE source_id IN (%s)
             AND relation IN (%s)
@@ -280,6 +280,7 @@ public class CallChainSlicer {
                         e.externalTargetFqn = rs.getString(5);
                         e.resolution = rs.getString(6);
                         e.context = rs.getString(7);
+                        e.producerId = rs.getString(8);
                         result.computeIfAbsent(e.source, k -> new ArrayList<>()).add(e);
                     }
                 }

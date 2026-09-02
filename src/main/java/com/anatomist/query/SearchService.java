@@ -155,11 +155,11 @@ public class SearchService {
                 ? "(LOWER(" + type + ") LIKE ? ESCAPE '\\' OR LOWER(" + type + ") = ?)"
                 : "LOWER(" + type + ") LIKE ? ESCAPE '\\'";
         String sql = "SELECT " + type + " AS type_fqn,e.relation,"
-                + "COALESCE(e.resolution, ?) AS resolution,e.confidence,COUNT(*) AS edge_count "
+                + "COALESCE(e.resolution, ?) AS resolution,e.confidence,e.producer_id,COUNT(*) AS edge_count "
                 + "FROM edges e JOIN nodes src ON e.source_id=src.id "
                 + "WHERE e.is_external=1 AND " + match + " "
                 + resolver.selectorClause("src") + " "
-                + "GROUP BY type_fqn,e.relation,COALESCE(e.resolution, ?),e.confidence "
+                + "GROUP BY type_fqn,e.relation,COALESCE(e.resolution, ?),e.confidence,e.producer_id "
                 + "ORDER BY type_fqn";
         Map<String, NodeRow> rows = new LinkedHashMap<>();
         try (PreparedStatement statement = conn.prepareStatement(sql)) {
@@ -180,6 +180,7 @@ public class SearchService {
                     increment(row.relationCounts, result.getString("relation"), count);
                     increment(row.resolutionCounts, result.getString("resolution"), count);
                     increment(row.confidenceCounts, result.getString("confidence"), count);
+                    increment(row.producerCounts, result.getString("producer_id"), count);
                 }
             }
         } catch (SQLException e) {
@@ -204,6 +205,7 @@ public class SearchService {
         row.relationCounts = new LinkedHashMap<>();
         row.resolutionCounts = new LinkedHashMap<>();
         row.confidenceCounts = new LinkedHashMap<>();
+        row.producerCounts = new LinkedHashMap<>();
         return row;
     }
 

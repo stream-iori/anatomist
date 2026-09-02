@@ -2,8 +2,11 @@ package com.anatomist.incremental;
 
 import com.anatomist.config.ProjectConfig;
 import com.anatomist.framework.AnalysisContext;
-import com.anatomist.framework.AnalyzerRegistry;
-import com.anatomist.framework.spring.SpringAnalyzers;
+import com.anatomist.framework.spring.BuiltInExtensions;
+import com.anatomist.framework.DefaultProjectFactView;
+import com.anatomist.framework.PreparedExtensions;
+import com.anatomist.framework.ProjectAnalysisRunner;
+import com.anatomist.framework.ProjectResource;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.GraphPostProcessor;
 import com.anatomist.core.JavaParserFactory;
@@ -18,7 +21,6 @@ import com.anatomist.core.SourceRoot;
 import com.anatomist.core.WiringResolver;
 import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
-import com.anatomist.framework.spring.SpringXmlAnalyzer;
 import com.anatomist.flow.FlowAnalyzer;
 import com.anatomist.store.FlowPersistence;
 import com.anatomist.flow.FlowProfile;
@@ -383,17 +385,37 @@ public class IncrementalIndexer {
         boolean rebuildDerivedWiring = javaContractChanged;
         List<String> affectedFiles = new ArrayList<>(replaceFiles);
         List<Path> rebuiltXml = new ArrayList<>();
+        Set<String> rebuiltProjectProducers = new LinkedHashSet<>();
         if (rebuildSpringBeanGraph) {
             long springStarted = startTiming();
             rebuiltXml = springXmlInventory == null
                     ? new ProjectScanner().scanSpringXml(projectRoot)
                     : new ArrayList<>(springXmlInventory);
+            ExtractionContext projectCtx = new ExtractionContext(
+                    projectRoot, sourcePaths, new NodeIdGenerator(), null, "MAIN", projectConfig);
+            AnalysisContext projectAnalysisContext = new AnalysisContext(
+                    projectRoot, sourcePaths, projectCtx, projectConfig, springXml);
+            PreparedExtensions projectExtensions = BuiltInExtensions.prepare(projectAnalysisContext);
+            ProjectResource springXmlProbe = new ProjectResource(projectRoot, "", "spring-xml");
+            projectExtensions.registry().projectResourceAnalyzers().stream()
+                    .filter(analyzer -> analyzer.enabled(projectAnalysisContext))
+                    .filter(analyzer -> analyzer.selector().matches(springXmlProbe))
+                    .map(com.anatomist.framework.ProjectResourceAnalyzer::producerId)
+                    .forEach(rebuiltProjectProducers::add);
             if (!rebuiltXml.isEmpty()) {
                 Set<String> extractionIds = new HashSet<>(knownIds);
                 knownIds.stream().map(NodeKeyFactory::symbolId).forEach(extractionIds::add);
+                extractionIds.addAll(staging.allSymbolIds());
+                Map<String, com.anatomist.model.BeanRefTarget> beanTargets =
+                        new LinkedHashMap<>(com.anatomist.framework.spring.SpringXmlAnalyzer
+                                .fromBeanClassMap(store.readBeanClassTargets()));
+                beanTargets.putAll(staging.rawBeanTargets());
                 ExtractionResult beanResult = new ExtractionResult();
-                SpringXmlAnalyzer.extractXmlBeans(projectRoot, rebuiltXml, extractionIds,
-                        SpringXmlAnalyzer.fromBeanClassMap(store.readBeanClassTargets()), beanResult);
+                List<ProjectResource> resources = rebuiltXml.stream()
+                        .map(path -> new ProjectResource(path, relativePath(path), "spring-xml"))
+                        .toList();
+                new ProjectAnalysisRunner().run(projectExtensions, projectAnalysisContext, resources,
+                        new DefaultProjectFactView(extractionIds, beanTargets), beanResult);
                 GraphIdentityRewriter.rewrite(beanResult, identities, knownIds);
                 new GraphPostProcessor().process(beanResult, knownIds);
                 staging.writeNormalizedBatch(beanResult);
@@ -404,7 +426,7 @@ public class IncrementalIndexer {
 
         long graphStarted = startTiming();
         StagedGraphStore.IncrementalPromotionStats promoted =
-                staging.promoteIncremental(store, affectedFiles, rebuildSpringBeanGraph,
+                staging.promoteIncremental(store, affectedFiles, rebuiltProjectProducers,
                         rebuildDerivedWiring);
         stopTiming("stage_promote", graphStarted);
         stopTiming("graph_replace", graphStarted);
@@ -450,6 +472,11 @@ public class IncrementalIndexer {
         store.refreshFileDependencies(new ArrayList<>(dependencyFiles));
         stopTiming("file_dependencies", dependenciesStarted);
         store.replaceIndexDiagnosticsForFiles(affectedFiles, resolutionDiagnostics);
+        ExtractionContext fingerprintCtx = new ExtractionContext(
+                projectRoot, sourcePaths, new NodeIdGenerator(), null, "MAIN", projectConfig);
+        PreparedExtensions fingerprintExtensions = BuiltInExtensions.prepare(new AnalysisContext(
+                projectRoot, sourcePaths, fingerprintCtx, projectConfig, springXml));
+        store.upsertProjectMeta(Map.of(PreparedExtensions.META_KEY, fingerprintExtensions.fingerprint()));
         return s;
         }
     }
@@ -471,9 +498,9 @@ public class IncrementalIndexer {
                 projectRoot, sourcePaths, idGen, null, "MAIN", projectConfig);
         AnalysisContext analysisContext = new AnalysisContext(
                 projectRoot, sourcePaths, ctx, projectConfig, springXml);
-        AnalyzerRegistry analyzers = SpringAnalyzers.registry(analysisContext);
+        PreparedExtensions extensions = BuiltInExtensions.prepare(analysisContext);
         ExtractorPipeline pipeline = new ExtractorPipeline(
-                ctx, analyzers.javaAstAnalyzers());
+                ctx, extensions.registry().javaUnitAnalyzers());
         Set<String> parsed = new LinkedHashSet<>();
         JavaParserFactory.ParseFilesResult parsedBatch =
                 parserFactory.parseFilesDetailed(targetJavaFiles(files));

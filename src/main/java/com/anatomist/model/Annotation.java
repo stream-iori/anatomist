@@ -4,6 +4,7 @@ public class Annotation {
     public String nodeId;
     public String annotationFqn;
     public String attributes;
-    /** Extraction-only source identity hint; not persisted in the annotations table. */
+    /** Source identity used for producer-scoped incremental replacement. */
     public String sourceFile;
+    public String producerId;
 }

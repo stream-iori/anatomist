@@ -7,6 +7,7 @@ import com.anatomist.model.Edge;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
+import com.anatomist.model.ProducerIds;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -30,11 +31,10 @@ public class DataReader {
 
     private static final String SQL_SELECT_WIRING_SOURCE_EDGES = """
             SELECT source_id, target_id, external_target_fqn, relation, call_kind,
-                   confidence, resolution, context, is_external, source_file, source_location, metadata
+                   confidence, resolution, context, is_external, source_file, source_location, metadata, producer_id
             FROM edges
             WHERE relation IN (?, ?, ?, ?)
-              AND (metadata IS NULL
-                   OR (metadata NOT LIKE ? AND metadata NOT LIKE ?))
+              AND producer_id <> ?
             """;
 
     public DataReader(ConnectionSupplier connSupplier) {
@@ -119,7 +119,7 @@ public class DataReader {
         Map<String, Node> out = new LinkedHashMap<>();
         if (sourceFiles == null || sourceFiles.isEmpty()) return out;
         String sql = "SELECT id,symbol_id,label,kind,qualified_name,package,source_file,"
-                + "source_location,module,scope,javadoc,metadata FROM nodes WHERE source_file=?";
+                + "source_location,module,scope,javadoc,metadata,producer_id FROM nodes WHERE source_file=?";
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             for (String sourceFile : sourceFiles) {
                 ps.setString(1, sourceFile);
@@ -138,6 +138,7 @@ public class DataReader {
                         node.scope = rs.getString(10);
                         node.javadoc = rs.getString(11);
                         node.metadata = rs.getString(12);
+                        node.producerId = rs.getString(13);
                         out.put(node.id, node);
                     }
                 }
@@ -271,7 +272,7 @@ public class DataReader {
     public Map<String, String> readBeanClassTargets() {
         Map<String, String> out = new HashMap<>();
         String sql = """
-                SELECT e.source_id, COALESCE(e.target_id, e.external_target_fqn)
+                SELECT n.symbol_id, COALESCE(e.target_id, e.external_target_fqn)
                 FROM edges e
                 JOIN nodes n ON n.id=e.source_id
                 WHERE e.relation=? AND n.kind=?
@@ -339,7 +340,7 @@ public class DataReader {
     }
 
     public FileCacheService.SourceFileStats countSpringBeanGraphRows() {
-        String beanPredicate = "kind='" + GraphConstants.Kind.BEAN + "' AND source_file LIKE '%.xml'";
+        String beanPredicate = "producer_id='" + ProducerIds.SPRING_XML + "'";
         String nodeSql = "SELECT COUNT(*) FROM nodes WHERE " + beanPredicate;
         String edgeSql = "SELECT COUNT(DISTINCT e.id) FROM edges e "
                 + "WHERE e.relation='" + GraphConstants.Relation.WIRES + "' "
@@ -353,10 +354,9 @@ public class DataReader {
     }
 
     public int countGeneratedWiringEdges() {
-        String sql = "SELECT COUNT(*) FROM edges WHERE metadata LIKE ? OR metadata LIKE ?";
+        String sql = "SELECT COUNT(*) FROM edges WHERE producer_id=?";
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
-            ps.setString(1, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"%");
-            ps.setString(2, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\"%");
+            ps.setString(1, ProducerIds.DERIVED_WIRING);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
             }
@@ -436,9 +436,8 @@ public class DataReader {
         ps.setString(2, GraphConstants.Relation.IMPLEMENTS);
         ps.setString(3, GraphConstants.Relation.OVERRIDES);
         ps.setString(4, GraphConstants.Relation.CALLS);
-        ps.setString(5, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"%");
-        ps.setString(6, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\"%");
-        return 7;
+        ps.setString(5, ProducerIds.DERIVED_WIRING);
+        return 6;
     }
 
     private static Edge edgeFromRow(ResultSet rs) throws SQLException {
@@ -455,6 +454,7 @@ public class DataReader {
         e.sourceFile = rs.getString(10);
         e.sourceLocation = rs.getString(11);
         e.metadata = rs.getString(12);
+        e.producerId = rs.getString(13);
         return e;
     }
 

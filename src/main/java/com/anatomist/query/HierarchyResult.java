@@ -28,5 +28,6 @@ public class HierarchyResult {
         public Boolean externalTarget;
         public String resolution;
         public String confidence;
+        public String producerId;
     }
 }

@@ -43,14 +43,23 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node Identity and declarations (schema v13)
+## Node identity, declarations, and ownership (schema v14)
 
-Schema v13 adds the `declarations` table and the
-`declarations-by-file-v1` capability. A v12 index must be rebuilt; no migration
-or compatibility read path is provided. Declaration rows preserve AST-derived
+Schema v14 adds `producer_id` to all structural fact tables. An older index must
+be rebuilt; no migration or compatibility read path is provided. Declaration rows preserve AST-derived
 kind, effective/declared/implicit modifiers, visibility, lexical ownership,
 nesting, source location, module, and scope. Query-time declaration discovery
 uses this table only.
+
+| Table | Ownership |
+|---|---|
+| `nodes`, `edges`, `declarations`, `annotations`, `semantic_annotations` | required `producer_id` |
+| flow tables | unchanged; no producer ownership |
+
+Multiple extensions may analyze the same source/resource. Incremental cleanup
+is producer-scoped. The same node ID cannot be claimed by two producers;
+`EXTENSION_NODE_OWNERSHIP_CONFLICT` aborts promotion instead of silently
+overwriting ownership.
 
 Every node stores both a logical symbol and a globally unique storage key:
 
@@ -290,7 +299,7 @@ later source-level detail is unavailable.
 | `details_truncated` | Whether detail samples were truncated |
 
 Query safety is derived from this table, not from the bounded
-`index_diagnostics` sample. Schema v13 has no migration path; older indexes
+`index_diagnostics` sample. Schema v14 has no migration path; older indexes
 must be rebuilt.
 
 ## Core reflection facts

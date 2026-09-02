@@ -14,10 +14,12 @@ public class NodeRow {
     public String module;
     public String scope;
     public String javadoc;
+    public String producerId;
     /** True for a query-only aggregation of external edges, never a source node. */
     public Boolean externalTarget;
     public Long externalEdgeCount;
     public Map<String, Long> relationCounts;
     public Map<String, Long> resolutionCounts;
     public Map<String, Long> confidenceCounts;
+    public Map<String, Long> producerCounts;
 }

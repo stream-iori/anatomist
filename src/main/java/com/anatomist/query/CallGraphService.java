@@ -1,6 +1,7 @@
 package com.anatomist.query;
 
 import com.anatomist.model.GraphConstants;
+import com.anatomist.model.ProducerIds;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -628,6 +629,7 @@ public class CallGraphService {
         row.confidence = GraphConstants.Confidence.INFERRED;
         row.isExternal = false;
         row.depth = d;
+        row.producerId = ProducerIds.JAVA_CORE;
         NodeRow src = resolver.readNodeById(ifaceMethodId);
         NodeRow tgt = resolver.readNodeById(implMethodId);
         if (src != null) {

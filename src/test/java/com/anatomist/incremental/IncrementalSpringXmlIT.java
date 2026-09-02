@@ -163,6 +163,40 @@ class IncrementalSpringXmlIT {
         }
     }
 
+    @Test
+    void renamedAnnotationBeanAndXmlReferenceUseSameIncrementalFactView(@TempDir Path tmp) throws Exception {
+        Path project = setupFixtureCopy(tmp);
+        Path db = tmp.resolve("index.db");
+        Path bean = project.resolve(
+                "service/src/main/java/com/example/shop/service/AuditService.java");
+        Files.writeString(bean, """
+                package com.example.shop.service;
+                import org.springframework.stereotype.Service;
+                @Service("legacyAudit")
+                public class AuditService {}
+                """);
+        Path xml = xmlPath(project);
+        Files.writeString(xml, Files.readString(xml).replace(
+                "        <property name=\"priceCalculator\" ref=\"priceCalculator\"/>",
+                "        <property name=\"priceCalculator\" ref=\"priceCalculator\"/>\n"
+                        + "        <property name=\"audit\" ref=\"legacyAudit\"/>"));
+        assertEquals(0, runFull(project, db));
+
+        Files.writeString(bean, Files.readString(bean).replace("legacyAudit", "freshAudit"));
+        Files.writeString(xml, Files.readString(xml).replace("legacyAudit", "freshAudit"));
+        assertEquals(0, runIncremental(project, db));
+
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement()) {
+            assertEquals(1, scalar(st,
+                    "SELECT count(*) FROM edges e JOIN nodes n ON n.id=e.target_id "
+                            + "WHERE e.relation='XML_REFERS_TO' AND e.producer_id='spring-xml' "
+                            + "AND n.symbol_id='bean:freshAudit'"));
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM nodes WHERE symbol_id='bean:legacyAudit'"));
+        }
+    }
+
     private static int xmlBeanCount(Statement st) throws Exception {
         return scalar(st, "SELECT count(*) FROM nodes WHERE kind='BEAN' AND source_file LIKE '%.xml'");
     }

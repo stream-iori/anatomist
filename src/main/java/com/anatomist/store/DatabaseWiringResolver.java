@@ -3,6 +3,7 @@ package com.anatomist.store;
 import com.anatomist.json.Json;
 import com.anatomist.model.Edge;
 import com.anatomist.model.GraphConstants;
+import com.anatomist.model.ProducerIds;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -55,6 +56,7 @@ final class DatabaseWiringResolver {
                 edge.sourceFile = injection.sourceFile;
                 edge.sourceLocation = injection.sourceLocation;
                 edge.metadata = metadata;
+                edge.producerId = ProducerIds.DERIVED_WIRING;
                 pending.add(edge);
                 if (pending.size() >= WRITE_BATCH_SIZE) {
                     written += insertNew(connection, pending);
@@ -94,6 +96,7 @@ final class DatabaseWiringResolver {
                         edge.sourceFile = rows.getString(5);
                         edge.sourceLocation = rows.getString(6);
                         edge.metadata = metadata;
+                        edge.producerId = ProducerIds.DERIVED_WIRING;
                         pending.add(edge);
                         if (pending.size() >= WRITE_BATCH_SIZE) {
                             written += insertNew(connection, pending);
@@ -152,8 +155,8 @@ final class DatabaseWiringResolver {
                 + "AND target_id=? AND external_target_fqn IS ? AND call_kind IS ? "
                 + "AND source_location IS ? LIMIT 1";
         String insertSql = "INSERT INTO edges(source_id,target_id,external_target_fqn,relation,"
-                + "call_kind,confidence,resolution,context,is_external,source_file,source_location,metadata) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "call_kind,confidence,resolution,context,is_external,source_file,source_location,metadata,producer_id) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
         int written = 0;
         try (PreparedStatement exists = connection.prepareStatement(existsSql);
              PreparedStatement insert = connection.prepareStatement(insertSql)) {
@@ -180,6 +183,7 @@ final class DatabaseWiringResolver {
                 insert.setString(10, edge.sourceFile);
                 insert.setString(11, edge.sourceLocation);
                 insert.setString(12, edge.metadata);
+                insert.setString(13, edge.producerId);
                 insert.addBatch();
                 written++;
             }
@@ -189,10 +193,9 @@ final class DatabaseWiringResolver {
     }
 
     private static void deleteGenerated(Connection connection) throws SQLException {
-        String sql = "DELETE FROM edges WHERE metadata LIKE ? OR metadata LIKE ?";
+        String sql = "DELETE FROM edges WHERE producer_id=?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"%");
-            statement.setString(2, "%\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\"%");
+            statement.setString(1, ProducerIds.DERIVED_WIRING);
             statement.executeUpdate();
         }
     }

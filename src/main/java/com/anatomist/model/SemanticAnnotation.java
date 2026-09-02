@@ -15,6 +15,8 @@ public class SemanticAnnotation {
     public String domainContext;
     public String source;
     public String confidence;
+    public String sourceFile;
+    public String producerId;
 
     /** Snake-case JSON object → {@link SemanticAnnotation}. */
     public static SemanticAnnotation fromJson(Map<String, Object> tree) {
@@ -28,6 +30,8 @@ public class SemanticAnnotation {
         sa.domainContext        = (String) tree.get("domain_context");
         sa.source               = (String) tree.get("source");
         sa.confidence           = (String) tree.get("confidence");
+        sa.sourceFile           = (String) tree.get("source_file");
+        sa.producerId           = (String) tree.get("producer_id");
         return sa;
     }
 
@@ -49,4 +53,3 @@ public class SemanticAnnotation {
         return out;
     }
 }
-

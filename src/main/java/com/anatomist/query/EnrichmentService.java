@@ -84,7 +84,7 @@ public class EnrichmentService {
         if (nodeId == null) return new ArrayList<>();
         List<SemanticAnnotationRow> out = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT category, business_label, business_description, domain_context, source, confidence"
+                "SELECT category, business_label, business_description, domain_context, source, confidence, producer_id"
               + " FROM semantic_annotations WHERE node_id = ? "
               + " ORDER BY category, source")) {
             ps.setString(1, nodeId);
@@ -97,6 +97,7 @@ public class EnrichmentService {
                     row.domainContext = rs.getString(4);
                     row.source = rs.getString(5);
                     row.confidence = rs.getString(6);
+                    row.producerId = rs.getString(7);
                     out.add(row);
                 }
             }

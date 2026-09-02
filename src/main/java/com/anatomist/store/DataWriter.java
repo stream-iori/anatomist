@@ -10,6 +10,7 @@ import com.anatomist.model.Edge;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
+import com.anatomist.model.ProducerIds;
 import com.anatomist.model.SemanticAnnotation;
 
 import java.sql.Connection;
@@ -28,11 +29,11 @@ import java.util.Set;
 
 public class DataWriter {
     private static final String SQL_DELETE_SEMANTIC_ANNOTATION_BY_KEY =
-            "DELETE FROM semantic_annotations WHERE node_id=? AND category=? AND source=?";
+            "DELETE FROM semantic_annotations WHERE node_id=? AND category=? AND source=? AND producer_id=?";
     private static final String SQL_INSERT_SEMANTIC_ANNOTATION =
             "INSERT INTO semantic_annotations"
-                    + "(node_id,doc_id,category,business_label,business_description,domain_context,source,confidence)"
-                    + " VALUES (?,?,?,?,?,?,?,?)";
+                    + "(node_id,doc_id,category,business_label,business_description,domain_context,source,confidence,source_file,producer_id)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_DOCUMENT =
             "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
     private static final String SQL_INSERT_FILE_CACHE =
@@ -44,20 +45,17 @@ public class DataWriter {
                     + "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
                     + "WHERE project_meta.value IS NOT excluded.value";
     private static final String SQL_DELETE_SEMANTIC_ANNOTATIONS_BY_SOURCE_FILE =
-            "DELETE FROM semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)";
+            "DELETE FROM semantic_annotations WHERE source_file=? OR node_id IN (SELECT id FROM nodes WHERE source_file=?)";
     private static final String SQL_DELETE_FILE_CACHE_BY_SOURCE_FILE =
             "DELETE FROM file_cache WHERE source_file=?";
     private static final String SQL_DELETE_NODES_BY_SOURCE_FILE =
             "DELETE FROM nodes WHERE source_file=?";
     private static final String SQL_DELETE_WIRING_EDGES =
-            "DELETE FROM edges WHERE relation='" + GraphConstants.Relation.WIRES + "'";
+            "DELETE FROM edges WHERE producer_id='" + ProducerIds.DERIVED_WIRING + "'";
     private static final String SQL_DELETE_GENERATED_WIRING_EDGES =
-            "DELETE FROM edges WHERE metadata LIKE '%\"via\":\"" + GraphConstants.MetadataVia.INJECTION + "\"%'"
-                    + " OR metadata LIKE '%\"via\":\"" + GraphConstants.MetadataVia.INJECTED_CALL + "\"%'";
+            "DELETE FROM edges WHERE producer_id='" + ProducerIds.DERIVED_WIRING + "'";
     private static final String SQL_DELETE_XML_BEAN_GRAPH =
-            "DELETE FROM nodes WHERE source_file LIKE '%.xml' AND ("
-                    + "kind='" + GraphConstants.Kind.BEAN + "'"
-                    + " OR kind LIKE 'XML_%')";
+            "DELETE FROM nodes WHERE producer_id='" + ProducerIds.SPRING_XML + "'";
     private static final String SQL_DELETE_FILE_DEPENDENCIES =
             "DELETE FROM file_dependencies";
     private static final String SQL_DERIVE_FILE_DEPENDENCIES = """
@@ -72,24 +70,24 @@ public class DataWriter {
             """;
     private static final String SQL_INSERT_NODE =
             "INSERT INTO nodes"
-                    + "(id,symbol_id,label,kind,qualified_name,package,source_file,source_location,module,scope,javadoc,metadata)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                    + "(id,symbol_id,label,kind,qualified_name,package,source_file,source_location,module,scope,javadoc,metadata,producer_id)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
                     + " ON CONFLICT(id) DO UPDATE SET"
                     + " symbol_id=excluded.symbol_id,label=excluded.label,kind=excluded.kind,"
                     + " qualified_name=excluded.qualified_name,package=excluded.package,"
                     + " source_file=excluded.source_file,source_location=excluded.source_location,"
                     + " module=excluded.module,scope=excluded.scope,javadoc=excluded.javadoc,"
-                    + " metadata=excluded.metadata";
+                    + " metadata=excluded.metadata,producer_id=excluded.producer_id";
     private static final String SQL_INSERT_EDGE =
             "INSERT INTO edges"
-                    + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,source_file,source_location,metadata)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
+                    + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,source_file,source_location,metadata,producer_id)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_ANNOTATION =
-            "INSERT INTO annotations(node_id,annotation_fqn,attributes) VALUES (?,?,?)";
+            "INSERT INTO annotations(node_id,annotation_fqn,attributes,source_file,producer_id) VALUES (?,?,?,?,?)";
     private static final String SQL_INSERT_DECLARATION = "INSERT OR REPLACE INTO declarations(symbol_id,"
             + "qualified_name,label,kind,declaration_kind,type_kind,visibility,modifiers,declared_modifiers,"
             + "implicit_modifiers,declaring_type,source_file,source_location,module,scope,nesting_depth,direct_member,"
-            + "synthetic,binding_resolved) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            + "synthetic,binding_resolved,producer_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
     private final ConnectionSupplier connSupplier;
 
@@ -194,6 +192,7 @@ public class DataWriter {
                     psDel.setString(1, sa.nodeId);
                     psDel.setString(2, sa.category);
                     psDel.setString(3, sa.source);
+                    psDel.setString(4, producer(sa.producerId, ProducerIds.MANUAL_ANNOTATION));
                     psDel.executeUpdate();
 
                     bindSemanticAnnotation(psIns, sa);
@@ -325,7 +324,7 @@ public class DataWriter {
              PreparedStatement psDecl = c.prepareStatement("DELETE FROM declarations WHERE source_file=?");
              PreparedStatement psNodes = c.prepareStatement(SQL_DELETE_NODES_BY_SOURCE_FILE)) {
             for (String f : sourceFiles) {
-                psSem.setString(1, f); psSem.addBatch();
+                psSem.setString(1, f); psSem.setString(2, f); psSem.addBatch();
                 psNodes.setString(1, f); psNodes.addBatch();
                 psFc.setString(1, f); psFc.addBatch();
                 psDecl.setString(1, f); psDecl.addBatch();
@@ -724,6 +723,7 @@ public class DataWriter {
                 ps.setString(10, n.scope == null ? GraphConstants.Scope.MAIN : n.scope);
                 ps.setString(11, n.javadoc);
                 ps.setString(12, n.metadata);
+                ps.setString(13, producer(n.producerId, ProducerIds.JAVA_CORE));
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -759,6 +759,7 @@ public class DataWriter {
                 ps.setString(10, e.sourceFile);
                 ps.setString(11, e.sourceLocation);
                 ps.setString(12, e.metadata);
+                ps.setString(13, producer(e.producerId, ProducerIds.JAVA_CORE));
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -779,6 +780,8 @@ public class DataWriter {
                 ps.setString(1, a.nodeId);
                 ps.setString(2, a.annotationFqn);
                 ps.setString(3, a.attributes);
+                ps.setString(4, a.sourceFile);
+                ps.setString(5, producer(a.producerId, ProducerIds.JAVA_CORE));
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -814,7 +817,8 @@ public class DataWriter {
                 ps.setString(i++, declaration.scope == null ? GraphConstants.Scope.MAIN : declaration.scope);
                 ps.setInt(i++, declaration.nestingDepth);
                 ps.setInt(i++, declaration.directMember ? 1 : 0); ps.setInt(i++, declaration.synthetic ? 1 : 0);
-                ps.setInt(i, declaration.bindingResolved ? 1 : 0); ps.addBatch();
+                ps.setInt(i++, declaration.bindingResolved ? 1 : 0);
+                ps.setString(i, producer(declaration.producerId, ProducerIds.JAVA_CORE)); ps.addBatch();
             }
             ps.executeBatch();
         }
@@ -837,6 +841,12 @@ public class DataWriter {
         setNullableString(ps, 6, sa.domainContext);
         ps.setString(7, sa.source);
         ps.setString(8, sa.confidence);
+        setNullableString(ps, 9, sa.sourceFile);
+        ps.setString(10, producer(sa.producerId, ProducerIds.MANUAL_ANNOTATION));
+    }
+
+    private static String producer(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private static void setNullableString(PreparedStatement ps, int index, String value) throws SQLException {

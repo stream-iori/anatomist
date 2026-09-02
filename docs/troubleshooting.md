@@ -144,10 +144,10 @@ pair and reuses the saved SHA; this avoids reading every source file. Use
 | Standalone incremental, size/mtime stable | Reuses cached hash. |
 | Standalone incremental with `--verify-content` | Hashes every source. |
 
-Opening an older schema database with the v13 binary intentionally reports
+Opening an older schema database with the v14 binary intentionally reports
 `incremental degraded to full (schema_version mismatch)` once. The rebuild is
-required because old rows have no lossless capability coverage aggregate and
-anonymous-class IDs do not include columns. There is no compatibility migration.
+required because old structural rows have no `producer_id` ownership. There is
+no compatibility migration.
 
 Body/comment/initializer-only Java edits keep the contract hash stable, so they
 do not invalidate dependent type-resolution caches or rebuild Spring wiring.

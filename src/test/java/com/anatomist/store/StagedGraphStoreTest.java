@@ -26,6 +26,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -160,6 +161,94 @@ class StagedGraphStoreTest {
                         "SELECT count(*) FROM pragma_foreign_key_check"));
             }
         }
+    }
+
+    @Test
+    void rejectsCrossProducerNodeOwnershipOnSharedResource(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("index.db");
+        try (StagedGraphStore staging = new StagedGraphStore(db, identities(tmp))) {
+            ExtractionResult first = new ExtractionResult();
+            Node one = node("p.Shared", "m1/src/main/java/Shared.java");
+            one.producerId = "producer-a";
+            first.nodes.add(one);
+            staging.writeRawBatch(first);
+
+            ExtractionResult second = new ExtractionResult();
+            Node two = node("p.Shared", "m1/src/main/java/Shared.java");
+            two.producerId = "producer-b";
+            second.nodes.add(two);
+            RuntimeException failure = assertThrows(RuntimeException.class,
+                    () -> staging.writeRawBatch(second));
+            assertTrue(failure.getMessage().contains("staging batch"));
+            assertTrue(rootMessage(failure).contains("EXTENSION_NODE_OWNERSHIP_CONFLICT"));
+        }
+    }
+
+    @Test
+    void projectProducerReplacementPreservesStableNodesAndOtherProducerFacts(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("index.db");
+        try (SqliteStore target = new SqliteStore(db)) {
+            try (StagedGraphStore initial = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = new ExtractionResult();
+                Node stable = node("project:stable", "shared.xml");
+                stable.producerId = "producer-a";
+                Node obsolete = node("project:obsolete", "shared.xml");
+                obsolete.producerId = "producer-a";
+                Node peer = node("project:peer", "shared.xml");
+                peer.producerId = "producer-b";
+                facts.nodes.addAll(List.of(stable, obsolete, peer));
+                Edge shared = edge(peer.id, stable.id, "shared.xml");
+                shared.producerId = "producer-b";
+                facts.edges.add(shared);
+                initial.writeNormalizedBatch(facts);
+                initial.promoteFull(target);
+            }
+
+            try (StagedGraphStore update = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = new ExtractionResult();
+                Node stable = node("project:stable", "shared.xml");
+                stable.label = "updated";
+                stable.producerId = "producer-a";
+                facts.nodes.add(stable);
+                update.writeNormalizedBatch(facts);
+                update.promoteIncremental(target, List.of(), Set.of("producer-a"), false);
+            }
+
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(1, scalar(statement,
+                        "SELECT count(*) FROM nodes WHERE id='project:stable' AND label='updated'"));
+                assertEquals(0, scalar(statement,
+                        "SELECT count(*) FROM nodes WHERE id='project:obsolete'"));
+                assertEquals(1, scalar(statement,
+                        "SELECT count(*) FROM nodes WHERE id='project:peer' AND producer_id='producer-b'"));
+                assertEquals(1, scalar(statement,
+                        "SELECT count(*) FROM edges WHERE source_id='project:peer' "
+                                + "AND target_id='project:stable' AND producer_id='producer-b'"));
+            }
+        }
+    }
+
+    @Test
+    void rawBeanTargetsUsesLogicalSourceIdentityBeforeFinalization(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("index.db");
+        try (StagedGraphStore staging = new StagedGraphStore(db, identities(tmp))) {
+            ExtractionResult facts = new ExtractionResult();
+            Node bean = node("bean:shared", "m1/src/main/java/Shared.java");
+            bean.kind = GraphConstants.Kind.BEAN;
+            facts.nodes.add(bean);
+            Edge definition = edge(bean.id, "example.Shared", bean.sourceFile);
+            definition.relation = GraphConstants.Relation.DEFINED_BY;
+            facts.edges.add(definition);
+            staging.writeRawBatch(facts);
+
+            assertEquals("example.Shared", staging.rawBeanTargets().get("bean:shared").className());
+        }
+    }
+
+    private static String rootMessage(Throwable failure) {
+        Throwable cursor = failure;
+        while (cursor.getCause() != null) cursor = cursor.getCause();
+        return String.valueOf(cursor.getMessage());
     }
 
     private static SourceIdentityResolver identities(Path root) throws Exception {

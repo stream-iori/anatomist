@@ -2,8 +2,10 @@ package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.IndexTimings;
-import com.anatomist.framework.JavaAstAnalyzer;
+import com.anatomist.framework.JavaUnitAnalyzer;
 import com.anatomist.model.ExtractionResult;
+import com.anatomist.model.FactOrigin;
+import com.anatomist.model.ProducerIds;
 import com.github.javaparser.ast.CompilationUnit;
 
 import java.util.List;
@@ -12,19 +14,19 @@ public class ExtractorPipeline {
 
     private final ExtractionContext ctx;
     private final List<TimedExtractor> extractors;
-    private final List<JavaAstAnalyzer> analyzers;
+    private final List<JavaUnitAnalyzer> analyzers;
     private final IndexTimings timings;
 
     public ExtractorPipeline(ExtractionContext ctx) {
         this(ctx, List.of(), null);
     }
 
-    public ExtractorPipeline(ExtractionContext ctx, List<JavaAstAnalyzer> analyzers) {
+    public ExtractorPipeline(ExtractionContext ctx, List<? extends JavaUnitAnalyzer> analyzers) {
         this(ctx, analyzers, null);
     }
 
     public ExtractorPipeline(ExtractionContext ctx,
-                             List<JavaAstAnalyzer> analyzers,
+                             List<? extends JavaUnitAnalyzer> analyzers,
                              IndexTimings timings) {
         this.ctx = ctx;
         this.extractors = List.of(
@@ -45,9 +47,8 @@ public class ExtractorPipeline {
 
     public void extractAll(CompilationUnit unit, ExtractionResult result) {
         ctx.enterFile(unit);
-        int nodeStart = result.nodes.size();
-        int edgeStart = result.edges.size();
-        int annotationStart = result.annotations.size();
+        String sourceFile = SourceFiles.of(unit);
+        FactOrigin.Cursor coreStart = FactOrigin.cursor(result);
         for (TimedExtractor timed : extractors) {
             ctx.enterResolutionPhase(timed.phase());
             if (timings == null) {
@@ -58,41 +59,23 @@ public class ExtractorPipeline {
                 timings.stop(timed.phase(), started);
             }
         }
+        FactOrigin.stamp(result, coreStart, sourceFile, ProducerIds.JAVA_CORE);
         if (timings == null) {
             ctx.enterResolutionPhase("full_extract_java_analyzers");
-            for (JavaAstAnalyzer analyzer : analyzers) analyzer.analyze(unit, result);
+            for (JavaUnitAnalyzer analyzer : analyzers) analyze(analyzer, unit, result, sourceFile);
         } else {
             long started = timings.start();
             ctx.enterResolutionPhase("full_extract_java_analyzers");
-            for (JavaAstAnalyzer analyzer : analyzers) analyzer.analyze(unit, result);
+            for (JavaUnitAnalyzer analyzer : analyzers) analyze(analyzer, unit, result, sourceFile);
             timings.stop("full_extract_java_analyzers", started);
-        }
-        if (timings == null) {
-            stampOrigin(result, nodeStart, edgeStart, annotationStart, SourceFiles.of(unit));
-        } else {
-            long started = timings.start();
-            stampOrigin(result, nodeStart, edgeStart, annotationStart, SourceFiles.of(unit));
-            timings.stop("full_extract_origin_stamp", started);
         }
     }
 
-    private static void stampOrigin(ExtractionResult result,
-                                    int nodeStart,
-                                    int edgeStart,
-                                    int annotationStart,
-                                    String sourceFile) {
-        if (sourceFile == null) return;
-        for (int i = nodeStart; i < result.nodes.size(); i++) {
-            if (result.nodes.get(i).sourceFile == null) result.nodes.get(i).sourceFile = sourceFile;
-        }
-        for (int i = edgeStart; i < result.edges.size(); i++) {
-            if (result.edges.get(i).sourceFile == null) result.edges.get(i).sourceFile = sourceFile;
-        }
-        for (int i = annotationStart; i < result.annotations.size(); i++) {
-            if (result.annotations.get(i).sourceFile == null) {
-                result.annotations.get(i).sourceFile = sourceFile;
-            }
-        }
+    private static void analyze(JavaUnitAnalyzer analyzer, CompilationUnit unit,
+                                ExtractionResult result, String sourceFile) {
+        FactOrigin.Cursor start = FactOrigin.cursor(result);
+        analyzer.analyze(unit, result);
+        FactOrigin.stamp(result, start, sourceFile, analyzer.producerId());
     }
 
     private record TimedExtractor(String phase, Extractor extractor) {}

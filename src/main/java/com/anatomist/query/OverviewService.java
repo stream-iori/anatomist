@@ -25,13 +25,14 @@ public class OverviewService {
         countByKind(ov);
         countEdgesByExternal(ov);
         tallyPackages(ov);
+        countByProducer(ov);
         ov.packageDeps = packageDeps();
         return ov;
     }
 
     public List<Map<String, Object>> packageDeps() {
         String sql = "SELECT src.package AS source_package, tgt.package AS target_package,"
-                + "       e.relation, COUNT(*) AS edge_count "
+                + "       e.relation, e.producer_id, COUNT(*) AS edge_count "
                 + " FROM edges e "
                 + " JOIN nodes src ON e.source_id = src.id "
                 + " JOIN nodes tgt ON e.target_id = tgt.id "
@@ -40,23 +41,32 @@ public class OverviewService {
                 + "   AND src.package IS NOT NULL AND tgt.package IS NOT NULL "
                 + "   AND src.package <> tgt.package "
                 + "   AND e.relation IN (" + sqlIn(GraphConstants.PACKAGE_DEPENDENCY_RELATIONS) + ") "
-                + " GROUP BY src.package, tgt.package, e.relation "
+                + " GROUP BY src.package, tgt.package, e.relation, e.producer_id "
                 + " ORDER BY src.package, tgt.package, e.relation";
-        List<Map<String, Object>> out = new ArrayList<>();
+        Map<String, Map<String, Object>> grouped = new LinkedHashMap<>();
         try (PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("source_package", rs.getString(1));
-                row.put("target_package", rs.getString(2));
-                row.put("relation", rs.getString(3));
-                row.put("edge_count", rs.getInt(4));
-                out.add(row);
+                String key = rs.getString(1) + "\u0000" + rs.getString(2) + "\u0000" + rs.getString(3);
+                Map<String, Object> row = grouped.computeIfAbsent(key, ignored -> {
+                    Map<String, Object> created = new LinkedHashMap<>();
+                    created.put("source_package", get(rs, 1));
+                    created.put("target_package", get(rs, 2));
+                    created.put("relation", get(rs, 3));
+                    created.put("edge_count", 0L);
+                    created.put("producer_counts", new LinkedHashMap<String, Long>());
+                    return created;
+                });
+                long count = rs.getLong(5);
+                row.put("edge_count", ((Number) row.get("edge_count")).longValue() + count);
+                @SuppressWarnings("unchecked") Map<String, Long> producers =
+                        (Map<String, Long>) row.get("producer_counts");
+                producers.merge(rs.getString(4), count, Long::sum);
             }
         } catch (SQLException e) {
             throw rethrow(e);
         }
-        return out;
+        return new ArrayList<>(grouped.values());
     }
 
     private void countByKind(OverviewResult ov) {
@@ -82,17 +92,34 @@ public class OverviewService {
 
     private void tallyPackages(OverviewResult ov) {
         Map<String, PackageStat> byPkg = new LinkedHashMap<>();
-        queryList(conn, "SELECT package, kind, COUNT(*) FROM nodes "
+        queryList(conn, "SELECT package, kind, producer_id, COUNT(*) FROM nodes "
                 + "n WHERE package IS NOT NULL " + resolver.selectorClause("n")
-                + " GROUP BY package, kind ORDER BY package", rs -> {
+                + " GROUP BY package, kind, producer_id ORDER BY package", rs -> {
             String pkg = rs.getString(1);
             String kind = rs.getString(2);
-            long count = rs.getLong(3);
+            long count = rs.getLong(4);
             PackageStat stat = byPkg.computeIfAbsent(pkg, PackageStat::new);
             if (GraphConstants.TYPE_KINDS.contains(kind)) stat.types += count;
             else if (GraphConstants.METHOD_KINDS.contains(kind)) stat.methods += count;
+            stat.producerCounts.merge(rs.getString(3), count, Long::sum);
             return null;
         });
         ov.packages.addAll(byPkg.values());
+    }
+
+    private void countByProducer(OverviewResult ov) {
+        String sql = "SELECT producer_id,COUNT(*) FROM ("
+                + "SELECT producer_id FROM nodes UNION ALL SELECT producer_id FROM edges UNION ALL "
+                + "SELECT producer_id FROM declarations UNION ALL SELECT producer_id FROM annotations UNION ALL "
+                + "SELECT producer_id FROM semantic_annotations) GROUP BY producer_id ORDER BY producer_id";
+        queryList(conn, sql, rs -> {
+            ov.producerCounts.put(rs.getString(1), rs.getLong(2));
+            return null;
+        });
+    }
+
+    private static String get(ResultSet rows, int column) {
+        try { return rows.getString(column); }
+        catch (SQLException failure) { throw new RuntimeException(failure); }
     }
 }

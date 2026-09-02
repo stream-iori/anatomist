@@ -19,7 +19,7 @@ final class RowMappers {
     /** Node projection (alias {@code n}). Mapped by column name, so the alias is cosmetic. */
     static final String NODE_COLS =
             "n.id, n.symbol_id, n.label, n.kind, n.qualified_name, n.source_file, "
-          + "n.source_location, n.module, n.scope, n.javadoc";
+          + "n.source_location, n.module, n.scope, n.javadoc, n.producer_id AS producer_id";
 
     /** {@code FROM edges e} + the two LEFT JOINs onto src/tgt nodes used by flat edge queries. */
     static final String EDGE_FROM_JOINS =
@@ -32,7 +32,7 @@ final class RowMappers {
      *  anchor and {@code , c.depth + 1} for the recursive member. */
     static final String CHAIN_CTE_COLS =
             "e.source_id, e.target_id, e.external_target_fqn, e.relation,"
-          + " e.call_kind, e.confidence, e.resolution, e.is_external, e.source_file, e.source_location, e.context, e.metadata";
+          + " e.call_kind, e.confidence, e.resolution, e.is_external, e.source_file, e.source_location, e.context, e.metadata, e.producer_id";
 
     /** Final projection off a {@code chain} CTE aliased {@code c}, joined to src/tgt nodes.
      *  Column order matches {@link #mapEdge}. */
@@ -40,7 +40,7 @@ final class RowMappers {
             "c.source_id, c.target_id, c.external_target_fqn, c.relation, c.call_kind, c.confidence,"
           + " c.resolution, c.is_external, c.source_file, c.source_location, c.depth,"
           + " src.label AS src_label, tgt.label AS tgt_label, tgt.qualified_name AS tgt_q, c.context, c.metadata,"
-          + " src.symbol_id, src.module, src.scope, tgt.symbol_id, tgt.module, tgt.scope";
+          + " src.symbol_id, src.module, src.scope, tgt.symbol_id, tgt.module, tgt.scope, c.producer_id";
 
     /** Flat (non-recursive) edge projection. {@code depthExpr} is a literal such as
      *  {@code "1"} or a bind placeholder {@code "?"}. Column order matches {@link #mapEdge}. */
@@ -48,7 +48,7 @@ final class RowMappers {
         return "e.source_id, e.target_id, e.external_target_fqn, e.relation, e.call_kind,"
              + " e.confidence, e.resolution, e.is_external, e.source_file, e.source_location, " + depthExpr + " AS depth,"
              + " src.label, tgt.label, tgt.qualified_name, e.context, e.metadata,"
-             + " src.symbol_id, src.module, src.scope, tgt.symbol_id, tgt.module, tgt.scope";
+             + " src.symbol_id, src.module, src.scope, tgt.symbol_id, tgt.module, tgt.scope, e.producer_id";
     }
 
     static NodeRow mapNode(ResultSet rs) throws SQLException {
@@ -63,6 +63,7 @@ final class RowMappers {
         n.module = rs.getString("module");
         n.scope = rs.getString("scope");
         n.javadoc = rs.getString("javadoc");
+        n.producerId = rs.getString("producer_id");
         return n;
     }
 
@@ -91,6 +92,7 @@ final class RowMappers {
         r.targetSymbolId = rs.getString(20);
         r.targetModule = rs.getString(21);
         r.targetScope = rs.getString(22);
+        r.producerId = rs.getString(23);
         return r;
     }
 }

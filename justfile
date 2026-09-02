@@ -224,6 +224,14 @@ config-e2e-jvm: jar
 config-e2e-native: native
     bash scripts/config-e2e.sh native {{NATIVE_BIN}}
 
+# Exercise extension lifecycle, producer ownership, Spring XML and records through the JVM jar.
+extension-e2e-jvm: jar
+    bash scripts/extension-e2e.sh jvm
+
+# Run the same lifecycle through the native binary and diff its query JSON against the JVM jar.
+extension-e2e-native: jar native
+    bash scripts/extension-e2e.sh native {{NATIVE_BIN}}
+
 # One specific test class or method
 test-one PATTERN:
     #!/usr/bin/env bash
