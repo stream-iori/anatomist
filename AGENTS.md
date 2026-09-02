@@ -37,6 +37,9 @@ the primary local-control-flow evidence. Its source is snapshot-verified and
 paged; use graph/flow queries only for relation or path proof. With
 `--lombok ast`, treat `metadata.lombok` as evidence: modeled capabilities are
 facts, while partial/unmodeled capabilities require further verification.
+Follow source `next_queries` when a conclusion must cover the whole declaration.
+Read an entire type only when state or lifecycle spans fields, constructors,
+initializers, or several methods; for a large class, select exact methods first.
 
 ## Coding Style & Naming Conventions
 

@@ -227,6 +227,7 @@ class ProgressiveDisclosureIT {
         RunResult context = runCli("context", "--help");
         assertEquals(0, context.exitCode, context.stderr);
         assertTrue(context.stdout.contains("--members-limit"));
+        assertTrue(context.stdout.contains("Truncated output includes next_queries"));
 
         RunResult callees = runCli("callees-of", "--help");
         assertEquals(0, callees.exitCode, callees.stderr);

@@ -50,7 +50,7 @@ public class ContextCommand implements Callable<Integer> {
     @Option(names = "--source", description = "Return the exact source-backed declaration.")
     boolean source;
 
-    @Option(names = "--source-limit", description = "Maximum source lines to emit (default 200, max 1000).")
+    @Option(names = "--source-limit", description = "Maximum source lines to emit (default 200, max 1000). Truncated output includes next_queries.")
     Integer sourceLimit;
 
     @Option(names = "--source-offset", description = "Zero-based line offset within the declaration.")

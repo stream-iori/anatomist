@@ -100,6 +100,17 @@ class SkillMdContractTest {
     }
 
     @Test
+    void exploreChoosesBoundedMethodPagesBeforeWholeClassSource() throws Exception {
+        String explore = Files.readString(sceneDir().resolve("explore.md"));
+        assertTrue(explore.contains("exact method signature"));
+        assertTrue(explore.contains("source.truncated=false"));
+        assertTrue(explore.contains("Class-wide state or lifecycle"));
+        assertTrue(explore.contains("--methods-only"));
+        assertTrue(explore.contains("Do not read a whole class by default"));
+        assertTrue(explore.contains("pagination is not mandatory"));
+    }
+
+    @Test
     void coreExplainsConfigurationProfileDiagnostics() throws Exception {
         String core = Files.readString(sceneDir().resolve("core.md"));
         assertTrue(core.contains("config_source"));

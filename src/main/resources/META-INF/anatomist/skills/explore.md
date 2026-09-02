@@ -25,6 +25,15 @@ anatomist context 'com.example.OrderService#createOrder(java.lang.String)' --sou
 Follow `next_queries` when `source.truncated=true`. A `stale` source status is a
 soft warning with no snippet; rebuild the index before using checkout text as evidence.
 
+Choose the smallest source scope that can answer the question:
+
+| Question scope | Source decision |
+|---|---|
+| One method's behavior | Read its exact method signature with `--source`. For an exhaustive conclusion, follow `next_queries` until `source.truncated=false`. |
+| Class-wide state or lifecycle across fields, constructors, initializers, or several helpers | Read the type with `--source`; the class is the reasoning unit. |
+| One concern inside a large class | Use `--methods-only` to find the relevant signatures, then read those methods separately. Do not read a whole class by default. |
+| A local call or branch already visible in the current page | Stop when that evidence answers the question; pagination is not mandatory. |
+
 When `context`, `search`, or `declarations-of` returns `metadata.lombok`, use
 only `modeled_capabilities` as structural facts. `partial_capabilities` and
 `unmodeled_capabilities` explain uncertainty; verify them from source, build
