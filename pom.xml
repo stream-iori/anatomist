@@ -269,7 +269,7 @@
             => target/anatomist (single binary)
 
           Produces a GraalVM native binary covering all CLI subcommands
-          (index, query, watch, context enrichment, annotate). See
+          (index, query, context enrichment, annotate). See
           docs/scenario-6-native-image.md for the architectural notes.
 
           Build args rationale:

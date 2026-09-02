@@ -112,6 +112,10 @@ members. `@Accessors` makes affected Getter/Setter capabilities partial and
 suppresses uncertain default names instead of guessing `getX/setX`.
 `strict=true` promotes Lombok coverage diagnostics to the complete health gate.
 
+Treat this object as an evidence summary: only modeled members are graph facts;
+partial or unmodeled capabilities must not be turned into asserted member names
+or call relations without further evidence.
+
 | `[scan]` key | Meaning | Default |
 |---|---|---|
 | `scopes` | Auto-detected source-root kinds to scan: `MAIN`, `TEST`, `GENERATED` | `MAIN`, `GENERATED` |

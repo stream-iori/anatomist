@@ -71,6 +71,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 - AST-backed `declarations-of --file ...` contract for type/method/constructor discovery without regex parsing
 - Progressive disclosure for large repos: `survey-baseline`, paged search, paged context members, and paged/filtered call chains
 - Source-backed graph slices: `callees-of` / `callers-of` / `call-path --source-window=3` return file/line snippets for Agent evidence
+- Exact declaration reading: `context '<method-signature>' --source` returns the snapshot-verified source range with paging
 - Index snapshot metadata in `project_meta`: source root, source paths, index time, git commit/branch/dirty/remote
 - SymbolSolver-level call resolution (not naive label match) — distinguishes INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE
 - Stable IDs for lambdas, method refs, anonymous classes
@@ -84,7 +85,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
   CFG/def-use/return/exception/guard/taint analysis
 - Data-only flow paths by default, with exact endpoint slots and opt-in control/exception edges
 - Spring XML bean wiring (`--spring-xml`)
-- Optional low-overhead Lombok signature recovery (`--lombok ast`) with synthetic provenance
+- Optional Lombok AST signatures (`--lombok ast`) with synthetic provenance and structured modeled/partial/unmodeled evidence
 - Pagination + keyword filter on all list queries
 - GraalVM native binary (~10ms cold start vs ~300ms JVM)
 

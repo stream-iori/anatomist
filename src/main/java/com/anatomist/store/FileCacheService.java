@@ -56,8 +56,8 @@ public class FileCacheService {
     private record FileState(long size, long mtimeNs) {}
 
     /**
-     * Standalone incremental scan. Stable size/mtime pairs reuse the prior SHA;
-     * Watch never calls this path because event candidates are always hashed.
+     * Incremental scan. Stable size/mtime pairs reuse the prior SHA; callers can
+     * pass {@code verifyContent} when restored timestamps must be detected.
      */
     public CandidateScan detectChangesFast(Path projectRoot, List<Path> sourceFiles,
                                            Map<String, FileCacheEntry> cache,

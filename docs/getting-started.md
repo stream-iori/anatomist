@@ -133,6 +133,7 @@ Key flags:
 - `--output` — SQLite database path (default: `$ANATOMIST_HOME/indexes/<repo-key>/index.db`; `$ANATOMIST_HOME` defaults to `~/.anatomist`)
 - `--incremental` — only re-parse changed files
 - `--spring-xml` — include Spring XML `<beans>` wiring facts
+- `--lombok off|ast` — opt in to common Lombok AST signatures; query results disclose modeled, partial, and unmodeled capabilities
 - `--timings` — show per-phase costs without changing default output
 - `--health-policy integrity` — reject incomplete parse/graph snapshots while
   allowing disclosed third-party resolution gaps
@@ -210,6 +211,10 @@ anatomist search OrderService --index /tmp/shop.db
 
 # View class structure
 anatomist context com.example.shop.service.OrderService --index /tmp/shop.db
+
+# Read one exact method body, with snapshot-verified source evidence
+anatomist context 'com.example.shop.service.OrderService#createOrder(java.lang.String)' \
+    --source --index /tmp/shop.db
 
 # Trace call chain (3 levels deep)
 anatomist callees-of com.example.shop.service.OrderService#createOrder --depth 3 --index /tmp/shop.db

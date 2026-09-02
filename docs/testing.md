@@ -178,7 +178,7 @@ Javadoc 标签扫描，每项上限 3 秒。生产正则只允许静态预编译
 | 指标 | 目标 | 验证方式 |
 |------|-----|---------|
 | index 速度 | Commons Lang 70k 行 < 30s 冷启 | `assertTimeout` |
-| Watch body-only 增量 | p50 ≤ 500ms，p95 ≤ 750ms | 同一进程连续修改，`--timings` |
+| 独立进程 body-only 增量 | CI 记录趋势 | 修改后运行 `index --incremental --timings` |
 | 16 文件增量 | ≤ 7.5s | 固定源码快照和 binary |
 | 小闭包增量 | ≤ 2.5s | 契约变化但不超过 realign 上限 |
 | 查询 P99 | 任意单跳查询 < 50ms | mini-shop 上 1000 次 |
@@ -191,13 +191,11 @@ Javadoc 标签扫描，每项上限 3 秒。生产正则只允许静态预编译
 binary 和参数改造前后各跑三次；离散度超过 10% 时扩展到五次。当前优化验收
 要求两个指标的中位数均至少下降 70%，并记录 flow 子阶段、RSS 和最终 DB 大小。
 
-增量正确性还要覆盖：size/mtime 快路径、`--verify-content`、恢复时间戳的
-Watch 候选、契约指纹对 body/签名的区分、impact SQL 索引计划、Spring XML
-入边保留，以及 Watch staging/known-ID 会话复用与退出清理。构建文件测试要
-区分“环境未变化继续增量”和“classpath/source-layout 变化触发一次 full”；
-后台 full 还要覆盖：构建期间继续收集事件、单飞合并、回放后与 fresh full
-一致、临时 DB 失败保留旧库、以及重启后的 stale 对账；
-成本模型固定覆盖 70% full 预算、20% 冷启动回退、1000 文件硬上限和 128 文件批次。
+增量正确性还要覆盖：size/mtime 快路径、`--verify-content`、恢复时间戳、
+契约指纹对 body/签名的区分、impact SQL 索引计划和 Spring XML 入边保留。
+构建文件测试必须区分“环境未变化继续增量”与“classpath/source-layout/JDK
+变化触发一次 full”；阶段库失败必须保留最后一个健康索引。成本模型固定覆盖
+70% full 预算、20% 冷启动回退、1000 文件硬上限和 128 文件批次。
 
 大型项目诊断应使用同一源码快照和 native binary，向 `target/perf/` 写入
 三个独立的 `--recreate --timings --format=json` 结果，报告中位数、范围和

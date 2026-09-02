@@ -24,3 +24,8 @@ anatomist context 'com.example.OrderService#createOrder(java.lang.String)' --sou
 
 Follow `next_queries` when `source.truncated=true`. A `stale` source status is a
 soft warning with no snippet; rebuild the index before using checkout text as evidence.
+
+When `context`, `search`, or `declarations-of` returns `metadata.lombok`, use
+only `modeled_capabilities` as structural facts. `partial_capabilities` and
+`unmodeled_capabilities` explain uncertainty; verify them from source, build
+artifacts, or the user before asserting exact members or call relations.

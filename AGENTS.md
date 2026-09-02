@@ -32,6 +32,12 @@ java -jar target/anatomist.jar index fixtures/mini-spring-shop --no-classpath --
 java -jar target/anatomist.jar search OrderService --index /tmp/shop.db
 ```
 
+For an already resolved method, use `context '<exact-signature>' --source` as
+the primary local-control-flow evidence. Its source is snapshot-verified and
+paged; use graph/flow queries only for relation or path proof. With
+`--lombok ast`, treat `metadata.lombok` as evidence: modeled capabilities are
+facts, while partial/unmodeled capabilities require further verification.
+
 ## Coding Style & Naming Conventions
 
 Use Java 25 with `maven.compiler.release=25`; `.sdkmanrc` is the canonical local SDK selection. Follow existing package boundaries: parsing/indexing in `core` and `extract`, application orchestration in `application`, persistence in `store`, query-only behavior in `query`, commands in `cli`. Keep JSON runtime code hand-written; avoid reflection-heavy libraries because native-image support is a core constraint.

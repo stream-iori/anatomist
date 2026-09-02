@@ -145,7 +145,7 @@ public class IndexCommand implements Callable<Integer> {
                     + "+ DEFINED_BY / WIRES edges. Off by default.")
     Boolean springXml;
 
-    @Option(names = "--lombok", description = "Lombok structural model: off | ast. Off by default.")
+    @Option(names = "--lombok", description = "Lombok structural model: off | ast. Query JSON discloses modeled/partial/unmodeled capability evidence. Off by default.")
     String lombokMode;
 
     @Option(names = "--debug",

@@ -7,10 +7,10 @@
 - `extract/` — `Extractor` implementations. `CallGraphExtractor` handles traversal/emission while `CallOverloadResolver` owns shared AST/SymbolSolver overload ranking. Plus `XmlBeanExtractor` for Spring XML beans.
 - `framework/` — Compile-time extension SPI. `AstModelExtension` augments the in-memory AST, `JavaUnitAnalyzer` emits per-unit facts, `ProjectResourceProvider` discovers shared resources, and `ProjectResourceAnalyzer` emits project-resource facts. `AnalyzerRegistry` wires built-ins.
 - `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
-- `framework/lombok/` — Opt-in signature-only Lombok AST model and root `lombok.config` subset.
+- `framework/lombok/` — Opt-in signature-only Lombok AST model and root `lombok.config` subset; queries disclose modeled/partial/unmodeled capability evidence rather than inventing unmodeled members.
 - `store/` — `SqliteStore` (schema + atomic batched write)
 - `semantic/` — Post-index annotations from direct code evidence: `SemanticPostProcessor` writes Javadoc summaries only; it does not infer architecture roles or business categories from names/annotations.
-- `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `CallGraphService`, `BranchSliceService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs: `QueryEnvelope`, `NodeRow`, `EdgeRow`, `BranchSlice`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `CallChainSlicer` groups call chains into class/package blocks. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
+- `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `SourceContextService`, `CallGraphService`, `BranchSliceService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs include `SourceContext` and `SourceRequest` alongside `QueryEnvelope`, `NodeRow`, `EdgeRow`, `BranchSlice`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `IndexedSourceVerifier` checks source snapshots before returning exact declaration text. `CallChainSlicer` groups call chains into class/package blocks. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
 - `cli/` — picocli adapters; `IndexOutput` owns the full/incremental text and JSON contract instead of mixing rendering into `IndexCommand`.
 
 ## Index-phase data flow
@@ -100,6 +100,7 @@ participate in this ownership model.
   MAX_DEPTH=20 + BFS dedup and report `depth_truncated`; pageable commands report
   `truncated`; `flow-of` reports its traversal-limit truncation. Agents must
   follow the corresponding `next_queries` before making exhaustive claims.
+- **Exact source is primary local control-flow evidence.** `context --source` returns only the indexed declaration range, verifies its snapshot, and pages long bodies. The graph does not persist a second `control_regions` projection.
 - **Spring Boot basics are static facts.** `BEAN`, `ROUTE`, `INJECTS`, and `HANDLES` are configured/static evidence, not proof of the exact runtime object under profiles, conditions, or AOP.
 - **`WIRES` edges originate from CLASS nodes, not BEAN nodes.** XML WIRES must drop explicitly on XML incremental rebuild; annotation BEAN nodes must not be deleted by XML cleanup.
 
