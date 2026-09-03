@@ -2,16 +2,22 @@ package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.NodeIdGenerator;
+import com.anatomist.core.nativeimage.EmbeddedJdkClassDeclaration;
 import com.anatomist.json.Json;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.MethodUsage;
@@ -32,6 +38,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class CallGraphExtractor implements Extractor {
@@ -44,7 +51,12 @@ public class CallGraphExtractor implements Extractor {
     private final Map<Expression, String> overloadTypes = new IdentityHashMap<>();
     private final Map<Expression, String> lexicalScopeTypes = new IdentityHashMap<>();
     private final Map<ResolvedMethodLikeDeclaration, String> methodIds = new IdentityHashMap<>();
+    private final Set<Expression> resolvingScopeTypes = java.util.Collections.newSetFromMap(
+            new IdentityHashMap<>());
+    private EmbeddedJdkClassDeclaration embeddedJdkAnchor;
     private List<ClassOrInterfaceDeclaration> lexicalTypes = List.of();
+
+    private enum FallbackOutcome { NONE, APPROXIMATE, EXACT, AMBIGUOUS }
 
     public CallGraphExtractor(ExtractionContext ctx) {
         this.ctx = ctx;
@@ -82,8 +94,10 @@ public class CallGraphExtractor implements Extractor {
                     String callKind = CallKindClassifier.classify(target, n);
                     emit(n, target, callKind, result);
                 } catch (RuntimeException e) {
-                    ctx.incrementUnresolved(e, n, n.getNameAsString());
-                    emitFallback(n, result);
+                    FallbackOutcome outcome = emitFallback(n, result);
+                    if (outcome != FallbackOutcome.EXACT) {
+                        ctx.incrementUnresolved(e, n, n.getNameAsString());
+                    }
                 }
                 super.visit(n, arg);
             }
@@ -119,6 +133,8 @@ public class CallGraphExtractor implements Extractor {
         overloadTypes.clear();
         lexicalScopeTypes.clear();
         methodIds.clear();
+        resolvingScopeTypes.clear();
+        embeddedJdkAnchor = null;
         lexicalTypes = List.of();
     }
 
@@ -166,6 +182,17 @@ public class CallGraphExtractor implements Extractor {
             Edge e = result.edges.get(result.edges.size() - 1);
             e.confidence = GraphConstants.Confidence.INFERRED;
             e.metadata = metadata;
+        }
+    }
+
+    private void emitTypeFallback(com.github.javaparser.ast.Node callNode,
+                                  ResolvedMethodLikeDeclaration target, String callKind,
+                                  ExtractionResult result, String metadata) {
+        int before = result.edges.size();
+        emitInferred(callNode, target, callKind, result, metadata);
+        if (result.edges.size() > before) {
+            Edge edge = result.edges.get(result.edges.size() - 1);
+            if (edge.isExternal) edge.resolution = GraphConstants.Resolution.TYPE_FALLBACK;
         }
     }
 
@@ -230,21 +257,38 @@ public class CallGraphExtractor implements Extractor {
         return id;
     }
 
-    private void emitFallback(MethodCallExpr call, ExtractionResult result) {
+    private FallbackOutcome emitFallback(MethodCallExpr call, ExtractionResult result) {
         String enclosingId = enclosingMethodId(call);
-        if (enclosingId == null) return;
+        if (enclosingId == null) return FallbackOutcome.NONE;
 
-        if (emitLocalMethodFallback(call, enclosingId, result)) return;
-        if (emitScopeTypeFallback(call, enclosingId, result)) return;
-        emitStaticNameFallback(call, enclosingId, result);
+        FallbackOutcome local = emitLocalMethodFallback(call, enclosingId, result);
+        if (local != FallbackOutcome.NONE) return local;
+        FallbackOutcome scoped = emitScopeTypeFallback(call, enclosingId, result);
+        if (scoped != FallbackOutcome.NONE) return scoped;
+        FallbackOutcome staticDeclaration = emitStaticDeclarationFallback(call, result);
+        if (staticDeclaration != FallbackOutcome.NONE) return staticDeclaration;
+        return emitStaticNameFallback(call, enclosingId, result)
+                ? FallbackOutcome.APPROXIMATE : FallbackOutcome.NONE;
     }
 
-    private boolean emitLocalMethodFallback(MethodCallExpr call, String enclosingId,
-                                            ExtractionResult result) {
-        if (call.getScope().isPresent()) return false;
+    private FallbackOutcome emitStaticDeclarationFallback(MethodCallExpr call,
+                                                           ExtractionResult result) {
+        Optional<Expression> scope = call.getScope();
+        if (scope.isEmpty() || !looksLikeTypeName(scope.get().toString())) {
+            return FallbackOutcome.NONE;
+        }
+        ResolvedMethodDeclaration target = fallbackDeclaration(call);
+        if (target == null || !target.isStatic()) return FallbackOutcome.NONE;
+        emitTypeFallback(call, target, GraphConstants.CallKind.STATIC, result, null);
+        return FallbackOutcome.EXACT;
+    }
+
+    private FallbackOutcome emitLocalMethodFallback(MethodCallExpr call, String enclosingId,
+                                                    ExtractionResult result) {
+        if (call.getScope().isPresent()) return FallbackOutcome.NONE;
 
         Optional<TypeDeclaration> typeOpt = call.findAncestor(TypeDeclaration.class);
-        if (typeOpt.isEmpty()) return false;
+        if (typeOpt.isEmpty()) return FallbackOutcome.NONE;
 
         @SuppressWarnings("unchecked")
         List<MethodDeclaration> methods = (List<MethodDeclaration>) typeOpt.get().getMethods();
@@ -252,16 +296,16 @@ public class CallGraphExtractor implements Extractor {
                 .filter(m -> m.getNameAsString().equals(call.getNameAsString()))
                 .filter(m -> m.getParameters().size() == call.getArguments().size())
                 .toList();
-        if (candidates.isEmpty()) return false;
+        if (candidates.isEmpty()) return FallbackOutcome.NONE;
         if (candidates.size() > 1) {
             List<MethodDeclaration> best = bestAstCandidates(candidates, call);
-            if (best.isEmpty()) return false;
+            if (best.isEmpty()) return FallbackOutcome.NONE;
             emitLocalAstCandidates(call, enclosingId, best, result);
-            return true;
+            return best.size() == 1 ? FallbackOutcome.EXACT : FallbackOutcome.AMBIGUOUS;
         }
 
         String targetId = methodId(candidates.get(0));
-        if (targetId == null || targetId.equals(enclosingId)) return false;
+        if (targetId == null || targetId.equals(enclosingId)) return FallbackOutcome.NONE;
 
         Edge e = baseEdge(call, enclosingId);
         e.callKind = GraphConstants.CallKind.INSTANCE;
@@ -269,7 +313,7 @@ public class CallGraphExtractor implements Extractor {
         e.targetId = targetId;
         e.isExternal = false;
         result.edges.add(e);
-        return true;
+        return FallbackOutcome.EXACT;
     }
 
     private List<MethodDeclaration> bestAstCandidates(List<MethodDeclaration> candidates, MethodCallExpr call) {
@@ -332,38 +376,45 @@ public class CallGraphExtractor implements Extractor {
                 + ")";
     }
 
-    private boolean emitScopeTypeFallback(MethodCallExpr call, String enclosingId, ExtractionResult result) {
+    private FallbackOutcome emitScopeTypeFallback(MethodCallExpr call, String enclosingId,
+                                                  ExtractionResult result) {
         Optional<Expression> scopeOpt = call.getScope();
-        if (scopeOpt.isEmpty()) return false;
-        if (looksLikeTypeName(scopeOpt.get().toString())) return false;
+        if (scopeOpt.isEmpty()) return FallbackOutcome.NONE;
+        if (looksLikeTypeName(scopeOpt.get().toString())) return FallbackOutcome.NONE;
 
         ResolvedType scopeType = resolveScopeType(scopeOpt.get());
-        if (scopeType == null) return false;
-        if (!scopeType.isReferenceType()) return false;
+        if (scopeType == null) return FallbackOutcome.NONE;
+        if (!scopeType.isReferenceType()) return FallbackOutcome.NONE;
 
         Optional<ResolvedReferenceTypeDeclaration> declOpt;
         try {
             declOpt = scopeType.asReferenceType().getTypeDeclaration();
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e, call, call.getNameAsString());
-            return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result);
+            return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result)
+                    ? FallbackOutcome.APPROXIMATE : FallbackOutcome.NONE;
         }
-        if (declOpt.isEmpty()) return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result);
+        if (declOpt.isEmpty()) {
+            return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result)
+                    ? FallbackOutcome.APPROXIMATE : FallbackOutcome.NONE;
+        }
+        if (declOpt.get() instanceof EmbeddedJdkClassDeclaration embedded) {
+            embeddedJdkAnchor = embedded;
+        }
         if (!(declOpt.get() instanceof MethodResolutionCapability capability)) {
-            return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result);
+            return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result)
+                    ? FallbackOutcome.APPROXIMATE : FallbackOutcome.NONE;
         }
 
         SymbolReference<ResolvedMethodDeclaration> solved;
         try {
             solved = capability.solveMethod(call.getNameAsString(), argumentTypes(call), false);
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e, call, call.getNameAsString());
             solved = SymbolReference.unsolved(ResolvedMethodDeclaration.class);
         }
         if (solved.isSolved() && !unreliableSignature(solved.getCorrespondingDeclaration())) {
-            emit(call, solved.getCorrespondingDeclaration(),
-                    CallKindClassifier.classify(solved.getCorrespondingDeclaration(), call), result);
-            return true;
+            emitTypeFallback(call, solved.getCorrespondingDeclaration(),
+                    CallKindClassifier.classify(solved.getCorrespondingDeclaration(), call), result, null);
+            return FallbackOutcome.EXACT;
         }
 
         List<MethodDeclaration> astTargets = resolveByAstOverload(declOpt.get(), call);
@@ -374,18 +425,27 @@ public class CallGraphExtractor implements Extractor {
         }
         if (!astTargets.isEmpty()) {
             emitAstCandidates(call, declOpt.get(), astTargets, result);
-            return true;
+            return astTargets.size() == 1 ? FallbackOutcome.EXACT : FallbackOutcome.AMBIGUOUS;
         }
 
         List<ResolvedMethodDeclaration> targets = resolveByFallbackOverload(declOpt.get(), call);
-        if (targets.isEmpty()) return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result);
+        if (targets.isEmpty()) {
+            // The embedded JDK catalog is authoritative for its target release.
+            // Do not invent a newer JDK method merely because the receiver type
+            // is known (for example Stream#toList() in the Java 8 catalog).
+            if (declOpt.get() instanceof EmbeddedJdkClassDeclaration) {
+                return FallbackOutcome.NONE;
+            }
+            return emitTypedScopeExternalFallback(call, enclosingId, scopeType, result)
+                    ? FallbackOutcome.APPROXIMATE : FallbackOutcome.NONE;
+        }
         if (targets.size() == 1) {
-            emitInferred(call, targets.get(0),
+            emitTypeFallback(call, targets.get(0),
                     CallKindClassifier.classify(targets.get(0), call), result, null);
         } else {
             emitAmbiguous(call, targets, result);
         }
-        return true;
+        return targets.size() == 1 ? FallbackOutcome.EXACT : FallbackOutcome.AMBIGUOUS;
     }
 
     /**
@@ -622,17 +682,21 @@ public class CallGraphExtractor implements Extractor {
 
     private List<ResolvedMethodDeclaration> resolveByFallbackOverload(
             ResolvedReferenceTypeDeclaration decl, MethodCallExpr call) {
+        return resolveByFallbackOverload(decl, call, false);
+    }
+
+    private List<ResolvedMethodDeclaration> resolveByFallbackOverload(
+            ResolvedReferenceTypeDeclaration decl, MethodCallExpr call, boolean staticCall) {
         List<ResolvedMethodDeclaration> candidates = new ArrayList<>();
         try {
             for (MethodUsage usage : decl.getAllMethods()) {
                 ResolvedMethodDeclaration m = usage.getDeclaration();
-                if (m.isStatic()) continue;
+                if (m.isStatic() != staticCall) continue;
                 if (!m.getName().equals(call.getNameAsString())) continue;
                 if (m.getNumberOfParams() != call.getArguments().size()) continue;
                 candidates.add(m);
             }
         } catch (RuntimeException e) {
-            ctx.incrementUnresolved(e, call, call.getNameAsString());
             return List.of();
         }
         if (candidates.size() <= 1) {
@@ -643,14 +707,14 @@ public class CallGraphExtractor implements Extractor {
         return CallOverloadResolver.bestResolved(candidates, call, this::overloadTypeOfArgument);
     }
 
-    private void emitStaticNameFallback(MethodCallExpr call, String enclosingId,
-                                        ExtractionResult result) {
+    private boolean emitStaticNameFallback(MethodCallExpr call, String enclosingId,
+                                           ExtractionResult result) {
         Optional<Expression> scopeOpt = call.getScope();
-        if (scopeOpt.isEmpty()) return;
+        if (scopeOpt.isEmpty()) return false;
         String scope = scopeOpt.get().toString();
-        if (!looksLikeTypeName(scope)) return;
+        if (!looksLikeTypeName(scope)) return false;
         String typeFqn = resolveStaticScopeName(call, scope);
-        if (typeFqn == null || typeFqn.isBlank()) return;
+        if (typeFqn == null || typeFqn.isBlank()) return false;
 
         Edge e = baseEdge(call, enclosingId);
         e.callKind = GraphConstants.CallKind.STATIC;
@@ -660,29 +724,245 @@ public class CallGraphExtractor implements Extractor {
         e.isExternal = true;
         e.resolution = GraphConstants.Resolution.STATIC_NAME_FALLBACK;
         result.edges.add(e);
+        return true;
     }
 
     private ResolvedType resolveScopeType(Expression scope) {
         Optional<ResolvedType> cached = scopeTypes.get(scope);
         if (cached != null) return cached.orElse(null);
-        ResolvedType calculated = calculatedType(scope);
-        if (calculated != null) {
-            scopeTypes.put(scope, Optional.of(calculated));
-            return calculated;
-        }
-
+        if (!resolvingScopeTypes.add(scope)) return null;
         try {
-            ResolvedValueDeclaration value = null;
             if (scope.isNameExpr()) {
-                value = scope.asNameExpr().resolve();
-            } else if (scope.isFieldAccessExpr()) {
-                value = scope.asFieldAccessExpr().resolve();
+                ResolvedType lambdaParameter = fallbackLambdaParameterType(scope.asNameExpr());
+                if (usableValueType(lambdaParameter)) {
+                    rememberEmbeddedJdkType(lambdaParameter);
+                    scopeTypes.put(scope, Optional.of(lambdaParameter));
+                    return lambdaParameter;
+                }
             }
-            ResolvedType result = value == null ? null : value.getType();
+            ResolvedType calculated = calculatedType(scope);
+            if (calculated != null) {
+                rememberEmbeddedJdkType(calculated);
+                scopeTypes.put(scope, Optional.of(calculated));
+                return calculated;
+            }
+
+            ResolvedType result = null;
+            if (scope.isMethodCallExpr()) {
+                result = fallbackReturnType(scope.asMethodCallExpr());
+            } else {
+                ResolvedValueDeclaration value = null;
+                if (scope.isNameExpr()) {
+                    value = scope.asNameExpr().resolve();
+                } else if (scope.isFieldAccessExpr()) {
+                    value = scope.asFieldAccessExpr().resolve();
+                }
+                if (result == null) result = value == null ? null : value.getType();
+            }
+            rememberEmbeddedJdkType(result);
             scopeTypes.put(scope, Optional.ofNullable(result));
             return result;
         } catch (RuntimeException e) {
             scopeTypes.put(scope, Optional.empty());
+            return null;
+        } finally {
+            resolvingScopeTypes.remove(scope);
+        }
+    }
+
+    /**
+     * Recover the result type of a call without requiring JavaParser to solve the
+     * whole generic chain. This stays declaration-backed: no method is invented.
+     */
+    private ResolvedType fallbackReturnType(MethodCallExpr call) {
+        ResolvedMethodDeclaration target = fallbackDeclaration(call);
+        if (isOptionalOrElse(call, target)) {
+            ResolvedType primary = optionalFactoryValueType(call);
+            ResolvedType fallback = call.getArguments().isEmpty()
+                    ? null : resolveScopeType(call.getArgument(0));
+            if (primary != null && fallback != null && !sameErasure(primary, fallback)) return null;
+            if (usableValueType(primary)) return primary;
+            if (usableValueType(fallback)) return fallback;
+        }
+        if (target == null) return null;
+        try {
+            ResolvedType returned = target.getReturnType();
+            return usableValueType(returned) ? returned : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * JavaParser can lose nested lambda parameter types after a generic chain
+     * fails. Recover only directly declared Function targets and element-
+     * preserving Stream calls; this is local target typing, not value flow.
+     */
+    private ResolvedType fallbackLambdaParameterType(NameExpr name) {
+        Node current = name;
+        while ((current = current.getParentNode().orElse(null)) != null) {
+            if (!(current instanceof LambdaExpr lambda)) continue;
+            for (int index = 0; index < lambda.getParameters().size(); index++) {
+                Parameter parameter = lambda.getParameter(index);
+                if (!name.getNameAsString().equals(parameter.getNameAsString())) continue;
+                if (!parameter.getType().isUnknownType()) {
+                    try { return parameter.getType().resolve(); }
+                    catch (RuntimeException ignored) { }
+                }
+                ResolvedType target = directLambdaTargetParameter(lambda, index);
+                if (usableValueType(target)) return target;
+            }
+        }
+        return null;
+    }
+
+    private ResolvedType directLambdaTargetParameter(LambdaExpr lambda, int parameterIndex) {
+        Node parent = lambda.getParentNode().orElse(null);
+        if (parent instanceof VariableDeclarator variable
+                && variable.getInitializer().orElse(null) == lambda) {
+            try {
+                ResolvedType functionalType = variable.getType().resolve();
+                return javaFunctionParameter(functionalType, parameterIndex);
+            } catch (RuntimeException ignored) { }
+        }
+        if (parent instanceof MethodCallExpr call && call.getArguments().stream()
+                .anyMatch(argument -> argument == lambda)) {
+            return streamElementType(call.getScope().orElse(null));
+        }
+        return null;
+    }
+
+    private ResolvedType javaFunctionParameter(ResolvedType type, int parameterIndex) {
+        if (type == null || !type.isReferenceType()) return null;
+        var reference = type.asReferenceType();
+        String qualified;
+        try { qualified = reference.getQualifiedName(); }
+        catch (RuntimeException e) { return null; }
+        List<ResolvedType> values = reference.typeParametersValues();
+        if ("java.util.function.Function".equals(qualified)
+                && parameterIndex == 0 && values.size() == 2) {
+            return values.get(0);
+        }
+        return null;
+    }
+
+    private ResolvedType streamElementType(Expression expression) {
+        if (expression == null) return null;
+        if (!expression.isMethodCallExpr()) return firstTypeArgument(resolveScopeType(expression));
+
+        MethodCallExpr call = expression.asMethodCallExpr();
+        String name = call.getNameAsString();
+        if ("stream".equals(name) || "parallelStream".equals(name)) {
+            return firstTypeArgument(resolveScopeType(call.getScope().orElse(null)));
+        }
+        if (Set.of("filter", "distinct", "sorted", "peek", "limit", "skip",
+                "takeWhile", "dropWhile", "sequential", "parallel", "unordered",
+                "onClose").contains(name)) {
+            return streamElementType(call.getScope().orElse(null));
+        }
+        return null;
+    }
+
+    private ResolvedType firstTypeArgument(ResolvedType type) {
+        if (type == null || !type.isReferenceType()) return null;
+        try {
+            List<ResolvedType> values = type.asReferenceType().typeParametersValues();
+            return values.isEmpty() ? null : values.get(0);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void rememberEmbeddedJdkType(ResolvedType type) {
+        if (type == null || !type.isReferenceType()) return;
+        try {
+            type.asReferenceType().getTypeDeclaration()
+                    .filter(EmbeddedJdkClassDeclaration.class::isInstance)
+                    .map(EmbeddedJdkClassDeclaration.class::cast)
+                    .ifPresent(declaration -> embeddedJdkAnchor = declaration);
+        } catch (RuntimeException ignored) { }
+    }
+
+    private ResolvedMethodDeclaration fallbackDeclaration(MethodCallExpr call) {
+        try {
+            return call.resolve();
+        } catch (RuntimeException ignored) {
+            // Fall through to a receiver-backed, unique name/arity lookup.
+        }
+        Optional<Expression> scope = call.getScope();
+        if (scope.isEmpty()) return null;
+        if (looksLikeTypeName(scope.get().toString())) {
+            if (embeddedJdkAnchor == null) return null;
+            String ownerFqn = resolveStaticScopeName(call, scope.get().toString());
+            if (ownerFqn == null) return null;
+            Optional<ResolvedReferenceTypeDeclaration> owner =
+                    embeddedJdkAnchor.solveCatalogType(ownerFqn);
+            if (owner.isEmpty()) return null;
+            List<ResolvedMethodDeclaration> candidates =
+                    resolveByFallbackOverload(owner.get(), call, true);
+            return candidates.size() == 1 ? candidates.get(0) : null;
+        }
+        ResolvedType scopeType = resolveScopeType(scope.get());
+        if (scopeType == null || !scopeType.isReferenceType()) return null;
+        Optional<ResolvedReferenceTypeDeclaration> declaration;
+        try {
+            declaration = scopeType.asReferenceType().getTypeDeclaration();
+        } catch (RuntimeException e) {
+            return null;
+        }
+        if (declaration.isEmpty()) return null;
+        List<ResolvedMethodDeclaration> candidates = resolveByFallbackOverload(declaration.get(), call);
+        return candidates.size() == 1 ? candidates.get(0) : null;
+    }
+
+    private boolean isOptionalOrElse(MethodCallExpr call, ResolvedMethodDeclaration target) {
+        if (!"orElse".equals(call.getNameAsString()) || call.getArguments().size() != 1) return false;
+        if (target != null) {
+            try {
+                if ("java.util.Optional".equals(target.declaringType().getQualifiedName())) return true;
+            } catch (RuntimeException ignored) { }
+        }
+        Optional<Expression> scope = call.getScope();
+        if (scope.isEmpty()) return false;
+        ResolvedType scopeType = resolveScopeType(scope.get());
+        return "java.util.Optional".equals(erasedType(scopeType));
+    }
+
+    private ResolvedType optionalFactoryValueType(MethodCallExpr orElse) {
+        Optional<Expression> scope = orElse.getScope();
+        if (scope.isEmpty() || !scope.get().isMethodCallExpr()) return null;
+        MethodCallExpr factory = scope.get().asMethodCallExpr();
+        if (!("of".equals(factory.getNameAsString())
+                || "ofNullable".equals(factory.getNameAsString()))
+                || factory.getArguments().size() != 1) return null;
+        ResolvedMethodDeclaration target = fallbackDeclaration(factory);
+        if (target == null) return null;
+        try {
+            if (!"java.util.Optional".equals(target.declaringType().getQualifiedName())) return null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+        return resolveScopeType(factory.getArgument(0));
+    }
+
+    private boolean usableValueType(ResolvedType type) {
+        return type != null && !type.isVoid() && !type.isNull()
+                && !type.isTypeVariable() && !type.isWildcard();
+    }
+
+    private boolean sameErasure(ResolvedType left, ResolvedType right) {
+        String leftName = erasedType(left);
+        String rightName = erasedType(right);
+        return leftName != null && leftName.equals(rightName);
+    }
+
+    private String erasedType(ResolvedType type) {
+        if (type == null) return null;
+        try {
+            String rendered = NodeIdGenerator.erasedTypeDescribe(type);
+            return rendered == null || rendered.isBlank() || rendered.startsWith("<")
+                    ? null : rendered;
+        } catch (RuntimeException e) {
             return null;
         }
     }

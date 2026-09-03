@@ -56,6 +56,14 @@ public class EmbeddedJdkClassDeclaration implements ResolvedReferenceTypeDeclara
         this.solver = solver;
     }
 
+    /** Resolve another type from the same catalog-backed solver graph. */
+    public Optional<ResolvedReferenceTypeDeclaration> solveCatalogType(String fqn) {
+        var solved = solver.getRoot().tryToSolveType(fqn);
+        return solved.isSolved()
+                ? Optional.of(solved.getCorrespondingDeclaration())
+                : Optional.empty();
+    }
+
     // ── identity ──
 
     @Override

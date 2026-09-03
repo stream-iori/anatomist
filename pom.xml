@@ -18,7 +18,7 @@
         <revision>0.14.0</revision>
         <changelist>-SNAPSHOT</changelist>
 
-        <javaparser.version>3.28.1</javaparser.version>
+        <javaparser.version>3.28.2</javaparser.version>
         <sqlite.version>3.47.0.0</sqlite.version>
         <picocli.version>4.7.6</picocli.version>
         <asm.version>9.8</asm.version>
