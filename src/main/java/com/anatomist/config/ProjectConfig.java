@@ -9,10 +9,6 @@ public class ProjectConfig {
     private Integer javaVersion;
     private boolean springXml = false;
     private boolean vmClasspath = true;
-    private boolean dataflow = false;
-    private String dataflowMode;
-    private List<String> dataflowScopes = List.of();
-    private boolean implicitTaint = false;
     private com.anatomist.framework.lombok.LombokMode lombokMode =
             com.anatomist.framework.lombok.LombokMode.OFF;
     private boolean lombokStrict;
@@ -43,20 +39,6 @@ public class ProjectConfig {
 
     public boolean vmClasspath() { return vmClasspath; }
     public void setVmClasspath(boolean v) { this.vmClasspath = v; }
-
-    public boolean dataflow() { return dataflow; }
-    public void setDataflow(boolean value) { this.dataflow = value; }
-
-    public String dataflowMode() { return dataflowMode; }
-    public void setDataflowMode(String value) { this.dataflowMode = value; }
-
-    public List<String> dataflowScopes() { return dataflowScopes; }
-    public void setDataflowScopes(List<String> value) {
-        this.dataflowScopes = value == null ? List.of() : List.copyOf(value);
-    }
-
-    public boolean implicitTaint() { return implicitTaint; }
-    public void setImplicitTaint(boolean value) { this.implicitTaint = value; }
 
     public com.anatomist.framework.lombok.LombokMode lombokMode() { return lombokMode; }
     public void setLombokMode(String value) {

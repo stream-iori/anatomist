@@ -16,9 +16,8 @@ For a missing symbol, inspect `doctor --format json --index <db>` for
 `config_source`, `config_path`, and `scan_policy_hash`, then run
 `index --incremental` after a policy change.
 
-Prefer incremental index synchronization. Do not enable data-flow for ordinary
-structural analysis; load `anatomist skill flow` only for explicit value,
-definition, exception, guard, or taint questions.
+Prefer incremental index synchronization. Load `anatomist skill flow` for
+source-backed value, exception, guard, or suspected taint questions.
 
 Use `anatomist declarations-of --file <project-relative.java> --format json`
 when a caller needs stable type/method/constructor seeds from changed files.

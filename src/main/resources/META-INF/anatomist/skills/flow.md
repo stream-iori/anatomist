@@ -1,30 +1,21 @@
-# Data-flow decision guide
+# Source-backed value tracing
 
-Data-flow is opt-in and expensive. Full analysis creates CFG, def-use, exception,
-guard, and interprocedural facts for a large method set, increasing CPU, memory,
-index size, and elapsed time. Never enable it for ordinary call tracing, branches,
-type relations, or Spring wiring.
+Anatomist does not materialize a separate data-flow graph. Use structural paths to
+choose a small source slice, then reason from the snapshot-verified source.
 
-Choose the smallest sufficient analysis:
-
-| Need | Choose |
+| Need | Evidence path |
 |---|---|
-| Source-level calls or branches | Structural queries; no data-flow |
-| Compact method input/output dependency | Summary coverage and `flow-summary` |
-| Detailed flow for a small repeated area | Scoped coverage |
-| One explicit source-to-target investigation | `flow-materialize`, then `flow-path` |
-| One covered method's definitions, guards, or exceptions | `flow-of`, `guards-of`, or `exception-flow` |
-| Whole-project taint or explicitly complete flow | Full coverage only after disclosing cost |
-| Control-dependent taint | Enable implicit taint only when explicitly required |
+| Value movement inside one method | Resolve the full exact signature, then run `context '<signature>' --source` |
+| Value movement across methods | Prove candidate hops with `call-path`, then inspect every method with `context '<signature>' --source` |
+| Callers that may supply a value | Use `callers-of` to bound candidates, then inspect caller and callee source |
+| Guards, branches, and loops | Use `branches-of` for locations, then verify the condition and assignments in source |
+| Interface or abstract dispatch | Use `implementors-of`; treat candidate paths as possible dispatch, not runtime proof |
+| Suspected taint or exception propagation | Trace the call route and inspect sanitizers, assignments, throws, and catches in source |
 
-Read `index --help` and each flow command's `--help` for the current profile and
-query syntax. `flow-summary` may aggregate one owner-qualified overload family;
-other flow commands need one method. `flow-materialize` requires full exact source
-and target signatures before it can write. A signature miss never falls back to an
-overload family or a longer method-name prefix.
+`context --source` returns the full exact source when it fits. If source is paged,
+follow `next_queries` until `source.truncated=false`; never infer from the first page
+alone. A selector ambiguity response must be resolved to one full signature first.
 
-Progressive materialization writes bounded DETAIL facts. After structural source
-changes, synchronize incrementally and materialize the same target again.
-Never upgrade to full coverage automatically. Positive partial paths are static
-possibilities. Empty partial results do not prove absence. Respect depth and
-compute-budget truncation, and state hard analysis limits.
+State the evidence boundary: structural edges and source establish static
+possibilities. They do not prove a runtime value, chosen implementation, or executed
+branch. Use logs, traces, tests, or debugger evidence when the conclusion is runtime-specific.

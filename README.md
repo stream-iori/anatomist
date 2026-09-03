@@ -81,9 +81,8 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 - Lossless capability coverage aggregates independent of bounded diagnostic samples
 - Bounded Java core-reflection targets for `Class.forName`, method/constructor
   lookup, `Method.invoke`, and `Constructor.newInstance`
-- Optional full, summary-only, or package/method/source-scoped
-  CFG/def-use/return/exception/guard/taint analysis
-- Data-only flow paths by default, with exact endpoint slots and opt-in control/exception edges
+- Source-driven value tracing: use structural call paths to select exact methods,
+  then inspect snapshot-verified bodies with `context --source`
 - Spring XML bean wiring (`--spring-xml`)
 - Optional Lombok AST signatures (`--lombok ast`) with synthetic provenance and structured modeled/partial/unmodeled evidence
 - Pagination + keyword filter on all list queries
@@ -106,7 +105,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 | [introduce.md](introduce.md) | Chinese introduction: capabilities, evidence boundaries, installation, and first workflow |
 | [docs/getting-started.md](docs/getting-started.md) | Installation, first index, first query |
 | [docs/commands.md](docs/commands.md) | Agent CLI reference (commands + flags) |
-| [docs/architecture.md](docs/architecture.md) | Package layout, data flow, design constraints |
+| [docs/architecture.md](docs/architecture.md) | Package layout, indexing pipeline, design constraints |
 | [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
 | [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Indexing, cache, and environment diagnosis |

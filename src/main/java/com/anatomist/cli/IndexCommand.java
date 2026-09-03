@@ -16,7 +16,6 @@ import com.anatomist.store.IndexOperationLock;
 import com.anatomist.incremental.IncrementalIndexer;
 import com.anatomist.incremental.IncrementalParseException;
 import com.anatomist.incremental.PerformanceHistory;
-import com.anatomist.flow.FlowProfile;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.store.SqliteStore;
 import com.anatomist.store.IndexFileSwap;
@@ -174,23 +173,6 @@ public class IndexCommand implements Callable<Integer> {
             description = "Include per-phase index timings in text/JSON output.")
     boolean timings;
 
-    @Option(names = "--dataflow",
-            description = "Build optional CFG/def-use/interprocedural flow facts.")
-    boolean dataflow;
-
-    @Option(names = "--dataflow-mode",
-            description = "Flow materialization: off | full | summary | scoped.")
-    String dataflowMode;
-
-    @Option(names = "--dataflow-scope",
-            description = "Scoped flow selector: package:<glob>, method:<glob>, or source:<glob>. Repeatable.")
-    List<String> dataflowScopes = new ArrayList<>();
-
-    @Option(names = "--implicit-taint", negatable = true,
-            description = "Propagate taint through control dependencies. Implies --dataflow.")
-    Boolean implicitTaint;
-
-    private FlowProfile flowProfile = FlowProfile.off();
     private com.anatomist.core.HealthPolicy effectiveHealthPolicy =
             com.anatomist.core.HealthPolicy.NONE;
 
@@ -254,8 +236,6 @@ public class IndexCommand implements Callable<Integer> {
         if (config.lombokStrict()) {
             effectiveHealthPolicy = com.anatomist.core.HealthPolicy.COMPLETE;
         }
-        flowProfile = resolveFlowProfile(config);
-        dataflow = flowProfile.enabled();
         if (externalExclude != null && !externalExclude.isBlank()) {
             config.addExternalExcludePatterns(Arrays.asList(externalExclude.split(",")));
         }
@@ -379,23 +359,6 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
-                boolean priorImplicitTaint = Boolean.parseBoolean(
-                        store.readProjectMeta("implicit_taint").orElse("false"));
-                String priorMode = store.readProjectMeta("dataflow_mode").orElseGet(() ->
-                        Boolean.parseBoolean(store.readProjectMeta("dataflow").orElse("false"))
-                                ? "full" : "off");
-                String priorScopes = store.readProjectMeta("dataflow_scopes").orElse("");
-                if (!priorMode.equals(flowProfile.mode().name().toLowerCase())
-                        || !priorScopes.equals(String.join(",", flowProfile.scopes()))
-                        || priorImplicitTaint != implicitTaint) {
-                    String reason = "flow profile changed";
-                    System.err.println("INFO: incremental degraded to full (" + reason + ")");
-                    IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
-                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
-                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
-                            phaseTimings, totalStarted);
-                }
                 com.anatomist.core.JavaVersionDetection currentVersion =
                         resolveJavaVersion(cd, projectRoot);
                 int priorVersion;
@@ -454,15 +417,6 @@ public class IndexCommand implements Callable<Integer> {
                 phaseTimings.stop("change_detection", phaseStarted);
                 if (ch.isEmpty()) {
                     IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
-                    if (flowProfile.enabled()) {
-                        com.anatomist.store.FlowPersistence.Stats flowStats =
-                                com.anatomist.store.FlowPersistence.stats(store);
-                        summary.flowNodes = flowStats.nodes();
-                        summary.flowEdges = flowStats.edges();
-                        summary.flowSummaries = flowStats.summaries();
-                        summary.flowDetailedMethods = flowStats.detailedMethods();
-                        summary.flowSummaryOnlyMethods = flowStats.summaryOnlyMethods();
-                    }
                     for (com.anatomist.core.IndexDiagnostic diagnostic : store.readIndexDiagnostics()) {
                         if ("UNRESOLVED_SYMBOLS".equals(diagnostic.code())) {
                             summary.unresolvedSymbols += diagnostic.count();
@@ -483,11 +437,6 @@ public class IndexCommand implements Callable<Integer> {
                     phaseTimings.stop("metadata", phaseStarted);
                     maybeAdviseGitCache(projectRoot, metadataResult);
                     persistClasspathDetection(store, cd, projectRoot);
-                    store.upsertProjectMeta(java.util.Map.of(
-                            "dataflow", String.valueOf(dataflow),
-                            "dataflow_mode", flowProfile.mode().name().toLowerCase(),
-                            "dataflow_scopes", String.join(",", flowProfile.scopes()),
-                            "implicit_taint", String.valueOf(implicitTaint)));
                     phaseTimings.stop("total", totalStarted);
                     long elapsed = System.currentTimeMillis() - started;
                     com.anatomist.core.IndexHealthReport persistedHealth =
@@ -508,7 +457,7 @@ public class IndexCommand implements Callable<Integer> {
                 IncrementalIndexer ii = new IncrementalIndexer(
                         projectRoot, sourcePaths, runtime.factory(), store, runtime.javaVersion(),
                         maxRealignFiles, springXml, config, resolvedSourceRoots,
-                        phaseTimings, flowProfile, implicitTaint);
+                        phaseTimings);
                 IncrementalIndexer.Summary summary = ii.indexIncremental(
                         ch.changed, ch.added, ch.deleted, diskHashes);
 
@@ -532,11 +481,6 @@ public class IndexCommand implements Callable<Integer> {
                 phaseTimings.stop("metadata", phaseStarted);
                 maybeAdviseGitCache(projectRoot, metadataResult);
                 persistClasspathDetection(store, cd, projectRoot);
-                store.upsertProjectMeta(java.util.Map.of(
-                        "dataflow", String.valueOf(dataflow),
-                        "dataflow_mode", flowProfile.mode().name().toLowerCase(),
-                        "dataflow_scopes", String.join(",", flowProfile.scopes()),
-                        "implicit_taint", String.valueOf(implicitTaint)));
                 phaseTimings.stop("total", totalStarted);
                 long variableMs = phaseTimings.millis().getOrDefault("parse_extract", 0L)
                         + phaseTimings.millis().getOrDefault("stage_write", 0L)
@@ -672,7 +616,7 @@ public class IndexCommand implements Callable<Integer> {
                 resolveSourceRoots(projectRoot, sourcePaths),
                 effectiveHealthPolicy != com.anatomist.core.HealthPolicy.NONE,
                 factory == null ? null : currentJavaVersionDetection,
-                flowProfile, implicitTaint, loadedConfig, scanPolicy, effectiveScanScopes);
+                loadedConfig, scanPolicy, effectiveScanScopes);
         com.anatomist.application.IndexOrchestrator orchestrator =
                 new com.anatomist.application.IndexOrchestrator(cfg, factory);
 
@@ -769,31 +713,8 @@ public class IndexCommand implements Callable<Integer> {
                 cfg.projectRoot(), cfg.sourcePaths(), cfg.classpathEntries(), cfg.sourceFiles(),
                 cfg.javaVersion(), cfg.springXml(), cfg.config(), database,
                 cfg.classpathOverride(), cfg.noClasspath(), cfg.debug(), cfg.sourceRoots(),
-                cfg.strictHealth(), cfg.javaVersionDetection(), cfg.flowProfile(),
-                cfg.implicitTaint(), cfg.loadedConfig(), cfg.scanPolicy(), cfg.scanScopes());
-    }
-
-    private FlowProfile resolveFlowProfile(ProjectConfig config) {
-        boolean legacyFull = dataflow || config.dataflow();
-        List<String> scopes = dataflowScopes == null || dataflowScopes.isEmpty()
-                ? config.dataflowScopes() : List.copyOf(dataflowScopes);
-        String suppliedMode = dataflowMode == null || dataflowMode.isBlank()
-                ? config.dataflowMode() : dataflowMode;
-        FlowProfile.Mode mode = FlowProfile.Mode.parse(suppliedMode);
-        if (mode == null) {
-            mode = !scopes.isEmpty() ? FlowProfile.Mode.SCOPED
-                    : legacyFull || implicitTaint ? FlowProfile.Mode.FULL
-                    : FlowProfile.Mode.OFF;
-        }
-        if (dataflow && mode != FlowProfile.Mode.FULL) {
-            throw new IllegalArgumentException(
-                    "--dataflow is the full-mode alias and cannot be combined with " + mode);
-        }
-        if (implicitTaint && (mode == FlowProfile.Mode.OFF || mode == FlowProfile.Mode.SUMMARY)) {
-            throw new IllegalArgumentException(
-                    "--implicit-taint requires full or scoped dataflow");
-        }
-        return new FlowProfile(mode, scopes);
+                cfg.strictHealth(), cfg.javaVersionDetection(), cfg.loadedConfig(),
+                cfg.scanPolicy(), cfg.scanScopes());
     }
 
     private void configureEffectiveOptions(Path projectRoot, ProjectConfig config) {
@@ -801,8 +722,6 @@ public class IndexCommand implements Callable<Integer> {
         springXml = springXml == null ? config.springXml() : springXml;
         if (lombokMode != null && !lombokMode.isBlank()) config.setLombokMode(lombokMode);
         lombokMode = config.lombokMode().optionValue();
-        implicitTaint = implicitTaint == null ? config.implicitTaint() : implicitTaint;
-
         boolean cliRoots = !sourceRootSpecs.isEmpty()
                 || (projectSource != null && !projectSource.isBlank());
         if (!cliRoots && !config.sourceRootSpecs().isEmpty()) {

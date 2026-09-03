@@ -244,15 +244,14 @@ default provenance and fields already represented by `source`, `target`, the
 parent node, or `source_range`.
 
 - `total` — full result count before pagination
-- `truncated` — whether there are more results on the current depth/page, or a
-  `flow-of` traversal budget was spent
+- `truncated` — whether there are more results on the current depth/page
 - `depth_truncated` — whether graph traversal can continue beyond the requested depth
 - Use `next_queries` to paginate, enlarge `--limit`, or increase `--depth`; follow
   every applicable suggestion before treating results as exhaustive
 
 ## Next steps
 
-- [Architecture](architecture.md) — package layout, data flow, design constraints
+- [Architecture](architecture.md) — package layout, indexing pipeline, design constraints
 - [Data Model](data-model.md) — Node ID rules, edge semantics, metadata JSON
 - [Commands](commands.md) — full CLI reference
 - [Testing](testing.md) — how to run tests, fixture design

@@ -14,10 +14,6 @@ import com.anatomist.framework.ProjectResource;
 import com.anatomist.framework.ProjectResourceDiscovery;
 import com.anatomist.framework.ExtensionReport;
 import com.anatomist.incremental.JavaContractFingerprint;
-import com.anatomist.flow.FlowAnalyzer;
-import com.anatomist.store.FlowPersistence;
-import com.anatomist.flow.FlowResult;
-import com.anatomist.flow.TaintRules;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
@@ -77,17 +73,9 @@ public class IndexOrchestrator {
                 ? new SourceIdentityResolver(cfg.projectRoot(), cfg.sourcePaths())
                 : SourceIdentityResolver.fromRoots(cfg.projectRoot(), cfg.sourceRoots());
         ExtractionResult result = new ExtractionResult();
-        FlowResult flowResult = new FlowResult();
-        FlowResult stagedFlowResult = new FlowResult();
-        TaintRules taintRules = TaintRules.load(cfg.projectRoot());
-        FlowAnalyzer flowAnalyzer = cfg.dataflow()
-                ? new FlowAnalyzer(cfg.projectRoot(), cfg.sourcePaths(), cfg.sourceRoots(),
-                taintRules, cfg.implicitTaint(), cfg.flowProfile())
-                : null;
         Map<String, String> contractHashes = new java.util.LinkedHashMap<>();
         List<Path> parsedJavaFiles = new ArrayList<>();
         StagedGraphStore.PromotionStats promotion;
-        FlowPersistence.Stats flowStats;
         List<Path> xmlFiles = Collections.emptyList();
         ParseInventory parseInventory;
 
@@ -96,8 +84,6 @@ public class IndexOrchestrator {
             long parseExtractStarted = startTiming(timings);
             long[] extractNanos = {0L};
             long[] stageNanos = {0L};
-            long[] flowAnalyzeNanos = {0L};
-            long[] flowStageNanos = {0L};
             int[] batchFiles = {0};
             parseInventory = factory.parseInventory(cfg.sourceFiles(), (filePath, cu) -> {
                 long extractStarted = startTiming(timings);
@@ -106,29 +92,10 @@ public class IndexOrchestrator {
                 if (relative != null) contractHashes.put(relative, JavaContractFingerprint.of(cu));
                 if (filePath != null) parsedJavaFiles.add(filePath.toAbsolutePath().normalize());
                 pipeline.extractAll(cu, result);
-                if (flowAnalyzer != null) {
-                    FlowResult unitFlow = new FlowResult();
-                    long flowStarted = System.nanoTime();
-                    try {
-                        flowAnalyzer.analyze(cu, unitFlow);
-                    } catch (RuntimeException failure) {
-                        unitFlow.diagnostics.add(new IndexDiagnostic(
-                                "warning", "FLOW_ANALYSIS_FAILED", "FLOW",
-                                relative, null, null, null, 1, failure.getMessage()));
-                    }
-                    flowAnalyzeNanos[0] += System.nanoTime() - flowStarted;
-                    flowResult.diagnostics.addAll(unitFlow.diagnostics);
-                    stagedFlowResult.addFacts(unitFlow);
-                }
                 if (timings != null) extractNanos[0] += System.nanoTime() - extractStarted;
                 batchFiles[0]++;
-                if (batchFiles[0] >= STAGE_FILE_BATCH || result.factCount() >= STAGE_FACT_BATCH
-                        || stagedFlowResult.factCount() >= STAGE_FACT_BATCH) {
+                if (batchFiles[0] >= STAGE_FILE_BATCH || result.factCount() >= STAGE_FACT_BATCH) {
                     stageNanos[0] += flushRawBatch(staging, result, timings);
-                    long flowStarted = System.nanoTime();
-                    staging.writeFlowBatch(stagedFlowResult);
-                    stagedFlowResult.clearFacts();
-                    flowStageNanos[0] += System.nanoTime() - flowStarted;
                     batchFiles[0] = 0;
                 }
                 progress.tick();
@@ -136,17 +103,11 @@ public class IndexOrchestrator {
             parseInventory = relativeInventory(parseInventory, cfg.projectRoot());
             for (int i = 0; i < parseInventory.failedFiles(); i++) progress.tick();
             stageNanos[0] += flushRawBatch(staging, result, timings);
-            long finalFlowStarted = System.nanoTime();
-            staging.writeFlowBatch(stagedFlowResult);
-            stagedFlowResult.clearFacts();
-            flowStageNanos[0] += System.nanoTime() - finalFlowStarted;
             progress.done();
             if (timings != null) {
                 long parseExtractNanos = System.nanoTime() - parseExtractStarted;
                 timings.addNanos("full_parse_extract", parseExtractNanos);
                 timings.addNanos("full_extract", extractNanos[0]);
-                timings.addNanos("flow_analyze", flowAnalyzeNanos[0]);
-                timings.addNanos("flow_stage_write", flowStageNanos[0]);
                 timings.addNanos("full_parse", Math.max(0L,
                         parseExtractNanos - extractNanos[0] - stageNanos[0]));
             }
@@ -179,9 +140,6 @@ public class IndexOrchestrator {
             phaseStarted = startTiming(timings);
             promotion = staging.promoteFull(store);
             stopTiming(timings, "full_stage_promote", phaseStarted);
-            phaseStarted = startTiming(timings);
-            flowStats = staging.promoteFullFlow(store, timings);
-            stopTiming(timings, "full_flow_write", phaseStarted);
             if (timings != null) {
                 // Compatibility aliases retained for existing timing consumers.
                 timings.addNanos("full_write_nodes", 0L);
@@ -243,8 +201,6 @@ public class IndexOrchestrator {
             detailedDiagnostics.addAll(cfg.javaVersionDetection().diagnostics());
         }
         detailedDiagnostics.addAll(resolution.diagnostics());
-        detailedDiagnostics.addAll(taintRules.diagnostics());
-        detailedDiagnostics.addAll(flowResult.diagnostics);
         detailedDiagnostics.addAll(extensionReport.diagnostics());
         IndexResult indexResult = new IndexResult(
                 store.queryKindCounts(),
@@ -260,11 +216,6 @@ public class IndexOrchestrator {
                 ctx.samplingEnabled(),
                 parseInventory,
                 detailedDiagnostics,
-                flowStats.nodes(),
-                flowStats.edges(),
-                flowStats.summaries(),
-                flowStats.detailedMethods(),
-                flowStats.summaryOnlyMethods(),
                 extensionReport.counters()
         );
         List<IndexDiagnostic> rawDiagnostics =

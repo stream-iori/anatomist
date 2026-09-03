@@ -47,10 +47,6 @@ public final class ProjectMetadata {
         values.put("dropped_dangling_edges", String.valueOf(dropped));
         values.put("rebound_external_edges", String.valueOf(rebound));
         values.put("wiring_resolved_edges", String.valueOf(wired));
-        values.put("dataflow", String.valueOf(cfg.dataflow()));
-        values.put("dataflow_mode", cfg.flowProfile().mode().name().toLowerCase());
-        values.put("dataflow_scopes", String.join(",", cfg.flowProfile().scopes()));
-        values.put("implicit_taint", String.valueOf(cfg.implicitTaint()));
         if (cfg.javaVersionDetection() != null) {
             values.put("java_version_source",
                     cfg.javaVersionDetection().source().name().toLowerCase());
@@ -200,7 +196,7 @@ public final class ProjectMetadata {
         values.put("scan_policy_hash", scanHash);
         IndexEnvironmentFingerprint.Snapshot environment = IndexEnvironmentFingerprint.snapshot(
                 sourceRoots, javaVersion, classpathMode, classpathEntries,
-                classpathOverride, springXml, false, false, scanHash);
+                classpathOverride, springXml, scanHash);
         values.put(IndexEnvironmentFingerprint.META_KEY, environment.hash());
         values.put(IndexEnvironmentFingerprint.CLASSPATH_ARTIFACTS_KEY,
                 environment.classpathArtifactsHash());

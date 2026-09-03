@@ -7,7 +7,7 @@ Use this guide for every independent static-analysis session.
 2. Read `doctor --help`, then run `doctor` in Agent-preflight JSON mode.
 3. Follow the reported repair action when preflight has blockers. Otherwise run
    the `index` incremental integrity gate before querying. Read `index --help`
-   first and preserve the existing source, classpath, Spring, and flow profile.
+   first and preserve the existing source, classpath, Spring, and scan profile.
 4. Stop when the gate fails. Do not query an older committed snapshot as if it
    described current source.
 5. Load exactly one relevant scene from `skill topics`, then read each selected

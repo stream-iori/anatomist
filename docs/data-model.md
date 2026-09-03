@@ -43,11 +43,12 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v15)
+## Node identity, declarations, and ownership (schema v16)
 
-Schema v15 adds nullable declaration range columns to `declarations`; v14 added
-`producer_id` to all structural fact tables. An older index must be rebuilt; no
-migration or compatibility read path is provided. Declaration rows preserve AST-derived
+Schema v16 removes the former dataflow tables; v15 added nullable declaration
+range columns to `declarations`, and v14 added `producer_id` to all structural
+fact tables. An older index must be rebuilt; no migration or compatibility read
+path is provided. Declaration rows preserve AST-derived
 kind, effective/declared/implicit modifiers, visibility, lexical ownership,
 nesting, source location, module, and scope. Query-time declaration discovery
 uses this table only.
@@ -64,7 +65,6 @@ the range and snapshot hash evidence used by `context --source`.
 | Table | Ownership |
 |---|---|
 | `nodes`, `edges`, `declarations`, `annotations`, `semantic_annotations` | required `producer_id` |
-| flow tables | unchanged; no producer ownership |
 
 Multiple extensions may analyze the same source/resource. Incremental cleanup
 is producer-scoped. The same node ID cannot be claimed by two producers;
@@ -274,7 +274,6 @@ belong on every node or edge.
 | `source_layout` / `source_layout_hash` | Module/scope/root identity mapping | Force full indexing when identity inputs change |
 | `config_source` / `config_path` | Selected configuration origin and path | Explain which config profile produced the index |
 | `scan_policy` / `scan_policy_hash` | Canonical scopes, roots, glob rules, and hard-exclude policy | Force full rebuild when scan eligibility changes |
-| `dataflow_mode` / `dataflow_scopes` / `implicit_taint` | Optional flow-analysis profile and coverage | Prevent incompatible incremental reuse |
 
 ## Index Diagnostics
 
@@ -323,19 +322,19 @@ later source-level detail is unavailable.
 | Column | Meaning |
 |---|---|
 | `source_file`, `module`, `scope` | Coverage boundary; `*` means global/unknown |
-| `capability` | Query capability such as `CALL_OUTGOING`, `CALL_PATH`, or `FLOW` |
+| `capability` | Query capability such as `CALL_OUTGOING` or `CALL_PATH` |
 | `status` | `complete`, `partial`, or `failed` |
 | `occurrences`, `groups_count` | Full aggregate counts |
 | `codes`, `code_counts` | Stable reason set and per-reason counts |
 | `details_truncated` | Whether detail samples were truncated |
 
 Query safety is derived from this table, not from the bounded
-`index_diagnostics` sample. Schema v15 has no migration path; older indexes
+`index_diagnostics` sample. Schema v16 has no migration path; older indexes
 must be rebuilt.
 
 ## Core reflection facts
 
-Core reflection analysis runs by default and does not require `--dataflow`.
+Core reflection analysis runs by default.
 It recognizes SymbolSolver-confirmed JDK APIs only:
 
 | Source pattern | Stored fact |
@@ -350,26 +349,6 @@ Generated facts use `confidence=INFERRED` and JSON metadata containing
 lookup mode, and value source. Local strings and reflection handles are
 propagated conservatively inside one executable body. Unknown, conflicting, or
 non-unique values produce no target fact.
-
-## Flow tables
-
-Flow facts are separate from the structural `nodes`/`edges` graph:
-
-| Table | Purpose |
-|---|---|
-| `flow_nodes` | Parameters, definitions, calls, conditions, returns, throws, catches, taint markers |
-| `flow_edges` | `CONTROL_FLOW`, `DEF_USE`, `RETURN_FLOW`, `ARGUMENT_FLOW`, `CALL_ARGUMENT`, `CALL_RETURN`, `EXCEPTION_FLOW`, and guard relations |
-| `method_flow_summaries` | Compact input-slot to return/exception dependencies |
-| `method_flow_coverage` | Per-method `DETAIL` or `SUMMARY` coverage used to prevent false-negative queries |
-
-`flow_nodes.callee_method` and `flow_nodes.slot` are first-class indexed
-columns. JSON metadata remains available for presentation, but cross-method
-linking does not scan it.
-
-Arrays are treated as whole objects. Branches merge reaching-definition sets;
-loops use a conservative entry/body join. Heap aliasing, reflection beyond the
-bounded core patterns above, runtime proxy dispatch, SAT/path feasibility, and
-implicit runtime exceptions are not claimed.
 
 `source_window` is not stored as a table. It is derived at query time from:
 

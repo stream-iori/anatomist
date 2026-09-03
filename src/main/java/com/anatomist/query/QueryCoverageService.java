@@ -31,7 +31,6 @@ public final class QueryCoverageService {
         REFERENCE_INCOMING,
         FIELD_ACCESS,
         WIRING,
-        FLOW,
         AGGREGATE
     }
 
@@ -183,8 +182,6 @@ public final class QueryCoverageService {
                             || phase.contains("FIELD");
             case FIELD_ACCESS -> phase.contains("FIELD_ACCESS");
             case WIRING -> phase.contains("ANNOTATION") || phase.contains("REFERENCE");
-            case FLOW -> phase.contains("FLOW") || phase.contains("CALL_GRAPH")
-                    || phase.contains("METHOD");
             case AGGREGATE -> isResolutionFailure(diagnostic);
         };
     }
@@ -217,7 +214,7 @@ public final class QueryCoverageService {
 
     private static boolean isOutgoing(Capability capability) {
         return switch (capability) {
-            case CALL_OUTGOING, TYPE_OUTGOING, REFERENCE_OUTGOING, FLOW -> true;
+            case CALL_OUTGOING, TYPE_OUTGOING, REFERENCE_OUTGOING -> true;
             default -> false;
         };
     }

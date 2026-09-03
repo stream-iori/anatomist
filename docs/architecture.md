@@ -13,7 +13,7 @@
 - `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `SourceContextService`, `CallGraphService`, `BranchSliceService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs include `SourceContext` and `SourceRequest` alongside `QueryEnvelope`, `NodeRow`, `EdgeRow`, `BranchSlice`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `IndexedSourceVerifier` checks source snapshots before returning exact declaration text. `CallChainSlicer` groups call chains into class/package blocks. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
 - `cli/` — picocli adapters; `IndexOutput` owns the full/incremental text and JSON contract instead of mixing rendering into `IndexCommand`.
 
-## Index-phase data flow
+## Indexing pipeline
 
 ```
 IndexCommand (picocli adapter)
@@ -73,8 +73,7 @@ incremental promotion: delete owned facts → upsert stable nodes
 
 All structural rows carry `producer_id`. A node ID has exactly one producer;
 cross-producer ownership raises `EXTENSION_NODE_OWNERSHIP_CONFLICT`. Relations
-may reference nodes owned by another producer. Flow facts intentionally do not
-participate in this ownership model.
+may reference nodes owned by another producer.
 
 ## Critical invariants
 
@@ -98,8 +97,8 @@ participate in this ownership model.
 - **JavaDoc stored as summary only.** Extracted via `JavadocSummary.extract()` (strips @tags, first sentence rule).
 - **Query output is Agent-bounded and discloses each bound.** Call traversals use
   MAX_DEPTH=20 + BFS dedup and report `depth_truncated`; pageable commands report
-  `truncated`; `flow-of` reports its traversal-limit truncation. Agents must
-  follow the corresponding `next_queries` before making exhaustive claims.
+  `truncated`. Agents must follow the corresponding `next_queries` before making
+  exhaustive claims.
 - **Exact source is primary local control-flow evidence.** `context --source` returns only the indexed declaration range, verifies its snapshot, and pages long bodies. The graph does not persist a second `control_regions` projection.
 - **Spring Boot basics are static facts.** `BEAN`, `ROUTE`, `INJECTS`, and `HANDLES` are configured/static evidence, not proof of the exact runtime object under profiles, conditions, or AOP.
 - **`WIRES` edges originate from CLASS nodes, not BEAN nodes.** XML WIRES must drop explicitly on XML incremental rebuild; annotation BEAN nodes must not be deleted by XML cleanup.
@@ -108,11 +107,11 @@ participate in this ownership model.
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Schema v15 has no migration path. `graph_semantics_version=1` identifies the
-meaning of the generated graph independently of the table layout.
-`declarations` carries exact nullable source
+Schema v16 has no migration path. It removes the former dataflow tables;
+`graph_semantics_version=1` still identifies the meaning of the generated graph
+independently of the table layout. `declarations` carries exact nullable source
 ranges; structural tables `nodes`, `edges`, `declarations`, `annotations`, and
-`semantic_annotations` carry `producer_id`; flow tables do not.
+`semantic_annotations` carry `producer_id`.
 
 ```text
 startup / doctor

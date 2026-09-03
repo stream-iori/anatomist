@@ -37,12 +37,6 @@ public record QueryEvidence(
                 code, null, null, null, message);
     }
 
-    public QueryEvidence withPartialFlow(boolean positive) {
-        return new QueryEvidence(positive ? status : "indeterminate", "partial", false,
-                positive ? code : "FLOW_COVERAGE_INCOMPLETE", affectedDimensions,
-                diagnosticCounts, diagnosticQuery, message);
-    }
-
     public QueryEvidence bounded(boolean page, boolean depth, boolean limit) {
         if (!page && !depth && !limit) return this;
         java.util.Set<String> dimensions = new java.util.TreeSet<>(

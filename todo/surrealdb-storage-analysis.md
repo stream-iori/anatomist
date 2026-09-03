@@ -3,13 +3,15 @@
 > 分析日期：2026-08-25
 >
 > 结论性质：架构调研，不代表已经决定迁移。
+>
+> 状态：历史调研。0.14 已移除独立 dataflow 引擎和表；文中相关扩展路线已废弃。
 
 ## 结论
 
 SurrealDB 能让 anatomist 的代码图谱表达和遍历更加自然，特别适合：
 
 - 多跳调用图、反向依赖和最短路径；
-- 代码块、调用点、控制流、数据流之间的细粒度关系；
+- 代码块、调用点和控制上下文之间的细粒度关系；
 - 图查询与全文检索、向量检索结合；
 - 多项目、多版本、多人共享的代码知识库。
 
@@ -34,14 +36,12 @@ SurrealDB 能让 anatomist 的代码图谱表达和遍历更加自然，特别�
 - 44,844 条结构边；
 - 342 个源码文件；
 - SQLite 文件约 59 MB；
-- 当前索引未开启 dataflow，因此 `flow_nodes` 和 `flow_edges` 为空。
 
 现有模型已经是一个建立在 SQLite 上的属性图：
 
 - `nodes` 保存类、方法、字段、lambda、route、bean 等；
 - `edges` 保存 `CALLS / CONTAINS / READS / WRITES / IMPLEMENTS / OVERRIDES` 等关系；
 - 边已经带有 `confidence`、`context`、`source_location` 和 `metadata`；
-- 数据流另有独立的 `flow_nodes / flow_edges` 图；
 - `node_names` 和 `doc_content` 使用 SQLite FTS5；
 - `analysis_coverage` 和 `index_diagnostics` 保存证据完整性。
 
@@ -57,7 +57,6 @@ SurrealDB 能让 anatomist 的代码图谱表达和遍历更加自然，特别�
 例如调用图查询目前逐层查询 frontier，并在 Java 中额外处理 override、callback body、去重、深度截断和 evidence disclosure：
 
 - [`src/main/java/com/anatomist/query/CallGraphService.java`](../src/main/java/com/anatomist/query/CallGraphService.java)
-- [`src/main/java/com/anatomist/query/FlowQueryService.java`](../src/main/java/com/anatomist/query/FlowQueryService.java)
 
 SurrealDB 可以把其中一部分转换为数据库内原生递归遍历和 shortest-path，但 override、callback 穿透、sanitizer 截断等 anatomist 特有语义仍然需要预先物化或保留应用逻辑。
 
@@ -84,7 +83,6 @@ SET call_kind = "INTERFACE",
 - `hierarchy`；
 - `implementors-of`；
 - `call-path`；
-- `flow-path`。
 
 但不能把它理解成“换数据库后这些功能自动获得”。需要把现有统一 `edges.relation` 模型映射成明确的关系表，例如：
 
@@ -260,7 +258,8 @@ method A
 - return/throw；
 - field read/write site。
 
-当前 [`FlowAnalyzer.java`](../src/main/java/com/anatomist/flow/FlowAnalyzer.java) 已经生成 parameter、condition、return、throw、control、local definition、call result 等节点，可以在现有可选 dataflow 图上扩展，不需要先迁移数据库。
+0.14 已否决“在核心索引继续扩展独立值流图”的路线。局部细节分析改为
+`context --source`，跨方法范围先用 `call-path` 收敛，再逐方法检查源码。
 
 ### Block 身份与版本
 
@@ -392,20 +391,19 @@ SQLite 基本没有产品分发限制；SurrealDB 3.0 核心使用 BSL 1.1，不
 
 ### 第一阶段：不换数据库，先证明 block 模型
 
-直接扩展现有 `flow_nodes / flow_edges`：
+若未来重新验证 block 模型，应使用隔离实验表或外部原型，不能恢复已删除的
+默认索引 dataflow 契约：
 
 ```text
-FlowNode kind += LEXICAL_BLOCK, BASIC_BLOCK, CALL_SITE
+Block kind += LEXICAL_BLOCK, BASIC_BLOCK, CALL_SITE
 
-FlowEdge relation += CONTAINS_BLOCK,
+Block relation += CONTAINS_BLOCK,
                      TRUE_NEXT,
                      FALSE_NEXT,
                      LOOP_BACK,
                      EXCEPTION_NEXT,
                      LOCATED_IN
 ```
-
-将它放在 `--dataflow` 或 scoped dataflow 后面，避免默认索引膨胀。
 
 这一步应先回答：
 
@@ -423,7 +421,7 @@ FlowEdge relation += CONTAINS_BLOCK,
 SymbolResolver
 GraphTraversal
 BranchQuery
-FlowTraversal
+ValueTrace
 HybridSearch
 SnapshotStore
 ```
@@ -432,11 +430,12 @@ SnapshotStore
 
 ### 第三阶段：SurrealDB sidecar spike
 
-保持 SQLite 为权威索引，把同一批 `Node / Edge / FlowNode / FlowEdge` 镜像到 SurrealDB，只实现以下对照场景：
+保持 SQLite 为权威索引，把结构 `Node / Edge` 与实验 block 数据镜像到
+SurrealDB，只实现以下对照场景：
 
 1. `callees / callers / call-path`；
 2. `branches-of + block traversal`；
-3. `flow-path / taint-path`；
+3. `call-path + context --source` 的值传播调查；
 4. 图约束下的全文和向量混合搜索。
 
 必须比较：

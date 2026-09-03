@@ -28,7 +28,7 @@ public final class AnalysisCoverage {
             "DECLARATION", "CALL_OUTGOING", "CALL_INCOMING", "CALL_PATH",
             "TYPE_OUTGOING", "TYPE_INCOMING",
             "REFERENCE_OUTGOING", "REFERENCE_INCOMING",
-            "FIELD_ACCESS", "WIRING", "FLOW", "AGGREGATE");
+            "FIELD_ACCESS", "WIRING", "AGGREGATE");
 
     private AnalysisCoverage() {}
 
@@ -76,8 +76,6 @@ public final class AnalysisCoverage {
                             || phase.contains("FIELD");
             case "FIELD_ACCESS" -> phase.contains("FIELD_ACCESS");
             case "WIRING" -> phase.contains("ANNOTATION") || phase.contains("REFERENCE");
-            case "FLOW" -> phase.contains("FLOW") || phase.contains("CALL_GRAPH")
-                    || phase.contains("METHOD");
             case "AGGREGATE" -> resolutionFailure(diagnostic);
             default -> false;
         };

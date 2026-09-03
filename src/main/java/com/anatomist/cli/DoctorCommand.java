@@ -105,16 +105,13 @@ public class DoctorCommand implements Callable<Integer> {
                 "skill", "index", "index-docs", "search", "context", "declarations-of", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline",
-                "flow-of", "flow-path", "flow-materialize", "taint-path", "exception-flow", "guards-of",
-                "flow-summary", "annotate", "doctor"));
+                "annotate", "doctor"));
         out.put("capabilities", List.of(
                 "json-query-output-v2", "index-json-summary",
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
                 "branch-context-slices", "source-snapshot-fingerprint", "context-source-view-v2",
-                "graph-semantics-version",
-                "core-reflection",
-                "cfg", "def-use", "interprocedural-flow", "exception-flow", "taint-flow",
-                "progressive-dataflow", "agent-preflight", "agent-skill-topics"));
+                "graph-semantics-version", "core-reflection",
+                "agent-preflight", "agent-skill-topics"));
         @SuppressWarnings("unchecked")
         List<String> capabilities = new java.util.ArrayList<>((List<String>) out.get("capabilities"));
         capabilities.add("file-resolution-coverage");
@@ -195,11 +192,6 @@ public class DoctorCommand implements Callable<Integer> {
                             .ifPresent(v -> out.put("config_path", v));
                     store.readProjectMeta("scan_policy_hash")
                             .ifPresent(v -> out.put("scan_policy_hash", v));
-                    store.readProjectMeta("dataflow_mode")
-                            .ifPresent(v -> out.put("dataflow_mode", v));
-                    store.readProjectMeta("dataflow_scopes")
-                            .ifPresent(v -> out.put("dataflow_scopes",
-                                    v.isBlank() ? List.of() : List.of(v.split(","))));
                     store.readProjectMeta("source_root").ifPresent(v -> out.put("source_root", v));
                     store.readProjectMeta(com.anatomist.application.ProjectMetadata.SNAPSHOT_FINGERPRINT_KEY)
                             .ifPresent(v -> out.put("source_snapshot_fingerprint", v));
@@ -328,16 +320,8 @@ public class DoctorCommand implements Callable<Integer> {
                 blockers.add("INDEX_INTEGRITY_FAILED");
             }
         }
-        Map<String, Object> flow = new java.util.LinkedHashMap<>();
-        if (out.containsKey("dataflow_mode")) flow.put("configured_mode", out.get("dataflow_mode"));
         if (exists && "committed".equals(state)) {
             try (SqliteStore store = new SqliteStore(db)) {
-                com.anatomist.store.FlowPersistence.Stats stats =
-                        com.anatomist.store.FlowPersistence.stats(store);
-                flow.put("detailed_methods", stats.detailedMethods());
-                flow.put("summary_only_methods", stats.summaryOnlyMethods());
-                flow.put("progressive", "off".equals(out.get("dataflow_mode"))
-                        && stats.detailedMethods() > 0);
                 Map<String, com.anatomist.model.FileCacheEntry> cache = store.readFileCache();
                 Map<String, com.anatomist.model.FileCacheEntry> javaCache = cache.entrySet().stream()
                         .filter(entry -> entry.getKey().endsWith(".java"))
@@ -352,10 +336,6 @@ public class DoctorCommand implements Callable<Integer> {
                     blockers.add("INDEX_STALE");
                     next.add(indexCommand(root, db, false));
                 }
-                if (Boolean.TRUE.equals(flow.get("progressive"))
-                        && blockers.contains("INDEX_STALE")) {
-                    warnings.add("PROGRESSIVE_FLOW_WILL_REQUIRE_REMATERIALIZATION");
-                }
             }
         }
         preflight.put("status", !blockers.isEmpty() ? "REPAIR_REQUIRED"
@@ -363,7 +343,6 @@ public class DoctorCommand implements Callable<Integer> {
         preflight.put("blockers", blockers);
         preflight.put("warnings", warnings);
         preflight.put("next_commands", next);
-        preflight.put("flow_coverage", flow);
         out.put("agent_preflight", preflight);
     }
 
@@ -413,18 +392,6 @@ public class DoctorCommand implements Callable<Integer> {
             args.add("--spring-xml");
         }
 
-        String flowMode = metadata.get("dataflow_mode");
-        if (flowMode != null && !flowMode.isBlank()) {
-            appendValue(args, "--dataflow-mode", flowMode);
-            if ("scoped".equals(flowMode)) {
-                for (String scope : metadata.getOrDefault("dataflow_scopes", "").split(",")) {
-                    appendValue(args, "--dataflow-scope", scope.trim());
-                }
-            }
-        }
-        if (Boolean.parseBoolean(metadata.getOrDefault("implicit_taint", "false"))) {
-            args.add("--implicit-taint");
-        }
     }
 
     private static void appendValue(List<String> args, String option, String value) {

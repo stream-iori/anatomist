@@ -29,8 +29,6 @@ class ConfigLoaderTest {
                 java_version = 17
                 spring_xml = true
                 vm_classpath = false
-                dataflow_mode = "scoped"
-                dataflow_scopes = ["package:com.example.**"]
 
                 [scan]
                 scopes = ["MAIN", "TEST"]
@@ -120,6 +118,10 @@ class ConfigLoaderTest {
     void rejectsLegacyUnknownMalformedAndConflictingConfig(@TempDir Path tmp) throws Exception {
         assertConfigError(tmp, "[index]\ninclude_tests = true\n", "removed key index.include_tests");
         assertConfigError(tmp, "[index]\nexclude = [\"target\"]\n", "removed key index.exclude");
+        assertConfigError(tmp, "[index]\ndataflow = true\n", "removed key index.dataflow");
+        assertConfigError(tmp, "[index]\ndataflow_mode = \"full\"\n", "removed key index.dataflow_mode");
+        assertConfigError(tmp, "[index]\ndataflow_scopes = []\n", "removed key index.dataflow_scopes");
+        assertConfigError(tmp, "[index]\nimplicit_taint = true\n", "removed key index.implicit_taint");
         assertConfigError(tmp, "[scan]\nunknown = true\n", "unknown key scan.unknown");
         assertConfigError(tmp, "[index]\nspring_xml = yes\n", "expected true or false");
         assertConfigError(tmp, "[extensions.lombok]\nmode = \"bytecode\"\n", "off or ast");

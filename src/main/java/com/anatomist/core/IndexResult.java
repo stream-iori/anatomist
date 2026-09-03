@@ -16,10 +16,5 @@ public record IndexResult(
         boolean samplingEnabled,
         ParseInventory parseInventory,
         java.util.List<IndexDiagnostic> diagnostics,
-        int flowNodes,
-        int flowEdges,
-        int flowSummaries,
-        int flowDetailedMethods,
-        int flowSummaryOnlyMethods,
         Map<String, Long> extensionCounters
 ) {}

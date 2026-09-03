@@ -14,7 +14,7 @@ import java.util.TreeMap;
  * <p>Tells us whether the remaining Unresolved count is worth chasing (e.g. by
  * adding a module's {@code target/classes} to the classpath) or is just generics
  * / method-inference noise. Extracted out of {@code IndexCommand} so the
- * orchestration command stays focused on flow.</p>
+ * orchestration command stays focused.</p>
  */
 public final class UnresolvedReporter {
 

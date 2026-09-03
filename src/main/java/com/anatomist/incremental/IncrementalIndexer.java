@@ -23,11 +23,6 @@ import com.anatomist.core.SourceRoot;
 import com.anatomist.core.WiringResolver;
 import com.anatomist.extract.ExtractorPipeline;
 import com.anatomist.extract.TypeExtractor;
-import com.anatomist.flow.FlowAnalyzer;
-import com.anatomist.store.FlowPersistence;
-import com.anatomist.flow.FlowProfile;
-import com.anatomist.flow.FlowResult;
-import com.anatomist.flow.TaintRules;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
@@ -60,9 +55,6 @@ public class IncrementalIndexer {
     private final ProjectConfig projectConfig;
     private final List<SourceRoot> sourceRoots;
     private final IndexTimings timings;
-    private final boolean dataflow;
-    private final boolean implicitTaint;
-    private final FlowProfile flowProfile;
 
     public IncrementalIndexer(Path projectRoot,
                               List<Path> sourcePaths,
@@ -118,22 +110,6 @@ public class IncrementalIndexer {
                               ProjectConfig projectConfig,
                               List<SourceRoot> sourceRoots,
                               IndexTimings timings) {
-        this(projectRoot, sourcePaths, parserFactory, store, javaVersion, maxRealignFiles,
-                springXml, projectConfig, sourceRoots, timings, FlowProfile.off(), false);
-    }
-
-    public IncrementalIndexer(Path projectRoot,
-                              List<Path> sourcePaths,
-                              JavaParserFactory parserFactory,
-                              SqliteStore store,
-                              int javaVersion,
-                              int maxRealignFiles,
-                              boolean springXml,
-                              ProjectConfig projectConfig,
-                              List<SourceRoot> sourceRoots,
-                              IndexTimings timings,
-                              FlowProfile flowProfile,
-                              boolean implicitTaint) {
         this.projectRoot = projectRoot;
         this.sourcePaths = sourcePaths;
         this.parserFactory = parserFactory;
@@ -144,9 +120,6 @@ public class IncrementalIndexer {
         this.projectConfig = projectConfig != null ? projectConfig : new ProjectConfig();
         this.sourceRoots = sourceRoots == null ? List.of() : List.copyOf(sourceRoots);
         this.timings = timings;
-        this.flowProfile = flowProfile == null ? FlowProfile.off() : flowProfile;
-        this.dataflow = this.flowProfile.enabled();
-        this.implicitTaint = implicitTaint;
         this.parserFactory.setTimings(timings);
     }
 
@@ -162,11 +135,6 @@ public class IncrementalIndexer {
         public int reparsedFiles;
         public long unresolvedSymbols;
         public int droppedDanglingFacts;
-        public int flowNodes;
-        public int flowEdges;
-        public int flowSummaries;
-        public int flowDetailedMethods;
-        public int flowSummaryOnlyMethods;
         public final Map<String, Long> extensionCounters = new LinkedHashMap<>();
         public boolean degradedToFull;
         public String degradationReason;
@@ -214,7 +182,6 @@ public class IncrementalIndexer {
         Map<String, FileCacheEntry> priorFileCache = store.readFileCache();
         Map<String, String> contractHashes = new LinkedHashMap<>();
         List<com.anatomist.core.IndexDiagnostic> resolutionDiagnostics = new ArrayList<>();
-        FlowResult flowResult = new FlowResult();
         boolean javaContractChanged = !deletedJavaPaths.isEmpty();
         SourceIdentityResolver identities = sourceRoots.isEmpty()
                 ? new SourceIdentityResolver(projectRoot, sourcePaths)
@@ -285,12 +252,6 @@ public class IncrementalIndexer {
             resolutionDiagnostics.addAll(batch.extensionDiagnostics());
             batch.extensionCounters().forEach((key, value) ->
                     s.extensionCounters.merge(key, value, Long::sum));
-            if (dataflow) {
-                long flowStageStarted = startTiming();
-                staging.writeFlowBatch(batch.flowResult());
-                stopTiming("flow_stage_write", flowStageStarted);
-                flowResult.diagnostics.addAll(batch.flowResult().diagnostics);
-            }
             stopTiming("parse_extract", parseStarted);
 
             long deltaStarted = startTiming();
@@ -392,27 +353,6 @@ public class IncrementalIndexer {
         s.deletedEdges += promoted.deletedEdges();
         s.writtenNodes = promoted.writtenNodes();
         s.writtenEdges = promoted.writtenEdges();
-        if (dataflow) {
-            FlowPersistence.Stats flowStats =
-                    staging.promoteIncrementalFlow(store, affectedFiles, timings);
-            s.flowNodes = flowStats.nodes();
-            s.flowEdges = flowStats.edges();
-            s.flowSummaries = flowStats.summaries();
-            s.flowDetailedMethods = flowStats.detailedMethods();
-            s.flowSummaryOnlyMethods = flowStats.summaryOnlyMethods();
-            resolutionDiagnostics.addAll(flowResult.diagnostics);
-        } else {
-            // A progressive materialization may exist even when the configured profile is off.
-            // Never leave its facts attached to source that has just been structurally replaced.
-            FlowPersistence.Stats flowStats =
-                    FlowPersistence.replaceFiles(store, affectedFiles, new FlowResult(), timings);
-            s.flowNodes = flowStats.nodes();
-            s.flowEdges = flowStats.edges();
-            s.flowSummaries = flowStats.summaries();
-            s.flowDetailedMethods = flowStats.detailedMethods();
-            s.flowSummaryOnlyMethods = flowStats.summaryOnlyMethods();
-        }
-
         Map<String, FileCacheService.SourceFileStats> perFile = staging.sourceFileStats();
         String now = Instant.now().toString();
         LinkedHashSet<String> cacheTargets = new LinkedHashSet<>(toReparse);
@@ -476,7 +416,7 @@ public class IncrementalIndexer {
         if (!missing.isEmpty()) {
             return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
                     Map.of(), false, List.of(), extensionReport.diagnostics(),
-                    extensionReport.counters(), new FlowResult());
+                    extensionReport.counters());
         }
 
         Map<String, String> batchContractHashes = new LinkedHashMap<>();
@@ -505,31 +445,11 @@ public class IncrementalIndexer {
             cu.setData(TypeExtractor.SourceFileKey.KEY, relative);
             pipeline.extractAll(cu, result);
         }
-        FlowResult batchFlow = new FlowResult();
-        if (dataflow) {
-            long flowStarted = startTiming();
-            TaintRules rules = TaintRules.load(projectRoot);
-            batchFlow.diagnostics.addAll(rules.diagnostics());
-            FlowAnalyzer analyzer = new FlowAnalyzer(projectRoot, sourcePaths, sourceRoots,
-                    rules, implicitTaint, flowProfile);
-            for (var cu : parsedBatch.compilationUnits()) {
-                try {
-                    analyzer.analyze(cu, batchFlow);
-                } catch (RuntimeException failure) {
-                    String file = cu.getStorage().map(storage ->
-                            relativePath(storage.getPath())).orElse(null);
-                    batchFlow.diagnostics.add(new com.anatomist.core.IndexDiagnostic(
-                            "warning", "FLOW_ANALYSIS_FAILED", "FLOW",
-                            file, null, null, null, 1, failure.getMessage()));
-                }
-            }
-            stopTiming("flow_analyze", flowStarted);
-        }
         boolean noClasspath = "none".equals(store.readProjectMeta("classpath_mode").orElse(""));
         return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
                 Map.copyOf(batchContractHashes), contractChanged,
                 ctx.resolutionSummary(noClasspath).diagnostics(), extensionReport.diagnostics(),
-                extensionReport.counters(), batchFlow);
+                extensionReport.counters());
     }
 
     private Set<String> impactedSourceFiles(SymbolGraphDelta.Impact impact) {
@@ -571,8 +491,7 @@ public class IncrementalIndexer {
                                    boolean contractChanged,
                                    List<com.anatomist.core.IndexDiagnostic> resolutionDiagnostics,
                                    List<com.anatomist.core.IndexDiagnostic> extensionDiagnostics,
-                                   Map<String, Long> extensionCounters,
-                                   FlowResult flowResult) {}
+                                   Map<String, Long> extensionCounters) {}
 
     private long startTiming() {
         return timings == null ? 0L : timings.start();

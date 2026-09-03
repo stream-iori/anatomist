@@ -60,13 +60,6 @@ class MavenGeneratedSourcesIT {
         Files.writeString(extra, "package p; public class GeneratedTwo {}");
         incremental(project, db);
         assertNode(db, "p.GeneratedTwo", "app", "GENERATED", 1);
-
-        try (var c = DriverManager.getConnection("jdbc:sqlite:" + db);
-             var ps = c.prepareStatement("SELECT value FROM project_meta WHERE key='dataflow_mode'");
-             var rs = ps.executeQuery()) {
-            assertTrue(rs.next());
-            assertEquals("off", rs.getString(1));
-        }
     }
 
     private static void incremental(Path project, Path db) throws Exception {

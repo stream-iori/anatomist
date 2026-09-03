@@ -131,10 +131,9 @@ public final class ConfigLoader {
             case "java_version" -> config.setJavaVersion(parseInt(value, file, line));
             case "spring_xml" -> config.setSpringXml(parseBool(value, file, line));
             case "vm_classpath" -> config.setVmClasspath(parseBool(value, file, line));
-            case "dataflow" -> config.setDataflow(parseBool(value, file, line));
-            case "dataflow_mode" -> config.setDataflowMode(parseString(value, file, line));
-            case "dataflow_scopes" -> config.setDataflowScopes(parseStringArray(value, file, line));
-            case "implicit_taint" -> config.setImplicitTaint(parseBool(value, file, line));
+            case "dataflow", "dataflow_mode", "dataflow_scopes", "implicit_taint" ->
+                    throw error(file, line, "removed key index." + key
+                            + "; dataflow was removed; use call-path and context --source instead");
             case "include_tests", "exclude" -> throw error(file, line,
                     "removed key index." + key + "; use [scan] instead");
             default -> throw unknown(file, line, "index", key);

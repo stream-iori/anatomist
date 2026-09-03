@@ -73,10 +73,6 @@ public class SchemaManager {
         try (Statement st = connSupplier.get().createStatement()) {
             st.execute("DELETE FROM analysis_coverage");
             st.execute("DELETE FROM declarations");
-            st.execute("DELETE FROM method_flow_coverage");
-            st.execute("DELETE FROM method_flow_summaries");
-            st.execute("DELETE FROM flow_edges");
-            st.execute("DELETE FROM flow_nodes");
             st.execute("DELETE FROM semantic_annotations");
             st.execute("DELETE FROM annotations");
             st.execute("DELETE FROM edges");

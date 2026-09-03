@@ -9,7 +9,7 @@ Load `core` first, then exactly one matching scene:
 | Explain conditional or loop-contained behavior | `branch` |
 | Inspect inheritance, implementations, composition, reads, or writes | `relations` |
 | Inspect Spring annotations, injection, wiring, or XML trees | `spring` |
-| Trace values, definitions, exceptions, guards, or taint | `flow` |
+| Trace values, exceptions, guards, or suspected taint from paths and source | `flow` |
 
 If a task spans scenes, start with the cheapest structural scene and load another
 only when the first result exposes a concrete need. Use each command's `--help` as

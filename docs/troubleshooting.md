@@ -73,10 +73,11 @@ pair and reuses the saved SHA; this avoids reading every source file. Use
 | Standalone incremental, size/mtime stable | Reuses cached hash. |
 | Standalone incremental with `--verify-content` | Hashes every source. |
 
-Opening an older schema database with the v15 binary intentionally reports
+Opening an older schema database with the v16 binary intentionally reports
 `incremental degraded to full (schema_version mismatch)` once. The rebuild is
-required because older structural rows may lack declaration ranges or
-`producer_id` ownership. There is no compatibility migration.
+required because v16 removes the former dataflow tables and older structural
+rows may also lack declaration ranges or `producer_id` ownership. There is no
+compatibility migration.
 
 Body/comment/initializer-only Java edits keep the contract hash stable, so they
 do not invalidate dependent type-resolution caches or rebuild Spring wiring.

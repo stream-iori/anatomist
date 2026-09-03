@@ -153,11 +153,6 @@ sdk env
 | 健康策略 | external resolution、parse failure、dangling facts 分别跑 `integrity` / `complete` | 防止第三方缺失误杀正常 Agent 查询，同时守住索引完整性 |
 | 查询证据 | 正结果、可信空结果、覆盖不全的空结果 | 空结果仍 exit 0，但必须披露 `confirmed_empty` / `indeterminate` |
 
-数据流回归额外覆盖：分支合流、循环回边、参数/局部变量 def-use、返回值、
-跨方法调用、显式 throw/catch、guard 极性、taint source/sink/sanitizer，
-增量按文件替换 flow facts，以及 summary/scoped coverage 门禁。非 full
-索引必须拒绝全局 `flow-path`/`taint-path`，不能把未物化事实报告成无路径。
-
 ## 七、性能基线
 
 正则/通配符复杂度守卫独立运行，避免慢机器影响默认测试：
@@ -186,10 +181,6 @@ Javadoc 标签扫描，每项上限 3 秒。生产正则只允许静态预编译
 | 内存峰值 | < 1GB heap | `-Xmx1g` 跑通 |
 
 **不卡硬阈值,CI 记录 trend,回归超 20% 才 fail**。
-
-大型数据流优化额外比较 `full_flow_write` 和总耗时：同一源码 commit、native
-binary 和参数改造前后各跑三次；离散度超过 10% 时扩展到五次。当前优化验收
-要求两个指标的中位数均至少下降 70%，并记录 flow 子阶段、RSS 和最终 DB 大小。
 
 增量正确性还要覆盖：size/mtime 快路径、`--verify-content`、恢复时间戳、
 契约指纹对 body/签名的区分、impact SQL 索引计划和 Spring XML 入边保留。

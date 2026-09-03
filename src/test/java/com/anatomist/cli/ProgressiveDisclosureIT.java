@@ -249,18 +249,6 @@ class ProgressiveDisclosureIT {
         assertTrue(branches.stdout.contains("--through-callbacks"));
         assertTrue(branches.stdout.contains("stats.depth_truncated"));
 
-        RunResult flowOf = runCli("flow-of", "--help");
-        assertEquals(0, flowOf.exitCode, flowOf.stderr);
-        assertTrue(flowOf.stdout.contains("Traversal edge budget"));
-        assertTrue(flowOf.stdout.contains("stats.truncated"));
-
-        RunResult flowPath = runCli("flow-path", "--help");
-        assertEquals(0, flowPath.exitCode, flowPath.stderr);
-        assertTrue(flowPath.stdout.contains("depth-truncated"));
-
-        RunResult taintPath = runCli("taint-path", "--help");
-        assertEquals(0, taintPath.exitCode, taintPath.stderr);
-        assertTrue(taintPath.stdout.contains("depth-truncated"));
     }
 
     private static Path buildFixtureIndex(Path tmp) throws Exception {

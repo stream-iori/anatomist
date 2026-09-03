@@ -70,13 +70,6 @@ final class IndexOutput {
         stats.put("unresolved", result.unresolvedCount());
         stats.put("dropped_dangling_edges", result.droppedDanglingEdges());
         stats.put("file_cache_entries", result.fileCacheSize());
-        stats.put("flow_nodes", result.flowNodes());
-        stats.put("flow_edges", result.flowEdges());
-        stats.put("flow_summaries", result.flowSummaries());
-        stats.put("flow_detailed_methods", result.flowDetailedMethods());
-        stats.put("flow_summary_only_methods", result.flowSummaryOnlyMethods());
-        stats.put("dataflow_mode", config.flowProfile().mode().name().toLowerCase());
-        stats.put("dataflow_scopes", config.flowProfile().scopes());
         if (result.extensionCounters() != null) stats.putAll(result.extensionCounters());
         stats.put("elapsed_ms", result.elapsedMs());
 
@@ -210,11 +203,6 @@ final class IndexOutput {
         stats.put("deleted_edges", summary.deletedEdges);
         stats.put("written_nodes", summary.writtenNodes);
         stats.put("written_edges", summary.writtenEdges);
-        stats.put("flow_nodes", summary.flowNodes);
-        stats.put("flow_edges", summary.flowEdges);
-        stats.put("flow_summaries", summary.flowSummaries);
-        stats.put("flow_detailed_methods", summary.flowDetailedMethods);
-        stats.put("flow_summary_only_methods", summary.flowSummaryOnlyMethods);
         stats.put("unresolved", summary.unresolvedSymbols);
         stats.put("dropped_dangling_edges", summary.droppedDanglingFacts);
         stats.putAll(summary.extensionCounters);

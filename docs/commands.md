@@ -41,10 +41,6 @@ anatomist index <project-path> [options]
 | `--vm-classpath` | Use JVM's own classloading for JDK types | true |
 | `--java-version <N>` | Target Java language level | auto-detect |
 | `--jdk-home <path>` | Local JDK used to build a native-image type catalog | `ANATOMIST_JDK_HOME`, else embedded JDK 8 catalog |
-| `--dataflow` | Build optional CFG, def-use, return, exception, guard, and interprocedural flow facts | false |
-| `--dataflow-mode off\|full\|summary\|scoped` | Choose full detail, summaries only, or selected detail. `--dataflow` remains an alias for `full`. | off |
-| `--dataflow-scope <kind:glob>` | Repeatable `package:`, `method:`, or `source:` selector; implies `scoped` when mode is omitted. | none |
-| `--implicit-taint` | Propagate taint through control dependencies; implies `--dataflow` | false |
 | `--exclude <dirs>` | Comma-separated directories to skip | none |
 | `--include-tests` | Also index test sources | false |
 | `--scan-scope MAIN\|TEST\|GENERATED` | Repeatable source scope; replaces configured `scan.scopes` | config/default |
@@ -84,11 +80,6 @@ supported override. CLI options override the selected file.
 java_version = 17
 spring_xml = false
 vm_classpath = true
-dataflow = false
-dataflow_mode = "off"
-dataflow_scopes = []
-implicit_taint = false
-
 [scan]
 scopes = ["MAIN", "GENERATED"]
 include = ["src/**", "modules/**/src/**"]
@@ -101,6 +92,13 @@ exclude_patterns = ["java.lang.*", "com.example.generated.**"]
 mode = "off" # off | ast
 strict = false
 ```
+
+Dataflow was removed in 0.14. The old `index.dataflow`,
+`index.dataflow_mode`, `index.dataflow_scopes`, and `index.implicit_taint`
+keys are rejected with an actionable configuration error. The former flow CLI
+commands and flags are no longer accepted. `.anatomist/taint-rules.json` is
+obsolete and is not loaded. For value tracing, prove candidate hops with
+`call-path`, then inspect each exact method with `context '<signature>' --source`.
 
 `ast` covers `@Getter`, `@Setter`, constructor annotations, `@Data`, `@Value`,
 and standard logger annotations. Generated rows use `producer_id=lombok-ast` and
@@ -260,7 +258,7 @@ JSON includes:
 | `diagnostic_storage` | Whether persisted diagnostic samples were truncated, including retained and omitted group counts |
 | `diagnostic_coverage.files` | With `--diagnostic-file`, pre-storage-retention file/module/scope coverage rows; capability `file-resolution-coverage` advertises this contract |
 | `git_untracked_cache` | Repository Git setting: `enabled`, `disabled`, or `unknown` |
-| `agent_preflight` | Present with `--agent-preflight`: read-only Agent readiness, blockers, flow coverage, and next commands |
+| `agent_preflight` | Present with `--agent-preflight`: read-only Agent readiness, blockers, and next commands |
 
 When Git untracked cache is not enabled, `doctor` reports non-mutating advice:
 
@@ -366,91 +364,11 @@ IDs and `EXTRACTED` confidence are implicit, and counts derivable from
 
 `coverage`, `affected_dimensions`, `diagnostic_counts`, and
 `negative_conclusion_safe` explain the decision. Ordinary empty queries still
-exit 0 so existing callers can parse the response; `call-path` and flow
-coverage errors keep their existing command-specific exit behavior.
+exit 0 so existing callers can parse the response; `call-path` keeps its
+command-specific exit behavior.
 An unresolved selector is not an empty query: it exits 2 with
 `SYMBOL_NOT_FOUND`. Only a successfully resolved symbol with no matching facts
 may produce `confirmed_empty`.
-
-### Flow queries
-
-Flow facts are opt-in. Use `--dataflow` for a complete graph,
-`--dataflow-mode summary` for compact method summaries, or one or more scoped
-selectors:
-
-```bash
-anatomist index . --dataflow-mode summary
-anatomist index . --dataflow-scope 'package:com.example.payment.**'
-anatomist index . --dataflow-scope 'method:com.example.OrderService#checkout*'
-anatomist index . --dataflow-scope 'source:service/src/main/java/com/example/**'
-```
-
-`flow-summary` works in every enabled mode. `flow-of`, `guards-of`, and
-`exception-flow` require detailed coverage for the selected method.
-`taint-path` requires `full`. `flow-path` requires either `full` or DETAIL
-coverage for both endpoints; use `flow-materialize` to add DETAIL facts for one
-bounded static call path. A path found with partial coverage is usable positive
-static evidence; an empty partial result never proves absence.
-
-```bash
-anatomist flow-of com.example.Service#run --depth 8 --index <db>
-anatomist flow-path <source-method-or-node> <target-method-or-node> \
-  [--from-slot arg:0] [--to-slot return] \
-  [--include-control] [--include-exception] --depth 20 --index <db>
-anatomist flow-summary com.example.Service#run --index <db>
-anatomist guards-of com.example.Service#run --index <db>
-anatomist exception-flow com.example.Service#run --index <db>
-anatomist taint-path '*' '*' --depth 30 --index <db>
-anatomist flow-materialize <source-method-signature> <target-method-signature> --depth 8 --index <db>
-```
-
-| Command | Evidence |
-|---|---|
-| `flow-of` | CFG, def-use, argument, return, and cross-method edges |
-| `flow-path` | Shortest bounded static flow path; data edges only by default |
-| `flow-materialize` | Explicitly write DETAIL facts for source files on one shortest static call path |
-| `flow-summary` | `arg:n`/`this` to return or exception summaries |
-| `guards-of` | Condition dependencies and true/false guarded facts |
-| `exception-flow` | Explicit throw, catch, and declared exception propagation |
-| `taint-path` | Configured source-to-sink path; sanitizer nodes stop traversal |
-
-Traversal output reports requested/effective/reached depth and whether an
-expandable frontier remains. `flow-of --limit` is a compute budget rather than
-an offset page: when `limit_truncated=true`, rerun its larger-limit
-`next_queries` entry. `flow-path` and `taint-path` empty results are conclusive
-only when `depth_truncated=false` and evidence permits a negative conclusion.
-`flow-materialize` writes only after the structural index passes its integrity
-and freshness checks. It does not write when the static call path is absent or
-depth-truncated; use its `next_commands` to increase depth or re-index first.
-Both materialization endpoints must be full exact method signatures. Missing,
-family, or ambiguous selectors fail before the write lock is acquired and leave
-all flow tables unchanged.
-
-Taint rules live in `.anatomist/taint-rules.json`:
-
-```json
-{
-  "sources": [{"method": "javax.servlet.*#getParameter*", "slot": "return"}],
-  "sinks": [{"method": "java.sql.Statement#execute*", "slot": "arg:0"}],
-  "sanitizers": [{"method": "com.example.SqlEscaper#escape*", "slot": "return"}]
-}
-```
-
-Slot rules are strict:
-
-| Rule/endpoint | Allowed slots |
-|---|---|
-| taint source | `return` |
-| taint sink | `arg:N`, `this` |
-| sanitizer | `return` |
-| `flow-path --from-slot/--to-slot` | `arg:N`, `return`, `throw` |
-
-Invalid taint slots are skipped with `TAINT_RULE_SLOT_INVALID`. A sink path is
-accepted only through its configured argument/receiver edge. `flow-path`
-traverses `DEF_USE`, argument, return, call argument/return, and taint edges by
-default. Control/guard and exception edges require their explicit flags.
-If a method selector matches multiple overloads, use the full method signature;
-the command returns `FLOW_ENDPOINT_AMBIGUOUS` instead of searching all overloads.
 
 ### Selector contract
 
@@ -462,20 +380,11 @@ the command returns `FLOW_ENDPOINT_AMBIGUOUS` instead of searching all overloads
 | Type/field short name | Valid only when unique across the selected module and scope |
 | Storage node key | Exact node, still constrained by `--module` and `--scope` |
 
-`callees-of`, `callers-of`, `branches-of`, and `flow-summary` may aggregate one
-owner-qualified overload family. Single-target context, path, relation, and
-detailed-flow commands require one resolved target. Ambiguity exits with code 2
+`callees-of`, `callers-of`, and `branches-of` may aggregate one owner-qualified
+overload family. Single-target context, path, and relation commands require one
+resolved target. Ambiguity exits with code 2
 and returns exact candidate IDs and follow-up queries. `search` remains explicitly
 fuzzy and is not governed by this selector contract.
-
-Method patterns support full-string `*` and `?` glob matching. Matching uses a
-bounded non-regex state machine: the configuration file is limited to 1 MiB,
-each source/sink/sanitizer list to 256 valid rules, and each method pattern to
-512 characters. Invalid or excess entries are skipped with
-`TAINT_RULE_SKIPPED` / `TAINT_RULE_LIMIT_EXCEEDED`; an oversized or malformed
-file is disabled with `TAINT_RULES_TOO_LARGE` / `TAINT_RULES_INVALID`.
-Explicit data flow is the default.
-`--implicit-taint` also adds possible taint flow through control guards.
 
 ### `search`
 Find project nodes and query-only external classpath types by name (FTS5), precise simple-name, or annotation.
@@ -827,8 +736,8 @@ All subcommands support `--help` for self-discovery.
 
 JSON stats include `{"total": N, "limit": N, "offset": N, "truncated": bool}`. When more rows exist, outputs add `next_offset` and `next_queries`. Paged commands include top-level `budget` so Agents can distinguish emitted rows from total matches.
 
-`truncated` and `depth_truncated` are independent. The first means more rows or
-a spent `flow-of` traversal budget; the second means a graph frontier remains
+`truncated` and `depth_truncated` are independent. The first means more rows;
+the second means a graph frontier remains
 beyond `depth_effective`. Follow every applicable `next_queries` entry. Empty
 results support a negative conclusion only when neither bound is truncated and
 `evidence.negative_conclusion_safe=true`.
@@ -845,7 +754,7 @@ Use this progressive path instead of asking for everything at once:
 | 4. Symbol search | `anatomist search <term> --limit 50 --offset 0 --index <db>` |
 | 5. Type drill-down | `anatomist context <type> --members-limit 50 --index <db>` |
 | 6. Method understanding | `anatomist context '<exact-method>' --source --index <db>` |
-| 7. Flow drill-down | `anatomist callees-of <method> --depth 3 --limit 50 --index <db>` |
+| 7. Call-route drill-down | `anatomist callees-of <method> --depth 3 --limit 50 --index <db>` |
 | 8. Call-site proof | `anatomist callees-of <method> --depth 2 --limit 20 --source-window=3 --index <db>` |
 | 9. Branch slice | `anatomist branches-of <method> --depth 3 --source-window=3 --index <db>` |
 

@@ -48,12 +48,6 @@ public class IndexStatsPrinter {
             out.println("  Unresolved detail: enable -Danatomist.sampleUnresolved=true for categories");
         }
         out.println("  File cache:   " + r.fileCacheSize() + " entries");
-        if (cfg.dataflow()) {
-            out.println("  Flow facts:   " + r.flowNodes() + " nodes, "
-                    + r.flowEdges() + " edges, " + r.flowSummaries() + " summaries");
-            out.println("  Flow coverage:" + r.flowDetailedMethods() + " detailed, "
-                    + r.flowSummaryOnlyMethods() + " summary-only methods");
-        }
         out.println("  Output:       " + cfg.dbPath());
         if (r.samplingEnabled() && r.unresolvedSamples() != null) {
             @SuppressWarnings("unchecked")

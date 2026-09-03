@@ -65,14 +65,16 @@ class SkillMdContractTest {
     void flowSceneUsesTheCheapestSufficientAnalysis() throws Exception {
         String flow = Files.readString(sceneDir().resolve("flow.md"));
         for (String requirement : List.of(
-                "Data-flow is opt-in and expensive",
-                "Never enable it for ordinary call tracing",
-                "flow-materialize",
-                "Scoped coverage",
-                "Full coverage only after disclosing cost",
-                "Never upgrade to full coverage automatically",
-                "Empty partial results do not prove absence")) {
+                "does not materialize a separate data-flow graph",
+                "context '<signature>' --source",
+                "call-path",
+                "follow `next_queries` until `source.truncated=false`",
+                "not runtime proof")) {
             assertTrue(flow.contains(requirement), "missing flow decision rule: " + requirement);
+        }
+        for (String removed : List.of(
+                "flow-materialize", "flow-path", "flow-summary", "dataflow-mode", "--dataflow")) {
+            assertFalse(flow.contains(removed), "flow scene exposes removed command: " + removed);
         }
         for (String structural : List.of("explore", "trace", "branch", "relations", "spring")) {
             String text = Files.readString(sceneDir().resolve(structural + ".md"));
@@ -94,9 +96,9 @@ class SkillMdContractTest {
         assertTrue(relations.contains("--scope"));
 
         String flow = Files.readString(sceneDir().resolve("flow.md"));
-        assertTrue(flow.contains("flow-summary"));
-        assertTrue(flow.contains("full exact source"));
-        assertTrue(flow.contains("never falls back"));
+        assertTrue(flow.contains("full exact signature"));
+        assertTrue(flow.contains("selector ambiguity response"));
+        assertTrue(flow.contains("source.truncated=false"));
     }
 
     @Test

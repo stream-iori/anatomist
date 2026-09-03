@@ -34,10 +34,12 @@ class IndexCompatibilityTest {
         createNonEmptyIndex(oldSchema);
         try (var connection = DriverManager.getConnection("jdbc:sqlite:" + oldSchema);
              var statement = connection.createStatement()) {
-            statement.execute("PRAGMA user_version=1");
+            statement.execute("PRAGMA user_version=15");
         }
-        assertEquals("SCHEMA_MISMATCH",
-                IndexCompatibility.inspect(oldSchema).primaryReason());
+        IndexCompatibility.Report schema15 = IndexCompatibility.inspect(oldSchema);
+        assertEquals(IndexCompatibility.Action.RECREATE, schema15.action());
+        assertEquals("SCHEMA_MISMATCH", schema15.primaryReason());
+        assertEquals(15, schema15.schemaVersion());
 
         Path corrupt = tmp.resolve("corrupt.db");
         Files.writeString(corrupt, "not sqlite", StandardCharsets.UTF_8);

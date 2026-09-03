@@ -34,6 +34,10 @@ class SqliteStoreInitSchemaTest {
         assertTrue(tables.contains("annotations"));
         assertTrue(tables.contains("declarations"));
         assertTrue(tables.contains("node_names"));
+        for (String removed : List.of(
+                "flow_nodes", "flow_edges", "method_flow_summaries", "method_flow_coverage")) {
+            assertFalse(tables.contains(removed), "removed dataflow table remains: " + removed);
+        }
 
         Set<String> indexes = listObjects(store.connection(), "index");
         assertTrue(indexes.contains("idx_nodes_kind"), "missing idx_nodes_kind; got " + indexes);

@@ -26,7 +26,7 @@ class AgentContractIT {
         String[] commands = {
                 "skill", "index", "index-docs", "search", "context", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
-                "field-access", "call-path", "flow-materialize", "overview", "survey-baseline",
+                "field-access", "call-path", "overview", "survey-baseline",
                 "annotate", "doctor"
         };
         for (String cmd : commands) {
@@ -51,6 +51,25 @@ class AgentContractIT {
     }
 
     @Test
+    void removedDataflowCommandsAndIndexOptionsFailParsing() {
+        for (String command : List.of(
+                "flow-materialize", "flow-of", "flow-path", "flow-summary",
+                "guards-of", "exception-flow", "taint-path")) {
+            RunResult result = runCli(command);
+            assertEquals(2, result.exitCode, command);
+        }
+        for (String[] args : List.of(
+                new String[]{"index", "--dataflow"},
+                new String[]{"index", "--dataflow-mode", "full"},
+                new String[]{"index", "--dataflow-scope", "package:p.**"},
+                new String[]{"index", "--implicit-taint"},
+                new String[]{"index", "--no-implicit-taint"})) {
+            RunResult result = runCli(args);
+            assertEquals(2, result.exitCode, String.join(" ", args));
+        }
+    }
+
+    @Test
     void doctorJson_reportsIndexAndCapabilities(@TempDir Path tmp) throws Exception {
         Path db = buildFixtureIndex(tmp, false);
 
@@ -65,7 +84,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("commands")).contains("skill"));
         assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
         assertTrue(((List<?>) json.get("commands")).contains("branches-of"));
-        assertTrue(((List<?>) json.get("commands")).contains("flow-materialize"));
+        assertFalse(((List<?>) json.get("commands")).contains("flow-materialize"));
         assertTrue(((List<?>) json.get("commands")).contains("bean-config"));
         assertFalse(((List<?>) json.get("commands")).contains("watch"));
         assertFalse(((List<?>) json.get("commands")).contains("export"));
@@ -76,7 +95,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("capabilities")).contains("json-query-output-v2"));
         assertEquals(1, ((Number) json.get("graph_semantics_version")).intValue());
         assertTrue(((List<?>) json.get("capabilities")).contains("core-reflection"));
-        assertTrue(((List<?>) json.get("capabilities")).contains("progressive-dataflow"));
+        assertFalse(((List<?>) json.get("capabilities")).contains("progressive-dataflow"));
         assertTrue(((List<?>) json.get("capabilities")).contains("file-resolution-coverage"));
         assertTrue(((List<?>) json.get("capabilities")).contains("agent-skill-topics"));
         assertNotNull(json.get("schema_version"));
@@ -92,6 +111,8 @@ class AgentContractIT {
         assertNotNull(json.get("resolution_diagnostic_groups"));
         assertNotNull(json.get("diagnostic_aggregation"));
         assertNotNull(json.get("diagnostic_storage"));
+        assertFalse(json.containsKey("dataflow_mode"));
+        assertFalse(json.containsKey("dataflow_scopes"));
     }
 
     @Test
@@ -148,7 +169,7 @@ class AgentContractIT {
         assertTrue(preflight.containsKey("status"));
         assertTrue(preflight.containsKey("blockers"));
         assertTrue(preflight.containsKey("next_commands"));
-        assertTrue(((Map<?, ?>) preflight.get("flow_coverage")).containsKey("detailed_methods"));
+        assertFalse(preflight.containsKey("flow_coverage"));
         assertEquals(bytesBefore, Files.size(db), "preflight must not write the index");
         assertArrayEquals(contentBefore, Files.readAllBytes(db), "preflight must not change index bytes");
 
@@ -161,8 +182,6 @@ class AgentContractIT {
 
         RunResult doctorHelp = runCli("doctor", "--help");
         assertTrue(doctorHelp.stdout.contains("--agent-preflight"), doctorHelp.stdout);
-        RunResult materializeHelp = runCli("flow-materialize", "--help");
-        assertTrue(materializeHelp.stdout.contains("Static call-path depth"), materializeHelp.stdout);
     }
 
     @Test
@@ -181,14 +200,14 @@ class AgentContractIT {
         Map<?, ?> contract = (Map<?, ?>) asObject(preflight.stdout).get("agent_preflight");
         assertTrue(String.valueOf(contract.get("blockers")).contains("INDEX_STALE"), contract.toString());
         assertTrue(String.valueOf(contract.get("next_commands")).contains("--incremental"), contract.toString());
-        assertTrue(String.valueOf(contract.get("next_commands")).contains("--dataflow-mode off"),
+        assertFalse(String.valueOf(contract.get("next_commands")).contains("--dataflow"),
                 contract.toString());
         assertTrue(String.valueOf(contract.get("next_commands")).contains("--no-classpath"),
                 contract.toString());
     }
 
     @Test
-    void doctorRepairCommandPreservesScopedProfileAndQuotesPaths(@TempDir Path tmp) throws Exception {
+    void doctorRepairCommandPreservesIndexProfileAndQuotesPaths(@TempDir Path tmp) throws Exception {
         Path holder = Files.createDirectories(tmp.resolve("project with ' quote"));
         Path project = CliTestSupport.createSimpleMavenProject(holder, false);
         Path source = project.resolve("src/main/java/p/A.java");
@@ -197,7 +216,6 @@ class AgentContractIT {
         RunResult indexed = runCli("index", project.toString(),
                 "--source-root", sourceSpec,
                 "--no-classpath", "--java-version", "17", "--spring-xml",
-                "--dataflow-scope", "method:p.A#run*", "--implicit-taint",
                 "--output", db.toString());
         assertEquals(0, indexed.exitCode, indexed.stderr);
 
@@ -209,11 +227,10 @@ class AgentContractIT {
 
         for (String expected : List.of(
                 "--incremental", "--source-root", "--java-version 17", "--no-classpath",
-                "--spring-xml", "--dataflow-mode scoped", "--dataflow-scope",
-                "--implicit-taint", "--health-policy integrity")) {
+                "--spring-xml", "--health-policy integrity")) {
             assertTrue(command.contains(expected), expected + " missing from: " + command);
         }
-        assertFalse(command.contains("--dataflow-mode full"), command);
+        assertFalse(command.contains("--dataflow"), command);
         assertTrue(command.contains("'\\''"), "single quote must be POSIX escaped: " + command);
 
         Process shell = new ProcessBuilder("sh", "-c",
@@ -226,7 +243,7 @@ class AgentContractIT {
     }
 
     @Test
-    void doctorRepairCommandPreservesExistingFullAndDetectedProfiles(@TempDir Path tmp)
+    void doctorRepairCommandPreservesExplicitAndDetectedClasspathProfiles(@TempDir Path tmp)
             throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
         Path source = project.resolve("src/main/java/p/A.java");
@@ -238,9 +255,6 @@ class AgentContractIT {
 
         try (SqliteStore store = new SqliteStore(db)) {
             store.upsertProjectMeta(Map.of(
-                    "dataflow_mode", "full",
-                    "dataflow_scopes", "",
-                    "implicit_taint", "false",
                     "classpath_mode", "explicit",
                     "classpath_override", "/tmp/one path:/tmp/two"));
         }
@@ -248,52 +262,18 @@ class AgentContractIT {
                 "--index", db.toString());
         String fullCommand = String.valueOf(((List<?>) ((Map<?, ?>) asObject(full.stdout)
                 .get("agent_preflight")).get("next_commands")).get(0));
-        assertTrue(fullCommand.contains("--dataflow-mode full"), fullCommand);
         assertTrue(fullCommand.contains("--classpath '/tmp/one path:/tmp/two'"), fullCommand);
 
         try (SqliteStore store = new SqliteStore(db)) {
             store.upsertProjectMeta(Map.of(
-                    "dataflow_mode", "summary",
                     "classpath_mode", "detected"));
         }
         RunResult detected = runCli("doctor", "--agent-preflight", "--format", "json",
                 "--index", db.toString());
         String detectedCommand = String.valueOf(((List<?>) ((Map<?, ?>) asObject(detected.stdout)
                 .get("agent_preflight")).get("next_commands")).get(0));
-        assertTrue(detectedCommand.contains("--dataflow-mode summary"), detectedCommand);
         assertFalse(detectedCommand.contains("--classpath"), detectedCommand);
         assertFalse(detectedCommand.contains("--no-classpath"), detectedCommand);
-    }
-
-    @Test
-    void staleProgressiveFlowRequiresRematerializationWithoutUpgradingFull(@TempDir Path tmp)
-            throws Exception {
-        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
-        Path source = project.resolve("src/main/java/p/A.java");
-        Files.writeString(source, """
-                package p;
-                class A { void sink(String v) {} void run(String v) { sink(v); } }
-                """);
-        Path db = tmp.resolve("progressive-preflight.db");
-        RunResult indexed = runCli("index", project.toString(), "--no-classpath",
-                "--output", db.toString());
-        assertEquals(0, indexed.exitCode, indexed.stderr);
-        RunResult materialized = runCli("flow-materialize",
-                "p.A#run(java.lang.String)", "p.A#sink(java.lang.String)",
-                "--index", db.toString());
-        assertEquals(0, materialized.exitCode, materialized.stderr);
-
-        Files.writeString(source, """
-                package p;
-                class A { void sink(String v) {} void run(String v) { String x = v; sink(x); } }
-                """);
-        RunResult result = runCli("doctor", "--agent-preflight", "--format", "json",
-                "--index", db.toString());
-        Map<?, ?> preflight = (Map<?, ?>) asObject(result.stdout).get("agent_preflight");
-        assertTrue(String.valueOf(preflight.get("warnings"))
-                .contains("PROGRESSIVE_FLOW_WILL_REQUIRE_REMATERIALIZATION"), preflight.toString());
-        assertFalse(String.valueOf(preflight.get("next_commands"))
-                .contains("--dataflow-mode full"), preflight.toString());
     }
 
     @Test

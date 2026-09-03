@@ -76,9 +76,6 @@ class ReflectionAnalysisIT {
                         .endsWith("::MAIN::p.Helper#done(java.lang.String)")),
                 path.toString());
 
-        assertEquals(0, scalar(fixture.db(),
-                "SELECT count(*) FROM flow_nodes"),
-                "reflection must be available without --dataflow");
     }
 
     @Test
@@ -115,22 +112,6 @@ class ReflectionAnalysisIT {
                 fixture.caller(), fresh);
         index(freshFixture, false);
         assertEquals(canonicalReflectionGraph(fresh), canonicalReflectionGraph(fixture.db()));
-    }
-
-    @Test
-    void dataflowDoesNotDuplicateReflectionFacts(@TempDir Path tmp) throws Exception {
-        Fixture fixture = createProject(tmp);
-        RunResult indexed = CliTestSupport.runIndex(fixture.project(),
-                "--project-source", fixture.sourceRoot().toString(),
-                "--no-classpath", "--java-version", "17", "--dataflow",
-                "--output", fixture.db().toString());
-        assertEquals(0, indexed.exitCode(), indexed.stderr());
-        assertEquals(1, scalar(fixture.db(), """
-                SELECT count(*) FROM edges
-                WHERE relation='CALLS' AND call_kind='REFLECTION'
-                  AND metadata LIKE '%"operation":"METHOD_INVOKE"%'
-                """));
-        assertTrue(scalar(fixture.db(), "SELECT count(*) FROM flow_nodes") > 0);
     }
 
     private static Fixture createProject(Path tmp) throws Exception {
