@@ -111,7 +111,7 @@ public class JavaParserFactory {
                 exception -> false, List.<TypeSolver>of(), boundedCache(combinedTypeCacheSize()));
         ParserConfiguration sourceConfiguration = configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
-                .setSymbolResolver(new JavaSymbolSolver(ts)));
+                .setSymbolResolver(new JavaSymbolSolver(ts)), ts);
         // Source paths first — project types should resolve before JDK/classpath
         for (Path src : sourcePaths) {
             if (src != null && Files.isDirectory(src)) {
@@ -169,13 +169,23 @@ public class JavaParserFactory {
     }
 
     public ParserConfiguration newConfiguration() {
+        CombinedTypeSolver typeSolver = newTypeSolver();
         return configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
-                .setSymbolResolver(new JavaSymbolSolver(newTypeSolver())));
+                .setSymbolResolver(new JavaSymbolSolver(typeSolver)), typeSolver);
     }
 
-    private ParserConfiguration configure(ParserConfiguration configuration) {
+    private ParserConfiguration configure(ParserConfiguration configuration, TypeSolver typeSolver) {
         configuration.getProcessors().addAll(extensionProcessors);
+        configuration.getProcessors().add(() -> new Processor() {
+            @Override
+            public void postProcess(ParseResult<? extends com.github.javaparser.ast.Node> result,
+                                    ParserConfiguration ignored) {
+                if (result.getResult().orElse(null) instanceof CompilationUnit unit) {
+                    TypeSolverAstData.attach(unit, typeSolver);
+                }
+            }
+        });
         return configuration;
     }
 
@@ -327,7 +337,7 @@ public class JavaParserFactory {
                 exception -> false, List.<TypeSolver>of(), combinedTypes);
         ParserConfiguration sourceConfiguration = configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
-                .setSymbolResolver(new JavaSymbolSolver(ts)));
+                .setSymbolResolver(new JavaSymbolSolver(ts)), ts);
         for (Path src : sourcePaths) {
             if (src == null || !Files.isDirectory(src)) continue;
             Path normalized = src.toAbsolutePath().normalize();
@@ -349,7 +359,7 @@ public class JavaParserFactory {
         }
         ParserConfiguration configuration = configure(new ParserConfiguration()
                 .setLanguageLevel(toLanguageLevel(javaVersion))
-                .setSymbolResolver(new JavaSymbolSolver(ts)));
+                .setSymbolResolver(new JavaSymbolSolver(ts)), ts);
         return new Session(configuration, combinedTypes, closeables);
     }
 

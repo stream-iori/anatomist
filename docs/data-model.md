@@ -172,6 +172,25 @@ XML_*:                  parent XML id + segment + source location      → bean:
   "signature": "checkout(String orderId, List<OrderItem> items)"
 }
 
+// optional on a fallback CALLS edge to a project-source Lombok type
+{
+  "lombok_usage": {
+    "status": "usage-observed",
+    "evidence": "call-site",
+    "capability": "builder",
+    "owner": "com.example.Order",
+    "root": "builder",
+    "builder_type": null,
+    "mapping_status": "mapped",
+    "steps": [
+      {"method": "name", "arity": 1, "role": "property",
+       "mapping_status": "mapped", "field": "name",
+       "field_id": "com.example.Order#name"},
+      {"method": "build", "arity": 0, "role": "terminal"}
+    ]
+  }
+}
+
 // kind = ANONYMOUS_CLASS
 {
   "baseType": "Runnable",

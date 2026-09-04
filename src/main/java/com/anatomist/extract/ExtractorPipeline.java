@@ -3,6 +3,7 @@ package com.anatomist.extract;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.IndexTimings;
 import com.anatomist.framework.JavaUnitAnalyzer;
+import com.anatomist.framework.CallSiteEvidenceProvider;
 import com.anatomist.framework.ExtensionReport;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FactOrigin;
@@ -20,20 +21,21 @@ public class ExtractorPipeline {
     private final ExtensionReport extensionReport;
 
     public ExtractorPipeline(ExtractionContext ctx) {
-        this(ctx, List.of(), null, null);
+        this(ctx, List.of(), List.of(), null, null);
     }
 
     public ExtractorPipeline(ExtractionContext ctx, List<? extends JavaUnitAnalyzer> analyzers) {
-        this(ctx, analyzers, null, null);
+        this(ctx, List.of(), analyzers, null, null);
     }
 
     public ExtractorPipeline(ExtractionContext ctx,
                              List<? extends JavaUnitAnalyzer> analyzers,
                              IndexTimings timings) {
-        this(ctx, analyzers, timings, null);
+        this(ctx, List.of(), analyzers, timings, null);
     }
 
     public ExtractorPipeline(ExtractionContext ctx,
+                             List<? extends CallSiteEvidenceProvider> callSiteEvidenceProviders,
                              List<? extends JavaUnitAnalyzer> analyzers,
                              IndexTimings timings,
                              ExtensionReport extensionReport) {
@@ -46,7 +48,8 @@ public class ExtractorPipeline {
                 new TimedExtractor("full_extract_annotation", new AnnotationExtractor(ctx)),
                 new TimedExtractor("full_extract_hierarchy", new HierarchyExtractor(ctx)),
                 new TimedExtractor("full_extract_reference", new ReferenceExtractor(ctx)),
-                new TimedExtractor("full_extract_call_graph", new CallGraphExtractor(ctx)),
+                new TimedExtractor("full_extract_call_graph", new CallGraphExtractor(
+                        ctx, callSiteEvidenceProviders, extensionReport)),
                 new TimedExtractor("full_extract_reflection", new ReflectionExtractor(ctx)),
                 new TimedExtractor("full_extract_field_access", new FieldAccessExtractor(ctx))
         );

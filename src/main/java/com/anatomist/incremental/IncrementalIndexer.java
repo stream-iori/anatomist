@@ -400,7 +400,8 @@ public class IncrementalIndexer {
         stopTiming("extension_prepare", extensionPrepareStarted);
         ExtensionReport extensionReport = new ExtensionReport(timings);
         ExtractorPipeline pipeline = new ExtractorPipeline(
-                ctx, extensions.registry().javaUnitAnalyzers(), timings, extensionReport);
+                ctx, extensions.registry().callSiteEvidenceProviders(),
+                extensions.registry().javaUnitAnalyzers(), timings, extensionReport);
         Set<String> parsed = new LinkedHashSet<>();
         JavaParserFactory.ParseFilesResult parsedBatch =
                 parserFactory.parseFilesDetailed(targetJavaFiles(files));

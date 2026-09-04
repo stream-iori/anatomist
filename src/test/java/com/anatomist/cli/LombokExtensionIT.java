@@ -84,7 +84,8 @@ class LombokExtensionIT {
                     + "WHERE code='LOMBOK_FEATURE_UNSUPPORTED' AND symbol='Builder'") >= 1);
             assertEquals(Path.of("src/main/java/sample/UnsupportedBuilder.java").toString(), scalarString(statement,
                     "SELECT source_file FROM index_diagnostics "
-                            + "WHERE code='LOMBOK_FEATURE_UNSUPPORTED' AND symbol='Builder' LIMIT 1"));
+                            + "WHERE code='LOMBOK_FEATURE_UNSUPPORTED' AND symbol='Builder' "
+                            + "AND source_file='src/main/java/sample/UnsupportedBuilder.java' LIMIT 1"));
             assertEquals("ast", scalarString(statement,
                     "SELECT value FROM project_meta WHERE key='lombok_mode'"));
             assertEquals("2", scalarString(statement,
@@ -105,6 +106,65 @@ class LombokExtensionIT {
             assertEquals("partial", scalarString(statement,
                     "SELECT json_extract(metadata,'$.lombok.coverage') FROM nodes "
                             + "WHERE symbol_id='sample.AccessorUser'"));
+            assertEquals("mapped", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.mapping_status') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#accessor(sample.AccessorUser)') "
+                            + "AND relation='CALLS' AND external_target_fqn='sample.AccessorUser#name()'"));
+            assertEquals("sample.AccessorUser#name", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.field_id') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#accessor(sample.AccessorUser)') "
+                            + "AND relation='CALLS' AND external_target_fqn='sample.AccessorUser#name()'"));
+            assertEquals("builder", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.capability') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#build()') "
+                            + "AND relation='CALLS' "
+                            + "AND external_target_fqn='sample.UnsupportedBuilder#builder()'"));
+            assertEquals("value", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.steps[0].field') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#build()') "
+                            + "AND relation='CALLS' "
+                            + "AND external_target_fqn='sample.UnsupportedBuilder#builder()'"));
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM nodes "
+                    + "WHERE symbol_id LIKE 'sample.UnsupportedBuilder%Builder%'"));
+            assertEquals("sample.CustomBuilder#label", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.steps[0].field_id') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#customBuild()') "
+                            + "AND external_target_fqn='sample.CustomBuilder#newBuilder()'"));
+            assertEquals("create", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.steps[1].method') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#customBuild()') "
+                            + "AND external_target_fqn='sample.CustomBuilder#newBuilder()'"));
+            assertEquals("sample.PrefixAccessor#mName", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.field_id') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#prefixed(sample.PrefixAccessor)') "
+                            + "AND external_target_fqn='sample.PrefixAccessor#getName()'"));
+            assertNull(scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#disabled(sample.DisabledAccessor)') "
+                            + "AND external_target_fqn='sample.DisabledAccessor#getSecret()'"));
+            assertEquals("sample.BaseModel#base", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.steps[0].field_id') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#inheritedBuild()') "
+                            + "AND external_target_fqn='sample.ChildModel#builder()'"));
+            assertEquals("sample.ChildModel#child", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.steps[1].field_id') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#inheritedBuild()') "
+                            + "AND external_target_fqn='sample.ChildModel#builder()'"));
+            assertEquals("toBuilder", scalarString(statement,
+                    "SELECT json_extract(metadata,'$.lombok_usage.root') FROM edges "
+                            + "WHERE source_id IN (SELECT id FROM nodes "
+                            + "WHERE symbol_id='sample.LombokUsageService#copyBuild(sample.ChildModel)') "
+                            + "AND external_target_fqn='sample.ChildModel#toBuilder()'"));
         }
 
         try (QueryService query = new QueryService(db)) {
@@ -124,6 +184,14 @@ class LombokExtensionIT {
             var name = context.members.stream().filter(row -> "sample.User#name".equals(row.qualifiedName))
                     .findFirst().orElseThrow();
             assertEquals(List.of("NonNull"), name.lombok.get("detected_annotations"));
+
+            var builderCall = query.calleesOf("sample.LombokUsageService#build()", 1).stream()
+                    .filter(edge -> "sample.UnsupportedBuilder#builder()"
+                            .equals(edge.externalTargetFqn))
+                    .findFirst().orElseThrow();
+            assertTrue(builderCall.metadata.contains("\"status\":\"usage-observed\""));
+            assertTrue(query.callersOf("sample.UnsupportedBuilder#builder()", 1).stream()
+                    .anyMatch(edge -> "sample.LombokUsageService#build()".equals(edge.sourceSymbolId)));
 
             Map<String, Object> golden = new LinkedHashMap<>();
             golden.put("search_user", user.lombok);
@@ -209,6 +277,10 @@ class LombokExtensionIT {
             assertEquals(0, scalar(statement, "SELECT count(*) FROM index_diagnostics "
                     + "WHERE source_file='src/main/java/sample/UnsupportedBuilder.java' "
                     + "AND code='LOMBOK_FEATURE_UNSUPPORTED'"));
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM edges "
+                    + "WHERE source_id IN (SELECT id FROM nodes "
+                    + "WHERE symbol_id='sample.LombokUsageService#build()') "
+                    + "AND json_extract(metadata,'$.lombok_usage') IS NOT NULL"));
         }
 
         Files.writeString(project.resolve("lombok.config"), "lombok.getter.noIsPrefix = true\n");

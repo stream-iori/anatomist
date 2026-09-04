@@ -4,6 +4,7 @@ import com.anatomist.framework.AnalysisContext;
 import com.anatomist.framework.AnalyzerRegistry;
 import com.anatomist.framework.PreparedExtensions;
 import com.anatomist.framework.lombok.LombokAstModelExtension;
+import com.anatomist.framework.lombok.LombokCallSiteEvidenceProvider;
 import com.anatomist.framework.lombok.LombokMode;
 
 import java.util.ArrayList;
@@ -15,13 +16,16 @@ public final class BuiltInExtensions {
     public static PreparedExtensions prepare(AnalysisContext context) {
         AnalyzerRegistry spring = SpringAnalyzers.registry(context);
         var astExtensions = new ArrayList<>(spring.astModelExtensions());
+        var callSiteEvidence = new ArrayList<>(spring.callSiteEvidenceProviders());
         if (context != null && context.config() != null
                 && context.config().lombokMode() == LombokMode.AST) {
             astExtensions.add(new LombokAstModelExtension(
                     context.projectRoot(), context.config().lombokStrict()));
+            callSiteEvidence.add(new LombokCallSiteEvidenceProvider(context.projectRoot()));
         }
         return PreparedExtensions.prepare(new AnalyzerRegistry(
                 astExtensions,
+                callSiteEvidence,
                 spring.javaUnitAnalyzers(),
                 spring.projectResourceProviders(),
                 spring.projectResourceAnalyzers()));

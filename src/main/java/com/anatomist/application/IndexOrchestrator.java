@@ -67,7 +67,8 @@ public class IndexOrchestrator {
         stopTiming(timings, "extension_prepare", phaseStarted);
         ExtensionReport extensionReport = new ExtensionReport(timings);
         ExtractorPipeline pipeline = new ExtractorPipeline(
-                ctx, extensions.registry().javaUnitAnalyzers(), timings, extensionReport);
+                ctx, extensions.registry().callSiteEvidenceProviders(),
+                extensions.registry().javaUnitAnalyzers(), timings, extensionReport);
 
         SourceIdentityResolver identityResolver = cfg.sourceRoots() == null || cfg.sourceRoots().isEmpty()
                 ? new SourceIdentityResolver(cfg.projectRoot(), cfg.sourcePaths())

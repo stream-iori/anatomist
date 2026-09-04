@@ -18,10 +18,11 @@ public record PreparedExtensions(AnalyzerRegistry registry, String fingerprint) 
 
     public static PreparedExtensions prepare(AnalyzerRegistry registry) {
         AnalyzerRegistry effective = registry == null
-                ? new AnalyzerRegistry(List.of(), List.of(), List.of(), List.of()) : registry;
+                ? new AnalyzerRegistry(List.of(), List.of(), List.of(), List.of(), List.of()) : registry;
         Set<String> ids = new HashSet<>();
         List<ExtensionPoint> all = new ArrayList<>();
         all.addAll(effective.astModelExtensions());
+        all.addAll(effective.callSiteEvidenceProviders());
         all.addAll(effective.javaUnitAnalyzers());
         all.addAll(effective.projectResourceProviders());
         all.addAll(effective.projectResourceAnalyzers());

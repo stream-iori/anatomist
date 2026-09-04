@@ -2,11 +2,15 @@ package com.anatomist.extract;
 
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.NodeIdGenerator;
+import com.anatomist.core.TypeSolverAstData;
 import com.anatomist.core.nativeimage.EmbeddedJdkClassDeclaration;
+import com.anatomist.framework.CallSiteEvidenceProvider;
+import com.anatomist.framework.ExtensionReport;
 import com.anatomist.json.Json;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -45,6 +49,8 @@ public class CallGraphExtractor implements Extractor {
 
     private final ExtractionContext ctx;
     private final AstEnclosing enclosing;
+    private final List<CallSiteEvidenceProvider> evidenceProviders;
+    private final ExtensionReport extensionReport;
     private final Map<Expression, Optional<ResolvedType>> calculatedTypes = new IdentityHashMap<>();
     private final Map<Expression, Optional<ResolvedType>> scopeTypes = new IdentityHashMap<>();
     private final Map<Expression, String> renderedTypes = new IdentityHashMap<>();
@@ -59,8 +65,17 @@ public class CallGraphExtractor implements Extractor {
     private enum FallbackOutcome { NONE, APPROXIMATE, EXACT, AMBIGUOUS }
 
     public CallGraphExtractor(ExtractionContext ctx) {
+        this(ctx, List.of(), null);
+    }
+
+    public CallGraphExtractor(ExtractionContext ctx,
+                              List<? extends CallSiteEvidenceProvider> evidenceProviders,
+                              ExtensionReport extensionReport) {
         this.ctx = ctx;
         this.enclosing = new AstEnclosing(ctx.idGenerator());
+        this.evidenceProviders = evidenceProviders == null
+                ? List.of() : List.copyOf(evidenceProviders);
+        this.extensionReport = extensionReport;
     }
 
     @Override
@@ -193,6 +208,16 @@ public class CallGraphExtractor implements Extractor {
         if (result.edges.size() > before) {
             Edge edge = result.edges.get(result.edges.size() - 1);
             if (edge.isExternal) edge.resolution = GraphConstants.Resolution.TYPE_FALLBACK;
+            if (callNode instanceof MethodCallExpr call) {
+                ResolvedReferenceTypeDeclaration owner = null;
+                try {
+                    ResolvedTypeDeclaration declaration = target.declaringType();
+                    if (declaration instanceof ResolvedReferenceTypeDeclaration reference) {
+                        owner = reference;
+                    }
+                } catch (RuntimeException ignored) { }
+                enrichFallback(call, edge, owner);
+            }
         }
     }
 
@@ -526,6 +551,7 @@ public class CallGraphExtractor implements Extractor {
                 + "(" + parameters + ")";
         edge.isExternal = true;
         edge.resolution = GraphConstants.Resolution.AST_FALLBACK;
+        enrichFallback(call, edge, null);
         result.edges.add(edge);
         return true;
     }
@@ -647,6 +673,7 @@ public class CallGraphExtractor implements Extractor {
                 e.isExternal = true;
                 e.resolution = GraphConstants.Resolution.AST_FALLBACK;
             }
+            enrichFallback(call, e, owner);
             result.edges.add(e);
         }
     }
@@ -676,6 +703,11 @@ public class CallGraphExtractor implements Extractor {
                 + "(" + fallbackParameterList(call) + ")";
         e.isExternal = true;
         e.resolution = GraphConstants.Resolution.TYPE_FALLBACK;
+        ResolvedReferenceTypeDeclaration owner = null;
+        try {
+            owner = scopeType.asReferenceType().getTypeDeclaration().orElse(null);
+        } catch (RuntimeException ignored) { }
+        enrichFallback(call, e, owner);
         result.edges.add(e);
         return true;
     }
@@ -723,8 +755,96 @@ public class CallGraphExtractor implements Extractor {
                 + "(" + fallbackParameterList(call) + ")";
         e.isExternal = true;
         e.resolution = GraphConstants.Resolution.STATIC_NAME_FALLBACK;
+        enrichFallback(call, e, null);
         result.edges.add(e);
         return true;
+    }
+
+    private void enrichFallback(MethodCallExpr call, Edge edge,
+                                ResolvedReferenceTypeDeclaration hintedOwner) {
+        if (evidenceProviders.isEmpty() || call == null || edge == null) return;
+        ResolvedReferenceTypeDeclaration owner = hintedOwner != null
+                ? hintedOwner : resolveFallbackOwner(call, edge);
+        String ownerFqn = ownerFqn(edge, owner);
+        boolean projectInternal = owner != null && ctx.isProjectInternal(owner);
+        var site = new CallSiteEvidenceProvider.FallbackCallSite(
+                ownerFqn, owner, projectInternal, edge.callKind, edge.resolution);
+        for (CallSiteEvidenceProvider provider : evidenceProviders) {
+            try {
+                provider.observe(call, site).ifPresent(evidence -> {
+                    edge.metadata = mergeEvidence(edge.metadata,
+                            evidence.namespace(), evidence.value());
+                    if (extensionReport != null && evidence.counter() != null
+                            && !evidence.counter().isBlank()) {
+                        extensionReport.increment(evidence.counter(), 1);
+                    }
+                });
+            } catch (RuntimeException failure) {
+                if (extensionReport != null) {
+                    String sourceFile = call.findCompilationUnit().map(SourceFiles::of).orElse(null);
+                    extensionReport.diagnostic(new com.anatomist.core.IndexDiagnostic(
+                            "warning", "EXTENSION_CALL_EVIDENCE_FAILED", "EXTENSION_FACT_ENRICH",
+                            sourceFile, ctx.module(), ctx.scope(), provider.id(), 1,
+                            failure.getClass().getSimpleName() + ": " + failure.getMessage()));
+                }
+            }
+        }
+    }
+
+    private ResolvedReferenceTypeDeclaration resolveFallbackOwner(MethodCallExpr call, Edge edge) {
+        Optional<Expression> scope = call.getScope();
+        if (scope.isPresent() && !looksLikeTypeName(scope.get().toString())) {
+            ResolvedType type = resolveScopeType(scope.get());
+            if (type != null && type.isReferenceType()) {
+                try {
+                    Optional<ResolvedReferenceTypeDeclaration> declaration =
+                            type.asReferenceType().getTypeDeclaration();
+                    if (declaration.isPresent()) return declaration.get();
+                } catch (RuntimeException ignored) { }
+            }
+        }
+        String ownerFqn = ownerFqn(edge, null);
+        if (ownerFqn == null || ownerFqn.isBlank()) return null;
+        Optional<ResolvedReferenceTypeDeclaration> indexed =
+                TypeSolverAstData.solve(call, ownerFqn);
+        if (indexed.isPresent()) return indexed.get();
+        try {
+            var type = StaticJavaParser.parseClassOrInterfaceType(ownerFqn);
+            type.setData(Node.SYMBOL_RESOLVER_KEY, call.getSymbolResolver());
+            ResolvedType resolved = call.getSymbolResolver().toResolvedType(type, ResolvedType.class);
+            if (!resolved.isReferenceType()) return null;
+            return resolved.asReferenceType().getTypeDeclaration().orElse(null);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static String ownerFqn(Edge edge, ResolvedReferenceTypeDeclaration owner) {
+        if (owner != null) {
+            try { return owner.getQualifiedName(); }
+            catch (RuntimeException ignored) { }
+        }
+        String target = edge.isExternal ? edge.externalTargetFqn : edge.targetId;
+        if (target == null) return null;
+        int hash = target.indexOf('#');
+        return hash < 0 ? target : target.substring(0, hash);
+    }
+
+    private static String mergeEvidence(String existing, String namespace,
+                                        Map<String, Object> value) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (existing != null && !existing.isBlank()) {
+            try {
+                Object parsed = Json.parseTree(existing);
+                if (parsed instanceof Map<?, ?> map) {
+                    map.forEach((key, item) -> metadata.put(String.valueOf(key), item));
+                }
+            } catch (RuntimeException ignored) {
+                // Keep new evidence even if legacy metadata was malformed.
+            }
+        }
+        metadata.put(namespace, value);
+        return Json.writeCompact(metadata);
     }
 
     private ResolvedType resolveScopeType(Expression scope) {

@@ -5,7 +5,7 @@
 - `model/` — Plain data: `Node`, `Edge`, `Annotation`, `ExtractionResult`
 - `core/` — Index application boundary and plumbing: `IndexRequest`, `IndexApplicationService`, `IndexOutcome`, `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, identity/health services, and extraction context.
 - `extract/` — `Extractor` implementations. `CallGraphExtractor` handles traversal/emission while `CallOverloadResolver` owns shared AST/SymbolSolver overload ranking. Plus `XmlBeanExtractor` for Spring XML beans.
-- `framework/` — Compile-time extension SPI. `AstModelExtension` augments the in-memory AST, `JavaUnitAnalyzer` emits per-unit facts, `ProjectResourceProvider` discovers shared resources, and `ProjectResourceAnalyzer` emits project-resource facts. `AnalyzerRegistry` wires built-ins.
+- `framework/` — Compile-time extension SPI. `AstModelExtension` augments the in-memory AST, `CallSiteEvidenceProvider` decorates fallback calls without changing graph shape, `JavaUnitAnalyzer` emits per-unit facts, `ProjectResourceProvider` discovers shared resources, and `ProjectResourceAnalyzer` emits project-resource facts. `AnalyzerRegistry` wires built-ins.
 - `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
 - `framework/lombok/` — Opt-in signature-only Lombok AST model and root `lombok.config` subset; queries disclose modeled/partial/unmodeled capability evidence rather than inventing unmodeled members.
 - `store/` — `SqliteStore` (schema + atomic batched write)
@@ -30,6 +30,7 @@ IndexCommand (picocli adapter)
           FieldExtractor   → FIELD nodes + CONTAINS edges
           AnnotationExtractor → annotations table
           CallGraphExtractor  → CALLS edges with call_kind
+              CallSiteEvidenceProvider → namespaced metadata on fallback CALLS
           HierarchyExtractor  → INHERITS/IMPLEMENTS/OVERRIDES edges
           ReferenceExtractor  → REFERENCES edges with context
           FieldAccessExtractor → READS/WRITES edges
@@ -54,6 +55,7 @@ Framework support must add graph facts, not hard-code logic into `IndexOrchestra
 | Extension point | Timing | Use |
 |---|---|---|
 | `AstModelExtension` | Parse 后、contract hash/core extractor 前 | Lombok-like generated signatures; must be idempotent. |
+| `CallSiteEvidenceProvider` | fallback CALLS 写入前 | Add source-observed metadata; cannot add nodes or edges. |
 | `JavaUnitAnalyzer` | Core extractor 后 | Source annotations and declarations, e.g. Spring MVC and `@Autowired`. |
 | `ProjectResourceProvider` | 项目分析前 | Discover and de-duplicate non-Java resources into one shared inventory. |
 | `ProjectResourceAnalyzer` | Java facts staged 后 | XML/YAML/generated metadata; analyzers share the inventory and read-only fact view. |

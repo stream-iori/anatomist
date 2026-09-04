@@ -31,6 +31,14 @@ class ExtensionLifecycleTest {
         String v2 = PreparedExtensions.prepare(new AnalyzerRegistry(
                 List.of(), List.of(analyzer("a", "2")), List.of())).fingerprint();
         assertNotEquals(v1, v2);
+
+        String callV1 = PreparedExtensions.prepare(new AnalyzerRegistry(
+                List.of(), List.of(callEvidence("call", "1")), List.of(), List.of(), List.of()))
+                .fingerprint();
+        String callV2 = PreparedExtensions.prepare(new AnalyzerRegistry(
+                List.of(), List.of(callEvidence("call", "2")), List.of(), List.of(), List.of()))
+                .fingerprint();
+        assertNotEquals(callV1, callV2);
     }
 
     @Test
@@ -160,6 +168,17 @@ class ExtensionLifecycleTest {
             @Override public String id() { return id; }
             @Override public String version() { return version; }
             @Override public void analyze(CompilationUnit unit, ExtractionResult result) {}
+        };
+    }
+
+    private static CallSiteEvidenceProvider callEvidence(String id, String version) {
+        return new CallSiteEvidenceProvider() {
+            @Override public String id() { return id; }
+            @Override public String version() { return version; }
+            @Override public java.util.Optional<Evidence> observe(
+                    MethodCallExpr call, FallbackCallSite site) {
+                return java.util.Optional.empty();
+            }
         };
     }
 

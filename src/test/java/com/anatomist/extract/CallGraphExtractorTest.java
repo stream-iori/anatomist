@@ -3,6 +3,8 @@ package com.anatomist.extract;
 import com.anatomist.core.ExtractionContext;
 import com.anatomist.core.JavaParserTestSupport;
 import com.anatomist.core.NodeIdGenerator;
+import com.anatomist.framework.CallSiteEvidenceProvider;
+import com.anatomist.framework.ExtensionReport;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.github.javaparser.ast.CompilationUnit;
@@ -76,6 +78,30 @@ class CallGraphExtractorTest {
                 .findFirst().orElseThrow(() -> new AssertionError("got " + r.edges));
         assertEquals("STATIC", call.callKind);
         assertEquals("java.lang.Math#abs(int)", call.externalTargetFqn);
+    }
+
+    @Test
+    void failingCallEvidenceProviderKeepsFallbackEdge() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; class A { void run() { Missing.generated(); } }");
+        CallSiteEvidenceProvider broken = new CallSiteEvidenceProvider() {
+            @Override public String id() { return "broken-call-evidence"; }
+            @Override public java.util.Optional<Evidence> observe(
+                    com.github.javaparser.ast.expr.MethodCallExpr call,
+                    FallbackCallSite site) {
+                throw new IllegalStateException("boom");
+            }
+        };
+        ExtensionReport report = new ExtensionReport();
+        ExtractionResult result = new ExtractionResult();
+
+        new CallGraphExtractor(ctx, List.of(broken), report).extract(cu, result);
+
+        assertTrue(result.edges.stream().anyMatch(edge ->
+                "pkg.Missing#generated()".equals(edge.externalTargetFqn)));
+        assertTrue(report.diagnostics().stream().anyMatch(diagnostic ->
+                "EXTENSION_CALL_EVIDENCE_FAILED".equals(diagnostic.code())
+                        && "broken-call-evidence".equals(diagnostic.symbol())));
     }
 
     @Test

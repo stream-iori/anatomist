@@ -15,6 +15,7 @@ public final class SpringAnalyzers {
                 context == null ? null : context.extractionContext();
         return new AnalyzerRegistry(
                 List.of(),
+                List.of(),
                 List.of(
                         new SpringComponentAnalyzer(extractionContext),
                         new SpringMvcAnalyzer(extractionContext)),

@@ -108,11 +108,17 @@ detected annotations plus modeled, partial, and unmodeled capabilities.
 Unsupported transformations such as `@Builder` are disclosed without invented
 members. `@Accessors` makes affected Getter/Setter capabilities partial and
 suppresses uncertain default names instead of guessing `getX/setX`.
+For fallback calls to project-source Lombok types, AST mode can attach
+`metadata.lombok_usage` as call-site evidence. It maps uniquely observed
+Accessor names to fields and records a syntactically connected
+`@Builder`/`@SuperBuilder` chain on its root call edge. It never invents a
+Builder class or method node; an unknown Builder type remains `null`.
 `strict=true` promotes Lombok coverage diagnostics to the complete health gate.
 
 Treat this object as an evidence summary: only modeled members are graph facts;
 partial or unmodeled capabilities must not be turned into asserted member names
-or call relations without further evidence.
+or call relations without further evidence. `usage-observed` means the call is
+present in source, not that a successful compilation confirmed it.
 
 | `[scan]` key | Meaning | Default |
 |---|---|---|
