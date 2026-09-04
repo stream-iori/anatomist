@@ -1,0 +1,89 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-complex-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-complex-business-path
+name: Complex shop business path and Spring wiring
+category: e2e
+scenario:
+  given: 六模块 Spring 项目包含在线与批处理同名服务、Qualifier、多实现和 XML 通知配置。
+  when: 用户要求解释 assured checkout 的完整静态业务链路和装配边界。
+  then: Agent 完成搜索消歧、跨模块调用链和 Spring 配置取证，并拒绝把静态候选说成运行时事实。
+prompt:
+  language: zh-CN
+  text: |
+    项目文档把一条链路称为 assured checkout。请说明它从 HTTP 入口到订单保存、事件发布
+    和通知分发的完整静态路径，并说明风控、仓储和通知通道的 Spring 配置证据。
+    项目里同时存在在线与批处理同名 OrderService，请先用 Anatomist 全局 search 枚举并消歧。
+    对于 Qualifier、候选实现和 XML 顺序，请明确哪些是静态配置事实，哪些不能证明运行时
+    实际选择。只分析，不修改项目。
+checks:
+  - id: routed-through-evidence-gate
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: command_sequence, commands: [skill, doctor, index, search, context]}
+    covers: [anatomist-routing]
+  - id: complex-query-coverage
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: commands_present, commands: [search, context, bean-config]}
+    covers: [anatomist-routing]
+  - id: search-result-was-consumed
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_output_regex
+      command: 'anatomist\s+search\s+.*OrderService'
+      all: [com.example.shop.application.OrderService, com.example.shop.batch.OrderService]
+    covers: [grounded-answer]
+  - id: spring-evidence-was-consumed
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_output_regex
+      command: 'anatomist\s+context\s+.*com\.example\.shop\.application\.OrderService'
+      all: [strictRiskPolicy, auditedOrderRepository, 'AMBIGUOUS|ambiguous']
+    covers: [grounded-answer]
+  - id: business-answer
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: response_regex
+      all:
+        - 'POST\s+/api/orders'
+        - 'OrderController.*OrderService'
+        - 'OrderRepository|save'
+        - 'OrderEventPublisher|publish'
+        - 'NotificationDispatcher|NotificationChannel'
+        - 'strictRiskPolicy'
+        - 'auditedOrderRepository'
+        - 'auditChannel.*emailChannel.*smsChannel'
+        - '静态|配置'
+        - '运行时.*(不能|无法)|不能.*运行时|无法.*运行时'
+    covers: [grounded-answer]
+  - id: source-clean
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: git_clean}
+    covers: [source-integrity]
+  - id: fresh-index
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: index_fresh}
+    covers: [fresh-index]
+references:
+  key_points:
+    - 在线入口是 POST /api/orders，在线服务位于 application 模块，batch 同名类不是该入口。
+    - 调用链经过保存、事件发布、dispatcher 和 lambda 中的 NotificationChannel.send。
+    - Qualifier 名被记录，但派生 WIRES 候选仍是 ambiguous；不能据此证明运行时 Bean。
+    - XML orderedChannels 顺序是 audit、email、sms。
+  sources: [fixtures/complex-mini-spring-shop/docs/order-lifecycle.md]
+metadata: {owner: anatomist, source: complex-agent-e2e, created_at: '2026-09-04'}
+tags: [anatomist, e2e, factual, spring, multi-module]
+priority: P0

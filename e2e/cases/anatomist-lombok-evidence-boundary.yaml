@@ -1,0 +1,96 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-lombok-evidence-boundary
+name: Anatomist Lombok usage evidence boundary
+category: e2e
+scenario:
+  given: 项目使用 fluent Accessors、默认 Builder 和自定义 Builder 名字，Lombok AST 模式已启用。
+  when: 用户要求确认真实调用名和证据强度。
+  then: Agent 报告调用点观察到的名字，同时不把未建模 Builder 结构说成编译声明事实。
+prompt:
+  language: zh-CN
+  text: |
+    请判断 sample.LombokUsageService 中 fluent accessor、默认 builder 和自定义 builder
+    的真实调用名。分别说明哪些是调用点已经观察到的事实，哪些不能当作完整的生成声明
+    或编译结果。只做分析，不要修改源码。
+setup:
+  commands:
+    - id: stage-project
+      type: shell
+      command: |
+        cp -R fixtures/lombok-evidence-project lombok-app
+        cd lombok-app
+        git init -q
+        git config user.email agent@test.example
+        git config user.name "Agent E2E"
+        git add -A
+        git commit -qm baseline
+        anatomist index . --no-classpath --output .anatomist/index.db >/dev/null
+      cwd: .
+      timeout_sec: 60
+checks:
+  - id: freshness-gate
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: Agent 必须先检查并同步索引门禁。
+    config: {check: command_sequence, commands: [skill, doctor, index]}
+    covers: [anatomist-routing]
+  - id: lombok-queries
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: Agent 必须查看 Lombok 声明元数据。
+    config: {check: commands_present, commands: [declarations-of]}
+    covers: [anatomist-routing]
+  - id: lombok-call-evidence
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: Agent 可用独立调用查询或带 callees 的 context 获取调用点证据。
+    config: {check: commands_any, commands: [callees-of, context]}
+    covers: [anatomist-routing]
+  - id: lombok-answer
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: 回答必须包含真实调用名、调用点证据和 Builder 声明边界。
+    config:
+      check: response_regex
+      all:
+        - 'name\(\)'
+        - 'builder\(\).*value.*build\(\)'
+        - 'newBuilder\(\).*withLabel.*create\(\)'
+        - 'usage-observed|调用点|call-site'
+        - 'null|为空|未知|不能|无法|不足|不代表'
+    covers: [grounded-answer]
+  - id: source-clean
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: 分析不得改动源码。
+    config: {check: git_clean}
+    covers: [source-integrity]
+  - id: fresh-index
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: 最终索引必须匹配当前源码。
+    config: {check: index_fresh}
+    covers: [fresh-index]
+references:
+  key_points:
+    - AccessorUser 的调用点观察到 name()，不是 getName()。
+    - 默认 Builder 调用链为 builder().value(...).build()。
+    - 自定义 Builder 调用链为 newBuilder().withLabel(...).create()。
+    - lombok_usage 是 usage-observed/call-site；builder_type 为 null，不能证明完整生成类型结构。
+  sources:
+    - fixtures/lombok-evidence-project/src/main/java/sample/LombokUsageService.java
+    - fixtures/lombok-evidence-project/src/main/java/sample/AccessorUser.java
+    - fixtures/lombok-evidence-project/src/main/java/sample/CustomBuilder.java
+metadata: {owner: anatomist, source: agent-e2e-pilot, created_at: '2026-09-04'}
+extensions:
+  anatomist: {project_root: lombok-app}
+tags: [anatomist, e2e, factual, lombok]
+priority: P0

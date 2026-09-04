@@ -17,6 +17,7 @@ SOURCES    := FIXTURE + "/api/src/main/java:" + FIXTURE + "/domain/src/main/java
 SMOKE_DB   := "/tmp/anatomist-smoke.db"
 NATIVE_BIN := ROOT + "/target/anatomist"
 SKILL_FILE := ROOT + "/SKILL.md"
+JURY_BIN := env_var_or_default("JURY_BIN", "jury")
 INSTALL_DIR := env_var_or_default("ANATOMIST_INSTALL_DIR", env_var("HOME") + "/.local/bin")
 UPLOAD_BASE := env_var_or_default("ANATOMIST_UPLOAD_BASE", "http://6.12.3.250:8100/upload")
 DIST_BASE   := env_var_or_default("ANATOMIST_DIST_BASE", "http://6.12.3.250:8100/dist-bin")
@@ -250,6 +251,46 @@ test-all:
     sdk env
     mvn -q clean test
     mvn -q test -Dtest='IndexCommandIT,QueryServiceIT,GoldenFileIT,MicroFixtureIT,EnrichQueryIT,EnrichCommandIT,AnnotateCommandIT,IndexDocsCommandIT,PicocliCodegenIT,JdkTypeCatalogBuilderIT,JdkTypeCatalogE2EIT,CommonsLangSmokeIT,JavaParserFactoryEmbeddedJdkIT,EmbeddedJdkSolverEndToEndIT'
+
+# Validate optional Jury Agent E2E assets without invoking a model.
+agent-e2e-contract:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v "{{JURY_BIN}}" >/dev/null || { echo "Jury missing; set JURY_BIN=/path/to/jury" >&2; exit 2; }
+    PYTHONPATH="{{ROOT}}/e2e" python3 -m unittest discover -s "{{ROOT}}/e2e" -p 'test_*.py'
+    "{{JURY_BIN}}" suite validate "{{ROOT}}/e2e/jury-suites/smoke.yaml" --strict
+    "{{JURY_BIN}}" suite validate "{{ROOT}}/e2e/jury-suites/complex.yaml" --strict
+
+# Build, index, and query the complex fixture without invoking a model.
+agent-e2e-fixture:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -x "{{NATIVE_BIN}}" || { echo "target/anatomist missing; run: just native" >&2; exit 2; }
+    ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
+      python3 "{{ROOT}}/e2e/validate_complex_fixture.py"
+
+# Run all seven real-Agent evidence cases through Jury's Codex SDK runner.
+agent-e2e-smoke: agent-e2e-contract agent-e2e-fixture
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -x "{{NATIVE_BIN}}" || { echo "target/anatomist missing; run: just native" >&2; exit 2; }
+    mkdir -p "{{ROOT}}/e2e/jury-runs"
+    ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
+      "{{JURY_BIN}}" suite run "{{ROOT}}/e2e/jury-suites/smoke.yaml" \
+        --cwd "{{ROOT}}/e2e" \
+        --runs-dir "{{ROOT}}/e2e/jury-runs" \
+        --adapter anatomist_jury_adapter:create_adapter
+
+# Run only the four complex multi-module cases.
+agent-e2e-complex: agent-e2e-contract agent-e2e-fixture
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{ROOT}}/e2e/jury-runs"
+    ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
+      "{{JURY_BIN}}" suite run "{{ROOT}}/e2e/jury-suites/complex.yaml" \
+        --cwd "{{ROOT}}/e2e" \
+        --runs-dir "{{ROOT}}/e2e/jury-runs" \
+        --adapter anatomist_jury_adapter:create_adapter
 
 # Refresh golden files after an intentional output-format change
 golden-update:

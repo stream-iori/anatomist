@@ -1,0 +1,76 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-stale-index-repair
+name: Anatomist stale index evidence gate
+category: e2e
+scenario:
+  given: 项目索引对应旧源码，当前 Git 提交中的 status 方法已经改变。
+  when: 用户要求分析当前方法行为并说明证据是否新鲜。
+  then: Agent 识别旧索引、增量同步后，基于当前源码回答 current。
+prompt:
+  language: zh-CN
+  text: |
+    请分析当前项目中 sample.CheckoutService#status() 的真实返回值，并说明你如何确认
+    使用的结构和源码证据与当前 checkout 一致。只做分析，不要修改项目源码。
+setup:
+  commands:
+    - id: stage-project
+      type: shell
+      command: |
+        cp -R fixtures/stale-index-project stale-app
+        cd stale-app
+        git init -q
+        git config user.email agent@test.example
+        git config user.name "Agent E2E"
+        git add -A
+        git commit -qm baseline
+        anatomist index . --no-classpath --output .anatomist/index.db >/dev/null
+        sed -i.bak 's/"old"/"current"/' src/main/java/sample/CheckoutService.java
+        rm src/main/java/sample/CheckoutService.java.bak
+        git add -A
+        git commit -qm current
+      cwd: .
+      timeout_sec: 60
+checks:
+  - id: freshness-before-query
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: Agent 必须先检查 freshness，再同步索引，最后读取方法源码。
+    config: {check: command_sequence, commands: [skill, doctor, index, context]}
+    covers: [anatomist-routing]
+  - id: current-answer
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: 回答必须说明旧索引和同步后的 current 结果。
+    config:
+      check: response_regex
+      all: ['current', '过期|stale', '增量|incremental|同步|重建']
+    covers: [grounded-answer]
+  - id: source-clean
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: 分析不得改动源码。
+    config: {check: git_clean}
+    covers: [source-integrity]
+  - id: repaired-index
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: Agent 完成后索引必须匹配当前源码。
+    config: {check: index_fresh}
+    covers: [fresh-index]
+references:
+  key_points:
+    - 初始索引记录的是 old，当前 Git 提交中的方法返回 current。
+    - doctor agent-preflight 应先报告 INDEX_STALE；查询前必须完成增量同步。
+  sources:
+    - references/stale-index-repair.md
+metadata: {owner: anatomist, source: agent-e2e-pilot, created_at: '2026-09-04'}
+extensions:
+  anatomist: {project_root: stale-app}
+tags: [anatomist, e2e, factual, freshness]
+priority: P0

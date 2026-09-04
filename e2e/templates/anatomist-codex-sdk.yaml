@@ -1,0 +1,66 @@
+schema_version: jury.case/v2
+category: e2e
+
+setup:
+  workspace_mode: isolated
+  env:
+    NO_BROWSER: "1"
+    ALL_PROXY: null
+
+execution:
+  runner: codex_sdk
+  timeout_sec: 300
+  startup_timeout_sec: 30
+  first_activity_timeout_sec: 90
+  inactivity_timeout_sec: 120
+  turn_timeout_sec: 300
+  max_turns: 16
+  model: default
+  model_params:
+    reasoning_effort: medium
+    approval_mode: deny_all
+  agent_mode: agent
+
+checks:
+  - id: exit-success
+    type: exit_success
+    severity: hard
+    description: Agent 进程必须正常结束。
+    covers: [execution-completes]
+  - id: response-present
+    type: response_not_empty
+    severity: hard
+    description: Agent 必须返回结论。
+    covers: [execution-completes]
+  - id: no-approval
+    type: max_approval_requests
+    count: 0
+    severity: hard
+    description: 只读分析和项目内索引更新不应请求额外授权。
+    covers: [source-integrity]
+
+expectations:
+  criteria:
+    - id: execution-completes
+      description: Agent 正常完成一次真实分析。
+      kind: process
+      verification: deterministic
+    - id: anatomist-routing
+      description: Agent 按证据门禁调用 Anatomist，而不是绕过工具猜测。
+      kind: process
+      verification: deterministic
+    - id: grounded-answer
+      description: 最终结论包含固定源码和 Anatomist 证据支持的关键事实。
+      kind: outcome
+      verification: deterministic
+    - id: source-integrity
+      description: Agent 不修改被分析项目源码。
+      kind: constraint
+      verification: deterministic
+    - id: fresh-index
+      description: 最终索引与当前项目源码一致。
+      kind: outcome
+      verification: deterministic
+
+judge:
+  enabled: false

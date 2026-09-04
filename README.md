@@ -49,6 +49,20 @@ include = ["src/**"]
 exclude = ["**/*IT.java"]
 ```
 
+The complete commented configuration template is [docs/config.toml](docs/config.toml).
+Lombok is disabled by default. Enable source-only AST modeling per project when
+needed:
+
+```toml
+[extensions.lombok]
+mode = "ast"
+strict = false
+```
+
+`ast` does not run Lombok or read `target/classes`; it adds signature evidence
+and structured `lombok_usage` evidence to relevant query edges. `strict = true`
+promotes incomplete Lombok coverage to the complete health gate.
+
 CLI overrides are available when needed: `--scan-scope`, `--scan-include`, and
 `--scan-exclude`. See [the command reference](docs/commands.md#configuration)
 for root selection, glob semantics, and incremental rebuilding.
@@ -85,6 +99,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
   then inspect snapshot-verified bodies with `context --source`
 - Spring XML bean wiring (`--spring-xml`)
 - Optional Lombok AST signatures (`--lombok ast`) with synthetic provenance and structured modeled/partial/unmodeled evidence
+- Structured Lombok call-site evidence (`lombok_usage`) for uniquely mapped Accessors and syntactically connected Builder chains
 - Pagination + keyword filter on all list queries
 - GraalVM native binary (~10ms cold start vs ~300ms JVM)
 
@@ -105,6 +120,7 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 | [introduce.md](introduce.md) | Chinese introduction: capabilities, evidence boundaries, installation, and first workflow |
 | [docs/getting-started.md](docs/getting-started.md) | Installation, first index, first query |
 | [docs/commands.md](docs/commands.md) | Agent CLI reference (commands + flags) |
+| [docs/config.toml](docs/config.toml) | Complete commented project configuration template |
 | [docs/architecture.md](docs/architecture.md) | Package layout, indexing pipeline, design constraints |
 | [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
 | [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |

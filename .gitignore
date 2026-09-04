@@ -1,4 +1,6 @@
 target/
+/e2e/jury-runs/
+/e2e/__pycache__/
 *.class
 .idea/
 *.iml

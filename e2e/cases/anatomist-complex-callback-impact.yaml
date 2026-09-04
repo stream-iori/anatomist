@@ -1,0 +1,91 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-complex-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-complex-callback-impact
+name: Complex shop callback and type impact
+category: e2e
+scenario:
+  given: 通知接口存在抽象中间类、三个实现、字段持有、XML 顺序和 lambda 调用。
+  when: 用户评估修改 NotificationChannel.send 签名的静态影响面。
+  then: Agent 组合类型、字段、反向调用、XML 和 callback 证据，给出完整但有边界的影响结论。
+prompt:
+  language: zh-CN
+  text: |
+    如果修改 NotificationChannel#send(OrderCreatedEvent) 的方法签名，哪些实现、调用者、
+    持有字段和 Spring XML 配置需要检查？请证明从订单发布到 send 的 lambda/callback 路径，
+    并给出通知顺序。区分直接实现、经抽象类的传递实现和静态配置候选。只分析，不修改项目。
+checks:
+  - id: impact-route
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: command_sequence, commands: [skill, doctor, index]}
+    covers: [anatomist-routing]
+  - id: relation-query-coverage
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: commands_present, commands: [implementors-of, callers-of, call-path, bean-config]}
+    covers: [anatomist-routing]
+  - id: field-query-route
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: commands_any, commands: [used-by, field-access]}
+    covers: [anatomist-routing]
+  - id: callback-output-consumed
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_output_regex
+      command: 'anatomist\s+(call-path|callees-of).*--through-callbacks'
+      all: ['NotificationChannel#send', '\$lambda|"via"']
+    covers: [grounded-answer]
+  - id: channel-fields-consumed
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_output_regex
+      command: 'anatomist\s+(context|field-access|used-by)'
+      all: [NotificationRegistry, orderedChannels, aliases, NotificationChannel]
+    covers: [grounded-answer]
+  - id: impact-answer
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: response_regex
+      all:
+        - 'AuditNotificationChannel'
+        - 'EmailNotificationChannel'
+        - 'SmsNotificationChannel'
+        - 'AbstractNotificationChannel'
+        - 'NotificationDispatcher'
+        - 'lambda|callback|回调'
+        - 'orderedChannels|NotificationRegistry'
+        - 'auditChannel.*emailChannel.*smsChannel'
+        - '静态|配置'
+    covers: [grounded-answer]
+  - id: source-clean
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: git_clean}
+    covers: [source-integrity]
+  - id: fresh-index
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: index_fresh}
+    covers: [fresh-index]
+references:
+  key_points:
+    - 直接实现为 Audit，Email/Sms 经 AbstractNotificationChannel 传递实现。
+    - NotificationDispatcher 的 lambda 调用接口 send，registry 字段和 XML 都属于影响面。
+    - XML 顺序为 audit、email、sms；静态路径不证明运行时执行。
+  sources: [fixtures/complex-mini-spring-shop/notification/src/main/java/com/example/shop/notification/NotificationDispatcher.java]
+metadata: {owner: anatomist, source: complex-agent-e2e, created_at: '2026-09-04'}
+tags: [anatomist, e2e, factual, relations, callbacks]
+priority: P0

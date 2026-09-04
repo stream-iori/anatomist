@@ -1,0 +1,22 @@
+schema_version: jury.suite/v2
+id: anatomist-agent-complex
+name: Anatomist complex multi-module Agent E2E
+includes: []
+members:
+  - id: complex-business-path
+    type: case
+    path: ../cases/anatomist-complex-business-path.yaml
+  - id: complex-paged-flow
+    type: case
+    path: ../cases/anatomist-complex-paged-flow.yaml
+  - id: complex-callback-impact
+    type: case
+    path: ../cases/anatomist-complex-callback-impact.yaml
+  - id: complex-change-closure
+    type: case
+    path: ../cases/anatomist-complex-change-closure.yaml
+metadata:
+  owner: anatomist
+  description: Focused suite for the shared complex mini-shop fixture.
+  tags: [anatomist, e2e, complex, multi-module]
+

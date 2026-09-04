@@ -1,0 +1,135 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-complex-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-complex-change-closure
+name: Complex shop analysis to code change closure
+category: e2e
+scenario:
+  given: assured checkout 当前允许加急订单携带受限 SKU，验收规则要求所有外部副作用前拒绝。
+  when: 用户授权 Agent 定位影响、修改 admission policy、补测试并复核索引。
+  then: Agent 完成查询、改码、测试、增量索引和修改后结构验证，保留限定的未提交 diff。
+prompt:
+  language: zh-CN
+  text: |
+    完成这个改动：加急订单只要包含 SKU `X-RESTRICTED`，必须在库存 reserve、仓储 save
+    和事件 publish 之前抛出 OrderRejectedException；非加急订单行为保持不变。
+    规则放在现有 OrderAdmissionPolicy，并在 application 模块补回归测试。先用 Anatomist
+    定位入口、调用顺序和影响面，再修改并运行测试；最后增量同步索引，用 changed-file
+    declarations 和精确源码 context 复核。不要修改 POM、配置、acceptance-tests 或其他模块，
+    不要提交 Git。
+checks:
+  - id: full-change-route
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_sequence
+      commands: [skill, doctor, index, context, index, declarations-of, context]
+    covers: [anatomist-routing]
+  - id: impact-query-used
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: commands_any, commands: [callers-of, used-by, call-path, branches-of]}
+    covers: [anatomist-routing]
+  - id: bounded-diff
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: git_change_contract
+      required:
+        - application/src/main/java/com/example/shop/application/OrderAdmissionPolicy.java
+        - application/src/test/java/**
+      allowed:
+        - application/src/main/java/com/example/shop/application/OrderAdmissionPolicy.java
+        - application/src/test/java/**
+      forbidden: [pom.xml, '.anatomist/**', 'acceptance-tests/**']
+    covers: [source-integrity]
+  - id: independent-maven-verification
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: maven_verify
+      commands:
+        - ['-q', test]
+        - ['-q', '-Pacceptance', verify]
+      timeout_sec: 240
+    covers: [change-verified]
+  - id: final-index-fresh
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: index_fresh}
+    covers: [fresh-index]
+  - id: changed-source-queryable
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: query_output_regex
+      arguments:
+        - context
+        - 'com.example.shop.application.OrderAdmissionPolicy#check(com.example.shop.domain.CreateOrderRequest)'
+        - --source
+      all: ['RESTRICTED_SKU|X-RESTRICTED', expedited, OrderRejectedException]
+    covers: [change-verified]
+  - id: agent-consumed-changed-source
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_output_regex
+      command: 'anatomist\s+context\s+.*OrderAdmissionPolicy#check.*--source'
+      all: ['RESTRICTED_SKU|X-RESTRICTED', expedited, OrderRejectedException]
+    covers: [grounded-answer]
+  - id: change-answer
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: response_regex
+      all:
+        - 'OrderAdmissionPolicy'
+        - 'X-RESTRICTED'
+        - 'expedited|加急'
+        - 'OrderRejectedException'
+        - 'test|测试'
+        - 'incremental|增量'
+    covers: [grounded-answer]
+expectations:
+  criteria:
+    - id: execution-completes
+      description: Agent 正常完成一次真实修改。
+      kind: process
+      verification: deterministic
+    - id: anatomist-routing
+      description: Agent 在修改前后都使用新鲜 Anatomist 证据。
+      kind: process
+      verification: deterministic
+    - id: grounded-answer
+      description: 最终说明与修改、测试和索引证据一致。
+      kind: outcome
+      verification: deterministic
+    - id: source-integrity
+      description: 修改严格限制在 admission policy 和 application 测试。
+      kind: constraint
+      verification: deterministic
+    - id: fresh-index
+      description: 最终索引匹配修改后的 checkout。
+      kind: outcome
+      verification: deterministic
+    - id: change-verified
+      description: 默认测试、独立 acceptance 和修改后结构查询全部通过。
+      kind: outcome
+      verification: deterministic
+references:
+  key_points:
+    - 新规则只拒绝 expedited 且包含 X-RESTRICTED 的订单。
+    - admissionPolicy.check 位于所有三个外部副作用之前。
+    - Agent 必须增加 application 测试并在修改后重新增量索引。
+  sources: [fixtures/complex-mini-spring-shop/acceptance-tests/src/test/java/com/example/shop/acceptance/RestrictedSkuAcceptanceTest.java]
+metadata: {owner: anatomist, source: complex-agent-e2e, created_at: '2026-09-04'}
+tags: [anatomist, e2e, factual, implementation, multi-module]
+priority: P0

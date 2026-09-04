@@ -28,7 +28,14 @@ class SmokeRecipeContractTest {
     }
 
     private static String recipeBody(String justfile, String recipeHeader) {
-        int start = justfile.indexOf(recipeHeader);
+        String lineMarker = "\n" + recipeHeader;
+        int marker = justfile.indexOf(lineMarker);
+        int start = -1;
+        if (justfile.startsWith(recipeHeader)) {
+            start = 0;
+        } else if (marker >= 0) {
+            start = marker + 1;
+        }
         assertTrue(start >= 0, "missing recipe: " + recipeHeader);
         int next = justfile.indexOf("\n# ", start + recipeHeader.length());
         return next >= 0 ? justfile.substring(start, next) : justfile.substring(start);

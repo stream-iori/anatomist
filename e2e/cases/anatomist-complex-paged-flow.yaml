@@ -1,0 +1,97 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-complex-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-complex-paged-flow
+name: Complex shop paged source and reconciliation flow
+category: e2e
+scenario:
+  given: batch 模块的同名 OrderService 包含超过默认源码页大小的遗留 reconcile 方法。
+  when: 用户询问 CANCELLED 订单、reason 传播和库存释放异常的完整行为。
+  then: Agent 消歧到 batch，跟随 next_queries，并结合分支及跨方法源码给出结论。
+prompt:
+  language: zh-CN
+  text: |
+    请分析 batch OrderService 的 reconcile：operatorReason 如何处理，CANCELLED 订单按什么
+    顺序恢复库存和记录审计；如果恢复库存抛异常，审计、计数和最终返回会怎样。
+    项目中有同名在线服务，必须消歧。使用默认 source 分页，不要调大 source limit；如果
+    Anatomist 返回 next_queries，必须逐页跟随到源码完整。只分析，不修改项目。
+checks:
+  - id: paged-flow-route
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: command_sequence, commands: [skill, doctor, index, context]}
+    covers: [anatomist-routing]
+  - id: paged-result-returned
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_output_regex
+      command: 'anatomist\s+context\s+.*batch\.OrderService#reconcile.*--source'
+      all: ['"truncated"\s*:\s*true', next_queries]
+    covers: [grounded-answer]
+  - id: next-query-followed
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: followed_next_query, target: 'batch\.OrderService#reconcile'}
+    covers: [anatomist-routing]
+  - id: flow-query-coverage
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: commands_present, commands: [context]}
+    covers: [anatomist-routing]
+  - id: disambiguation-query
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: commands_any, commands: [search, declarations-of]}
+    covers: [anatomist-routing]
+  - id: cross-method-source-evidence
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_output_regex
+      command: 'anatomist\s+context'
+      all: [ReconciliationReasonNormalizer.java, trim, toUpperCase]
+    covers: [grounded-answer]
+  - id: flow-answer
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: response_regex
+      all:
+        - 'trim|去除.*空格|去空格'
+        - 'upper|大写'
+        - 'CANCELLED'
+        - 'release.*record|恢复.*审计'
+        - '恢复库存.*(RuntimeException|异常|失败)|release.*(RuntimeException|异常|失败)'
+        - '审计\s*\|\s*不执行|审计.*(不执行|不会|无法|不记录)'
+        - 'failures|失败计数'
+        - 'PartialReconciliationException'
+    covers: [grounded-answer]
+  - id: source-clean
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: git_clean}
+    covers: [source-integrity]
+  - id: fresh-index
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: index_fresh}
+    covers: [fresh-index]
+references:
+  key_points:
+    - reason 由 normalizer trim 后转大写；空值或空白抛 IllegalArgumentException。
+    - CANCELLED 先 release，再 record；release 抛异常时 record 和 released++ 都不会执行。
+    - RuntimeException 被累计到 failures，循环后抛 PartialReconciliationException，因此无正常 report。
+  sources: [fixtures/complex-mini-spring-shop/batch/src/main/java/com/example/shop/batch/OrderService.java]
+metadata: {owner: anatomist, source: complex-agent-e2e, created_at: '2026-09-04'}
+tags: [anatomist, e2e, factual, flow, pagination]
+priority: P0

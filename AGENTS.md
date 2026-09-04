@@ -10,7 +10,7 @@
 | `src/test/java/` | JUnit 5 unit and integration tests (`*Test`, `*IT`). |
 | `tests/scenarios/` | Golden-file CLI scenarios with `input.cmd` and `expected.json`. |
 | `fixtures/` | Java projects used for indexing tests and smoke checks. |
-| `docs/` | Architecture, commands, data model, and testing references. |
+| `docs/` | Architecture, commands, data model, testing, and config references. |
 
 ## Build, Test, and Development Commands
 
@@ -23,6 +23,8 @@
 | `just jar` | Build `target/anatomist.jar`. |
 | `just native` | Build GraalVM native binary at `target/anatomist`. |
 | `just smoke` | Index bundled fixture and run core CLI queries. |
+| `just release-native 0.14.0` | Build a versioned macOS arm64 native binary. |
+| `just install-from target/anatomist` | Install a built native binary to the local user path. |
 | `just golden-update` | Refresh expected JSON after intentional output changes. |
 
 Example local CLI flow:
@@ -35,11 +37,18 @@ java -jar target/anatomist.jar search OrderService --index /tmp/shop.db
 For an already resolved method, use `context '<exact-signature>' --source` as
 the primary local-control-flow evidence. Its source is snapshot-verified and
 paged; use graph/flow queries only for relation or path proof. With
-`--lombok ast`, treat `metadata.lombok` as evidence: modeled capabilities are
-facts, while partial/unmodeled capabilities require further verification.
+`--lombok ast`, treat Lombok output as evidence: modeled capabilities are facts,
+while partial/unmodeled capabilities require further verification. Call-query
+edges expose structured `lombok_usage`; `usage-observed` proves source use only,
+not compilation or runtime execution.
 Follow source `next_queries` when a conclusion must cover the whole declaration.
 Read an entire type only when state or lifecycle spans fields, constructors,
 initializers, or several methods; for a large class, select exact methods first.
+
+Project configuration is `.anatomist/config.toml`; use the complete commented
+template in `docs/config.toml`. Lombok is off by default. Enable it with
+`[extensions.lombok]` and `mode = "ast"`; `strict = true` makes incomplete
+Lombok coverage fail the complete health gate.
 
 ## Coding Style & Naming Conventions
 

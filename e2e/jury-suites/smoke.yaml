@@ -1,0 +1,30 @@
+schema_version: jury.suite/v2
+id: anatomist-agent-smoke
+name: Anatomist Agent evidence smoke
+includes: []
+members:
+  - id: stale-index-repair
+    type: case
+    path: ../cases/anatomist-stale-index-repair.yaml
+  - id: lombok-evidence-boundary
+    type: case
+    path: ../cases/anatomist-lombok-evidence-boundary.yaml
+  - id: static-runtime-boundary
+    type: case
+    path: ../cases/anatomist-static-runtime-boundary.yaml
+  - id: complex-business-path
+    type: case
+    path: ../cases/anatomist-complex-business-path.yaml
+  - id: complex-paged-flow
+    type: case
+    path: ../cases/anatomist-complex-paged-flow.yaml
+  - id: complex-callback-impact
+    type: case
+    path: ../cases/anatomist-complex-callback-impact.yaml
+  - id: complex-change-closure
+    type: case
+    path: ../cases/anatomist-complex-change-closure.yaml
+metadata:
+  owner: anatomist
+  description: Real-Agent evidence smoke from focused boundaries through a multi-module code-change closure.
+  tags: [anatomist, e2e, smoke]

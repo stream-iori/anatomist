@@ -1,0 +1,35 @@
+schema_version: jury.case/v2
+extends: anatomist-codex-sdk.yaml
+category: e2e
+
+setup:
+  workspace_mode: isolated
+  env:
+    NO_BROWSER: "1"
+    ALL_PROXY: null
+  commands:
+    - id: stage-complex-project
+      type: shell
+      command: |
+        cp -R fixtures/complex-mini-spring-shop complex-shop
+        cd complex-shop
+        git init -q
+        git config user.email agent@test.example
+        git config user.name "Agent E2E"
+        git add -A
+        git commit -qm baseline
+        mvn -q install -DskipTests
+        mvn -q test
+        anatomist index . --output .anatomist/index.db --health-policy integrity --format json >/dev/null
+      cwd: .
+      timeout_sec: 240
+
+execution:
+  timeout_sec: 600
+  first_activity_timeout_sec: 90
+  inactivity_timeout_sec: 180
+  turn_timeout_sec: 600
+  max_turns: 24
+
+extensions:
+  anatomist: {project_root: complex-shop}

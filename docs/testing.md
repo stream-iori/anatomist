@@ -139,8 +139,24 @@ sdk env
 | `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |
 | `just extension-e2e-native` | 上述场景 + JVM/native JSON 对拍 | 使用 SDKMAN JDK 25 构建 native binary；对比前归一化回显的临时 index 路径。 |
 | `just external-cli PROJECT=/path/to/project` | 大型外部项目复杂 CLI | opt-in，本地手动跑；默认目标是 `/Users/stream/codes/antcodes/ipay/imerchantsettle`。 |
+| `just agent-e2e-contract` | 校验 Jury Case、suite 和 trace adapter | 不调用模型，不进入 Maven 依赖。 |
+| `just agent-e2e-fixture` | 构建并查询复杂多模块 fixture | 不调用模型；验证 search 消歧、Spring、callback、branch 和源码分页。 |
+| `just agent-e2e-complex` | 4 条复杂多模块真实 Agent 用例 | 覆盖业务链路、分页 flow、影响分析和改码闭环。 |
+| `just agent-e2e-smoke` | 全部 7 条真实 Agent E2E | 预计 15–20 分钟；产物写入忽略的 `e2e/jury-runs/`。 |
 
 `external-cli` 会重建临时 DB，并固定验证 Facade API、Handler 入口、DAO 正反查、字段访问和调用链，不进入默认 CI。
+
+### Agent E2E 边界
+
+```text
+JUnit / golden / shell E2E              Jury Agent E2E
+验证 Anatomist 产生的事实 ───────────→ 验证 Agent 如何选择、解释并约束这些事实
+```
+
+Jury 不替代现有 L1-L3。除 freshness、Lombok 和运行时边界外，复杂 fixture 还覆盖
+search 消歧、文档、跨模块调用链、Spring 装配、关系/字段、callback、branch、值流、
+`next_queries` 分页，以及“查询 → 修改 → 测试 → 增量索引 → 复核”的完整闭环。
+Case、fixture、adapter 和运行方式见 [`e2e/README.md`](../e2e/README.md)。
 
 ## 六、增量测试拆分
 
