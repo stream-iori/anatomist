@@ -1,0 +1,55 @@
+# Anatomist project configuration template.
+#
+# Copy this file to <project>/.anatomist/config.toml.
+# The project file is selected before ~/.anatomist/config.toml and replaces it;
+# configuration files are not merged. Command-line options override this file.
+# Comments must occupy their own lines; the strict parser does not support
+# trailing inline comments.
+
+[index]
+# Target Java language level. If omitted, Anatomist detects Maven/Gradle;
+# if no declaration is found, it falls back to Java 8.
+java_version = 25
+
+# Parse Spring XML <beans> files and emit BEAN/DEFINED_BY/WIRES facts.
+spring_xml = false
+
+# Add the running JVM's JDK classes to symbol resolution. Keep true for normal
+# projects; set false when analysing a project targeting an older JDK and you
+# need to avoid newer JDK API matches.
+vm_classpath = true
+
+[scan]
+# Source scopes to index. Valid values are MAIN, TEST, and GENERATED.
+# TEST is usually omitted unless test code is part of the analysis target.
+scopes = ["MAIN", "GENERATED"]
+
+# Project-relative include globs. ** crosses directory boundaries.
+include = ["src/**", "modules/**/src/**"]
+
+# Project-relative exclude globs. Use this for generated or integration-test
+# trees that should not contribute source facts.
+exclude = ["**/*IT.java", "**/generated/**"]
+
+# Alternative to scopes: explicitly bind module and scope to source roots.
+# Do not configure source_roots together with scopes.
+# source_roots = [
+#   "app@MAIN=app/src/main/java",
+#   "app@TEST=app/src/test/java"
+# ]
+
+[external]
+# External FQNs excluded from reference tracking. Patterns ending in .* match
+# the package prefix; patterns ending in .** match that prefix recursively.
+exclude_patterns = ["java.lang.*", "java.io.*", "java.net.*", "java.nio.*", "java.math.*", "sun.*", "com.sun.*", "jdk.*"]
+
+[extensions.lombok]
+# off: default; do not augment the AST with Lombok signatures.
+# ast: source-only signature modeling plus call-site usage evidence. It never
+# runs Lombok, reads target/classes, or parses bytecode.
+mode = "off"
+
+# false: keep partial/unmodeled Lombok diagnostics while publishing the index.
+# true: promote Lombok coverage diagnostics to the complete health gate; an
+# incomplete Lombok model can make strict indexing fail with exit code 3.
+strict = false

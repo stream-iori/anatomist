@@ -73,7 +73,11 @@ Exactly one configuration file is selected; files are never merged:
 
 Therefore an empty project config also replaces the whole user config. Missing
 keys in the selected file use built-in defaults. `ANATOMIST_CONFIG` is not a
-supported override. CLI options override the selected file.
+supported override. CLI options override the selected profile.
+
+See the complete commented template: [config.toml](config.toml). Copy it to
+`.anatomist/config.toml` and adjust only project-specific roots, globs, and
+extension settings.
 
 ```toml
 [index]
