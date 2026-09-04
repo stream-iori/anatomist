@@ -1,9 +1,6 @@
 # 查询体系原子化与跨语言重构实施方案
 
 > 状态：待实施
->
-> 目标版本：从 `0.15.x` 开始增量交付
->
 > 当前版本基线：`0.14.0`
 
 ## 结论
@@ -44,14 +41,14 @@ SQLite backend ─▶ semantic operations ─▶ CLI / NDJSON pipe
 
 复杂 E2E 已覆盖搜索、消歧、多文件调用链、callback、类型影响、Spring 装配和代码修改闭环。测试过程中发现，同一个业务结论通常存在多条查询路径：
 
-| 目标 | 当前可能使用的命令 |
-|---|---|
-| 查询下游调用 | `context --with-callees`、`callees-of`、`call-path` |
+| 目标         | 当前可能使用的命令                                          |
+| ------------ | ----------------------------------------------------------- |
+| 查询下游调用 | `context --with-callees`、`callees-of`、`call-path`         |
 | 查询条件分支 | `branches-of`、`callees-of --in-branch`、`context --source` |
-| 查询字段影响 | `field-access`、`used-by` |
-| 查询类型实现 | `hierarchy`、`implementors-of` |
-| 查询类型依赖 | `deps-of`、`used-by`、`context --enrich` |
-| 建立项目基线 | `overview`、`survey-baseline`、`search` |
+| 查询字段影响 | `field-access`、`used-by`                                   |
+| 查询类型实现 | `hierarchy`、`implementors-of`                              |
+| 查询类型依赖 | `deps-of`、`used-by`、`context --enrich`                    |
+| 建立项目基线 | `overview`、`survey-baseline`、`search`                     |
 
 结果是 E2E Oracle 不能稳定约束命令序列，只能退回检查最终证据。允许多个入口不是错误，但缺少唯一的规范语义会导致：
 
@@ -119,13 +116,13 @@ StripePaymentGateway           concrete class
 
 ### 1.4 Java 命令不能成为未来语言的约束
 
-| 概念 | Java | Python | TypeScript | Rust |
-|---|---|---|---|---|
-| 接口或协议 | `interface` | ABC、Protocol、鸭子类型 | `interface`、结构化类型 | `trait` |
-| 继承 | class/interface inheritance | class + MRO | class/interface/type | 不等同于 Java 继承 |
-| 实现 | `implements` | 显式或结构化符合 | 显式或结构化符合 | `impl Trait for Type` |
-| 抽象 | `abstract` | ABC，部分规则运行时确定 | abstract class | 无直接等价物 |
-| 多态分派 | virtual/interface | 动态属性和 MRO | 类型擦除后的 JavaScript 行为 | 静态泛型或 `dyn Trait` |
+| 概念       | Java                        | Python                  | TypeScript                   | Rust                   |
+| ---------- | --------------------------- | ----------------------- | ---------------------------- | ---------------------- |
+| 接口或协议 | `interface`                 | ABC、Protocol、鸭子类型 | `interface`、结构化类型      | `trait`                |
+| 继承       | class/interface inheritance | class + MRO             | class/interface/type         | 不等同于 Java 继承     |
+| 实现       | `implements`                | 显式或结构化符合        | 显式或结构化符合             | `impl Trait for Type`  |
+| 抽象       | `abstract`                  | ABC，部分规则运行时确定 | abstract class               | 无直接等价物           |
+| 多态分派   | virtual/interface           | 动态属性和 MRO          | 类型擦除后的 JavaScript 行为 | 静态泛型或 `dyn Trait` |
 
 如果核心字段直接定义为 `is_interface`、`is_abstract`、`implements`，未来语言只能被迫伪装成 Java。正确做法是定义通用语义，再保留语言机制。
 
@@ -145,18 +142,18 @@ Unix pipeline 可以让 Agent 用一次 shell 调用表达一个线性查询流�
 
 ### 2.1 第一性原则
 
-| 原则 | 约束 |
-|---|---|
-| 一个命令只做一种语义转换 | 不在 `describe` 中隐式遍历调用图 |
-| 输入输出类型明确 | `dispatch` 只消费调用点，不能消费任意字符串 |
-| 源码事实和推断事实分开 | 编译期目标、候选运行时目标不得压成一条普通调用边 |
-| 不支持不是空结果 | 返回 `UNSUPPORTED_CAPABILITY`，不能返回 `[]` |
-| 不完整不是不存在 | seed/stream evidence 保留 coverage 与 truncation；事实另报 origin/resolution status |
-| 框架不污染语言核心 | Spring 事实属于配置制品扩展 |
-| 快照不能静默切换 | 管道记录携带 `index_revision_id`，下游必须校验；源码与分析环境使用独立身份 |
-| 多 seed 不能丢失局部结论 | 每个 seed 单独结束并报告 evidence，最后再给 stream 汇总 |
-| 底层事实先于外部契约 | 没有稳定持久化身份和来源范围时，不在公共 IR 中承诺对应字段 |
-| 兼容入口不等于第二套语义 | 旧命令必须映射到 canonical operation |
+| 原则                     | 约束                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| 一个命令只做一种语义转换 | 不在 `describe` 中隐式遍历调用图                                                    |
+| 输入输出类型明确         | `dispatch` 只消费调用点，不能消费任意字符串                                         |
+| 源码事实和推断事实分开   | 编译期目标、候选运行时目标不得压成一条普通调用边                                    |
+| 不支持不是空结果         | 返回 `UNSUPPORTED_CAPABILITY`，不能返回 `[]`                                        |
+| 不完整不是不存在         | seed/stream evidence 保留 coverage 与 truncation；事实另报 origin/resolution status |
+| 框架不污染语言核心       | Spring 事实属于配置制品扩展                                                         |
+| 快照不能静默切换         | 管道记录携带 `index_revision_id`，下游必须校验；源码与分析环境使用独立身份          |
+| 多 seed 不能丢失局部结论 | 每个 seed 单独结束并报告 evidence，最后再给 stream 汇总                             |
+| 底层事实先于外部契约     | 没有稳定持久化身份和来源范围时，不在公共 IR 中承诺对应字段                          |
+| 兼容入口不等于第二套语义 | 旧命令必须映射到 canonical operation                                                |
 
 ### 2.2 本轮范围
 
@@ -181,15 +178,15 @@ Unix pipeline 可以让 Agent 用一次 shell 调用表达一个线性查询流�
 
 ### 2.4 当前代码给出的硬约束
 
-| 代码证据 | 对方案的约束 |
-|---|---|
+| 代码证据                                                                                                                         | 对方案的约束                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | `ProjectMetadata.sourceSnapshotFingerprint()` 只基于逻辑源码身份和内容；分析环境另由 `IndexEnvironmentFingerprint` 写入 metadata | 必须拆分 source snapshot、semantic profile 和 committed revision |
-| `schema.sql` 中 `edges.id` 为自增，调用点主要依赖 `source_location` | 稳定 call-site 必须先升级 schema/producer |
-| `QueryInfra.runNodeQuery/runEdgeQuery` 返回 `List`，`DependencyService` 先全量读取再分页 | 仅改 CLI writer 不是真流式，backend 必须改 cursor |
-| `DtoCodecs.fromTree()` 尚未实现 typed decode | stdin record dispatch、字段校验和资源上限是阶段 2 阻塞项 |
-| `CallGraphService.callsFromTraversal()` 同时消费 `CALLS` 与 `OVERRIDES` | legacy `callees-of` 等价 recipe 必须包含显式 dispatch/projection |
-| `SpringBeanParser` 对 abstract/parent/factory/nested bean 的覆盖有限，`BeanConfigService` 依赖现有扁平事实 | Artifact 阶段必须先补 producer，不能只包一层 IR |
-| `QueryService` 已在查询生命周期获取 `IndexLock` 读锁 | 新 cursor 必须继承并测试锁生命周期；revision 用于跨进程/重放校验 |
+| `schema.sql` 中 `edges.id` 为自增，调用点主要依赖 `source_location`                                                              | 稳定 call-site 必须先升级 schema/producer                        |
+| `QueryInfra.runNodeQuery/runEdgeQuery` 返回 `List`，`DependencyService` 先全量读取再分页                                         | 仅改 CLI writer 不是真流式，backend 必须改 cursor                |
+| `DtoCodecs.fromTree()` 尚未实现 typed decode                                                                                     | stdin record dispatch、字段校验和资源上限是阶段 2 阻塞项         |
+| `CallGraphService.callsFromTraversal()` 同时消费 `CALLS` 与 `OVERRIDES`                                                          | legacy `callees-of` 等价 recipe 必须包含显式 dispatch/projection |
+| `SpringBeanParser` 对 abstract/parent/factory/nested bean 的覆盖有限，`BeanConfigService` 依赖现有扁平事实                       | Artifact 阶段必须先补 producer，不能只包一层 IR                  |
+| `QueryService` 已在查询生命周期获取 `IndexLock` 读锁                                                                             | 新 cursor 必须继承并测试锁生命周期；revision 用于跨进程/重放校验 |
 
 这些事实是实施门禁，不是推荐优化项。对应事实未落地时，上层字段只能标记实验性，不能进入稳定 contract。
 
@@ -231,39 +228,51 @@ Unix pipeline 可以让 Agent 用一次 shell 调用表达一个线性查询流�
 除 `search → resolve` 的候选边界外，实体型 operation 都从统一的 `entity` 记录开始：
 
 ```json
-{"record":"entity","contract":"semantic-stream/v1","index_revision_id":"rev:...","source_snapshot_id":"sha256:...","semantic_profile_id":"sha256:...","id":"type:...","domain":"language","language":"java","kind":"type","name":"PaymentGateway","qualified_name":"com.example.PaymentGateway"}
+{
+  "record": "entity",
+  "contract": "semantic-stream/v1",
+  "index_revision_id": "rev:...",
+  "source_snapshot_id": "sha256:...",
+  "semantic_profile_id": "sha256:...",
+  "id": "type:...",
+  "domain": "language",
+  "language": "java",
+  "kind": "type",
+  "name": "PaymentGateway",
+  "qualified_name": "com.example.PaymentGateway"
+}
 ```
 
 通用字段：
 
-| 字段 | 含义 |
-|---|---|
-| `record` | 记录类型 |
-| `contract` | 流协议版本 |
-| `index_revision_id` | 一次已提交索引版本；管道一致性以此为准 |
-| `source_snapshot_id` | 逻辑源码/资源身份与内容 hash；用于 source freshness |
+| 字段                  | 含义                                                                 |
+| --------------------- | -------------------------------------------------------------------- |
+| `record`              | 记录类型                                                             |
+| `contract`            | 流协议版本                                                           |
+| `index_revision_id`   | 一次已提交索引版本；管道一致性以此为准                               |
+| `source_snapshot_id`  | 逻辑源码/资源身份与内容 hash；用于 source freshness                  |
 | `semantic_profile_id` | Java 版本、classpath、scan policy、扩展及 graph semantics 等分析环境 |
-| `id` | 稳定实体 ID |
-| `domain` | `language/configuration/documentation/build` |
-| `language` | `java/python/typescript/rust`；非语言制品可为空 |
-| `kind` | 通用实体类别 |
-| `producer_id` | 事实生产者 |
-| `origin` | `extracted/configured/derived/observed`，说明事实从哪里来 |
-| `resolution_status` | `exact/heuristic/ambiguous/unresolved`，说明解析确定性 |
-| `confidence` | 可选的 `high/medium/low`；只有 producer 能解释其含义时才使用 |
-| `source` | 文件、范围和快照证据 |
-| `facets` | 语言或扩展特有属性 |
-| `derived_from` | 上游记录 ID 和产生本记录的 operation |
+| `id`                  | 稳定实体 ID                                                          |
+| `domain`              | `language/configuration/documentation/build`                         |
+| `language`            | `java/python/typescript/rust`；非语言制品可为空                      |
+| `kind`                | 通用实体类别                                                         |
+| `producer_id`         | 事实生产者                                                           |
+| `origin`              | `extracted/configured/derived/observed`，说明事实从哪里来            |
+| `resolution_status`   | `exact/heuristic/ambiguous/unresolved`，说明解析确定性               |
+| `confidence`          | 可选的 `high/medium/low`；只有 producer 能解释其含义时才使用         |
+| `source`              | 文件、范围和快照证据                                                 |
+| `facets`              | 语言或扩展特有属性                                                   |
+| `derived_from`        | 上游记录 ID 和产生本记录的 operation                                 |
 
 `coverage` 不再与每条正向事实重复绑定。实现是否支持某操作由 capability registry 报告；某次查询是否完整、哪些维度受影响以及能否安全下否定结论，由 seed/stream evidence 报告。这样不会继续沿用当前 `EXTRACTED/CONFIGURED/INFERRED/AMBIGUOUS` 同时混合来源与确定性的历史问题。
 
 三类身份的生成规则：
 
-| 身份 | 稳定条件 | 变化条件 |
-|---|---|---|
-| `source_snapshot_id` | 逻辑 source/resource identity 与内容相同 | 源文件或资源内容/归属变化 |
-| `semantic_profile_id` | 语言版本、classpath、scope、extension、graph semantics 相同 | 任一分析输入变化 |
-| `index_revision_id` | 只在同一次已提交数据库 revision 内相同 | 任何成功提交的事实集合变化；失败构建不发布新值 |
+| 身份                  | 稳定条件                                                    | 变化条件                                       |
+| --------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| `source_snapshot_id`  | 逻辑 source/resource identity 与内容相同                    | 源文件或资源内容/归属变化                      |
+| `semantic_profile_id` | 语言版本、classpath、scope、extension、graph semantics 相同 | 任一分析输入变化                               |
+| `index_revision_id`   | 只在同一次已提交数据库 revision 内相同                      | 任何成功提交的事实集合变化；失败构建不发布新值 |
 
 实体/call-site/resource 的稳定 ID 不包含 `index_revision_id`，否则每次重建都会破坏跨 revision 对比。revision 可以是内容寻址 hash 或 opaque commit ID，但必须在原子提交完成后才对 reader 可见。
 
@@ -291,8 +300,8 @@ control_region
 {
   "kind": "type",
   "facets": {
-    "java": {"form": "interface"},
-    "instantiability": {"state": "no", "reason": "java.interface"}
+    "java": { "form": "interface" },
+    "instantiability": { "state": "no", "reason": "java.interface" }
   }
 }
 ```
@@ -303,32 +312,32 @@ Rust trait：
 {
   "kind": "type",
   "facets": {
-    "rust": {"form": "trait"},
-    "instantiability": {"state": "not_applicable", "reason": "rust.trait"}
+    "rust": { "form": "trait" },
+    "instantiability": { "state": "not_applicable", "reason": "rust.trait" }
   }
 }
 ```
 
 ### 4.3 规范记录类型
 
-| 记录 | 用途 |
-|---|---|
-| `entity` | 可继续传给下游的实体引用 |
-| `declaration` | 签名、修饰、泛型、声明来源 |
-| `containment` | 容器和成员关系 |
-| `type_relation` | 子类型、符合、混入、别名等类型语义 |
-| `callable_relation` | override、contract implementation、specialization |
-| `binding_relation` | 配置、构建制品和语言实体之间的跨域绑定 |
-| `reference_site` | 某个符号的引用位置 |
-| `call_site` | 源码中的调用点及静态解析结果 |
-| `dispatch_target` | 可能执行的目标和推断依据 |
-| `access_site` | value/field 的读取或写入 |
-| `control_region` | branch、loop、try、catch、closure 等区域 |
-| `trace` | 一条调用、引用或控制路径 |
-| `source_slice` | 经过快照验证的源码证据 |
-| `artifact` | XML、YAML、TOML、JSON、文档等制品 |
-| `config_entity` | component、property、entry、reference、literal 等配置节点 |
-| `evidence` | coverage、预算、截断和诊断汇总 |
+| 记录                | 用途                                                      |
+| ------------------- | --------------------------------------------------------- |
+| `entity`            | 可继续传给下游的实体引用                                  |
+| `declaration`       | 签名、修饰、泛型、声明来源                                |
+| `containment`       | 容器和成员关系                                            |
+| `type_relation`     | 子类型、符合、混入、别名等类型语义                        |
+| `callable_relation` | override、contract implementation、specialization         |
+| `binding_relation`  | 配置、构建制品和语言实体之间的跨域绑定                    |
+| `reference_site`    | 某个符号的引用位置                                        |
+| `call_site`         | 源码中的调用点及静态解析结果                              |
+| `dispatch_target`   | 可能执行的目标和推断依据                                  |
+| `access_site`       | value/field 的读取或写入                                  |
+| `control_region`    | branch、loop、try、catch、closure 等区域                  |
+| `trace`             | 一条调用、引用或控制路径                                  |
+| `source_slice`      | 经过快照验证的源码证据                                    |
+| `artifact`          | XML、YAML、TOML、JSON、文档等制品                         |
+| `config_entity`     | component、property、entry、reference、literal 等配置节点 |
+| `evidence`          | coverage、预算、截断和诊断汇总                            |
 
 ### 4.4 通用语义与语言机制并存
 
@@ -349,16 +358,16 @@ Rust trait：
 
 其他语言使用相同 semantic，不同 mechanism：
 
-| 语言事实 | `semantic` | `mechanism` |
-|---|---|---|
-| Java `implements` | `CONFORMS_TO` | `java.implements` |
-| Java class extends | `SUBTYPE_OF` | `java.extends_class` |
-| Java interface extends | `SUBTYPE_OF` | `java.extends_interface` |
-| Python class inheritance | `SUBTYPE_OF` | `python.inherits` |
-| Python Protocol 推断 | `CONFORMS_TO` | `python.protocol_structural` |
-| TypeScript `implements` | `CONFORMS_TO` | `typescript.implements` |
-| TypeScript 结构化兼容 | `CONFORMS_TO` | `typescript.structural` |
-| Rust trait impl | `CONFORMS_TO` | `rust.trait_impl` |
+| 语言事实                 | `semantic`    | `mechanism`                  |
+| ------------------------ | ------------- | ---------------------------- |
+| Java `implements`        | `CONFORMS_TO` | `java.implements`            |
+| Java class extends       | `SUBTYPE_OF`  | `java.extends_class`         |
+| Java interface extends   | `SUBTYPE_OF`  | `java.extends_interface`     |
+| Python class inheritance | `SUBTYPE_OF`  | `python.inherits`            |
+| Python Protocol 推断     | `CONFORMS_TO` | `python.protocol_structural` |
+| TypeScript `implements`  | `CONFORMS_TO` | `typescript.implements`      |
+| TypeScript 结构化兼容    | `CONFORMS_TO` | `typescript.structural`      |
+| Rust trait impl          | `CONFORMS_TO` | `rust.trait_impl`            |
 
 ### 4.5 实例化能力
 
@@ -404,12 +413,12 @@ Anatomist 静态索引只能直接提供前三类。第四类必须来自 trace�
   "resolved_target": "method:PaymentGateway#pay(...)",
   "dispatch_kind": "java.interface",
   "source": {
-    "file":"OrderService.java",
-    "start_line":42,
-    "start_column":9,
-    "end_line":42,
-    "end_column":32,
-    "ordinal":2
+    "file": "OrderService.java",
+    "start_line": 42,
+    "start_column": 9,
+    "end_line": 42,
+    "end_column": 32,
+    "ordinal": 2
   },
   "origin": "extracted",
   "resolution_status": "exact"
@@ -418,13 +427,13 @@ Anatomist 静态索引只能直接提供前三类。第四类必须来自 trace�
 
 #### 索引事实前置条件
 
-| 事实 | 最低要求 |
-|---|---|
-| call-site ID | 由 source identity、AST range、同范围 ordinal 确定；重建索引后稳定 |
-| source range | 起止行列齐全，不能只保存 `L42` |
-| syntax target | 保留源码写法，不能用 resolved target 反推 |
-| receiver static type | producer 提取；无法确定时明确 unresolved |
-| resolution | 静态目标、状态、来源分字段保存 |
+| 事实                 | 最低要求                                                           |
+| -------------------- | ------------------------------------------------------------------ |
+| call-site ID         | 由 source identity、AST range、同范围 ordinal 确定；重建索引后稳定 |
+| source range         | 起止行列齐全，不能只保存 `L42`                                     |
+| syntax target        | 保留源码写法，不能用 resolved target 反推                          |
+| receiver static type | producer 提取；无法确定时明确 unresolved                           |
+| resolution           | 静态目标、状态、来源分字段保存                                     |
 
 当前 `edges.id` 是数据库自增 ID，调用位置主要是行号；同一 caller、同一行可以存在多个 `CALLS`。因此稳定 call-site 不是 DTO 映射问题，必须新增版本化 call-site 事实并提升 schema/graph semantics，不能塞进可选 metadata 后直接对外承诺。
 
@@ -448,11 +457,11 @@ Anatomist 静态索引只能直接提供前三类。第四类必须来自 trace�
 
 `algorithm` 和 `world` 是候选集合的计算假设；`complete/partial/unknown` 属于本次查询的 evidence，不是 `world` 的别名。第一版至少区分：
 
-| 维度 | 值 |
-|---|---|
-| algorithm | `exact/CHA/RTA/configured` |
-| world | `workspace_closed/workspace_open/classpath_open` |
-| candidate kind | `resolved/possible/observed` |
+| 维度           | 值                                               |
+| -------------- | ------------------------------------------------ |
+| algorithm      | `exact/CHA/RTA/configured`                       |
+| world          | `workspace_closed/workspace_open/classpath_open` |
+| candidate kind | `resolved/possible/observed`                     |
 
 ### 5.4 类型闭包不是同类边递归
 
@@ -466,12 +475,12 @@ Interface ◀─ CONFORMS_TO ─ AbstractClass ◀─ SUBTYPE_OF ─ ConcreteCla
 
 ### 5.5 不同语言的 dispatch
 
-| 语言 | 适配器职责 |
-|---|---|
-| Java | static/special/final/virtual/interface、override closure、receiver static type |
-| Python | MRO、可解析属性、monkey patch 风险、unknown target |
-| TypeScript | 类型期解析与运行时 JavaScript 目标分离 |
-| Rust | static generic dispatch、trait impl、`dyn Trait` candidates |
+| 语言       | 适配器职责                                                                     |
+| ---------- | ------------------------------------------------------------------------------ |
+| Java       | static/special/final/virtual/interface、override closure、receiver static type |
+| Python     | MRO、可解析属性、monkey patch 风险、unknown target                             |
+| TypeScript | 类型期解析与运行时 JavaScript 目标分离                                         |
+| Rust       | static generic dispatch、trait impl、`dyn Trait` candidates                    |
 
 当索引无法证明完整时，必须返回 `partial` 或 `unknown`，不能把当前 workspace 中可见的候选宣称为完整运行时集合。
 
@@ -537,25 +546,25 @@ anatomist bindings --direction incoming --semantic realizes
 
 ### 6.4 扩展边界
 
-| 能力 | 核心是否理解 |
-|---|---|
-| artifact、config entity、containment、reference | 是，通用结构 |
-| `spring.xml.bean` 的具体生成规则 | 否，由 producer 负责 |
-| profile、conditional、proxy 的运行时选择 | 否，除非有外部运行时证据 |
-| XML map/list 顺序与 key | 是，作为配置树属性保留 |
+| 能力                                            | 核心是否理解             |
+| ----------------------------------------------- | ------------------------ |
+| artifact、config entity、containment、reference | 是，通用结构             |
+| `spring.xml.bean` 的具体生成规则                | 否，由 producer 负责     |
+| profile、conditional、proxy 的运行时选择        | 否，除非有外部运行时证据 |
+| XML map/list 顺序与 key                         | 是，作为配置树属性保留   |
 
 ### 6.5 当前基线缺口
 
 Stage 4 不是把现有 Bean DTO 改名。当前 producer 与目标 Artifact IR 之间至少缺少：
 
-| 缺口 | 必须补齐的索引事实 |
-|---|---|
-| 文件没有 artifact 根实体 | 稳定 `ResourceIdentity`、artifact 节点、资源快照 |
-| abstract/parent/factory bean 未完整建模 | 原始声明、继承/factory 机制和明确 coverage |
-| nested bean 语义不完整 | 父子 containment 和稳定子节点身份 |
-| map/list 顺序隐含在字符串 ID/查询排序中 | 数值 `ordinal` 一等字段 |
-| XML 来源粒度不足 | 元素/属性的精确 source range |
-| class/ref 解析边界不透明 | resolution status、scope、未解析原因 |
+| 缺口                                    | 必须补齐的索引事实                               |
+| --------------------------------------- | ------------------------------------------------ |
+| 文件没有 artifact 根实体                | 稳定 `ResourceIdentity`、artifact 节点、资源快照 |
+| abstract/parent/factory bean 未完整建模 | 原始声明、继承/factory 机制和明确 coverage       |
+| nested bean 语义不完整                  | 父子 containment 和稳定子节点身份                |
+| map/list 顺序隐含在字符串 ID/查询排序中 | 数值 `ordinal` 一等字段                          |
+| XML 来源粒度不足                        | 元素/属性的精确 source range                     |
+| class/ref 解析边界不透明                | resolution status、scope、未解析原因             |
 
 资源文件的 source root 和 freshness 校验必须独立于 Java source identity。Spring 注解可以由 producer 生成 `config_entity/binding_relation`，但来源仍是 Java annotation，不能伪装成 XML artifact。
 
@@ -569,28 +578,28 @@ search --domain configuration --kind component | resolve | members --recursive
 
 不人为限制命令数量。命令边界由输入记录、输出记录和语义职责决定。
 
-| 命令 | 输入 | 输出 | 唯一职责 |
-|---|---|---|---|
-| `search` | CLI selector 或上游范围 | `entity_candidate` | 模糊检索候选，不做唯一性承诺 |
-| `resolve` | `entity_candidate/entity` | `entity` | 精确解析、消歧和唯一性门禁 |
-| `declarations-of` | file/resource entity | `entity/declaration` | 从变更文件建立稳定声明 seed |
-| `describe` | `entity` | `declaration/artifact/config_entity` | 返回实体自身事实 |
-| `members` | 容器 `entity` | `entity/containment` | 枚举包含成员 |
-| `type-relations` | type entity | `type_relation` | 直接类型事实或单一语义闭包 |
-| `runtime-implementations` | type entity | `entity/type_relation proof` | 按 adapter 规则组合关系并筛选可运行候选 |
-| `callable-relations` | callable entity | `callable_relation` | override、contract implementation 等 |
-| `bindings` | 任意 domain entity | `binding_relation` | 配置/构建制品与语言实体的跨域绑定 |
-| `annotations` | language entity | annotation records | 返回源码注解事实 |
-| `related-docs` | entity | document relation | 返回关联文档，不读取正文 |
-| `references` | entity | `reference_site` | 符号或配置引用 |
-| `calls` | callable entity | `call_site` | 源码调用点和静态目标 |
-| `dispatch` | `call_site` | `dispatch_target` | 展开可能执行目标 |
-| `accesses` | value entity | `access_site` | 读取和写入位置 |
-| `regions` | callable entity | `control_region` | 条件、循环、异常和 closure 区域 |
-| `sites-in` | `control_region` | site records | 枚举区域内的调用、引用或访问点 |
-| `trace` | start entity + 显式 end selector | `trace` | 有界路径查询 |
-| `source` | entity/site/relation | `source_slice` | 返回快照验证源码 |
-| `overview` | workspace/module entity | aggregation records | 项目聚合，不参与细粒度推断 |
+| 命令                      | 输入                             | 输出                                 | 唯一职责                                |
+| ------------------------- | -------------------------------- | ------------------------------------ | --------------------------------------- |
+| `search`                  | CLI selector 或上游范围          | `entity_candidate`                   | 模糊检索候选，不做唯一性承诺            |
+| `resolve`                 | `entity_candidate/entity`        | `entity`                             | 精确解析、消歧和唯一性门禁              |
+| `declarations-of`         | file/resource entity             | `entity/declaration`                 | 从变更文件建立稳定声明 seed             |
+| `describe`                | `entity`                         | `declaration/artifact/config_entity` | 返回实体自身事实                        |
+| `members`                 | 容器 `entity`                    | `entity/containment`                 | 枚举包含成员                            |
+| `type-relations`          | type entity                      | `type_relation`                      | 直接类型事实或单一语义闭包              |
+| `runtime-implementations` | type entity                      | `entity/type_relation proof`         | 按 adapter 规则组合关系并筛选可运行候选 |
+| `callable-relations`      | callable entity                  | `callable_relation`                  | override、contract implementation 等    |
+| `bindings`                | 任意 domain entity               | `binding_relation`                   | 配置/构建制品与语言实体的跨域绑定       |
+| `annotations`             | language entity                  | annotation records                   | 返回源码注解事实                        |
+| `related-docs`            | entity                           | document relation                    | 返回关联文档，不读取正文                |
+| `references`              | entity                           | `reference_site`                     | 符号或配置引用                          |
+| `calls`                   | callable entity                  | `call_site`                          | 源码调用点和静态目标                    |
+| `dispatch`                | `call_site`                      | `dispatch_target`                    | 展开可能执行目标                        |
+| `accesses`                | value entity                     | `access_site`                        | 读取和写入位置                          |
+| `regions`                 | callable entity                  | `control_region`                     | 条件、循环、异常和 closure 区域         |
+| `sites-in`                | `control_region`                 | site records                         | 枚举区域内的调用、引用或访问点          |
+| `trace`                   | start entity + 显式 end selector | `trace`                              | 有界路径查询                            |
+| `source`                  | entity/site/relation             | `source_slice`                       | 返回快照验证源码                        |
+| `overview`                | workspace/module entity          | aggregation records                  | 项目聚合，不参与细粒度推断              |
 
 ### 7.1 命令约束
 
@@ -658,14 +667,14 @@ anatomist source
 
 ### 8.2 stdout、stderr 和退出码
 
-| 通道 | 内容 |
-|---|---|
+| 通道   | 内容                               |
+| ------ | ---------------------------------- |
 | stdout | 仅 NDJSON 数据与最终 evidence 记录 |
-| stderr | 人类可读诊断、进度、弃用提示 |
-| exit 0 | 操作成功，包括经过证明的空结果 |
+| stderr | 人类可读诊断、进度、弃用提示       |
+| exit 0 | 操作成功，包括经过证明的空结果     |
 | exit 2 | 参数、管道输入类型或 selector 错误 |
 | exit 3 | 索引过期、能力不支持、证据门禁失败 |
-| exit 4 | 管道快照冲突或上游不完整 |
+| exit 4 | 管道快照冲突或上游不完整           |
 
 具体退出码应与当前 CLI 约定统一后写入公共常量，以上数值在 ADR 阶段确认。
 
@@ -674,7 +683,17 @@ anatomist source
 每条数据记录必须包含：
 
 ```json
-{"record":"entity","contract":"semantic-stream/v1","seed_id":"seed:1","index_revision_id":"rev:...","source_snapshot_id":"sha256:...","semantic_profile_id":"sha256:...","producer_id":"java-core","origin":"extracted","resolution_status":"exact"}
+{
+  "record": "entity",
+  "contract": "semantic-stream/v1",
+  "seed_id": "seed:1",
+  "index_revision_id": "rev:...",
+  "source_snapshot_id": "sha256:...",
+  "semantic_profile_id": "sha256:...",
+  "producer_id": "java-core",
+  "origin": "extracted",
+  "resolution_status": "exact"
+}
 ```
 
 `seed_id` 让下游可以把数据、诊断和 evidence 归回输入实体。将 `index_revision_id` 放在每条记录上，使记录经过标准 Unix 工具过滤后仍可校验数据库版本；只有依赖源码新鲜度的记录才必须携带 `source_snapshot_id`，但同一流的 semantic profile 仍必须一致。
@@ -685,12 +704,12 @@ anatomist source
 
 seed 边界固定如下，具体编码在阶段 0 ADR 冻结：
 
-| operation 形态 | seed 规则 |
-|---|---|
-| CLI selector source | 每个 selector 创建一个 root seed |
-| group operation（`resolve`） | 消费同一 seed 的候选组并保留 seed ID |
-| map/expand operation（`calls/source/...`） | 每条输入数据创建 child seed，并携带 `parent_seed_id` |
-| 多父输入 | v1 禁止；`trace` 的另一 endpoint 用显式参数，不从第二条流合并 |
+| operation 形态                             | seed 规则                                                     |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| CLI selector source                        | 每个 selector 创建一个 root seed                              |
+| group operation（`resolve`）               | 消费同一 seed 的候选组并保留 seed ID                          |
+| map/expand operation（`calls/source/...`） | 每条输入数据创建 child seed，并携带 `parent_seed_id`          |
+| 多父输入                                   | v1 禁止；`trace` 的另一 endpoint 用显式参数，不从第二条流合并 |
 
 因此两个候选、两个 callable 或两种语言不会共用一条局部结论；stream evidence 只做汇总，不能覆盖更具体的 seed evidence。
 
@@ -712,19 +731,47 @@ seed 边界固定如下，具体编码在阶段 0 ADR 冻结：
 空结果：
 
 ```json
-{"record":"evidence","scope":"seed","seed_id":"seed:2","index_revision_id":"rev:...","status":"empty","coverage":"complete","negative_conclusion_safe":true,"emitted":0,"truncated":false}
+{
+  "record": "evidence",
+  "scope": "seed",
+  "seed_id": "seed:2",
+  "index_revision_id": "rev:...",
+  "status": "empty",
+  "coverage": "complete",
+  "negative_conclusion_safe": true,
+  "emitted": 0,
+  "truncated": false
+}
 ```
 
 不支持：
 
 ```json
-{"record":"evidence","scope":"seed","seed_id":"seed:3","index_revision_id":"rev:...","status":"unsupported","coverage":"unknown","code":"UNSUPPORTED_CAPABILITY","negative_conclusion_safe":false}
+{
+  "record": "evidence",
+  "scope": "seed",
+  "seed_id": "seed:3",
+  "index_revision_id": "rev:...",
+  "status": "unsupported",
+  "coverage": "unknown",
+  "code": "UNSUPPORTED_CAPABILITY",
+  "negative_conclusion_safe": false
+}
 ```
 
 流结束：
 
 ```json
-{"record":"evidence","scope":"stream","index_revision_id":"rev:...","status":"partial","coverage":"partial","seeds":{"total":3,"positive":1,"empty":1,"unsupported":1},"emitted":12,"negative_conclusion_safe":false}
+{
+  "record": "evidence",
+  "scope": "stream",
+  "index_revision_id": "rev:...",
+  "status": "partial",
+  "coverage": "partial",
+  "seeds": { "total": 3, "positive": 1, "empty": 1, "unsupported": 1 },
+  "emitted": 12,
+  "negative_conclusion_safe": false
+}
 ```
 
 默认 `--on-unsupported fail`；只有显式 `--on-unsupported continue` 才允许处理其他 seed，并把 stream evidence 降为 partial。命令中途失败时已输出的数据不得被调用者当作可信终态。
@@ -776,10 +823,14 @@ INDEX_CHANGED_DURING_PIPELINE
     "qualified_name": "com.example.StripePaymentGateway#pay(...)"
   },
   "derived_from": [
-    {"record":"dispatch_target","id":"dispatch:..."},
-    {"record":"call_site","id":"callsite:..."}
+    { "record": "dispatch_target", "id": "dispatch:..." },
+    { "record": "call_site", "id": "callsite:..." }
   ],
-  "source": {"file":"StripePaymentGateway.java","start_line":20,"end_line":35}
+  "source": {
+    "file": "StripePaymentGateway.java",
+    "start_line": 20,
+    "end_line": 35
+  }
 }
 ```
 
@@ -836,12 +887,21 @@ anatomist describe
 {
   "language": "python",
   "capabilities": {
-    "declarations": {"support":"supported"},
-    "type_relations": {"support":"supported","limitations":["dynamic-base"]},
-    "call_resolution": {"support":"supported","limitations":["dynamic-attribute"]},
-    "dispatch_candidates": {"support":"supported","limitations":["monkey-patch","runtime-import"]},
-    "access_sites": {"support":"supported"},
-    "control_regions": {"support":"supported"}
+    "declarations": { "support": "supported" },
+    "type_relations": {
+      "support": "supported",
+      "limitations": ["dynamic-base"]
+    },
+    "call_resolution": {
+      "support": "supported",
+      "limitations": ["dynamic-attribute"]
+    },
+    "dispatch_candidates": {
+      "support": "supported",
+      "limitations": ["monkey-patch", "runtime-import"]
+    },
+    "access_sites": { "support": "supported" },
+    "control_regions": { "support": "supported" }
   }
 }
 ```
@@ -864,26 +924,26 @@ supported | unsupported
 
 ## 十、当前命令迁移映射
 
-| 当前命令 | 新规范操作 | 兼容策略 |
-|---|---|---|
-| `search` | `search` | 保留为唯一模糊检索入口 |
-| `declarations-of` | `declarations-of` | 保留稳定 changed-file seed 能力，不用模糊搜索模拟 |
-| `context` | `describe` + `members` + `annotations` + `related-docs` | 按旧参数投影，旧输出保持 v2 |
-| `context --source` | `source` | 旧入口保留 |
-| `context --with-callees` | `calls` | 不再推荐 |
-| `context --enrich` | shell pipeline recipe | 不在新核心中复制万能命令 |
-| `callees-of` | 固定 recipe：`calls` + `dispatch` + legacy projection | 当前实现混合 CALLS/OVERRIDES，不能把 dispatch 变成可选后仍声称等价 |
-| `callers-of` | `calls --direction incoming` | 只保留旧反向入口 |
-| `branches-of` | `regions --kind branch` + `sites-in` | 保留旧聚合输出 |
-| `hierarchy` | `type-relations --direction outgoing` | 保留别名 |
-| `implementors-of` | `runtime-implementations` | 显式组合 conforms/subtype proof 并区分 abstract/concrete |
-| `deps-of` | `references/calls` | 不再混合多种关系 |
-| `used-by` | `references` 或 `calls --direction incoming` | 由输入类型决定可用操作 |
-| `field-access` | `accesses` | read/write 作为过滤维度 |
-| `call-path` | `trace --via calls` | 显式 dispatch policy |
-| `bean-config` | `search --domain configuration --kind component` + `resolve` + `members --recursive` | 框架兼容入口 |
-| `overview` | `overview` | 保留但统一 stream contract |
-| `survey-baseline` | 文档化 shell recipe | 暂不增加 plan DSL |
+| 当前命令                 | 新规范操作                                                                           | 兼容策略                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `search`                 | `search`                                                                             | 保留为唯一模糊检索入口                                             |
+| `declarations-of`        | `declarations-of`                                                                    | 保留稳定 changed-file seed 能力，不用模糊搜索模拟                  |
+| `context`                | `describe` + `members` + `annotations` + `related-docs`                              | 按旧参数投影，旧输出保持 v2                                        |
+| `context --source`       | `source`                                                                             | 旧入口保留                                                         |
+| `context --with-callees` | `calls`                                                                              | 不再推荐                                                           |
+| `context --enrich`       | shell pipeline recipe                                                                | 不在新核心中复制万能命令                                           |
+| `callees-of`             | 固定 recipe：`calls` + `dispatch` + legacy projection                                | 当前实现混合 CALLS/OVERRIDES，不能把 dispatch 变成可选后仍声称等价 |
+| `callers-of`             | `calls --direction incoming`                                                         | 只保留旧反向入口                                                   |
+| `branches-of`            | `regions --kind branch` + `sites-in`                                                 | 保留旧聚合输出                                                     |
+| `hierarchy`              | `type-relations --direction outgoing`                                                | 保留别名                                                           |
+| `implementors-of`        | `runtime-implementations`                                                            | 显式组合 conforms/subtype proof 并区分 abstract/concrete           |
+| `deps-of`                | `references/calls`                                                                   | 不再混合多种关系                                                   |
+| `used-by`                | `references` 或 `calls --direction incoming`                                         | 由输入类型决定可用操作                                             |
+| `field-access`           | `accesses`                                                                           | read/write 作为过滤维度                                            |
+| `call-path`              | `trace --via calls`                                                                  | 显式 dispatch policy                                               |
+| `bean-config`            | `search --domain configuration --kind component` + `resolve` + `members --recursive` | 框架兼容入口                                                       |
+| `overview`               | `overview`                                                                           | 保留但统一 stream contract                                         |
+| `survey-baseline`        | 文档化 shell recipe                                                                  | 暂不增加 plan DSL                                                  |
 
 以下命令不属于查询原子化范围：
 
@@ -945,14 +1005,14 @@ CLI → semantic operation → adapter/backend
 
 单个 `SemanticAdapter` 会同时承担 identity、类型、调用、控制流、配置绑定和 source，很快变成新的 god interface。按 capability 拆端口，adapter 只实现自己支持的组合：
 
-| Port | 职责 |
-|---|---|
-| `EntityLookupPort` | search、resolve、declarations-of、describe、members |
-| `TypeSemanticsPort` | type/callable relations、runtime implementations |
-| `CallSitePort` | calls、references、accesses、regions、sites-in |
-| `DispatchPort` | 按 algorithm/world 展开候选和 proof |
-| `ArtifactPort` | artifact/config tree 与跨域 binding |
-| `SourcePort` | source identity、freshness 和 slice |
+| Port                | 职责                                                |
+| ------------------- | --------------------------------------------------- |
+| `EntityLookupPort`  | search、resolve、declarations-of、describe、members |
+| `TypeSemanticsPort` | type/callable relations、runtime implementations    |
+| `CallSitePort`      | calls、references、accesses、regions、sites-in      |
+| `DispatchPort`      | 按 algorithm/world 展开候选和 proof                 |
+| `ArtifactPort`      | artifact/config tree 与跨域 binding                 |
+| `SourcePort`        | source identity、freshness 和 slice                 |
 
 统一返回 `SemanticCursor<T> extends AutoCloseable`，显式拥有 ResultSet/连接释放责任；operation 负责预算、evidence 和 record 转换。SPI 不直接暴露 JDBC、SQL 表名、当前 `EdgeRow`，也不使用难以表达资源所有权的裸 `Stream<T>`。
 
@@ -970,18 +1030,18 @@ CLI → semantic operation → adapter/backend
 
 需要补齐：
 
-| 缺口 | 处理 |
-|---|---|
-| implementor 结果不区分抽象和具体 | join declaration modifiers，计算 instantiability |
-| 接口方法覆盖接口方法被跳过 | 补齐 callable relation extraction |
-| CALLS 与 override candidate 混在 traversal | 将 dispatch expansion 移入 `DispatchService` |
-| 调用点没有稳定身份且仅有粗粒度位置 | 新增 call-site 事实、精确 AST range 和 deterministic ID |
-| 调用点缺少清晰 receiver static type | producer 落库；查询时不得靠目标反推 |
-| default interface method 不明确 | 输出 callable implementation status |
-| external subtype 可能性不透明 | evidence 报告 coverage；dispatch 单列 algorithm/world |
-| bridge/generic 关系可能重复 | canonical callable identity + specialization facet |
-| Lombok 合成声明 | 保留 synthetic origin，不伪装成 source declaration |
-| 一个 hash 混合多类身份 | 分离 index revision、source snapshot、semantic profile |
+| 缺口                                       | 处理                                                    |
+| ------------------------------------------ | ------------------------------------------------------- |
+| implementor 结果不区分抽象和具体           | join declaration modifiers，计算 instantiability        |
+| 接口方法覆盖接口方法被跳过                 | 补齐 callable relation extraction                       |
+| CALLS 与 override candidate 混在 traversal | 将 dispatch expansion 移入 `DispatchService`            |
+| 调用点没有稳定身份且仅有粗粒度位置         | 新增 call-site 事实、精确 AST range 和 deterministic ID |
+| 调用点缺少清晰 receiver static type        | producer 落库；查询时不得靠目标反推                     |
+| default interface method 不明确            | 输出 callable implementation status                     |
+| external subtype 可能性不透明              | evidence 报告 coverage；dispatch 单列 algorithm/world   |
+| bridge/generic 关系可能重复                | canonical callable identity + specialization facet      |
+| Lombok 合成声明                            | 保留 synthetic origin，不伪装成 source declaration      |
+| 一个 hash 混合多类身份                     | 分离 index revision、source snapshot、semantic profile  |
 
 若索引事实发生变化：
 
@@ -1010,7 +1070,12 @@ binding_relation(REALIZES)
 {
   "producer_id": "spring-xml",
   "domain": "configuration",
-  "capabilities": ["components", "nested-values", "ordered-collections", "references"]
+  "capabilities": [
+    "components",
+    "nested-values",
+    "ordered-collections",
+    "references"
+  ]
 }
 ```
 
@@ -1196,32 +1261,32 @@ docs(query): document canonical pipeline workflow
 
 #### Stream codec
 
-| 用例 | 预期 |
-|---|---|
-| 单条/多条 NDJSON | 顺序保持，逐条解码 |
-| UTF-8、换行、泛型签名 | 不破坏记录边界 |
-| 未知字段 | 向前兼容或明确拒绝，由契约决定 |
-| 未知 record | 返回 `UNSUPPORTED_RECORD_TYPE` |
-| 缺少 revision/profile | 默认拒绝 |
-| 混合 revision/profile | `INDEX_CHANGED_DURING_PIPELINE` |
-| 每 seed 有独立 evidence | 数据、空、partial、unsupported 不串 seed |
-| 缺少/重复/非末尾 stream evidence | `UPSTREAM_INCOMPLETE` |
-| 上游 truncated | 下游 evidence 传播 truncated |
-| 空数据 + complete evidence | 安全空结果 |
-| unsupported fail/continue | 默认失败；显式 continue 后 stream 为 partial |
-| malformed JSON、超长行、过深嵌套 | 有界失败，不继续消费不可信数据 |
-| calls → dispatch → source | 最终 source 保留 call-site 和 target 血缘 |
-| 血缘超过预算 | 明确 truncated/continuation，不无限嵌套 |
-| broken pipe | 无 stack trace |
+| 用例                             | 预期                                         |
+| -------------------------------- | -------------------------------------------- |
+| 单条/多条 NDJSON                 | 顺序保持，逐条解码                           |
+| UTF-8、换行、泛型签名            | 不破坏记录边界                               |
+| 未知字段                         | 向前兼容或明确拒绝，由契约决定               |
+| 未知 record                      | 返回 `UNSUPPORTED_RECORD_TYPE`               |
+| 缺少 revision/profile            | 默认拒绝                                     |
+| 混合 revision/profile            | `INDEX_CHANGED_DURING_PIPELINE`              |
+| 每 seed 有独立 evidence          | 数据、空、partial、unsupported 不串 seed     |
+| 缺少/重复/非末尾 stream evidence | `UPSTREAM_INCOMPLETE`                        |
+| 上游 truncated                   | 下游 evidence 传播 truncated                 |
+| 空数据 + complete evidence       | 安全空结果                                   |
+| unsupported fail/continue        | 默认失败；显式 continue 后 stream 为 partial |
+| malformed JSON、超长行、过深嵌套 | 有界失败，不继续消费不可信数据               |
+| calls → dispatch → source        | 最终 source 保留 call-site 和 target 血缘    |
+| 血缘超过预算                     | 明确 truncated/continuation，不无限嵌套      |
+| broken pipe                      | 无 stack trace                               |
 
 #### Capability
 
-| 用例 | 预期 |
-|---|---|
+| 用例                                     | 预期                                   |
+| ---------------------------------------- | -------------------------------------- |
 | supported capability + complete evidence | 正常执行，可在条件满足时安全下否定结论 |
-| supported capability + partial evidence | 返回结果并披露实际缺失边界 |
-| unsupported capability | 非零退出，不伪装为空 |
-| mixed-language stream | 分语言执行并合并最保守 coverage |
+| supported capability + partial evidence  | 返回结果并披露实际缺失边界             |
+| unsupported capability                   | 非零退出，不伪装为空                   |
+| mixed-language stream                    | 分语言执行并合并最保守 coverage        |
 
 #### Java type semantics
 
@@ -1299,14 +1364,14 @@ docs(query): document canonical pipeline workflow
 
 每个命令建立输入输出契约表：
 
-| 命令 | 合法输入 | 非法输入示例 |
-|---|---|---|
-| `members` | container entity | call site |
-| `type-relations` | type entity | field/value |
-| `dispatch` | call site | callable entity |
-| `accesses` | value entity | artifact |
-| `sites-in` | control region | callable entity |
-| `source` | 有 source identity 的任意记录 | 无来源的 external entity |
+| 命令             | 合法输入                      | 非法输入示例             |
+| ---------------- | ----------------------------- | ------------------------ |
+| `members`        | container entity              | call site                |
+| `type-relations` | type entity                   | field/value              |
+| `dispatch`       | call site                     | callable entity          |
+| `accesses`       | value entity                  | artifact                 |
+| `sites-in`       | control region                | callable entity          |
+| `source`         | 有 source identity 的任意记录 | 无来源的 external entity |
 
 契约测试必须验证：
 
@@ -1340,11 +1405,11 @@ canonical pipeline normalized facts
 
 第一阶段不要求实现三个新索引器，但必须用手工 Semantic IR fixture 证明核心命令没有 Java 假设：
 
-| Fixture | 核心场景 |
-|---|---|
-| Python | MRO、Protocol、动态 dispatch unknown |
-| TypeScript | interface、structural conformance、type erasure |
-| Rust | trait impl、generic static dispatch、`dyn Trait` |
+| Fixture    | 核心场景                                         |
+| ---------- | ------------------------------------------------ |
+| Python     | MRO、Protocol、动态 dispatch unknown             |
+| TypeScript | interface、structural conformance、type erasure  |
+| Rust       | trait impl、generic static dispatch、`dyn Trait` |
 
 验收标准：新增 fixture 不修改核心 operation/codec，只增加 adapter 或测试数据。这只证明公共词汇和协议没有 Java 假设；只有真实 frontend → storage → query E2E 才能宣称支持该语言。
 
@@ -1396,16 +1461,16 @@ canonical pipeline normalized facts
 
 建议场景：
 
-| 场景 | 关键断言 |
-|---|---|
-| 多模块重名 Service | Agent 不静默选择错误模块 |
-| interface + abstract + 两个实现 | 区分 hierarchy intermediate 和 runtime candidate |
-| callback/template method | 调用点和 callback provenance 保留 |
-| XML map/list 驱动策略顺序 | 配置树 key/order 不丢失 |
-| test scope 有额外实现 | MAIN/TEST coverage 分开 |
-| 外部依赖可能有实现 | 不宣称候选集合完整 |
-| stale source | pipeline 明确失败，不返回旧源码 |
-| 修改代码闭环 | changed file declarations → impact → edit → re-index → verify |
+| 场景                            | 关键断言                                                      |
+| ------------------------------- | ------------------------------------------------------------- |
+| 多模块重名 Service              | Agent 不静默选择错误模块                                      |
+| interface + abstract + 两个实现 | 区分 hierarchy intermediate 和 runtime candidate              |
+| callback/template method        | 调用点和 callback provenance 保留                             |
+| XML map/list 驱动策略顺序       | 配置树 key/order 不丢失                                       |
+| test scope 有额外实现           | MAIN/TEST coverage 分开                                       |
+| 外部依赖可能有实现              | 不宣称候选集合完整                                            |
+| stale source                    | pipeline 明确失败，不返回旧源码                               |
+| 修改代码闭环                    | changed file declarations → impact → edit → re-index → verify |
 
 Agent Oracle 不检查“必须调用 `callees-of`”，改为检查：
 
@@ -1430,19 +1495,19 @@ C：单个原子命令对应旧命令
 
 指标：
 
-| 指标 | 含义 |
-|---|---|
-| wall time p50/p95 | Agent 等待时间 |
-| time to first record | 流式收益 |
-| JVM/native startup | 多进程管道成本 |
-| SQLite open count/time | 每阶段连接成本 |
-| peak RSS | 大结果集内存 |
-| total CPU time | 多进程启动、解码和重复计算成本 |
-| emitted bytes/records | Agent 上下文体积 |
-| estimated output tokens | 实际模型输入成本 |
-| records/sec | 流处理吞吐 |
-| source verification time | 源码证据成本 |
-| read-lock hold / writer wait | 长管道对增量索引的阻塞 |
+| 指标                         | 含义                           |
+| ---------------------------- | ------------------------------ |
+| wall time p50/p95            | Agent 等待时间                 |
+| time to first record         | 流式收益                       |
+| JVM/native startup           | 多进程管道成本                 |
+| SQLite open count/time       | 每阶段连接成本                 |
+| peak RSS                     | 大结果集内存                   |
+| total CPU time               | 多进程启动、解码和重复计算成本 |
+| emitted bytes/records        | Agent 上下文体积               |
+| estimated output tokens      | 实际模型输入成本               |
+| records/sec                  | 流处理吞吐                     |
+| source verification time     | 源码证据成本                   |
+| read-lock hold / writer wait | 长管道对增量索引的阻塞         |
 
 数据集：
 
@@ -1534,7 +1599,7 @@ Skill 不再让 Agent 在重叠命令间做选择，而是给出数据变换路�
     "accepts": "entity",
     "operation": "source",
     "reason": "result_truncated",
-    "arguments": {"offset": 200}
+    "arguments": { "offset": 200 }
   }
 }
 ```
@@ -1545,11 +1610,11 @@ Skill 不再让 Agent 在重叠命令间做选择，而是给出数据变换路�
 
 ### 15.1 版本节奏
 
-| 阶段 | 行为 |
-|---|---|
-| `0.15.x` | 三类身份、新 stream contract 和已完成的 Java 垂直切片；旧命令默认不变 |
-| 后续 minor | 文档和 Skill 默认使用新命令；旧命令标注 alias |
-| 稳定后 | 评估隐藏重叠命令，但不自动删除脚本依赖入口 |
+| 阶段       | 行为                                                                  |
+| ---------- | --------------------------------------------------------------------- |
+| `0.15.x`   | 三类身份、新 stream contract 和已完成的 Java 垂直切片；旧命令默认不变 |
+| 后续 minor | 文档和 Skill 默认使用新命令；旧命令标注 alias                         |
+| 稳定后     | 评估隐藏重叠命令，但不自动删除脚本依赖入口                            |
 
 ### 15.2 兼容约束
 
@@ -1575,20 +1640,20 @@ Skill 不再让 Agent 在重叠命令间做选择，而是给出数据变换路�
 
 ## 十六、风险与控制
 
-| 风险 | 控制措施 |
-|---|---|
-| 通用 IR 变成最低公分母 | common semantic + language mechanism/facets 双层表达 |
-| 管道丢失 evidence | 每条记录带 revision/seed，逐 seed evidence，末尾唯一 stream evidence |
-| 标准工具删除 framing | 默认拒绝 unframed，显式 `--accept-unframed` |
-| 多进程管道重复打开 DB | benchmark 后决定是否 fused execution |
-| dispatch 候选爆炸 | depth、rows、compute budget 和 instantiability filter |
-| Agent 把候选当真实调用 | 分离 resolved/possible/observed，明确 origin、resolution 和 world |
-| 框架重新污染核心 | producer SPI，核心禁止框架类型依赖 |
-| 旧命令和新命令结果漂移 | canonical equivalence tests |
-| 跨语言能力不完整 | capability matrix，unsupported 不得返回空 |
-| schema/graph 迁移复杂 | 语义变更独立版本、独立 commit、强制重建提示 |
-| “流式”只发生在 CLI 层 | backend 强制 closeable cursor，100k fixture 验证有界内存 |
-| shell 分支拼坏 framing | v1 只支持线性流，正式 merge 前不承诺 tee 合并 |
+| 风险                   | 控制措施                                                             |
+| ---------------------- | -------------------------------------------------------------------- |
+| 通用 IR 变成最低公分母 | common semantic + language mechanism/facets 双层表达                 |
+| 管道丢失 evidence      | 每条记录带 revision/seed，逐 seed evidence，末尾唯一 stream evidence |
+| 标准工具删除 framing   | 默认拒绝 unframed，显式 `--accept-unframed`                          |
+| 多进程管道重复打开 DB  | benchmark 后决定是否 fused execution                                 |
+| dispatch 候选爆炸      | depth、rows、compute budget 和 instantiability filter                |
+| Agent 把候选当真实调用 | 分离 resolved/possible/observed，明确 origin、resolution 和 world    |
+| 框架重新污染核心       | producer SPI，核心禁止框架类型依赖                                   |
+| 旧命令和新命令结果漂移 | canonical equivalence tests                                          |
+| 跨语言能力不完整       | capability matrix，unsupported 不得返回空                            |
+| schema/graph 迁移复杂  | 语义变更独立版本、独立 commit、强制重建提示                          |
+| “流式”只发生在 CLI 层  | backend 强制 closeable cursor，100k fixture 验证有界内存             |
+| shell 分支拼坏 framing | v1 只支持线性流，正式 merge 前不承诺 tee 合并                        |
 
 ## 十七、完成定义
 
