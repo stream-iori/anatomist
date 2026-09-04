@@ -236,7 +236,7 @@ public class DoctorCommand implements Callable<Integer> {
                             .skip(safeOffset).limit(safeLimit).toList();
                     com.anatomist.core.IndexHealthReport displayed =
                             new com.anatomist.core.IndexHealthReport(health.status(), page);
-                    out.put("health", health.status().name().toLowerCase());
+                    out.put("health", health.status(policy).name().toLowerCase());
                     out.put("health_dimensions", health.dimensions());
                     Map<String, Long> coverageCounts = store.readResolutionDiagnosticCounts();
                     out.put("resolution_diagnostic_counts", coverageCounts.isEmpty()
@@ -519,7 +519,7 @@ public class DoctorCommand implements Callable<Integer> {
     private static void addHealth(Map<String, Object> out,
                                   com.anatomist.core.IndexHealthReport health,
                                   com.anatomist.core.HealthPolicy policy) {
-        out.put("health", health.status().name().toLowerCase());
+        out.put("health", health.status(policy).name().toLowerCase());
         out.put("health_dimensions", health.dimensions());
         out.put("gate", health.gate(policy).toMap());
         out.put("diagnostics", health.toMaps());

@@ -30,10 +30,24 @@ public record IndexHealthReport(Status status, List<IndexDiagnostic> diagnostics
 
     public static IndexHealthReport of(List<IndexDiagnostic> diagnostics) {
         List<IndexDiagnostic> retained = IndexDiagnosticRetention.retain(diagnostics);
-        boolean error = retained.stream().anyMatch(d -> "error".equalsIgnoreCase(d.severity()));
-        boolean warning = retained.stream().anyMatch(d -> "warning".equalsIgnoreCase(d.severity()));
+        // Resolution coverage is evidence quality, not index integrity. It remains
+        // visible in dimensions() and is enforced by the COMPLETE policy.
+        boolean error = retained.stream().anyMatch(d -> !isResolutionDiagnostic(d)
+                && "error".equalsIgnoreCase(d.severity()));
+        boolean warning = retained.stream().anyMatch(d -> !isResolutionDiagnostic(d)
+                && "warning".equalsIgnoreCase(d.severity()));
         return new IndexHealthReport(error ? Status.UNHEALTHY : warning ? Status.DEGRADED : Status.HEALTHY,
                 retained);
+    }
+
+    /**
+     * Reports the health level under a caller's requested evidence policy.
+     * The persisted status describes index integrity; COMPLETE additionally
+     * exposes unresolved coverage as degraded without changing that integrity fact.
+     */
+    public Status status(HealthPolicy policy) {
+        if (status != Status.HEALTHY || policy != HealthPolicy.COMPLETE) return status;
+        return gate(policy).passed() ? Status.HEALTHY : Status.DEGRADED;
     }
 
     public List<Map<String, Object>> toMaps() {

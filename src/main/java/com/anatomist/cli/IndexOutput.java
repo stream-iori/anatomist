@@ -250,7 +250,7 @@ final class IndexOutput {
         java.util.List<com.anatomist.core.IndexDiagnostic> page =
                 health.diagnostics().stream().limit(limit).toList();
         IndexHealthReport displayed = new IndexHealthReport(health.status(), page);
-        out.put("health", health.status().name().toLowerCase());
+        out.put("health", health.status(policy).name().toLowerCase());
         out.put("health_dimensions", health.dimensions());
         out.put("gate", health.gate(policy).toMap());
         out.put("diagnostics", displayed.toMaps());

@@ -357,11 +357,13 @@ class AgentContractIT {
         assertEquals(0, integrity.exitCode, integrity.stderr);
         Map<?, ?> integrityJson = asObject(integrity.stdout);
         assertEquals("committed", integrityJson.get("index_state"));
+        assertEquals("healthy", integrityJson.get("health"));
         assertEquals(Boolean.TRUE, ((Map<?, ?>) integrityJson.get("gate")).get("passed"));
 
         RunResult complete = runCli("doctor", "--strict-health",
                 "--format", "json", "--index", db.toString());
         assertEquals(3, complete.exitCode, complete.stderr);
+        assertEquals("degraded", asObject(complete.stdout).get("health"));
 
         try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
              var statement = connection.createStatement()) {

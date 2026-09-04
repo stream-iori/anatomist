@@ -34,6 +34,7 @@ class IndexHealthReportTest {
                         "full_extract_call_graph", 8)));
 
         assertEquals(IndexHealthReport.Status.HEALTHY, report.status());
+        assertEquals(IndexHealthReport.Status.DEGRADED, report.status(HealthPolicy.COMPLETE));
         assertTrue(report.gate(HealthPolicy.INTEGRITY).passed());
         assertFalse(report.gate(HealthPolicy.COMPLETE).passed());
         Map<?, ?> external = (Map<?, ?>) ((Map<?, ?>) report.dimensions()
