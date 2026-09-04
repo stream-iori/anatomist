@@ -15,7 +15,8 @@ import java.util.List;
 
 @Command(name = "callees-of",
         mixinStandardHelpOptions = true,
-        description = "Outgoing CALLS from a method, optionally recursive (--depth N).",
+        description = "Outgoing CALLS from a method, optionally recursive (--depth N). "
+                + "Lombok fallback edges expose structured lombok_usage evidence when enabled.",
         footer = "%nExamples:%n  callees-of com.example.OrderService#create --depth 3"
                 + "%n  callees-of OrderService#create --source-window=3"
                 + "%n  callees-of OrderService#create --blocks package")

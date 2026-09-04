@@ -13,7 +13,8 @@ import java.util.List;
 
 @Command(name = "branches-of",
         mixinStandardHelpOptions = true,
-        description = "Group branch-contained CALLS/READS/WRITES for a method using indexed control-flow context.",
+        description = "Group branch-contained CALLS/READS/WRITES for a method using indexed control-flow context. "
+                + "Nested CALLS may include structured lombok_usage evidence.",
         footer = "%nExamples:%n  branches-of com.example.OrderService#create --source-window=3"
                 + "%n  branches-of OrderService#create --depth 3 --through-callbacks")
 public class BranchesOfCommand extends QueryCommand {

@@ -15,7 +15,8 @@ import java.util.List;
 
 @Command(name = "callers-of",
         mixinStandardHelpOptions = true,
-        description = "Incoming CALLS to a project or already-indexed external method (impact analysis), optionally recursive (--depth N).",
+        description = "Incoming CALLS to a project or already-indexed external method (impact analysis), optionally recursive (--depth N). "
+                + "Lombok fallback edges expose structured lombok_usage evidence when enabled.",
         footer = "%nExamples:%n  callers-of com.example.OrderService#create --depth 2"
                 + "%n  callers-of OrderService#create --source-window=3"
                 + "%n  callers-of OrderService#create --in-loop")

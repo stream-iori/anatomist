@@ -18,7 +18,8 @@ import java.util.concurrent.Callable;
 
 @Command(name = "call-path",
         mixinStandardHelpOptions = true,
-        description = "Shortest CALLS chain from <from> to <to> (BFS; empty when unreachable).",
+        description = "Shortest CALLS chain from <from> to <to> (BFS; empty when unreachable). "
+                + "Returned edges may include structured lombok_usage evidence.",
         footer = "%nExamples:%n  call-path Controller#handle Repository#save --depth 5"
                 + "%n  call-path Controller#handle Repository#save --source-window=2")
 public class CallPathCommand implements Callable<Integer> {

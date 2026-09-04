@@ -65,6 +65,8 @@ class SkillCommandTest {
         assertTrue(index.stdout().contains("Precedence: CLI,"), index.stdout());
         assertTrue(index.stdout().contains("Maven/Gradle, then Java 8."), index.stdout());
         assertTrue(index.stdout().contains("Add TEST to effective scan scopes"), index.stdout());
+        assertTrue(index.stdout().contains("Lombok is off by default"), index.stdout());
+        assertTrue(index.stdout().contains("[extensions.lombok]"), index.stdout());
 
         CliTestSupport.RunResult doctor = run("doctor", "--help");
         assertEquals(0, doctor.exitCode(), doctor.stderr());

@@ -19,6 +19,7 @@ class ConfigLoaderTest {
         assertEquals(List.of(SourceScope.MAIN, SourceScope.GENERATED), config.scanScopes());
         assertEquals(List.of("**"), config.scanIncludes());
         assertEquals(List.of(), config.scanExcludes());
+        assertEquals(com.anatomist.framework.lombok.LombokMode.OFF, config.lombokMode());
     }
 
     @Test

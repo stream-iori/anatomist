@@ -97,6 +97,14 @@ final class RowMappers {
         }
     }
 
+    static java.util.Map<String, Object> parseObjectField(String json, String field) {
+        java.util.Map<String, Object> object = parseObject(json);
+        if (object == null || !(object.get(field) instanceof java.util.Map<?, ?> nested)) return null;
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        nested.forEach((key, value) -> out.put(String.valueOf(key), value));
+        return out;
+    }
+
     static EdgeRow mapEdge(ResultSet rs) throws SQLException {
         EdgeRow r = new EdgeRow();
         r.source = rs.getString(1);
@@ -116,6 +124,7 @@ final class RowMappers {
         r.targetQualifiedName = rs.getString(14);
         r.context = rs.getString(15);
         r.metadata = rs.getString(16);
+        r.lombokUsage = parseObjectField(r.metadata, "lombok_usage");
         r.sourceSymbolId = rs.getString(17);
         r.sourceModule = rs.getString(18);
         r.sourceScope = rs.getString(19);

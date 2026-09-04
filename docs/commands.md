@@ -49,7 +49,7 @@ anatomist index <project-path> [options]
 | `--incremental` | Only re-parse changed files (uses file_cache) | false |
 | `--verify-content` | Hash every indexed source during incremental change detection instead of trusting unchanged size/mtime. | false |
 | `--spring-xml` | Also parse Spring XML `<beans>` configs into BEAN/DEFINED_BY/WIRES facts and XML property/map/list/ref config trees. Spring annotation Bean/MVC facts are indexed by default. | false |
-| `--lombok off\|ast` | Recover common Lombok-generated signatures in memory. `ast` never runs Lombok, reads bytecode, or emits generated bodies. | off |
+| `--lombok off\|ast` | Recover common Lombok-generated signatures in memory. `ast` never runs Lombok, reads bytecode, or emits generated bodies. Equivalent project key: `[extensions.lombok] mode`. | off |
 | `--timings` | Add per-phase milliseconds to text output or JSON `timings_ms`, including incremental `symbol_delta`, `impact_analysis`, `graph_replace`, and metadata sub-phases. Output is unchanged when omitted. | false |
 | `--format json` | Emit a stable Agent summary: `command`, `status`, `schema_version`, `index_path`, `stats`, `warnings`, `errors` | text |
 | `--health-policy none\|integrity\|complete` | Select the health gate; see the table below | none |
@@ -108,8 +108,9 @@ detected annotations plus modeled, partial, and unmodeled capabilities.
 Unsupported transformations such as `@Builder` are disclosed without invented
 members. `@Accessors` makes affected Getter/Setter capabilities partial and
 suppresses uncertain default names instead of guessing `getX/setX`.
-For fallback calls to project-source Lombok types, AST mode can attach
-`metadata.lombok_usage` as call-site evidence. It maps uniquely observed
+For fallback calls to project-source Lombok types, AST mode keeps
+`metadata.lombok_usage` in storage and exposes it as the first-class structured
+`lombok_usage` field on query edge rows. It maps uniquely observed
 Accessor names to fields and records a syntactically connected
 `@Builder`/`@SuperBuilder` chain on its root call edge. It never invents a
 Builder class or method node; an unknown Builder type remains `null`.

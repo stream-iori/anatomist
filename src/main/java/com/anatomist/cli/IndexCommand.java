@@ -48,6 +48,9 @@ import java.util.stream.Collectors;
                 "Configuration: select .anatomist/config.toml, then ~/.anatomist/config.toml,",
                 "otherwise built-in defaults. Files do not merge; missing keys use defaults,",
                 "and CLI options override the selected profile.",
+                "Lombok is off by default. Enable it per project in .anatomist/config.toml:",
+                "  [extensions.lombok]",
+                "  mode = \"ast\"",
                 "Built-in scan: MAIN + GENERATED, include **, no scan exclude.",
                 "Use doctor --format json --index <db> to inspect committed config_source,",
                 "config_path, and scan_policy_hash."
@@ -144,7 +147,7 @@ public class IndexCommand implements Callable<Integer> {
                     + "+ DEFINED_BY / WIRES edges. Off by default.")
     Boolean springXml;
 
-    @Option(names = "--lombok", description = "Lombok structural model: off | ast. Query JSON discloses modeled/partial/unmodeled capability evidence. Off by default.")
+    @Option(names = "--lombok", description = "Lombok structural model: off | ast. AST mode adds signature evidence and structured edge lombok_usage; it does not run Lombok or read bytecode. Off by default; project config key: [extensions.lombok] mode.")
     String lombokMode;
 
     @Option(names = "--debug",

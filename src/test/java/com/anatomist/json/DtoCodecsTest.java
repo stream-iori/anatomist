@@ -65,6 +65,22 @@ class DtoCodecsTest {
     }
 
     @Test
+    void edgeRow_emitsStructuredLombokUsage() {
+        EdgeRow e = new EdgeRow();
+        e.source = "A#m()";
+        e.relation = "CALLS";
+        e.lombokUsage = java.util.Map.of(
+                "status", "usage-observed",
+                "mapping_status", "mapped",
+                "builder_type", "unknown");
+
+        String got = Json.writePretty(e);
+
+        assertTrue(got.contains("\"lombok_usage\""), got);
+        assertTrue(got.contains("\"mapping_status\" : \"mapped\""), got);
+    }
+
+    @Test
     void edgeRow_emitsVia_whenSet_skipsWhenNull() {
         EdgeRow e = new EdgeRow();
         e.source = "A#m()";

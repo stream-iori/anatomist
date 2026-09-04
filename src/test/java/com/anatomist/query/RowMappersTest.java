@@ -46,6 +46,7 @@ class RowMappersTest {
             Edge e = new Edge();
             e.sourceId = "p.A#run()"; e.targetId = "p.B#foo()"; e.relation = "CALLS";
             e.callKind = "INSTANCE"; e.isExternal = false; e.context = "loop";
+            e.metadata = "{\"lombok_usage\":{\"status\":\"usage-observed\",\"mapping_status\":\"mapped\"}}";
             e.sourceFile = "p/A.java"; e.sourceLocation = "L2";
             r.edges.add(e);
             store.write(r);
@@ -74,6 +75,8 @@ class RowMappersTest {
             assertEquals("foo", row.targetLabel);
             assertEquals("p.B#foo", row.targetQualifiedName);
             assertEquals("loop", row.context);
+            assertEquals("usage-observed", row.lombokUsage.get("status"));
+            assertEquals("mapped", row.lombokUsage.get("mapping_status"));
         }
     }
 

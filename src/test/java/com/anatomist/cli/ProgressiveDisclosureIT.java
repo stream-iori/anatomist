@@ -234,10 +234,12 @@ class ProgressiveDisclosureIT {
         assertTrue(callees.stdout.contains("--filter"));
         assertTrue(callees.stdout.contains("--source-window"));
         assertTrue(callees.stdout.contains("check stats."));
+        assertTrue(callees.stdout.contains("lombok_usage"));
 
         RunResult callers = runCli("callers-of", "--help");
         assertEquals(0, callers.exitCode, callers.stderr);
         assertTrue(callers.stdout.contains("check stats."));
+        assertTrue(callers.stdout.contains("lombok_usage"));
 
         RunResult callPath = runCli("call-path", "--help");
         assertEquals(0, callPath.exitCode, callPath.stderr);

@@ -190,8 +190,19 @@ class LombokExtensionIT {
                             .equals(edge.externalTargetFqn))
                     .findFirst().orElseThrow();
             assertTrue(builderCall.metadata.contains("\"status\":\"usage-observed\""));
+            assertEquals("usage-observed", builderCall.lombokUsage.get("status"));
+            assertEquals("mapped", builderCall.lombokUsage.get("mapping_status"));
+            assertNull(builderCall.lombokUsage.get("builder_type"));
             assertTrue(query.callersOf("sample.UnsupportedBuilder#builder()", 1).stream()
                     .anyMatch(edge -> "sample.LombokUsageService#build()".equals(edge.sourceSymbolId)));
+
+            var cliCall = runCli("callees-of", "sample.LombokUsageService#build()",
+                    "--index", db.toString());
+            assertEquals(0, cliCall.exitCode(), cliCall.stderr());
+            Map<?, ?> cliEnvelope = (Map<?, ?>) Json.parseTree(cliCall.stdout());
+            Map<?, ?> cliEdge = (Map<?, ?>) ((List<?>) cliEnvelope.get("results")).getFirst();
+            assertEquals("usage-observed",
+                    ((Map<?, ?>) cliEdge.get("lombok_usage")).get("status"));
 
             Map<String, Object> golden = new LinkedHashMap<>();
             golden.put("search_user", user.lombok);

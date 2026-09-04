@@ -127,6 +127,7 @@ public final class DtoCodecs {
             put(m, "source_window", e.sourceWindow);
             put(m, "context", e.context);
             put(m, "metadata", e.metadata);
+            put(m, "lombok_usage", e.lombokUsage);
             if (!"java-core".equals(e.producerId)) put(m, "producer_id", e.producerId);
             put(m, "via", e.via);
             return m;

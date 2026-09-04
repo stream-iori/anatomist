@@ -1,5 +1,7 @@
 package com.anatomist.query;
 
+import java.util.Map;
+
 
 /** Tabular projection of an {@code edges} row, optionally joined with the
  *  target node for human-readable labels. */
@@ -29,6 +31,8 @@ public class EdgeRow {
     public SourceWindow sourceWindow;
     public String context;
     public String metadata;
+    /** Structured projection of {@code metadata.lombok_usage}; null for unrelated edges. */
+    public Map<String, Object> lombokUsage;
     public String producerId;
     /** P0: when this edge was synthesized by following into an anonymous-class /
      *  lambda body defined inside {@link #source}, the id of that body the call

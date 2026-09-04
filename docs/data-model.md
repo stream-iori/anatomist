@@ -238,6 +238,9 @@ XML_*:                  parent XML id + segment + source location      → bean:
 }
 ```
 
+The stored object lives at `edges.metadata.lombok_usage`. Query edge rows also expose
+the same object directly as `lombok_usage`; raw `metadata` remains for compatibility.
+
 ## Edges Table Design
 
 | Column | Type | Description |
