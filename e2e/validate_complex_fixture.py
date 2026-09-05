@@ -25,22 +25,55 @@ def run(argv: list[str], cwd: Path, *, expect: int = 0) -> subprocess.CompletedP
     return result
 
 
-def query(binary: Path, project: Path, db: Path, *arguments: str) -> dict[str, object]:
-    result = run([str(binary), *arguments, "--index", str(db)], project)
-    return json.loads(result.stdout)
+def pipeline(binary: Path, project: Path, db: Path, *stages: list[str]) -> list[dict[str, object]]:
+    """Run the public NDJSON pipeline exactly as an Agent does, without a shell."""
+    if len(stages) < 2:
+        raise ValueError("fixture checks require a semantic pipeline, not a terminal JSON query")
+    processes: list[subprocess.Popen[str]] = []
+    previous = None
+    try:
+        for stage in stages:
+            arguments = list(stage)
+            if "--index" not in arguments and not any(item.startswith("--index=") for item in arguments):
+                arguments.extend(["--index", str(db)])
+            process = subprocess.Popen(
+                [str(binary), *arguments], cwd=project, stdin=previous, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True,
+            )
+            if previous is not None:
+                previous.close()
+            previous = process.stdout
+            processes.append(process)
+        stdout, stderr = processes[-1].communicate(timeout=60)
+        errors = [stderr]
+        for process in processes[:-1]:
+            process.wait(timeout=10)
+            if process.stderr is not None:
+                errors.append(process.stderr.read())
+        failed = [process.returncode for process in processes if process.returncode != 0]
+        if failed:
+            raise RuntimeError(
+                f"pipeline failed: returncodes={failed}\n{''.join(errors)[-6000:]}"
+            )
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+    records = []
+    for line in stdout.splitlines():
+        value = json.loads(line)
+        if value.get("contract") != "semantic-stream/v1":
+            raise RuntimeError(f"not a semantic-stream/v1 record: {value}")
+        records.append(value)
+    if not any(item.get("record") == "evidence" and item.get("scope") == "stream"
+               for item in records):
+        raise RuntimeError("pipeline did not return final stream evidence")
+    return records
 
 
-def walk_labels(value: object) -> list[str]:
-    labels: list[str] = []
-    if isinstance(value, dict):
-        if isinstance(value.get("label"), str):
-            labels.append(value["label"])
-        for child in value.values():
-            labels.extend(walk_labels(child))
-    elif isinstance(value, list):
-        for child in value:
-            labels.extend(walk_labels(child))
-    return labels
+def stream_text(records: list[dict[str, object]]) -> str:
+    return json.dumps(records, ensure_ascii=False)
 
 
 def main() -> None:
@@ -72,50 +105,74 @@ def main() -> None:
             "--health-policy", "integrity", "--format", "json",
         ], project)
 
-        search = query(binary, project, db, "search", "OrderService")
-        symbols = {row["symbol_id"] for row in search["results"]}
+        search = pipeline(
+            binary, project, db,
+            ["search", "OrderService", "--kind", "type", "--format", "ndjson"],
+            ["resolve", "--format", "ndjson"],
+        )
+        symbols = {str(row.get("qualified_name")) for row in search
+                   if row.get("record") == "entity"}
         assert "com.example.shop.application.OrderService" in symbols
         assert "com.example.shop.batch.OrderService" in symbols
 
-        controller = query(binary, project, db, "context", "com.example.shop.api.OrderController")
-        controller_text = json.dumps(controller, ensure_ascii=False)
-        assert "POST /api/orders" in controller_text
+        controller = pipeline(
+            binary, project, db,
+            ["resolve", "com.example.shop.api.OrderController", "--kind", "type", "--exact", "--unique", "--format", "ndjson"],
+            ["annotations", "--format", "ndjson"],
+        )
+        controller_text = stream_text(controller)
+        assert "/api/orders" in controller_text
 
-        service = query(binary, project, db, "context", "com.example.shop.application.OrderService")
-        service_text = json.dumps(service, ensure_ascii=False)
-        assert "strictRiskPolicy" in service_text
-        assert "auditedOrderRepository" in service_text
+        service = pipeline(
+            binary, project, db,
+            ["resolve", "com.example.shop.application.OrderService#placeOrder(com.example.shop.domain.CreateOrderRequest)", "--kind", "callable", "--exact", "--unique", "--format", "ndjson"],
+            ["calls", "--direction", "outgoing", "--format", "ndjson"],
+            ["dispatch", "--format", "ndjson"],
+        )
+        service_text = stream_text(service)
+        assert "OrderRepository#save" in service_text
+        assert "OrderEventPublisher#publish" in service_text
 
-        beans = query(binary, project, db, "bean-config", "notificationRegistry", "--format", "json")
-        labels = walk_labels(beans)
+        beans = pipeline(
+            binary, project, db,
+            ["search", "--name", "notification-context.xml", "--kind", "ARTIFACT", "--format", "ndjson"],
+            ["resolve", "--unique", "--format", "ndjson"],
+            ["members", "--recursive", "--format", "ndjson"],
+        )
+        labels = [str(item.get("name")) for item in beans if item.get("record") == "entity"]
         order = [labels.index(name) for name in ("auditChannel", "emailChannel", "smsChannel")]
         assert order == sorted(order)
 
-        callback = query(
-            binary, project, db, "call-path",
-            "com.example.shop.application.OrderService#placeOrder(com.example.shop.domain.CreateOrderRequest)",
-            "com.example.shop.notification.NotificationChannel#send(com.example.shop.domain.OrderCreatedEvent)",
-            "--depth", "8", "--through-callbacks",
+        callback = pipeline(
+            binary, project, db,
+            ["resolve", "com.example.shop.notification.NotificationDispatcher#dispatch(com.example.shop.domain.OrderCreatedEvent)", "--kind", "callable", "--exact", "--unique", "--format", "ndjson"],
+            ["calls", "--direction", "outgoing", "--format", "ndjson"],
+            ["source", "--format", "ndjson"],
         )
-        assert callback["stats"]["total"] == 3
-        assert "$lambda" in json.dumps(callback)
+        assert "channel.send(event)" in stream_text(callback)
 
-        paged = query(
-            binary, project, db, "context",
-            "com.example.shop.batch.OrderService#reconcile(com.example.shop.batch.ReconcileRequest)",
-            "--source",
+        paged = pipeline(
+            binary, project, db,
+            ["resolve", "com.example.shop.batch.OrderService#reconcile(com.example.shop.batch.ReconcileRequest)", "--kind", "callable", "--exact", "--unique", "--format", "ndjson"],
+            ["source", "--format", "ndjson"],
         )
-        source = paged["results"][0]["source"]
+        source = next(item["source"] for item in paged if item.get("record") == "source_slice")
         assert source["truncated"] is True
-        assert paged["next_queries"]
 
-        branches = query(
-            binary, project, db, "branches-of",
-            "com.example.shop.batch.OrderService#reconcile(com.example.shop.batch.ReconcileRequest)",
-            "--depth", "2", "--source-window", "2",
+        continuation = pipeline(
+            binary, project, db,
+            ["resolve", "com.example.shop.batch.OrderService#reconcile(com.example.shop.batch.ReconcileRequest)", "--kind", "callable", "--exact", "--unique", "--format", "ndjson"],
+            ["source", "--offset", "200", "--format", "ndjson"],
         )
-        branch_text = json.dumps(branches, ensure_ascii=False)
-        assert "case CANCELLED" in branch_text
+        assert "PartialReconciliationException" in stream_text(continuation)
+
+        branches = pipeline(
+            binary, project, db,
+            ["resolve", "com.example.shop.batch.OrderService#reconcile(com.example.shop.batch.ReconcileRequest)", "--kind", "callable", "--exact", "--unique", "--format", "ndjson"],
+            ["regions", "--format", "ndjson"],
+            ["sites-in", "--record", "call_site", "--format", "ndjson"],
+        )
+        branch_text = stream_text(branches)
         assert "InventoryRestorer#release" in branch_text
         assert "BatchAuditTrail#record" in branch_text
 

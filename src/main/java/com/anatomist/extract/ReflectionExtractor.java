@@ -599,6 +599,8 @@ public final class ReflectionExtractor implements Extractor {
         edge.confidence = GraphConstants.Confidence.INFERRED;
         edge.context = ControlContext.of(at);
         edge.sourceLocation = "L" + at.getBegin().map(position -> position.line).orElse(0);
+        CallSiteFacts.attach(edge, at);
+        edge.receiverStaticType = target.owner();
 
         ResolvedMethodLikeDeclaration declaration = target.declaration();
         if (declaration != null && ctx.isProjectInternal(declaration.declaringType())) {

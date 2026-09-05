@@ -10,11 +10,22 @@ CREATE TABLE nodes (
     package TEXT,
     source_file TEXT NOT NULL,
     source_location TEXT,
+    begin_line INTEGER,
+    begin_column INTEGER,
+    end_line INTEGER,
+    end_column INTEGER,
+    source_ordinal INTEGER,
     module TEXT NOT NULL,
     scope TEXT NOT NULL CHECK (scope IN ('MAIN','TEST','GENERATED')),
     javadoc TEXT,
     metadata TEXT,
-    producer_id TEXT NOT NULL DEFAULT 'java-core'
+    producer_id TEXT NOT NULL DEFAULT 'java-core',
+    CHECK (
+        (begin_line IS NULL AND begin_column IS NULL AND end_line IS NULL AND end_column IS NULL)
+        OR
+        (begin_line > 0 AND begin_column > 0 AND end_line > 0 AND end_column > 0
+         AND (end_line > begin_line OR (end_line = begin_line AND end_column >= begin_column)))
+    )
 );
 
 CREATE INDEX idx_nodes_kind ON nodes(kind);
@@ -79,6 +90,13 @@ CREATE TABLE edges (
     is_external INTEGER NOT NULL DEFAULT 0,
     source_file TEXT,
     source_location TEXT,
+    begin_line INTEGER,
+    begin_column INTEGER,
+    end_line INTEGER,
+    end_column INTEGER,
+    source_ordinal INTEGER,
+    syntax_target TEXT,
+    receiver_static_type TEXT,
     metadata TEXT,
     producer_id TEXT NOT NULL DEFAULT 'java-core',
     CHECK (
@@ -101,6 +119,49 @@ CREATE INDEX idx_edges_relation_external_fqn ON edges(relation, is_external, ext
 CREATE INDEX idx_edges_external_resolution ON edges(is_external, resolution);
 CREATE INDEX idx_edges_source_relation_external ON edges(source_id, relation, is_external);
 CREATE INDEX idx_edges_producer_file ON edges(producer_id, source_file);
+
+-- Canonical source call sites. Targets are separate because one syntax site may
+-- have several static resolution candidates.
+CREATE TABLE call_sites (
+    site_pk INTEGER PRIMARY KEY,
+    stable_hash BLOB NOT NULL UNIQUE CHECK (length(stable_hash) = 32),
+    caller_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    source_file TEXT NOT NULL,
+    begin_line INTEGER NOT NULL,
+    begin_column INTEGER NOT NULL,
+    end_line INTEGER NOT NULL,
+    end_column INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL DEFAULT 0,
+    syntax_target TEXT,
+    receiver_static_type TEXT,
+    dispatch_kind TEXT,
+    origin TEXT NOT NULL,
+    resolution_status TEXT NOT NULL,
+    producer_id TEXT NOT NULL
+);
+
+CREATE INDEX idx_call_sites_caller_order ON call_sites(
+    caller_id,source_file,begin_line,begin_column,ordinal
+);
+CREATE INDEX idx_call_sites_source ON call_sites(
+    source_file,begin_line,begin_column,ordinal
+);
+
+CREATE TABLE call_site_targets (
+    call_site_pk INTEGER NOT NULL REFERENCES call_sites(site_pk) ON DELETE CASCADE,
+    target_id TEXT REFERENCES nodes(id) ON DELETE CASCADE,
+    external_target_fqn TEXT,
+    resolution_status TEXT NOT NULL,
+    confidence TEXT,
+    producer_id TEXT NOT NULL,
+    CHECK ((target_id IS NOT NULL) <> (external_target_fqn IS NOT NULL))
+);
+
+CREATE INDEX idx_call_site_targets_internal ON call_site_targets(target_id);
+CREATE INDEX idx_call_site_targets_external ON call_site_targets(external_target_fqn);
+CREATE UNIQUE INDEX idx_call_site_targets_identity ON call_site_targets(
+    call_site_pk,COALESCE(target_id,''),COALESCE(external_target_fqn,'')
+);
 
 CREATE TABLE annotations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

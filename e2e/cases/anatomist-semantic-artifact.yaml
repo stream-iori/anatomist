@@ -1,0 +1,72 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-complex-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-semantic-artifact
+name: Canonical Spring XML artifact pipeline
+category: e2e
+scenario:
+  given: notification-context.xml contains an ordered list and map references.
+  when: The Agent must prove configuration structure through Artifact IR.
+  then: It uses artifact members/bindings without treating configuration as runtime observation.
+prompt:
+  language: zh-CN
+  text: |
+    用新的 Anatomist NDJSON 原子管道，从 notification-context.xml artifact 出发，说明
+    notificationRegistry 的 orderedChannels 顺序和 aliases 映射，并给出它与 Java type 的
+    REALIZES 绑定。必须使用 search | resolve | members，并用 bindings 做双向核对；检查最终
+    evidence。只分析，不改代码。
+checks:
+  - id: artifact-members-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [search, resolve, members]
+      records: [entity, evidence]
+    covers: [anatomist-routing]
+  - id: artifact-bindings-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [search, resolve, bindings]
+      records: [binding_relation, evidence]
+    covers: [anatomist-routing]
+  - id: grounded-answer
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: response_regex
+      all:
+        - 'auditChannel.*emailChannel.*smsChannel'
+        - 'audit.*auditChannel'
+        - 'customer.*emailChannel'
+        - 'REALIZES|spring.xml.class'
+        - '静态|配置'
+        - 'coverage|evidence'
+    covers: [grounded-answer]
+  - id: source-clean
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: git_clean}
+    covers: [source-integrity]
+  - id: fresh-index
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: index_fresh}
+    covers: [fresh-index]
+references:
+  key_points:
+    - orderedChannels 顺序是 auditChannel、emailChannel、smsChannel。
+    - aliases 是 audit→auditChannel、customer→emailChannel。
+    - XML class 属性形成 spring.xml.class REALIZES 绑定，不证明运行时选择。
+metadata: {owner: anatomist, source: semantic-query-refactor, created_at: '2026-09-05'}
+extensions:
+  anatomist: {project_root: complex-shop}
+tags: [anatomist, e2e, semantic-stream, artifact]
+priority: P0

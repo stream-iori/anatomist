@@ -13,10 +13,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
 
+import com.anatomist.query.semantic.SemanticCursor;
 import static com.anatomist.query.QueryInfra.*;
 
 public class SearchService {
+
+    public enum SemanticMode { FTS, NAME, ANNOTATION }
 
     private final Connection conn;
     private final NodeResolver resolver;
@@ -238,6 +243,204 @@ public class SearchService {
     private static boolean isAsciiRegexWhitespace(char character) {
         return character == ' ' || character == '\t' || character == '\n'
                 || character == '\u000B' || character == '\f' || character == '\r';
+    }
+
+    /** Cursor used by semantic NDJSON search; legacy list queries keep their v2 behavior. */
+    public SemanticCursor<NodeRow> semanticCursor(SemanticMode mode, String selector,
+                                                   String semanticKind, int limit, int offset) {
+        List<String> kinds = semanticKinds(semanticKind);
+        boolean externalOnly = GraphConstants.Kind.EXTERNAL_CLASS.equals(semanticKind);
+        String filter = kinds.isEmpty() ? "" : " AND n.kind IN (" + qmarks(kinds.size()) + ")";
+        String from;
+        List<Object> baseArgs = new ArrayList<>();
+        String order;
+        if (mode == SemanticMode.FTS) {
+            String expression = selector.trim();
+            if (!containsFtsSyntax(expression)) expression += "*";
+            from = " FROM node_names nn JOIN nodes n ON nn.rowid=n.rowid "
+                    + "WHERE node_names MATCH ? " + resolver.selectorClause("n") + filter;
+            baseArgs.add(expression);
+            order = " ORDER BY rank";
+        } else if (mode == SemanticMode.NAME) {
+            from = " FROM nodes n WHERE n.label LIKE ? " + resolver.selectorClause("n") + filter;
+            baseArgs.add(globToLike(selector));
+            order = " ORDER BY n.qualified_name";
+        } else {
+            from = " FROM nodes n JOIN annotations a ON n.id=a.node_id "
+                    + "WHERE a.annotation_fqn LIKE ? " + resolver.selectorClause("n") + filter;
+            baseArgs.add("%" + selector.replace("@", "") + "%");
+            order = " ORDER BY n.qualified_name";
+        }
+        baseArgs.addAll(kinds);
+        int internalTotal = externalOnly ? 0 : runScalarInt(conn,
+                "SELECT COUNT(" + (mode == SemanticMode.ANNOTATION ? "DISTINCT n.id" : "*") + ")" + from,
+                baseArgs);
+        int internalOffset = Math.min(offset, internalTotal);
+        int internalAvailable = Math.max(0, internalTotal - offset);
+        int internalLimit = Math.min(limit, internalAvailable);
+        SemanticCursor<NodeRow> internal = internalLimit == 0 ? emptyCursor()
+                : nodeCursor("SELECT " + (mode == SemanticMode.ANNOTATION ? "DISTINCT " : "")
+                        + RowMappers.NODE_COLS + from + order + " LIMIT ? OFFSET ?",
+                        withPage(baseArgs, internalLimit, internalOffset));
+
+        boolean allowExternal = mode != SemanticMode.ANNOTATION && allowsSemanticExternal(semanticKind)
+                && (mode != SemanticMode.FTS || !containsFtsSyntax(selector));
+        int externalLimit = allowExternal ? Math.max(0, limit - internalLimit) : 0;
+        int externalOffset = Math.max(0, offset - internalTotal);
+        return new CompositeCursor(internal, () -> externalLimit == 0 ? emptyCursor()
+                : externalCursor(mode, selector, externalLimit, externalOffset));
+    }
+
+    private SemanticCursor<NodeRow> externalCursor(SemanticMode mode, String selector,
+                                                    int limit, int offset) {
+        String type = "CASE WHEN instr(e.external_target_fqn,'#')>0 "
+                + "THEN substr(e.external_target_fqn,1,instr(e.external_target_fqn,'#')-1) "
+                + "ELSE e.external_target_fqn END";
+        boolean name = mode == SemanticMode.NAME;
+        String like = name ? globToLike(selector).toLowerCase(Locale.ROOT)
+                : "%" + escapeLike(selector.trim().toLowerCase(Locale.ROOT)) + "%";
+        String match = name
+                ? "(lower(" + type + ") LIKE ? ESCAPE '\\' OR lower(" + type + ")=?)"
+                : "lower(" + type + ") LIKE ? ESCAPE '\\'";
+        String sql = "SELECT " + type + " type_fqn,count(*) edge_count FROM edges e "
+                + "JOIN nodes src ON src.id=e.source_id WHERE e.is_external=1 AND " + match + " "
+                + resolver.selectorClause("src") + " GROUP BY type_fqn "
+                + "ORDER BY edge_count DESC,type_fqn LIMIT ? OFFSET ?";
+        List<Object> args = new ArrayList<>();
+        args.add(name ? "%." + like : like);
+        if (name) args.add(like);
+        args.add(limit);
+        args.add(offset);
+        try {
+            PreparedStatement statement = conn.prepareStatement(sql);
+            bind(statement, args);
+            return new ResultCursor(statement, statement.executeQuery(), true);
+        } catch (SQLException failure) {
+            throw rethrow(failure);
+        }
+    }
+
+    private SemanticCursor<NodeRow> nodeCursor(String sql, List<Object> args) {
+        try {
+            PreparedStatement statement = conn.prepareStatement(sql);
+            bind(statement, args);
+            return new ResultCursor(statement, statement.executeQuery(), false);
+        } catch (SQLException failure) {
+            throw rethrow(failure);
+        }
+    }
+
+    private static List<Object> withPage(List<Object> args, int limit, int offset) {
+        List<Object> result = new ArrayList<>(args);
+        result.add(limit);
+        result.add(offset);
+        return result;
+    }
+
+    private static List<String> semanticKinds(String kind) {
+        if (kind == null || kind.isBlank() || "entity".equals(kind)) return List.of();
+        return switch (kind) {
+            case "type" -> List.of("CLASS", "INTERFACE", "ENUM", "RECORD", "ANNOTATION",
+                    "ANONYMOUS_CLASS");
+            case "callable" -> List.of("METHOD", "CONSTRUCTOR", "LAMBDA", "METHOD_REF");
+            case "value" -> List.of("FIELD", "ENUM_CONSTANT");
+            case "artifact" -> List.of("ARTIFACT");
+            case "component" -> List.of("BEAN");
+            case "config_entity" -> List.of("XML_PROPERTY", "XML_ENTRY", "XML_LIST", "XML_MAP",
+                    "XML_VALUE", "XML_REF", "XML_IDREF", "XML_NULL", "XML_CONSTRUCTOR_ARG");
+            case GraphConstants.Kind.EXTERNAL_CLASS -> List.of();
+            default -> List.of(kind);
+        };
+    }
+
+    private static boolean allowsSemanticExternal(String kind) {
+        return kind == null || kind.isBlank() || "entity".equals(kind) || "type".equals(kind)
+                || GraphConstants.Kind.EXTERNAL_CLASS.equals(kind);
+    }
+
+    private static SemanticCursor<NodeRow> emptyCursor() {
+        return new SemanticCursor<>() {
+            @Override public boolean hasNext() { return false; }
+            @Override public NodeRow next() { throw new NoSuchElementException(); }
+            @Override public void close() {}
+        };
+    }
+
+    private static final class ResultCursor implements SemanticCursor<NodeRow> {
+        private final PreparedStatement statement;
+        private final ResultSet rows;
+        private final boolean external;
+        private boolean positioned;
+        private boolean closed;
+
+        private ResultCursor(PreparedStatement statement, ResultSet rows, boolean external)
+                throws SQLException {
+            this.statement = statement;
+            this.rows = rows;
+            this.external = external;
+            this.positioned = rows.next();
+        }
+
+        @Override public boolean hasNext() { return positioned && !closed; }
+
+        @Override public NodeRow next() {
+            if (!hasNext()) throw new NoSuchElementException();
+            try {
+                NodeRow row;
+                if (external) {
+                    String fqn = rows.getString("type_fqn");
+                    row = new NodeRow();
+                    row.id = fqn; row.symbolId = fqn; row.qualifiedName = fqn;
+                    int dot = fqn.lastIndexOf('.');
+                    row.label = dot < 0 ? fqn : fqn.substring(dot + 1);
+                    row.kind = GraphConstants.Kind.EXTERNAL_CLASS;
+                    row.externalTarget = true;
+                    row.externalEdgeCount = rows.getLong("edge_count");
+                } else row = RowMappers.mapNode(rows);
+                positioned = rows.next();
+                if (!positioned) close();
+                return row;
+            } catch (SQLException failure) {
+                close();
+                throw rethrow(failure);
+            }
+        }
+
+        @Override public void close() {
+            if (closed) return;
+            closed = true;
+            try { rows.close(); } catch (SQLException ignored) {}
+            try { statement.close(); } catch (SQLException ignored) {}
+        }
+    }
+
+    private final class CompositeCursor implements SemanticCursor<NodeRow> {
+        private SemanticCursor<NodeRow> current;
+        private final java.util.function.Supplier<SemanticCursor<NodeRow>> second;
+        private boolean switched;
+
+        private CompositeCursor(SemanticCursor<NodeRow> first,
+                                java.util.function.Supplier<SemanticCursor<NodeRow>> second) {
+            this.current = first;
+            this.second = second;
+        }
+
+        @Override public boolean hasNext() {
+            if (current.hasNext()) return true;
+            if (!switched) {
+                current.close();
+                current = second.get();
+                switched = true;
+            }
+            return current.hasNext();
+        }
+
+        @Override public NodeRow next() {
+            if (!hasNext()) throw new NoSuchElementException();
+            return current.next();
+        }
+
+        @Override public void close() { current.close(); }
     }
 
     public List<NodeRow> implementorsOf(String typeRef) {

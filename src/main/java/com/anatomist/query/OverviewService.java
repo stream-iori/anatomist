@@ -80,6 +80,7 @@ public class OverviewService {
     private void countEdgesByExternal(OverviewResult ov) {
         queryList(conn, "SELECT e.relation, e.is_external, COUNT(*) FROM edges e "
                 + "JOIN nodes src ON e.source_id=src.id WHERE 1=1 "
+                + "AND e.producer_id<>'java-semantics' "
                 + resolver.selectorClause("src")
                 + " GROUP BY e.relation, e.is_external ORDER BY e.relation", rs -> {
             String rel = rs.getString(1);
@@ -109,7 +110,7 @@ public class OverviewService {
 
     private void countByProducer(OverviewResult ov) {
         String sql = "SELECT producer_id,COUNT(*) FROM ("
-                + "SELECT producer_id FROM nodes UNION ALL SELECT producer_id FROM edges UNION ALL "
+                + "SELECT producer_id FROM nodes UNION ALL SELECT producer_id FROM edges WHERE producer_id<>'java-semantics' UNION ALL "
                 + "SELECT producer_id FROM declarations UNION ALL SELECT producer_id FROM annotations UNION ALL "
                 + "SELECT producer_id FROM semantic_annotations) GROUP BY producer_id ORDER BY producer_id";
         queryList(conn, sql, rs -> {

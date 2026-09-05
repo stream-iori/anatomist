@@ -208,6 +208,23 @@ regex-perf:
     sdk env
     mvn -Pregex-perf test
 
+# 100k-seed semantic stream probe in a 128 MiB child JVM (excluded by default)
+stream-stress:
+    #!/usr/bin/env bash
+    set -e
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
+    mvn -Danatomist.test.groups=stream-performance \
+        -Danatomist.test.excludedGroups= \
+        -Dtest=SemanticStreamStressIT test
+
+# Compare the current native binary with a detached baseline; writes JSON + Markdown reports
+bench-query-refactor BASELINE_REF="dd2e575": native
+    python3 scripts/benchmark-query-refactor.py \
+        --baseline-ref "{{BASELINE_REF}}" \
+        --candidate-bin "{{NATIVE_BIN}}"
+
 # Integration tests (anything ending in *IT)
 it:
     #!/usr/bin/env bash
@@ -269,24 +286,28 @@ agent-e2e-fixture:
     ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
       python3 "{{ROOT}}/e2e/validate_complex_fixture.py"
 
-# Run all seven real-Agent evidence cases through Jury's Codex SDK runner.
+# Run all nine real-Agent evidence cases through Jury's Codex SDK runner.
 agent-e2e-smoke: agent-e2e-contract agent-e2e-fixture
     #!/usr/bin/env bash
     set -euo pipefail
     test -x "{{NATIVE_BIN}}" || { echo "target/anatomist missing; run: just native" >&2; exit 2; }
     mkdir -p "{{ROOT}}/e2e/jury-runs"
-    ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
+    PATH="{{ROOT}}/target:${PATH}" \
+      ZDOTDIR="{{ROOT}}/e2e/shell" \
+      ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
       "{{JURY_BIN}}" suite run "{{ROOT}}/e2e/jury-suites/smoke.yaml" \
         --cwd "{{ROOT}}/e2e" \
         --runs-dir "{{ROOT}}/e2e/jury-runs" \
         --adapter anatomist_jury_adapter:create_adapter
 
-# Run only the four complex multi-module cases.
+# Run only the six complex multi-module cases.
 agent-e2e-complex: agent-e2e-contract agent-e2e-fixture
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{ROOT}}/e2e/jury-runs"
-    ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
+    PATH="{{ROOT}}/target:${PATH}" \
+      ZDOTDIR="{{ROOT}}/e2e/shell" \
+      ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
       "{{JURY_BIN}}" suite run "{{ROOT}}/e2e/jury-suites/complex.yaml" \
         --cwd "{{ROOT}}/e2e" \
         --runs-dir "{{ROOT}}/e2e/jury-runs" \

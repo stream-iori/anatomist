@@ -23,7 +23,7 @@
 | `just jar` | Build `target/anatomist.jar`. |
 | `just native` | Build GraalVM native binary at `target/anatomist`. |
 | `just smoke` | Index bundled fixture and run core CLI queries. |
-| `just release-native 0.14.0` | Build a versioned macOS arm64 native binary. |
+| `just release-native 0.16.0` | Build a versioned macOS arm64 native binary. |
 | `just install-from target/anatomist` | Install a built native binary to the local user path. |
 | `just golden-update` | Refresh expected JSON after intentional output changes. |
 
@@ -32,6 +32,9 @@ Example local CLI flow:
 ```bash
 java -jar target/anatomist.jar index fixtures/mini-spring-shop --no-classpath --output /tmp/shop.db
 java -jar target/anatomist.jar search OrderService --index /tmp/shop.db
+java -jar target/anatomist.jar search OrderService --kind type --format ndjson --index /tmp/shop.db \
+  | java -jar target/anatomist.jar resolve --unique --index /tmp/shop.db \
+  | java -jar target/anatomist.jar runtime-implementations --index /tmp/shop.db
 ```
 
 For an already resolved method, use `context '<exact-signature>' --source` as

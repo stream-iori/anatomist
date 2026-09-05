@@ -72,6 +72,8 @@ public class SchemaManager {
     public void clearAllData() {
         try (Statement st = connSupplier.get().createStatement()) {
             st.execute("DELETE FROM analysis_coverage");
+            st.execute("DELETE FROM call_site_targets");
+            st.execute("DELETE FROM call_sites");
             st.execute("DELETE FROM declarations");
             st.execute("DELETE FROM semantic_annotations");
             st.execute("DELETE FROM annotations");

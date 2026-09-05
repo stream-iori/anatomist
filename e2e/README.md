@@ -12,16 +12,19 @@
 
 | Case | 验证风险 | 确定性 Oracle |
 |---|---|---|
-| `anatomist-stale-index-repair` | 使用旧索引直接下结论 | skill → doctor → index → context 顺序；最终 index 新鲜 |
-| `anatomist-lombok-evidence-boundary` | 把调用点推断说成完整生成声明 | `lombok_usage` 名字和 evidence boundary |
-| `anatomist-static-runtime-boundary` | 把静态可达路径说成线上已执行 | 源码条件 + 明确要求 runtime evidence |
-| `anatomist-complex-business-path` | 同名类型、跨模块路径和 Spring 候选被混淆 | search 消歧 + 多文件源码/调用证据 + Qualifier/XML |
-| `anatomist-complex-paged-flow` | 只读源码第一页就下完整结论 | 真实 `next_queries` continuation + branch/value flow |
-| `anatomist-complex-callback-impact` | 漏掉传递实现、字段、XML 或 lambda 调用 | implementors/callers + 字段查询 + callback/XML 证据 |
-| `anatomist-complex-change-closure` | Agent 改码后没有测试、重索引或复核 | 限定 diff + 默认/acceptance 测试 + 新鲜索引 |
+| `anatomist-stale-index-repair` | 使用旧索引直接下结论 | `resolve | source`，最终 index 新鲜 |
+| `anatomist-lombok-evidence-boundary` | 把调用点推断说成完整生成声明 | `resolve | calls | source` + `lombok_usage` boundary |
+| `anatomist-static-runtime-boundary` | 把静态可达路径说成线上已执行 | `resolve | regions | sites-in` + `resolve | source` |
+| `anatomist-complex-business-path` | 同名类型、跨模块路径和 Spring 候选被混淆 | annotations、calls/dispatch、artifact members 管道 |
+| `anatomist-complex-paged-flow` | 只读源码第一页就下完整结论 | `resolve | source --offset` continuation + regions/sites-in |
+| `anatomist-complex-callback-impact` | 漏掉传递实现、字段、XML 或 lambda 调用 | type/runtime、calls/source、accesses、artifact members 管道 |
+| `anatomist-complex-change-closure` | Agent 改码后没有测试、重索引或复核 | dispatch 影响、限定 diff、测试、增量索引和 `resolve | source` |
+| `anatomist-semantic-type-dispatch` | 新类型/dispatch 管道退化为旧命令 | `search | resolve | runtime-implementations | source` 与 `resolve | calls | dispatch` |
+| `anatomist-semantic-artifact` | 新 Artifact IR 管道退化为旧命令 | `search | resolve | members` 与 `search | resolve | bindings` |
 
-Prompt 以用户问题为主；只有某个命令本身就是待测行为时才明确点名。索引状态、Git、
-trace 和固定源码是 Oracle，不能用命令清单替代结果证据。
+Prompt 以用户问题为主，并明确指定该场景必须走的 canonical NDJSON 管道。索引状态、
+真实 pipe trace、stream evidence、Git 和固定源码共同构成 Oracle；命令清单不能替代
+结果证据。
 
 ## 前置条件
 
@@ -67,6 +70,6 @@ just agent-e2e-smoke
 `anatomist-evidence.json`。复杂 fixture
 的默认测试通过，而 `-Pacceptance` 在 Agent 修改前必须失败、修改后必须通过。
 
-7 条完整 smoke 预计耗时 15–20 分钟；4 条复杂用例实测约 12 分钟，可使用
+9 条完整 smoke 预计耗时约 20 分钟；6 条复杂用例实测约 15 分钟，可使用
 `e2e/jury-suites/complex.yaml`。需要开放式语义评分时再单独配置 Judge，不能用它替代
 确定性 Oracle。

@@ -13,7 +13,9 @@ prompt:
   text: |
     请判断 sample.LombokUsageService 中 fluent accessor、默认 builder 和自定义 builder
     的真实调用名。分别说明哪些是调用点已经观察到的事实，哪些不能当作完整的生成声明
-    或编译结果。只做分析，不要修改源码。
+    或编译结果。声明范围可用 `declarations-of`，但调用点必须经新的 NDJSON 原子管道
+    `resolve --exact | calls | source` 获取；不得使用 legacy `callees-of` 或 `context`。
+    只做分析，不要修改源码。
 setup:
   commands:
     - id: stage-project
@@ -48,8 +50,11 @@ checks:
     type: extension
     provider: anatomist
     severity: hard
-    description: Agent 可用独立调用查询或带 callees 的 context 获取调用点证据。
-    config: {check: commands_any, commands: [callees-of, context]}
+    description: Agent 必须从 canonical call-site stream 取得调用点和源码证据。
+    config:
+      check: semantic_pipeline
+      commands: [resolve, calls, source]
+      records: [source_slice, evidence]
     covers: [anatomist-routing]
   - id: lombok-answer
     type: extension

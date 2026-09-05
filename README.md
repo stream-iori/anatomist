@@ -37,6 +37,21 @@ java -jar target/anatomist.jar callees-of \
     --depth 3 --index /tmp/shop.db
 ```
 
+Semantic one-shell pipeline:
+
+```bash
+set -o pipefail
+anatomist search OrderService --kind type --format ndjson --index /tmp/shop.db |
+  anatomist resolve --unique --index /tmp/shop.db |
+  anatomist runtime-implementations --instantiability yes --index /tmp/shop.db |
+  anatomist source --index /tmp/shop.db
+```
+
+For calls use `resolve | calls | dispatch | source`. For Spring XML, index with
+`--spring-xml`, then use `search --kind artifact | resolve | members` and
+`bindings`. Legacy queries keep v2 JSON defaults. Possible dispatch candidates
+are not runtime observations.
+
 ### Configure scan scope
 
 Put one complete project profile in `.anatomist/config.toml`. It replaces the
@@ -79,7 +94,8 @@ anatomist survey-baseline . --format json --index /tmp/shop.db
 
 ## What it does
 
-- CLI commands covering: search, context, call chain, hierarchy, dependencies, field access, overview, survey-baseline, annotation
+- Canonical semantic pipelines for entity lookup, type/runtime relations, call
+  sites, dispatch, containment, configuration bindings, and source evidence
 - Stable Agent contract: index/doctor expose committed state, health dimensions,
   policy gate, and structured classpath quality; queries expose evidence coverage
 - AST-backed `declarations-of --file ...` contract for type/method/constructor discovery without regex parsing

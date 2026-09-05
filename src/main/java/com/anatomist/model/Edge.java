@@ -16,6 +16,14 @@ public class Edge {
     public boolean isExternal;
     public String sourceFile;
     public String sourceLocation;
+    /** Exact source range for source-backed sites; null for derived relations. */
+    public Integer beginLine;
+    public Integer beginColumn;
+    public Integer endLine;
+    public Integer endColumn;
+    public Integer sourceOrdinal;
+    public String syntaxTarget;
+    public String receiverStaticType;
     public String metadata;
     public String producerId;
 

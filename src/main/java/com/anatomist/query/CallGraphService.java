@@ -46,6 +46,17 @@ public class CallGraphService {
         return callersTraversal(methodRef, depth, throughCallbacks).items();
     }
 
+    /** Direct source CALLS facts only. No override/dispatch expansion is mixed in. */
+    public List<EdgeRow> directCalls(String methodRef, String direction) {
+        List<String> ids = resolver.resolveMethod(methodRef).requireFamilyOrExactIds();
+        return switch (direction) {
+            case "outgoing" -> queryCallsOut(ids, 1);
+            case "incoming" -> queryCallsIn(ids, 1);
+            default -> throw new IllegalArgumentException(
+                    "--direction must be outgoing or incoming; got " + direction);
+        };
+    }
+
     public TraversalResult<EdgeRow> callersTraversal(String methodRef, int depth,
                                                       boolean throughCallbacks) {
         int effectiveDepth = effectiveDepth(depth, 1);

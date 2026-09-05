@@ -9,6 +9,11 @@ public class Node {
     public String pkg;
     public String sourceFile;
     public String sourceLocation;
+    public Integer beginLine;
+    public Integer beginColumn;
+    public Integer endLine;
+    public Integer endColumn;
+    public Integer sourceOrdinal;
     public String module;
     public String scope;
     public String javadoc;

@@ -6,6 +6,7 @@ import com.anatomist.incremental.IndexEnvironmentFingerprint;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.store.FileCacheService;
 import com.anatomist.store.SqliteStore;
+import com.anatomist.store.IndexRevision;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -124,6 +125,11 @@ public final class ProjectMetadata {
                 projectRoot, sourcePaths, sourceRoots, javaVersion, classpathMode,
                 classpathEntries, classpathOverride, springXml, fingerprint,
                 loadedConfig, scanPolicy, scanScopes);
+        // One-time compatibility initialization. Normal no-op incrementals preserve
+        // an existing revision; fact-changing promotions bump it atomically.
+        if (!prior.containsKey(IndexRevision.META_KEY)) {
+            values.put(IndexRevision.META_KEY, IndexRevision.next());
+        }
         if (git != null) addGit(values, git.snapshot());
 
         phaseStarted = System.nanoTime();

@@ -19,7 +19,8 @@ public final class GraphConstants {
     public static final Set<String> DEPENDENCY_RELATIONS = Set.of(
             Relation.CALLS, Relation.REFERENCES, Relation.WIRES, Relation.INJECTS,
             Relation.HANDLES, Relation.DEFINED_BY);
-    public static final Set<String> HIERARCHY_RELATIONS = Set.of(Relation.IMPLEMENTS, Relation.INHERITS);
+    public static final Set<String> HIERARCHY_RELATIONS = Set.of(
+            Relation.IMPLEMENTS, Relation.INHERITS, Relation.PERMITS);
     public static final Set<String> PACKAGE_DEPENDENCY_RELATIONS = Set.of(
             Relation.CALLS, Relation.REFERENCES, Relation.INJECTS,
             Relation.IMPLEMENTS, Relation.INHERITS);
@@ -33,6 +34,7 @@ public final class GraphConstants {
     public static final class Kind {
         public static final String ANNOTATION = "ANNOTATION";
         public static final String ANONYMOUS_CLASS = "ANONYMOUS_CLASS";
+        public static final String ARTIFACT = "ARTIFACT";
         public static final String BEAN = "BEAN";
         public static final String CLASS = "CLASS";
         public static final String CONSTRUCTOR = "CONSTRUCTOR";
@@ -69,6 +71,10 @@ public final class GraphConstants {
         public static final String INHERITS = "INHERITS";
         public static final String INJECTS = "INJECTS";
         public static final String OVERRIDES = "OVERRIDES";
+        public static final String PARENT_BEAN = "PARENT_BEAN";
+        public static final String FACTORY_BEAN = "FACTORY_BEAN";
+        /** Canonical child-to-sealed-parent relation declared by a permits clause. */
+        public static final String PERMITS = "PERMITS";
         public static final String READS = "READS";
         public static final String REFERENCES = "REFERENCES";
         public static final String WIRES = "WIRES";

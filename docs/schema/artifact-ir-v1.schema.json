@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://antcodes.dev/anatomist/schema/artifact-ir-v1.schema.json",
+  "title": "Anatomist Artifact IR v1 record",
+  "type": "object",
+  "required": [
+    "record", "contract", "seed_id", "index_revision_id",
+    "semantic_profile_id", "id", "domain"
+  ],
+  "properties": {
+    "record": { "enum": ["artifact", "config_entity", "document_relation"] },
+    "contract": { "const": "semantic-stream/v1" },
+    "seed_id": { "type": "string", "minLength": 1 },
+    "index_revision_id": { "type": "string", "pattern": "^rev:" },
+    "source_snapshot_id": { "type": "string", "minLength": 1 },
+    "semantic_profile_id": { "type": "string", "minLength": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "domain": { "enum": ["configuration", "documentation", "build"] },
+    "kind": { "type": "string", "minLength": 1 },
+    "ordinal": { "type": "integer", "minimum": 0 },
+    "producer_id": { "type": "string", "minLength": 1 },
+    "origin": { "enum": ["extracted", "configured", "derived", "observed"] },
+    "resolution_status": { "enum": ["exact", "heuristic", "ambiguous", "unresolved"] }
+  },
+  "additionalProperties": true
+}

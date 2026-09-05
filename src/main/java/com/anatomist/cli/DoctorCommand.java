@@ -102,7 +102,11 @@ public class DoctorCommand implements Callable<Integer> {
         if (freshness.reason() != null) out.put("rebuild_reason", freshness.reason());
         if (freshness.dirtyGeneration() > 0) out.put("dirty_generation", freshness.dirtyGeneration());
         out.put("commands", List.of(
-                "skill", "index", "index-docs", "search", "context", "declarations-of", "callees-of",
+                "skill", "index", "index-docs", "search", "resolve", "describe", "members",
+                "type-relations", "runtime-implementations", "callable-relations", "calls",
+                "dispatch", "bindings", "annotations", "related-docs", "references",
+                "accesses", "regions", "sites-in", "trace", "source",
+                "context", "declarations-of", "callees-of",
                 "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
                 "field-access", "call-path", "overview", "survey-baseline",
                 "annotate", "doctor"));
@@ -116,6 +120,7 @@ public class DoctorCommand implements Callable<Integer> {
         List<String> capabilities = new java.util.ArrayList<>((List<String>) out.get("capabilities"));
         capabilities.add("file-resolution-coverage");
         capabilities.add("declarations-by-file-v1");
+        capabilities.add("semantic-stream-v1");
         out.put("capabilities", List.copyOf(capabilities));
 
         if (exists && compatibility.requiresRecreate()) {
@@ -195,6 +200,15 @@ public class DoctorCommand implements Callable<Integer> {
                     store.readProjectMeta("source_root").ifPresent(v -> out.put("source_root", v));
                     store.readProjectMeta(com.anatomist.application.ProjectMetadata.SNAPSHOT_FINGERPRINT_KEY)
                             .ifPresent(v -> out.put("source_snapshot_fingerprint", v));
+                    com.anatomist.query.semantic.SemanticIdentity semanticIdentity =
+                            com.anatomist.query.semantic.SemanticIdentity.read(store);
+                    for (String capability : new com.anatomist.query.semantic.SemanticCapabilityRegistry(
+                            store).supportedIds()) {
+                        if (!capabilities.contains(capability)) capabilities.add(capability);
+                    }
+                    out.put("capabilities", List.copyOf(capabilities));
+                    out.put("index_revision_id", semanticIdentity.indexRevisionId());
+                    out.put("semantic_profile_id", semanticIdentity.semanticProfileId());
                     addSnapshotStatus(out, store);
                     if (store.readProjectMeta("source_git_commit").isPresent()
                             && out.get("source_root") instanceof String sourceRoot) {

@@ -15,8 +15,13 @@ members:
   - id: complex-change-closure
     type: case
     path: ../cases/anatomist-complex-change-closure.yaml
+  - id: semantic-type-dispatch
+    type: case
+    path: ../cases/anatomist-semantic-type-dispatch.yaml
+  - id: semantic-artifact
+    type: case
+    path: ../cases/anatomist-semantic-artifact.yaml
 metadata:
   owner: anatomist
   description: Focused suite for the shared complex mini-shop fixture.
   tags: [anatomist, e2e, complex, multi-module]
-

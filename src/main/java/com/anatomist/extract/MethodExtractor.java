@@ -363,8 +363,11 @@ public class MethodExtractor implements Extractor {
             call.callKind = target.isStatic() ? GraphConstants.CallKind.STATIC : GraphConstants.CallKind.INSTANCE;
             call.confidence = GraphConstants.Confidence.EXTRACTED;
             call.sourceLocation = "L" + line;
+            CallSiteFacts.attach(call, ref);
             try {
                 ResolvedTypeDeclaration decl = target.declaringType();
+                try { call.receiverStaticType = decl.getQualifiedName(); }
+                catch (RuntimeException ignored) { /* optional best-effort call-site facet */ }
                 if (ctx.isProjectInternal(decl)) {
                     call.targetId = CallableIdFactory.forMethod(ctx.idGenerator(), target);
                     call.isExternal = false;

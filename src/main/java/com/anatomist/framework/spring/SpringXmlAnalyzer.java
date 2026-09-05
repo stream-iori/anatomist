@@ -15,6 +15,7 @@ import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -55,7 +56,7 @@ public final class SpringXmlAnalyzer implements ProjectResourceAnalyzer {
         sorted.sort(Comparator.comparing(p -> relativize(projectRoot, p.toAbsolutePath().normalize())));
         for (Path xml : sorted) {
             String rel = relativize(projectRoot, xml.toAbsolutePath().normalize());
-            parsed.add(new XmlSource(rel, beanParser.parse(xml)));
+            parsed.add(new XmlSource(rel, beanParser.parse(xml), artifactRange(xml)));
         }
 
         Set<String> allKnownIds = new HashSet<>(knownIds);
@@ -72,7 +73,8 @@ public final class SpringXmlAnalyzer implements ProjectResourceAnalyzer {
 
         XmlBeanExtractor xmlExtractor = new XmlBeanExtractor("MAIN");
         for (XmlSource src : parsed) {
-            xmlExtractor.extractWithResolvedBeans(src.beans(), allKnownIds, resolvedBeans, src.sourceFile(), result);
+            xmlExtractor.extractWithResolvedBeans(src.beans(), allKnownIds, resolvedBeans,
+                    src.sourceFile(), src.range(), result);
         }
     }
 
@@ -105,7 +107,27 @@ public final class SpringXmlAnalyzer implements ProjectResourceAnalyzer {
         }
     }
 
-    private record XmlSource(String sourceFile, List<ParsedBean> beans) {}
+    private record XmlSource(String sourceFile, List<ParsedBean> beans,
+                             XmlBeanExtractor.ArtifactRange range) {}
+
+    private static XmlBeanExtractor.ArtifactRange artifactRange(Path file) {
+        try {
+            String content = Files.readString(file);
+            int line = 1;
+            int column = 1;
+            for (int i = 0; i < content.length(); i++) {
+                if (content.charAt(i) == '\n') {
+                    line++;
+                    column = 1;
+                } else {
+                    column++;
+                }
+            }
+            return new XmlBeanExtractor.ArtifactRange(line, column);
+        } catch (java.io.IOException e) {
+            return new XmlBeanExtractor.ArtifactRange(1, 1);
+        }
+    }
 
     private static String relativize(Path root, Path file) {
         try {

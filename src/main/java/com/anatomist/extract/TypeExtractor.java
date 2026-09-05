@@ -114,12 +114,14 @@ public class TypeExtractor implements Extractor {
         String parentMethodId = id.substring(0, id.lastIndexOf("$anon@"));
 
         String baseType = expr.getType().getNameAsString();
+        ResolvedReferenceType resolvedBase = null;
         try {
             // Resolve the instantiated supertype reference (e.g. java.lang.Runnable),
             // NOT expr.resolve() — for an anonymous class the resolved ctor's
             // declaringType is the anon class itself, whose generated name embeds
             // a per-parse UUID and would break re-index idempotency.
-            baseType = expr.getType().resolve().describe();
+            resolvedBase = expr.getType().resolve().asReferenceType();
+            baseType = resolvedBase.describe();
         } catch (RuntimeException ignore) { /* keep simple-name baseType */ }
 
         Node n = new Node();
@@ -149,6 +151,25 @@ public class TypeExtractor implements Extractor {
         e.sourceFile = sourceFile;
         e.sourceLocation = n.sourceLocation;
         result.edges.add(e);
+
+        Edge hierarchy = new Edge();
+        hierarchy.sourceId = id;
+        hierarchy.relation = GraphConstants.Relation.IMPLEMENTS;
+        hierarchy.confidence = GraphConstants.Confidence.EXTRACTED;
+        hierarchy.sourceFile = sourceFile;
+        hierarchy.sourceLocation = n.sourceLocation;
+        hierarchy.producerId = com.anatomist.model.ProducerIds.JAVA_SEMANTICS;
+        ResolvedReferenceTypeDeclaration baseDeclaration = resolvedBase == null ? null
+                : resolvedBase.getTypeDeclaration().orElse(null);
+        if (baseDeclaration != null && ctx.isProjectInternal(baseDeclaration)) {
+            hierarchy.targetId = ctx.idGenerator().forType(baseDeclaration);
+            hierarchy.isExternal = false;
+        } else {
+            hierarchy.externalTargetFqn = baseType;
+            hierarchy.isExternal = true;
+            hierarchy.resolution = GraphConstants.Resolution.SOURCE_FALLBACK;
+        }
+        result.edges.add(hierarchy);
     }
 
     private static String kindOf(TypeDeclaration<?> decl, ResolvedReferenceTypeDeclaration rt) {

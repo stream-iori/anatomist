@@ -203,7 +203,8 @@ configuration or the Git index automatically.
 
 ## Query the index
 
-All queries return JSON to stdout. Use `--index` to point at the database.
+Existing queries return a v2 JSON envelope. Semantic pipelines use NDJSON records.
+Pass the same `--index` to every process.
 
 ```bash
 # Search by name
@@ -227,6 +228,15 @@ anatomist deps-of com.example.shop.service.OrderService --limit 20 --index /tmp/
 ```
 
 ## Output format
+
+```bash
+set -o pipefail
+anatomist search OrderService --kind type --format ndjson --index /tmp/shop.db |
+  anatomist resolve --unique --index /tmp/shop.db
+```
+
+`search` needs explicit `--format ndjson`; semantic-only downstream commands default
+to NDJSON and verify revision, profile, seed evidence, and final evidence.
 
 Every query outputs a JSON envelope:
 

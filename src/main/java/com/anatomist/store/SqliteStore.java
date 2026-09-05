@@ -70,6 +70,32 @@ public class SqliteStore implements IndexWriter {
     // ── Schema ──────────────────────────────────────────────────────────
 
     public void initSchema() { schema.initSchema(); }
+
+    /**
+     * Full indexes are built at a disposable path and atomically published only after validation.
+     * Avoid durable journaling for that unpublished copy; reopening the promoted DB restores WAL/NORMAL.
+     */
+    public void prepareDisposableBuild() {
+        try (Statement statement = connection().createStatement()) {
+            statement.execute("PRAGMA journal_mode=OFF");
+            statement.execute("PRAGMA synchronous=OFF");
+            statement.execute("PRAGMA locking_mode=EXCLUSIVE");
+        } catch (SQLException failure) {
+            throw new RuntimeException("Failed to prepare disposable index build", failure);
+        }
+    }
+
+    /** Restore the normal live-index durability profile before atomic publication. */
+    public void finishDisposableBuild() {
+        try (Statement statement = connection().createStatement()) {
+            statement.execute("PRAGMA locking_mode=NORMAL");
+            statement.execute("PRAGMA journal_mode=WAL");
+            statement.execute("PRAGMA synchronous=NORMAL");
+            statement.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        } catch (SQLException failure) {
+            throw new RuntimeException("Failed to finalize disposable index build", failure);
+        }
+    }
     public boolean schemaExists() { return schema.schemaExists(); }
     public int schemaVersion() { return schema.schemaVersion(); }
     public boolean schemaCompatible() { return schema.schemaCompatible(); }
@@ -85,6 +111,8 @@ public class SqliteStore implements IndexWriter {
             DataWriter.insertAnnotations(c, result.annotations);
             DataWriter.insertSemanticAnnotations(c, result.semanticAnnotations);
             DataWriter.insertDeclarations(c, result.declarations);
+            CallSiteProjection.rebuild(c);
+            IndexRevision.bump(c);
         });
         writer.runAnalyze();
     }

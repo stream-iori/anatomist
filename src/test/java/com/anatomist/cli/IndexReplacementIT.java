@@ -1,6 +1,7 @@
 package com.anatomist.cli;
 
 import com.anatomist.json.Json;
+import com.anatomist.core.GraphSemantics;
 import com.anatomist.test.CliTestSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,7 +44,7 @@ class IndexReplacementIT {
         assertEquals(1, number(rebuild, "discarded_semantic_annotations"));
         assertEquals(0, scalar(database, "SELECT count(*) FROM documents"));
         assertEquals(0, scalar(database, "SELECT count(*) FROM semantic_annotations"));
-        assertEquals(1, scalar(database, "SELECT CAST(value AS INTEGER) FROM project_meta "
+        assertEquals(GraphSemantics.VERSION, scalar(database, "SELECT CAST(value AS INTEGER) FROM project_meta "
                 + "WHERE key='graph_semantics_version'"));
     }
 

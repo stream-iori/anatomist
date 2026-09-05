@@ -70,18 +70,22 @@ public class DataWriter {
             """;
     private static final String SQL_INSERT_NODE =
             "INSERT INTO nodes"
-                    + "(id,symbol_id,label,kind,qualified_name,package,source_file,source_location,module,scope,javadoc,metadata,producer_id)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    + "(id,symbol_id,label,kind,qualified_name,package,source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,producer_id)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                     + " ON CONFLICT(id) DO UPDATE SET"
                     + " symbol_id=excluded.symbol_id,label=excluded.label,kind=excluded.kind,"
                     + " qualified_name=excluded.qualified_name,package=excluded.package,"
                     + " source_file=excluded.source_file,source_location=excluded.source_location,"
+                    + " begin_line=excluded.begin_line,begin_column=excluded.begin_column,"
+                    + " end_line=excluded.end_line,end_column=excluded.end_column,source_ordinal=excluded.source_ordinal,"
                     + " module=excluded.module,scope=excluded.scope,javadoc=excluded.javadoc,"
                     + " metadata=excluded.metadata,producer_id=excluded.producer_id";
     private static final String SQL_INSERT_EDGE =
             "INSERT INTO edges"
-                    + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,source_file,source_location,metadata,producer_id)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                    + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,"
+                    + "source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,"
+                    + "syntax_target,receiver_static_type,metadata,producer_id)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_ANNOTATION =
             "INSERT INTO annotations(node_id,annotation_fqn,attributes,source_file,producer_id) VALUES (?,?,?,?,?)";
     private static final String SQL_INSERT_DECLARATION = "INSERT OR REPLACE INTO declarations(symbol_id,"
@@ -200,6 +204,7 @@ public class DataWriter {
                     psIns.executeUpdate();
                 }
             }
+            IndexRevision.bump(c);
         });
     }
 
@@ -243,14 +248,16 @@ public class DataWriter {
             try (Statement st = c.createStatement()) {
                 st.execute("DELETE FROM documents");
             }
-            if (docs == null || docs.isEmpty()) return;
-            try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_DOCUMENT)) {
-                for (Document d : docs) {
-                    bindDocument(ps, d);
-                    ps.addBatch();
+            if (docs != null && !docs.isEmpty()) {
+                try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_DOCUMENT)) {
+                    for (Document d : docs) {
+                        bindDocument(ps, d);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
                 }
-                ps.executeBatch();
             }
+            IndexRevision.bump(c);
         });
     }
 
@@ -720,11 +727,16 @@ public class DataWriter {
                 ps.setString(6, n.pkg);
                 ps.setString(7, n.sourceFile == null ? "" : n.sourceFile);
                 ps.setString(8, n.sourceLocation);
-                ps.setString(9, n.module == null ? "." : n.module);
-                ps.setString(10, n.scope == null ? GraphConstants.Scope.MAIN : n.scope);
-                ps.setString(11, n.javadoc);
-                ps.setString(12, n.metadata);
-                ps.setString(13, producer(n.producerId, ProducerIds.JAVA_CORE));
+                setNullableInt(ps, 9, n.beginLine);
+                setNullableInt(ps, 10, n.beginColumn);
+                setNullableInt(ps, 11, n.endLine);
+                setNullableInt(ps, 12, n.endColumn);
+                setNullableInt(ps, 13, n.sourceOrdinal);
+                ps.setString(14, n.module == null ? "." : n.module);
+                ps.setString(15, n.scope == null ? GraphConstants.Scope.MAIN : n.scope);
+                ps.setString(16, n.javadoc);
+                ps.setString(17, n.metadata);
+                ps.setString(18, producer(n.producerId, ProducerIds.JAVA_CORE));
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -759,8 +771,15 @@ public class DataWriter {
                 ps.setInt(9, target instanceof com.anatomist.model.EdgeTarget.External ? 1 : 0);
                 ps.setString(10, e.sourceFile);
                 ps.setString(11, e.sourceLocation);
-                ps.setString(12, e.metadata);
-                ps.setString(13, producer(e.producerId, ProducerIds.JAVA_CORE));
+                setNullableInt(ps, 12, e.beginLine);
+                setNullableInt(ps, 13, e.beginColumn);
+                setNullableInt(ps, 14, e.endLine);
+                setNullableInt(ps, 15, e.endColumn);
+                setNullableInt(ps, 16, e.sourceOrdinal);
+                setNullableString(ps, 17, e.syntaxTarget);
+                setNullableString(ps, 18, e.receiverStaticType);
+                ps.setString(19, e.metadata);
+                ps.setString(20, producer(e.producerId, ProducerIds.JAVA_CORE));
                 ps.addBatch();
             }
             ps.executeBatch();

@@ -14,6 +14,10 @@ prompt:
     如果修改 NotificationChannel#send(OrderCreatedEvent) 的方法签名，哪些实现、调用者、
     持有字段和 Spring XML 配置需要检查？请证明从订单发布到 send 的 lambda/callback 路径，
     并给出通知顺序。区分直接实现、经抽象类的传递实现和静态配置候选。只分析，不修改项目。
+    必须使用新的 NDJSON 原子管道：`resolve | type-relations`、
+    `resolve | runtime-implementations`、`resolve | calls | source`、
+    `resolve | accesses` 和 `search | resolve | members`；不得使用 legacy
+    `implementors-of`、`callers-of`、`call-path`、`bean-config`、`used-by` 或 `field-access`。
 checks:
   - id: impact-route
     type: extension
@@ -21,35 +25,50 @@ checks:
     severity: hard
     config: {check: command_sequence, commands: [skill, doctor, index]}
     covers: [anatomist-routing]
-  - id: relation-query-coverage
-    type: extension
-    provider: anatomist
-    severity: hard
-    config: {check: commands_present, commands: [implementors-of, callers-of, call-path, bean-config]}
-    covers: [anatomist-routing]
-  - id: field-query-route
-    type: extension
-    provider: anatomist
-    severity: hard
-    config: {check: commands_any, commands: [used-by, field-access]}
-    covers: [anatomist-routing]
-  - id: callback-output-consumed
+  - id: type-relation-pipeline
     type: extension
     provider: anatomist
     severity: hard
     config:
-      check: command_output_regex
-      command: 'anatomist\s+(call-path|callees-of).*--through-callbacks'
-      all: ['NotificationChannel#send', '\$lambda|"via"']
+      check: semantic_pipeline
+      commands: [resolve, type-relations]
+      records: [type_relation, evidence]
+    covers: [anatomist-routing]
+  - id: runtime-implementation-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [resolve, runtime-implementations]
+      records: [entity, evidence]
+    covers: [anatomist-routing]
+  - id: callback-source-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [resolve, calls, source]
+      records: [source_slice, evidence]
     covers: [grounded-answer]
-  - id: channel-fields-consumed
+  - id: channel-field-pipeline
     type: extension
     provider: anatomist
     severity: hard
     config:
-      check: command_output_regex
-      command: 'anatomist\s+(context|field-access|used-by)'
-      all: [NotificationRegistry, orderedChannels, aliases, NotificationChannel]
+      check: semantic_pipeline
+      commands: [resolve, accesses]
+      records: [access_site, evidence]
+    covers: [grounded-answer]
+  - id: xml-members-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [search, resolve, members]
+      records: [entity, evidence]
     covers: [grounded-answer]
   - id: impact-answer
     type: extension

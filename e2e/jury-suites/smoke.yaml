@@ -24,6 +24,12 @@ members:
   - id: complex-change-closure
     type: case
     path: ../cases/anatomist-complex-change-closure.yaml
+  - id: semantic-type-dispatch
+    type: case
+    path: ../cases/anatomist-semantic-type-dispatch.yaml
+  - id: semantic-artifact
+    type: case
+    path: ../cases/anatomist-semantic-artifact.yaml
 metadata:
   owner: anatomist
   description: Real-Agent evidence smoke from focused boundaries through a multi-module code-change closure.

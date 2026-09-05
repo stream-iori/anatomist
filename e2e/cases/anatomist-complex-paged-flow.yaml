@@ -14,50 +14,50 @@ prompt:
     请分析 batch OrderService 的 reconcile：operatorReason 如何处理，CANCELLED 订单按什么
     顺序恢复库存和记录审计；如果恢复库存抛异常，审计、计数和最终返回会怎样。
     项目中有同名在线服务，必须消歧。使用默认 source 分页，不要调大 source limit；如果
-    Anatomist 返回 next_queries，必须逐页跟随到源码完整。只分析，不修改项目。
+    Anatomist 返回不完整证据，必须逐页跟随到源码完整。必须用新的 NDJSON 原子管道
+    `resolve --exact | source`（随后用同一管道带 `source --offset`）以及
+    `resolve --exact | regions | sites-in`；不得使用 legacy `context` 或 `branches-of`。
+    只分析，不修改项目。
 checks:
   - id: paged-flow-route
     type: extension
     provider: anatomist
     severity: hard
-    config: {check: command_sequence, commands: [skill, doctor, index, context]}
+    config: {check: command_sequence, commands: [skill, doctor, index, resolve]}
     covers: [anatomist-routing]
-  - id: paged-result-returned
+  - id: paged-source-pipeline
     type: extension
     provider: anatomist
     severity: hard
     config:
-      check: command_output_regex
-      command: 'anatomist\s+context\s+.*batch\.OrderService#reconcile.*--source'
-      all: ['"truncated"\s*:\s*true', next_queries]
+      check: semantic_pipeline
+      commands: [resolve, source]
+      records: [source_slice, evidence]
     covers: [grounded-answer]
   - id: next-query-followed
     type: extension
     provider: anatomist
     severity: hard
-    config: {check: followed_next_query, target: 'batch\.OrderService#reconcile'}
+    config: {check: source_page_followed, target: 'batch\.OrderService#reconcile'}
     covers: [anatomist-routing]
-  - id: flow-query-coverage
-    type: extension
-    provider: anatomist
-    severity: hard
-    config: {check: commands_present, commands: [context]}
-    covers: [anatomist-routing]
-  - id: disambiguation-query
-    type: extension
-    provider: anatomist
-    severity: hard
-    config: {check: commands_any, commands: [search, declarations-of]}
-    covers: [anatomist-routing]
-  - id: cross-method-source-evidence
+  - id: branch-site-pipeline
     type: extension
     provider: anatomist
     severity: hard
     config:
-      check: command_output_regex
-      command: 'anatomist\s+context'
-      all: [ReconciliationReasonNormalizer.java, trim, toUpperCase]
-    covers: [grounded-answer]
+      check: semantic_pipeline
+      commands: [resolve, regions, sites-in]
+      records: [call_site, evidence]
+    covers: [anatomist-routing]
+  - id: normalizer-source-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [resolve, source]
+      records: [source_slice, evidence]
+    covers: [anatomist-routing]
   - id: flow-answer
     type: extension
     provider: anatomist

@@ -10,6 +10,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
+import com.anatomist.query.semantic.SemanticCursor;
 
 /**
  * Read-only query API over a previously-built anatomist SQLite index.
@@ -32,17 +33,21 @@ public class QueryService implements AutoCloseable {
     private final SearchService search;
     private final TypeContextService typeContext;
     private final CallGraphService callGraph;
+    private final CallSiteService callSites;
     private final DependencyService dependency;
     private final OverviewService overview;
     private final EnrichmentService enrichment;
     private final SourceContextService sourceContext;
     private final SourceWindowService sourceWindows;
     private final BranchSliceService branchSlices;
+    private final JavaSemanticService javaSemantics;
+    private final GenericSemanticService genericSemantics;
 
     public Connection connection() { return conn; }
 
     public void selectNodes(String module, String scope) {
         resolver.select(module, scope);
+        javaSemantics.select(module, scope);
     }
 
     public QueryService(Path dbPath) {
@@ -82,6 +87,7 @@ public class QueryService implements AutoCloseable {
         }
         this.resolver = new NodeResolver(conn);
         this.callGraph = new CallGraphService(conn, resolver);
+        this.callSites = new CallSiteService(conn, resolver);
         this.search = new SearchService(conn, resolver);
         this.typeContext = new TypeContextService(conn, resolver, callGraph);
         this.dependency = new DependencyService(conn, resolver);
@@ -90,6 +96,8 @@ public class QueryService implements AutoCloseable {
         this.sourceContext = new SourceContextService(conn, dbPath);
         this.sourceWindows = new SourceWindowService(conn);
         this.branchSlices = new BranchSliceService(conn, resolver, callGraph, sourceWindows);
+        this.javaSemantics = new JavaSemanticService(conn, resolver);
+        this.genericSemantics = new GenericSemanticService(conn, resolver);
     }
 
     @Override
@@ -134,6 +142,12 @@ public class QueryService implements AutoCloseable {
 
     public int countByAnnotation(String annotationTerm, String kind) {
         return search.countByAnnotation(annotationTerm, kind);
+    }
+
+    public SemanticCursor<NodeRow> semanticSearchCursor(SearchService.SemanticMode mode,
+                                                         String selector, String kind,
+                                                         int limit, int offset) {
+        return search.semanticCursor(mode, selector, kind, limit, offset);
     }
 
     public List<NodeRow> implementorsOf(String typeRef) {
@@ -192,6 +206,61 @@ public class QueryService implements AutoCloseable {
     public TraversalResult<EdgeRow> callersTraversal(String methodRef, int depth,
                                                       boolean throughCallbacks) {
         return callGraph.callersTraversal(methodRef, depth, throughCallbacks);
+    }
+
+    public List<EdgeRow> directCalls(String methodRef, String direction) {
+        return callGraph.directCalls(methodRef, direction);
+    }
+
+    public List<CallSiteRow> callSites(String methodRef, String direction) {
+        return callSites.calls(methodRef, direction);
+    }
+
+    public List<JavaSemanticRows.TypeRelation> typeRelations(String typeId, String direction,
+                                                              String semantic, boolean transitive,
+                                                              int maxDepth, int limit) {
+        return javaSemantics.typeRelations(typeId, direction, semantic, transitive, maxDepth, limit);
+    }
+
+    public List<JavaSemanticRows.RuntimeImplementation> runtimeImplementations(
+            String typeId, String instantiability, String world, int maxDepth, int limit) {
+        return javaSemantics.runtimeImplementations(typeId, instantiability, world, maxDepth, limit);
+    }
+
+    public List<JavaSemanticRows.CallableRelation> callableRelations(
+            String callableId, String direction, boolean transitive, int maxDepth, int limit) {
+        return javaSemantics.callableRelations(callableId, direction, transitive, maxDepth, limit);
+    }
+
+    public List<JavaSemanticRows.DispatchTarget> dispatch(Map<String, Object> callSite,
+                                                           String algorithm, String world,
+                                                           int maxDepth, int limit) {
+        return javaSemantics.dispatch(callSite, algorithm, world, maxDepth, limit);
+    }
+
+    public List<NodeRow> semanticMembers(String containerId, boolean recursive,
+                                         int maxDepth, int limit) {
+        return genericSemantics.members(containerId, recursive, maxDepth, limit);
+    }
+
+    public List<EdgeRow> semanticBindings(String entityId, String direction,
+                                          String semantic, int limit) {
+        return genericSemantics.bindings(entityId, direction, semantic, limit);
+    }
+
+    public List<GenericSemanticRows.Site> semanticSites(String entityId, String direction,
+                                                         java.util.Set<String> relations,
+                                                         int limit) {
+        return genericSemantics.sites(entityId, direction, relations, limit);
+    }
+
+    public List<GenericSemanticRows.Site> resolvedCallPath(String startId, String endSelector,
+                                                            int maxDepth) {
+        return genericSemantics.resolvedCallPath(startId, endSelector, maxDepth);
+    }
+
+    public SemanticCursor<CallSiteRow> callSitesCursor(String methodRef, String direction) {
+        return callSites.cursor(methodRef, direction);
     }
 
     public List<EdgeRow> callPath(String fromMethodRef, String toMethodRef, int maxDepth) {
@@ -280,6 +349,17 @@ public class QueryService implements AutoCloseable {
     public List<SemanticAnnotationRow> readSemanticAnnotations(String nodeId) {
         NodeRow node = resolver.resolveNodeRow(nodeId);
         return enrichment.readSemanticAnnotations(node == null ? nodeId : node.id);
+    }
+
+    public SourceContext source(String nodeRef, SourceRequest request) {
+        NodeRow node = resolver.resolveNode(nodeRef).requireUnique();
+        return sourceContext.read(node, request);
+    }
+
+    public SourceContext sourceRange(String sourceFile, int beginLine, int beginColumn,
+                                     int endLine, int endColumn, SourceRequest request) {
+        return sourceContext.readRange(sourceFile, beginLine, beginColumn,
+                endLine, endColumn, request);
     }
 
     public List<DocSnippet> searchRelatedDocs(String label, String qualifiedName) {

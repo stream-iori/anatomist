@@ -236,8 +236,14 @@ public final class Json {
      *  Object → LinkedHashMap, Array → ArrayList, integer → Long,
      *  non-integer → Double, string → String, true/false → Boolean, null → null. */
     public static Object parseTree(String json) {
-        Parser p = new Parser(json);
-        Object v = p.readValue();
+        return parseTree(json, 512);
+    }
+
+    /** Parse with an explicit container nesting limit for untrusted input. */
+    public static Object parseTree(String json, int maxDepth) {
+        if (maxDepth < 1) throw new IllegalArgumentException("maxDepth must be >= 1");
+        Parser p = new Parser(json, maxDepth);
+        Object v = p.readValue(0);
         p.skipWhitespace();
         if (!p.atEnd()) throw new IllegalArgumentException(
                 "trailing content at offset " + p.pos);
@@ -246,8 +252,9 @@ public final class Json {
 
     private static final class Parser {
         final String src;
+        final int maxDepth;
         int pos;
-        Parser(String s) { this.src = s; this.pos = 0; }
+        Parser(String s, int maxDepth) { this.src = s; this.maxDepth = maxDepth; this.pos = 0; }
         boolean atEnd() { return pos >= src.length(); }
 
         void skipWhitespace() {
@@ -258,19 +265,22 @@ public final class Json {
             }
         }
 
-        Object readValue() {
+        Object readValue(int depth) {
             skipWhitespace();
             if (atEnd()) throw err("unexpected EOF");
             char c = src.charAt(pos);
-            if (c == '{') return readObject();
-            if (c == '[') return readArray();
+            if ((c == '{' || c == '[') && depth >= maxDepth) {
+                throw err("JSON nesting exceeds " + maxDepth);
+            }
+            if (c == '{') return readObject(depth + 1);
+            if (c == '[') return readArray(depth + 1);
             if (c == '"') return readString();
             if (c == 't' || c == 'f') return readBool();
             if (c == 'n') return readNull();
             return readNumber();
         }
 
-        Map<String, Object> readObject() {
+        Map<String, Object> readObject(int depth) {
             expect('{');
             skipWhitespace();
             Map<String, Object> m = new LinkedHashMap<>();
@@ -280,7 +290,7 @@ public final class Json {
                 String key = readString();
                 skipWhitespace();
                 expect(':');
-                Object val = readValue();
+                Object val = readValue(depth);
                 m.put(key, val);
                 skipWhitespace();
                 char d = next();
@@ -290,13 +300,13 @@ public final class Json {
             }
         }
 
-        List<Object> readArray() {
+        List<Object> readArray(int depth) {
             expect('[');
             skipWhitespace();
             List<Object> list = new ArrayList<>();
             if (peek() == ']') { pos++; return list; }
             while (true) {
-                Object v = readValue();
+                Object v = readValue(depth);
                 list.add(v);
                 skipWhitespace();
                 char d = next();

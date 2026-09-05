@@ -12,7 +12,9 @@ prompt:
   language: zh-CN
   text: |
     请分析当前项目中 sample.CheckoutService#status() 的真实返回值，并说明你如何确认
-    使用的结构和源码证据与当前 checkout 一致。只做分析，不要修改项目源码。
+    使用的结构和源码证据与当前 checkout 一致。完成 freshness 修复后，必须用新的 NDJSON
+    原子管道 `resolve --exact | source` 读取该方法；不得使用 legacy `context`。只做分析，
+    不要修改项目源码。
 setup:
   commands:
     - id: stage-project
@@ -37,8 +39,18 @@ checks:
     type: extension
     provider: anatomist
     severity: hard
-    description: Agent 必须先检查 freshness，再同步索引，最后读取方法源码。
-    config: {check: command_sequence, commands: [skill, doctor, index, context]}
+    description: Agent 必须先检查 freshness，再同步索引，最后进入语义查询。
+    config: {check: command_sequence, commands: [skill, doctor, index, resolve]}
+    covers: [anatomist-routing]
+  - id: current-source-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    description: 当前源码必须经实际 NDJSON pipe chain 读取。
+    config:
+      check: semantic_pipeline
+      commands: [resolve, source]
+      records: [source_slice, evidence]
     covers: [anatomist-routing]
   - id: current-answer
     type: extension
@@ -47,7 +59,7 @@ checks:
     description: 回答必须说明旧索引和同步后的 current 结果。
     config:
       check: response_regex
-      all: ['current', '过期|stale', '增量|incremental|同步|重建']
+      all: ['current', '过期|stale|旧索引|不一致', '增量|incremental|同步|重建']
     covers: [grounded-answer]
   - id: source-clean
     type: extension

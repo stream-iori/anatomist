@@ -43,9 +43,10 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v16)
+## Node identity, declarations, and ownership (schema v19)
 
-Schema v16 removes the former dataflow tables; v15 added nullable declaration
+Schema v19 adds node-level exact ranges and numeric source ordinals. Schema v18
+normalizes canonical call-site storage; v17 introduced those facts; v16 removed the former dataflow tables; v15 added nullable declaration
 range columns to `declarations`, and v14 added `producer_id` to all structural
 fact tables. An older index must be rebuilt; no migration or compatibility read
 path is provided. Declaration rows preserve AST-derived
@@ -57,6 +58,7 @@ uses this table only.
 |---|---|
 | `begin_line`, `begin_column` | JavaParser declaration start, one-based |
 | `end_line`, `end_column` | JavaParser declaration end, one-based and inclusive |
+| `source_ordinal` | Stable numeric sibling/source order; never parsed from an ID |
 
 All four values are present together or all are `NULL`. Synthetic declarations
 keep them `NULL`. Source text remains in the checkout; the database stores only
@@ -89,6 +91,11 @@ service::TEST::com.example.OrderService
 The two rows above intentionally share `symbol_id` but cannot collide in the
 primary key. An older schema database is rejected/recreated; there is no migration
 or compatibility read path.
+
+Spring XML resources own an `ARTIFACT` root. `XML_CONTAINS` links it to ordered
+beans and configuration nodes. Bean metadata retains `abstract`, `parent`,
+`factoryBean`, `factoryMethod`, and nested ownership; `PARENT_BEAN` and
+`FACTORY_BEAN` preserve construction semantics without inventing a Java type.
 
 ### Symbol ID Generation Rules
 
@@ -293,9 +300,31 @@ belong on every node or edge.
 | `java_version` | Java parser language level | Debug parser behavior |
 | `classpath_hash` | Fingerprint of classpath input | Detect changed resolution environment |
 | `index_version` | File-cache/schema version | Incremental compatibility |
+| `index_revision_id` | Opaque identity of one committed fact set | Pipeline consistency |
+| `source_snapshot_fingerprint` | Portable source/resource content identity | Source freshness |
+| `index_environment_hash` | Analysis inputs | Semantic profile derivation |
 | `source_layout` / `source_layout_hash` | Module/scope/root identity mapping | Force full indexing when identity inputs change |
 | `config_source` / `config_path` | Selected configuration origin and path | Explain which config profile produced the index |
 | `scan_policy` / `scan_policy_hash` | Canonical scopes, roots, glob rules, and hard-exclude policy | Force full rebuild when scan eligibility changes |
+
+## Canonical call sites
+
+`call_sites` stores caller, exact begin/end positions, numeric ordinal, syntax target,
+receiver static type, dispatch kind, origin, resolution status, and producer.
+`call_site_targets` stores one or more internal/external static targets. The stable
+site ID excludes revision and target, so ambiguous overloads share a site and an
+equivalent full rebuild preserves its identity.
+
+```text
+public ID: callsite:sha256:<hex(stable_hash)>
+                         │
+call_sites.site_pk (INTEGER) ──< call_site_targets.call_site_pk
+```
+
+`site_pk` is private storage identity; it must never leak into query output.
+`stable_hash` is the 32-byte binary digest used to reconstruct the unchanged public ID.
+Incremental promotion captures affected callers before graph replacement and refreshes
+only their projection; unrelated call sites retain their rows.
 
 ## Index Diagnostics
 

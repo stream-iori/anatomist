@@ -23,16 +23,31 @@ class AgentContractIT {
 
     @Test
     void everySubcommand_acceptsHelp() {
-        String[] commands = {
-                "skill", "index", "index-docs", "search", "context", "callees-of",
-                "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
-                "field-access", "call-path", "overview", "survey-baseline",
-                "annotate", "doctor"
-        };
+        var commands = new CommandLine(new AnatomistCli()).getSubcommands().keySet().stream()
+                .filter(command -> !"help".equals(command)).toList();
         for (String cmd : commands) {
             RunResult r = runCli(cmd, "--help");
             assertEquals(0, r.exitCode, cmd + " --help should exit 0; stderr=" + r.stderr);
             assertTrue(r.stdout.contains("Usage:"), cmd + " --help should print usage");
+        }
+    }
+
+    @Test
+    void semanticHelpDeclaresTypedContract() {
+        for (String command : List.of("resolve", "calls", "source")) {
+            RunResult help = runCli(command, "--help");
+            assertTrue(help.stdout.contains("Accepts:"), help.stdout);
+            assertTrue(help.stdout.contains("Emits:"), help.stdout);
+            assertTrue(help.stdout.contains("Capability:"), help.stdout);
+            assertTrue(help.stdout.contains("Example:"), help.stdout);
+        }
+        for (String command : List.of("type-relations", "runtime-implementations",
+                "callable-relations", "dispatch", "describe", "members", "bindings",
+                "annotations", "related-docs", "references", "accesses", "regions",
+                "sites-in", "trace")) {
+            RunResult help = runCli(command, "--help");
+            assertTrue(help.stdout.contains("Accepts:"), command + "\n" + help.stdout);
+            assertTrue(help.stdout.contains("Emits:"), command + "\n" + help.stdout);
         }
     }
 
@@ -93,7 +108,8 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("capabilities")).contains("source-snapshot-fingerprint"));
         assertTrue(((List<?>) json.get("capabilities")).contains("context-source-view-v2"));
         assertTrue(((List<?>) json.get("capabilities")).contains("json-query-output-v2"));
-        assertEquals(1, ((Number) json.get("graph_semantics_version")).intValue());
+        assertEquals(com.anatomist.core.GraphSemantics.VERSION,
+                ((Number) json.get("graph_semantics_version")).intValue());
         assertTrue(((List<?>) json.get("capabilities")).contains("core-reflection"));
         assertFalse(((List<?>) json.get("capabilities")).contains("progressive-dataflow"));
         assertTrue(((List<?>) json.get("capabilities")).contains("file-resolution-coverage"));

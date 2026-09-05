@@ -44,6 +44,15 @@ class SqliteStoreInitSchemaTest {
         assertTrue(indexes.contains("idx_edges_source_id"));
         assertTrue(indexes.contains("idx_annotations_fqn"));
         assertTrue(indexes.contains("idx_declarations_file"));
+        assertTrue(indexes.contains("idx_call_sites_caller_order"));
+        assertTrue(indexes.contains("idx_call_site_targets_identity"));
+        assertFalse(indexes.contains("idx_call_site_targets_site"),
+                "site_pk prefix is already covered by the identity index");
+
+        Set<String> callSiteColumns = tableColumns(store.connection(), "call_sites");
+        assertTrue(callSiteColumns.contains("site_pk"));
+        assertTrue(callSiteColumns.contains("stable_hash"));
+        assertFalse(callSiteColumns.contains("id"));
     }
 
     @Test
@@ -101,6 +110,15 @@ class SqliteStoreInitSchemaTest {
              ResultSet rs = st.executeQuery(
                      "SELECT name FROM sqlite_master WHERE type='" + type + "'")) {
             while (rs.next()) out.add(rs.getString(1));
+        }
+        return out;
+    }
+
+    private static Set<String> tableColumns(Connection c, String table) throws Exception {
+        Set<String> out = new HashSet<>();
+        try (Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery("PRAGMA table_info(" + table + ")")) {
+            while (rs.next()) out.add(rs.getString("name"));
         }
         return out;
     }

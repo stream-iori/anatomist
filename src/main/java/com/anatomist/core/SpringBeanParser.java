@@ -17,11 +17,11 @@ import java.util.Deque;
 
 /**
  * Pure SAX reader for Spring bean XML ({@code <beans>} config). Extracts each
- * concrete {@code <bean>}'s name + class and its P0/P1 config tree:
+ * each {@code <bean>}'s identity, construction metadata, and config tree:
  * property/constructor-arg/map/list/entry/ref/value/null/idref.
  *
- * <p>Deliberately conservative: only concrete {@code class}-bearing beans are
- * emitted; abstract/parent/factory beans are skipped. The root element must be a
+ * <p>Abstract, parent-based, factory-created, and nested beans are retained as
+ * configuration facts even when no concrete class is declared. The root element must be a
  * Spring {@code <beans>} element (namespace- or local-name-matched) or the parse
  * yields an empty list — this lets us hand it arbitrary {@code .xml} files and
  * cheaply reject {@code pom.xml} / logback configs. Malformed XML never throws;
@@ -32,8 +32,17 @@ import java.util.Deque;
  */
 public final class SpringBeanParser {
 
-    /** A parsed {@code <bean>}: its name, concrete class FQN, and config children. */
-    public record ParsedBean(String name, String className, int line, List<XmlConfigNode> children) {}
+    /** Lossless construction facts for one Spring XML {@code <bean>}. */
+    public record ParsedBean(String name, String className, int line, int column,
+                             int endLine, int endColumn, int ordinal,
+                             boolean abstractBean, String parent, String factoryBean,
+                             String factoryMethod, String nestedIn,
+                             List<XmlConfigNode> children) {
+        public ParsedBean(String name, String className, int line, List<XmlConfigNode> children) {
+            this(name, className, line, 1, line, 1, 0, false,
+                    null, null, null, null, children);
+        }
+    }
 
     public static final class XmlConfigNode {
         public final String kind;
@@ -44,6 +53,9 @@ public final class SpringBeanParser {
         public String value;
         public final int line;
         public final int column;
+        public int endLine;
+        public int endColumn;
+        public int ordinal;
         public final List<XmlConfigNode> children = new ArrayList<>();
         private final StringBuilder text = new StringBuilder();
 
@@ -133,14 +145,8 @@ public final class SpringBeanParser {
         private org.xml.sax.Locator locator;
         private int depth;
 
-        // State for the bean currently being assembled.
-        private String curName;
-        private String curClass;
-        private int curLine;
-        private int curBeanDepth;
-        private int constructorOrdinal;
-        private List<XmlConfigNode> curChildren;
-        private final Deque<XmlConfigNode> stack = new ArrayDeque<>();
+        private final Deque<BeanState> beanStack = new ArrayDeque<>();
+        private int beanOrdinal;
 
         @Override public void setDocumentLocator(org.xml.sax.Locator l) { this.locator = l; }
 
@@ -159,53 +165,76 @@ public final class SpringBeanParser {
             depth++;
             String tag = local(localName, qName);
             if ("bean".equals(tag)) {
-                if (curClass == null) {
-                    curClass = a.getValue("class");
-                    if (curClass == null) { curName = null; curChildren = null; return; }
-                    String id = a.getValue("id");
-                    String name = a.getValue("name");
-                    curName = id != null ? id : (name != null ? name : curClass);
-                    curLine = locator != null ? locator.getLineNumber() : 0;
-                    curBeanDepth = depth;
-                    constructorOrdinal = 0;
-                    curChildren = new ArrayList<>();
-                    stack.clear();
+                int line = locator != null ? locator.getLineNumber() : 0;
+                int column = locator != null ? locator.getColumnNumber() : 0;
+                String cls = a.getValue("class");
+                String id = firstNonNull(a.getValue("id"), a.getValue("name"));
+                String name = id != null ? id : (cls != null ? cls : "$bean@L" + line + "C" + column);
+                BeanState parentState = beanStack.peek();
+                String nestedIn = parentState == null ? null : parentState.name;
+                if (parentState != null) {
+                    XmlConfigNode nested = new XmlConfigNode("bean", line, column);
+                    nested.bean = name;
+                    nested.value = cls;
+                    parentState.addNode(nested);
+                    parentState.openNodes.push(nested);
                 }
+                beanStack.push(new BeanState(name, cls, line, column, depth, beanOrdinal++,
+                        "true".equalsIgnoreCase(a.getValue("abstract")), a.getValue("parent"),
+                        a.getValue("factory-bean"), a.getValue("factory-method"), nestedIn));
                 return;
             }
-            if (curClass == null || depth <= curBeanDepth) return;
-            XmlConfigNode node = nodeFor(tag, a);
+            BeanState state = beanStack.peek();
+            if (state == null || depth <= state.depth) return;
+            XmlConfigNode node = nodeFor(tag, a, state);
             if (node == null) return;
-            addNode(node);
-            stack.push(node);
+            state.addNode(node);
+            state.openNodes.push(node);
         }
 
         @Override
         public void endElement(String uri, String localName, String qName) {
             if (!rootIsBeans) return;
             String tag = local(localName, qName);
-            if ("bean".equals(tag) && curClass != null && depth == curBeanDepth) {
-                beans.add(new ParsedBean(curName, curClass, curLine, List.copyOf(curChildren)));
-                curName = null; curClass = null;
-                curChildren = null; curBeanDepth = 0; stack.clear();
+            BeanState state = beanStack.peek();
+            if ("bean".equals(tag) && state != null && depth == state.depth) {
+                beanStack.pop();
+                int endLine = locator != null ? locator.getLineNumber() : state.line;
+                int endColumn = locator != null ? locator.getColumnNumber() : state.column;
+                beans.add(new ParsedBean(state.name, state.className, state.line, state.column,
+                        endLine, endColumn, state.ordinal, state.abstractBean, state.parent,
+                        state.factoryBean, state.factoryMethod, state.nestedIn,
+                        List.copyOf(state.children)));
+                BeanState parent = beanStack.peek();
+                if (parent != null && !parent.openNodes.isEmpty()
+                        && "bean".equals(parent.openNodes.peek().kind)) {
+                    XmlConfigNode nested = parent.openNodes.pop();
+                    nested.endLine = endLine;
+                    nested.endColumn = endColumn;
+                }
                 depth--;
                 return;
             }
-            if (!stack.isEmpty() && stack.peek().kind.equals(kindOf(tag))) {
-                XmlConfigNode n = stack.pop();
+            if (state != null && !state.openNodes.isEmpty()
+                    && state.openNodes.peek().kind.equals(kindOf(tag))) {
+                XmlConfigNode n = state.openNodes.pop();
                 if ("value".equals(n.kind)) n.finishTextValue();
+                n.endLine = locator != null ? locator.getLineNumber() : n.line;
+                n.endColumn = locator != null ? locator.getColumnNumber() : n.column;
             }
             if (depth > 0) depth--;
         }
 
         @Override
         public void characters(char[] ch, int start, int length) {
-            if (!stack.isEmpty() && "value".equals(stack.peek().kind)) {
-                stack.peek().appendText(ch, start, length);
+            BeanState state = beanStack.peek();
+            if (state != null && !state.openNodes.isEmpty()
+                    && "value".equals(state.openNodes.peek().kind)) {
+                state.openNodes.peek().appendText(ch, start, length);
             }
         }
 
-        private XmlConfigNode nodeFor(String tag, Attributes a) {
+        private XmlConfigNode nodeFor(String tag, Attributes a, BeanState state) {
             int line = locator != null ? locator.getLineNumber() : 0;
             int col = locator != null ? locator.getColumnNumber() : 0;
             XmlConfigNode n = switch (tag) {
@@ -228,8 +257,8 @@ public final class SpringBeanParser {
                 }
                 case "constructor-arg" -> {
                     String idx = a.getValue("index");
-                    n.index = idx != null ? parseInt(idx, constructorOrdinal) : constructorOrdinal;
-                    constructorOrdinal++;
+                    n.index = idx != null ? parseInt(idx, state.constructorOrdinal) : state.constructorOrdinal;
+                    state.constructorOrdinal++;
                     addAttrRefOrValue(n, a);
                 }
                 case "entry" -> {
@@ -259,16 +288,6 @@ public final class SpringBeanParser {
             }
         }
 
-        private void addNode(XmlConfigNode node) {
-            XmlConfigNode parent = stack.peek();
-            if (parent == null) {
-                curChildren.add(node);
-            } else {
-                if ("list".equals(parent.kind) && node.index == null) node.index = parent.children.size();
-                parent.children.add(node);
-            }
-        }
-
         private static String kindOf(String tag) {
             return switch (tag) {
                 case "constructor-arg" -> "constructor-arg";
@@ -289,6 +308,34 @@ public final class SpringBeanParser {
         private static int parseInt(String value, int fallback) {
             try { return Integer.parseInt(value); }
             catch (RuntimeException e) { return fallback; }
+        }
+
+        private static final class BeanState {
+            final String name, className, parent, factoryBean, factoryMethod, nestedIn;
+            final int line, column, depth, ordinal;
+            final boolean abstractBean;
+            int constructorOrdinal;
+            final List<XmlConfigNode> children = new ArrayList<>();
+            final Deque<XmlConfigNode> openNodes = new ArrayDeque<>();
+
+            BeanState(String name, String className, int line, int column, int depth,
+                      int ordinal, boolean abstractBean, String parent, String factoryBean,
+                      String factoryMethod, String nestedIn) {
+                this.name = name; this.className = className; this.line = line; this.column = column;
+                this.depth = depth; this.ordinal = ordinal; this.abstractBean = abstractBean;
+                this.parent = parent; this.factoryBean = factoryBean;
+                this.factoryMethod = factoryMethod; this.nestedIn = nestedIn;
+            }
+
+            void addNode(XmlConfigNode node) {
+                XmlConfigNode parentNode = openNodes.peek();
+                List<XmlConfigNode> siblings = parentNode == null ? children : parentNode.children;
+                node.ordinal = siblings.size();
+                if (parentNode != null && "list".equals(parentNode.kind) && node.index == null) {
+                    node.index = siblings.size();
+                }
+                siblings.add(node);
+            }
         }
 
         /** Thrown to abort SAX early once we know the root is not {@code <beans>}. */

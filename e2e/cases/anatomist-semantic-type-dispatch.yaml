@@ -1,0 +1,74 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-complex-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-semantic-type-dispatch
+name: Canonical type and dispatch evidence pipeline
+category: e2e
+scenario:
+  given: NotificationChannel has an abstract base and three concrete workspace implementations.
+  when: The Agent must identify instantiable candidates and explain the static dispatch boundary.
+  then: It uses the semantic pipeline, retains proof, and does not claim runtime execution.
+prompt:
+  language: zh-CN
+  text: |
+    用新的 Anatomist NDJSON 原子管道分析 NotificationChannel：列出工作区内可实例化实现，
+    说明 AbstractNotificationChannel 为什么不是运行时实例候选，并说明 dispatch 候选能否证明
+    某次请求实际调用了哪个实现。必须使用 `search | resolve | runtime-implementations | source`
+    以及针对 `NotificationDispatcher#dispatch` 的 `resolve --exact | calls | dispatch`；两条管道
+    都必须保留 NDJSON final stream evidence，不能使用 json/table 或 legacy 命令。只分析，不改代码。
+checks:
+  - id: semantic-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [search, resolve, runtime-implementations, source]
+      records: [source_slice, evidence]
+    covers: [anatomist-routing]
+  - id: dispatch-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [resolve, calls, dispatch]
+      records: [dispatch_target, evidence]
+    covers: [anatomist-routing]
+  - id: grounded-answer
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: response_regex
+      all:
+        - AuditNotificationChannel
+        - EmailNotificationChannel
+        - SmsNotificationChannel
+        - 'AbstractNotificationChannel.*(abstract|抽象)|(abstract|抽象).*AbstractNotificationChannel'
+        - '静态|候选'
+        - '不能.*证明|无法.*证明'
+        - 'coverage|evidence'
+    covers: [grounded-answer]
+  - id: source-clean
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: git_clean}
+    covers: [source-integrity]
+  - id: fresh-index
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: index_fresh}
+    covers: [fresh-index]
+references:
+  key_points:
+    - Audit、Email、Sms 是可实例化实现；AbstractNotificationChannel 是抽象中间层。
+    - workspace_open 的候选集合不支持安全的全局否定结论。
+    - 静态 dispatch 候选不是运行时 observation。
+metadata: {owner: anatomist, source: semantic-query-refactor, created_at: '2026-09-05'}
+extensions:
+  anatomist: {project_root: complex-shop}
+tags: [anatomist, e2e, semantic-stream, dispatch]
+priority: P0

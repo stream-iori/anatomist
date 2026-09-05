@@ -347,6 +347,9 @@ public class IncrementalIndexer {
                 staging.promoteIncremental(store, affectedFiles, rebuiltProjectProducers,
                         rebuildDerivedWiring);
         stopTiming("stage_promote", graphStarted);
+        if (timings != null) {
+            timings.addNanos("call_site_projection", promoted.callSiteProjectionNanos());
+        }
         stopTiming("graph_replace", graphStarted);
         stopTiming("graph_write", graphStarted);
         s.deletedNodes += promoted.deletedNodes();

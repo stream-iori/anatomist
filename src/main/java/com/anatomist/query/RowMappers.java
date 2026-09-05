@@ -20,6 +20,7 @@ final class RowMappers {
     static final String NODE_COLS =
             "n.id, n.symbol_id, n.label, n.kind, n.qualified_name, n.source_file, "
           + "n.source_location, n.module, n.scope, n.javadoc, n.producer_id AS producer_id, "
+          + "n.begin_line, n.begin_column, n.end_line, n.end_column, n.source_ordinal, "
           + "json_extract(n.metadata, '$.isSynthetic') AS synthetic, "
           + "json_extract(n.metadata, '$.generator') AS synthetic_generator, "
           + "json_extract(n.metadata, '$.generatorMode') AS synthetic_generator_mode, "
@@ -67,6 +68,11 @@ final class RowMappers {
         n.qualifiedName = rs.getString("qualified_name");
         n.sourceFile = rs.getString("source_file");
         n.sourceLocation = rs.getString("source_location");
+        n.beginLine = nullableInteger(rs, "begin_line");
+        n.beginColumn = nullableInteger(rs, "begin_column");
+        n.endLine = nullableInteger(rs, "end_line");
+        n.endColumn = nullableInteger(rs, "end_column");
+        n.sourceOrdinal = nullableInteger(rs, "source_ordinal");
         n.module = rs.getString("module");
         n.scope = rs.getString("scope");
         n.javadoc = rs.getString("javadoc");
@@ -82,6 +88,11 @@ final class RowMappers {
         }
         n.lombok = parseObject(rs.getString("lombok_metadata"));
         return n;
+    }
+
+    private static Integer nullableInteger(ResultSet rs, String column) throws SQLException {
+        int value = rs.getInt(column);
+        return rs.wasNull() ? null : value;
     }
 
     static java.util.Map<String, Object> parseObject(String json) {

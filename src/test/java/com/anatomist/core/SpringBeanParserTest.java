@@ -123,15 +123,33 @@ class SpringBeanParserTest {
     }
 
     @Test
-    void beanWithoutClassIsSkipped() {
-        // Abstract/parent beans or factory-bean refs without a concrete class
-        // carry no resolvable type — drop them.
+    void abstractAndParentBeanFactsAreRetained() {
         List<SpringBeanParser.ParsedBean> beans = parse(
                 "<beans xmlns='http://www.springframework.org/schema/beans'>"
                         + "<bean id='tmpl' abstract='true'/>"
-                        + "<bean id='real' class='com.example.Real'/>"
+                        + "<bean id='real' parent='tmpl' class='com.example.Real' factory-method='create'/>"
                         + "</beans>");
-        assertEquals(1, beans.size());
-        assertEquals("real", beans.get(0).name());
+        assertEquals(2, beans.size());
+        assertTrue(beans.get(0).abstractBean());
+        assertEquals("tmpl", beans.get(1).parent());
+        assertEquals("create", beans.get(1).factoryMethod());
+    }
+
+    @Test
+    void nestedBeanAndExactRangesAreRetained() {
+        List<SpringBeanParser.ParsedBean> beans = parse("""
+                <beans xmlns='http://www.springframework.org/schema/beans'>
+                  <bean id='outer' class='p.Outer'>
+                    <property name='inner'><bean class='p.Inner'><property name='x' value='1'/></bean></property>
+                  </bean>
+                </beans>
+                """);
+        assertEquals(2, beans.size());
+        SpringBeanParser.ParsedBean nested = beans.stream()
+                .filter(bean -> bean.nestedIn() != null).findFirst().orElseThrow();
+        assertEquals("outer", nested.nestedIn());
+        assertTrue(nested.endLine() >= nested.line());
+        assertTrue(beans.stream().flatMap(bean -> bean.children().stream())
+                .anyMatch(node -> node.ordinal == 0));
     }
 }

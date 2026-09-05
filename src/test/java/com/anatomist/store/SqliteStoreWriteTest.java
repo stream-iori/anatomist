@@ -107,6 +107,8 @@ class SqliteStoreWriteTest {
         assertEquals(2, count(c, "SELECT count(*) FROM nodes"));
         assertEquals(1, count(c, "SELECT count(*) FROM edges WHERE relation='CONTAINS'"));
         assertEquals(1, count(c, "SELECT count(*) FROM node_names WHERE label MATCH 'Widget'"));
+        assertEquals(1, count(c, "SELECT count(*) FROM project_meta "
+                + "WHERE key='index_revision_id' AND value LIKE 'rev:%'"));
     }
 
     @Test

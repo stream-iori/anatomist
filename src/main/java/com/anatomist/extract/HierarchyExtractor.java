@@ -9,6 +9,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -46,6 +47,12 @@ public class HierarchyExtractor implements Extractor {
 
             @Override
             public void visit(EnumDeclaration n, Void arg) {
+                emitTypeAncestry(n, result);
+                super.visit(n, arg);
+            }
+
+            @Override
+            public void visit(RecordDeclaration n, Void arg) {
                 emitTypeAncestry(n, result);
                 super.visit(n, arg);
             }
@@ -92,6 +99,29 @@ public class HierarchyExtractor implements Extractor {
         } catch (RuntimeException ignore) {
             ctx.incrementUnresolved(ignore, decl, decl.getNameAsString());
         }
+
+        // Store permits in the same child -> parent direction as other subtype facts.
+        if (decl instanceof ClassOrInterfaceDeclaration cid) {
+            for (ClassOrInterfaceType permitted : cid.getPermittedTypes()) {
+                try {
+                    ResolvedReferenceTypeDeclaration child = permitted.resolve()
+                            .asReferenceType().getTypeDeclaration().orElse(null);
+                    if (child == null || !ctx.isProjectInternal(child)) continue;
+                    Edge permits = new Edge();
+                    permits.sourceId = ctx.idGenerator().forType(child);
+                    permits.targetId = sourceId;
+                    permits.relation = GraphConstants.Relation.PERMITS;
+                    permits.confidence = GraphConstants.Confidence.EXTRACTED;
+                    permits.isExternal = false;
+                    permits.producerId = com.anatomist.model.ProducerIds.JAVA_SEMANTICS;
+                    result.edges.add(permits);
+                } catch (RuntimeException e) {
+                    // A permits edge must never invent an internal source ID: an unknown
+                    // source would become a dangling fact and poison graph coverage.
+                    ctx.incrementUnresolved(e, permitted, permitted.getNameAsString());
+                }
+            }
+        }
     }
 
     private Edge hierarchyEdge(String sourceId, ResolvedReferenceType target, String relation) {
@@ -113,7 +143,6 @@ public class HierarchyExtractor implements Extractor {
     }
 
     private void emitOverrides(ClassOrInterfaceDeclaration decl, ExtractionResult result) {
-        if (decl.isInterface()) return; // skip — interfaces overriding interface methods is rarely meaningful here
         ResolvedReferenceTypeDeclaration rt;
         try { rt = decl.resolve(); }
         catch (RuntimeException e) {

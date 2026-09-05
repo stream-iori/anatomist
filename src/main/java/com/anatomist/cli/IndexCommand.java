@@ -637,6 +637,7 @@ public class IndexCommand implements Callable<Integer> {
                 recreateIndexFiles(dbPath);
             }
             try (SqliteStore store = new SqliteStore(dbPath)) {
+                if (captureFullResult) store.prepareDisposableBuild();
                 long fullIndexStarted = phaseTimings.start();
                 com.anatomist.core.IndexResult result;
                 try {
@@ -661,6 +662,7 @@ public class IndexCommand implements Callable<Integer> {
                 PerformanceHistory.recordFull(store,
                         phaseTimings.millis().getOrDefault("full_index", 0L),
                         sourceFiles.size());
+                if (captureFullResult) store.finishDisposableBuild();
                 phaseTimings.stop("total", totalStarted);
                 if (captureFullResult) {
                     capturedFullResult = result;

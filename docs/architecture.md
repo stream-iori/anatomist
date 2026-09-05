@@ -11,6 +11,7 @@
 - `store/` — `SqliteStore` (schema + atomic batched write)
 - `semantic/` — Post-index annotations from direct code evidence: `SemanticPostProcessor` writes Javadoc summaries only; it does not infer architecture roles or business categories from names/annotations.
 - `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `SourceContextService`, `CallGraphService`, `BranchSliceService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs include `SourceContext` and `SourceRequest` alongside `QueryEnvelope`, `NodeRow`, `EdgeRow`, `BranchSlice`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `IndexedSourceVerifier` checks source snapshots before returning exact declaration text. `CallChainSlicer` groups call chains into class/package blocks. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
+- `query/semantic/` — Language-neutral records, NDJSON framing, three-part identity, and closeable pull cursors.
 - `cli/` — picocli adapters; `IndexOutput` owns the full/incremental text and JSON contract instead of mixing rendering into `IndexCommand`.
 
 ## Indexing pipeline
@@ -109,11 +110,12 @@ may reference nodes owned by another producer.
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Schema v16 has no migration path. It removes the former dataflow tables;
-`graph_semantics_version=1` still identifies the meaning of the generated graph
-independently of the table layout. `declarations` carries exact nullable source
-ranges; structural tables `nodes`, `edges`, `declarations`, `annotations`, and
-`semantic_annotations` carry `producer_id`.
+Schema v18 has no migration path. It stores call-site joins with an internal integer
+primary key and keeps the public stable ID as a 32-byte SHA-256 digest. Separate
+`call_site_targets` let one syntax site retain several static candidates without
+repeating a long text key.
+`graph_semantics_version=2` identifies this meaning independently of table layout.
+`index_revision_id` is published in the same transaction as query-visible facts.
 
 ```text
 startup / doctor

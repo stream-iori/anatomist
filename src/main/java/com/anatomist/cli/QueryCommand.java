@@ -19,7 +19,7 @@ public abstract class QueryCommand implements Callable<Integer> {
             defaultValue = "MAIN") String scope;
 
     @Override
-    public final Integer call() {
+    public Integer call() {
         Path db = IndexPath.resolve(index);
         try {
             scope = CliValidation.scope(scope, true);

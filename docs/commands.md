@@ -1,6 +1,41 @@
 # CLI Command Reference
 
-Query commands output JSON to stdout. Mutation commands default to text and support JSON where noted.
+Existing queries default to the v2 JSON envelope. Semantic source modes use
+`--format ndjson`; downstream semantic operations default to NDJSON.
+
+## Canonical semantic pipeline
+
+```text
+search --format ndjson → resolve → semantic operation → source
+                                   ├─ type-relations
+                                   ├─ runtime-implementations
+                                   ├─ calls → dispatch
+                                   ├─ callable-relations
+                                   ├─ members
+                                   └─ bindings
+```
+
+| Command | Input → output | Main options |
+|---|---|---|
+| `type-relations` | type entity → `type_relation` | direction, semantic, transitive |
+| `runtime-implementations` | type entity → entity + proof | instantiability, world |
+| `callable-relations` | callable entity → `callable_relation` | direction, transitive |
+| `calls` | callable entity → `call_site` | direction |
+| `dispatch` | call site → `dispatch_target` | algorithm, world |
+| `describe` | entity → `declaration` | — |
+| `members` | container entity → entity | recursive, kind |
+| `bindings` | entity → `binding_relation` | direction, semantic |
+| `annotations` | entity → `annotation` | — |
+| `related-docs` | entity → `document_relation` | limit |
+| `references` | entity → `reference_site` | direction, limit |
+| `accesses` | value entity → `access_site` | mode, limit |
+| `regions` | callable entity → `control_region` | kind, limit |
+| `sites-in` | control region → call/access site | record, limit |
+| `trace` | entity → `trace` | direction, dispatch, depth |
+| `source` | entity/site/dispatch → `source_slice` | limit, offset |
+
+`calls` never includes override expansion. `dispatch` reports static candidates,
+not executed targets. Open-world evidence is not safe for negative conclusions.
 
 ## Agent Guidance
 
@@ -198,7 +233,8 @@ anatomist index . --format json --output /tmp/index.db
 With `--timings`, full indexing keeps `full_index` as the parent measurement and
 reports `full_stage_write`, `full_stage_resolve`, and `full_stage_promote` for
 the file-backed streaming path. Incremental runs report `stage_write` and
-`stage_promote`. Change detection reports `file_stat` and only reports `file_hash`
+`stage_promote`. Both paths also report `call_site_projection`, which is contained
+inside the promotion parent. Change detection reports `file_stat` and only reports `file_hash`
 when bytes were read. Impact queries are split into `impact_exact` and
 `impact_prefix`; metadata separates asynchronous Git work from `git_status_wait`.
 The older `full_write_*` keys remain as compatibility aliases.
@@ -353,6 +389,32 @@ files; `freshness_state=idle` is not a source-tree comparison and cannot replace
 the Agent query gate after offline edits.
 
 ## Query Phase
+
+### Semantic stream v1
+
+```bash
+set -o pipefail
+anatomist resolve 'com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' --kind callable --exact --unique --index <db> |
+  anatomist calls --direction outgoing --index <db> |
+  anatomist source --index <db>
+```
+
+| Command | Accepts | Emits |
+|---|---|---|
+| `search --format ndjson` | CLI selector | `entity_candidate`, evidence |
+| `resolve` | candidate/entity stream or exact selector | `entity`, evidence |
+| `calls` | callable entity | exact-range `call_site`, evidence |
+| `source` | entity/call-site | snapshot-verified `source_slice`, evidence |
+
+Every record carries revision, source snapshot, semantic profile, and seed identity.
+Every seed has evidence; the final line is exactly one stream evidence record.
+Missing framing or mixed identities exits `4`. `--accept-unframed` is explicit and
+forces `coverage=unknown`. `calls` returns source sites only and never mixes in
+`OVERRIDES`; one site may contain multiple `resolved_targets`.
+
+New semantic operations support `--format ndjson|json|table`. JSON/table are terminal
+formats, not pipeline inputs. Each command's `--help` is the source of truth for
+Accepts, Emits, capabilities, limits, and a runnable example.
 
 All node-oriented query commands accept `--module <name>` and
 `--scope MAIN|TEST|GENERATED|ALL`. The default is `scope=MAIN`; use `ALL` only

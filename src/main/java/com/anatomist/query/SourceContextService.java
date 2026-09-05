@@ -1,16 +1,20 @@
 package com.anatomist.query;
 
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.DigestInputStream;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HexFormat;
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.anatomist.query.QueryInfra.rethrow;
@@ -42,16 +46,31 @@ public final class SourceContextService {
                     verification.code(), verification.message());
         }
         try {
-            byte[] bytes = Files.readAllBytes(verification.path());
-            if (!verification.expectedHash().equals(sha256(bytes))) {
-                return warning("stale", declaration.sourceFile, renderedRange,
-                        "INDEX_STALE", "indexed source file changed while it was being read: "
-                                + declaration.sourceFile);
-            }
-            List<String> lines = new String(bytes, StandardCharsets.UTF_8).lines().toList();
-            return page(declaration, renderedRange, lines, request);
+            return readVerifiedPage(verification, declaration, renderedRange, request);
         } catch (IOException failure) {
             return warning("error", declaration.sourceFile, renderedRange,
+                    "SOURCE_READ_FAILED", failure.getMessage());
+        }
+    }
+
+    public SourceContext readRange(String sourceFile, int beginLine, int beginColumn,
+                                   int endLine, int endColumn, SourceRequest request) {
+        DeclarationRange range = new DeclarationRange(sourceFile, beginLine, beginColumn,
+                endLine, endColumn, false);
+        if (!range.complete()) return warning("unavailable", sourceFile, null,
+                "SOURCE_RANGE_UNAVAILABLE", "site has no complete source range");
+        String renderedRange = range.render();
+        IndexedSourceVerifier.Verification verification = verifier.verify(sourceFile);
+        if (verification.status() == IndexedSourceVerifier.Status.STALE) {
+            return warning("stale", sourceFile, renderedRange,
+                    verification.code(), verification.message());
+        }
+        if (!verification.current()) return warning("error", sourceFile, renderedRange,
+                verification.code(), verification.message());
+        try {
+            return readVerifiedPage(verification, range, renderedRange, request);
+        } catch (IOException failure) {
+            return warning("error", sourceFile, renderedRange,
                     "SOURCE_READ_FAILED", failure.getMessage());
         }
     }
@@ -78,15 +97,42 @@ public final class SourceContextService {
         }
     }
 
-    private static SourceContext page(DeclarationRange declaration, String renderedRange,
-                                      List<String> lines, SourceRequest request) {
-        if (!declaration.validFor(lines)) {
-            return warning("error", declaration.sourceFile, renderedRange,
-                    "SOURCE_RANGE_INVALID", "indexed declaration range is outside the source file");
-        }
+    private static SourceContext readVerifiedPage(IndexedSourceVerifier.Verification verification,
+                                                  DeclarationRange declaration,
+                                                  String renderedRange,
+                                                  SourceRequest request) throws IOException {
         int total = declaration.endLine - declaration.beginLine + 1;
         int offset = Math.min(request.offset(), total);
         int count = Math.min(request.limit(), total - offset);
+        int start = declaration.beginLine + offset;
+        int end = count == 0 ? start - 1 : start + count - 1;
+        List<String> selected = new ArrayList<>(count);
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+        int fileLines = 0;
+        try (DigestInputStream bytes = new DigestInputStream(
+                Files.newInputStream(verification.path()), digest);
+             BufferedReader reader = new BufferedReader(
+                     new InputStreamReader(bytes, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                fileLines++;
+                if (fileLines >= start && fileLines <= end) selected.add(line);
+            }
+        }
+        if (!verification.expectedHash().equals(HexFormat.of().formatHex(digest.digest()))) {
+            return warning("stale", declaration.sourceFile, renderedRange,
+                    "INDEX_STALE", "indexed source file changed while it was being read: "
+                            + declaration.sourceFile);
+        }
+        if (!declaration.validFor(fileLines) || selected.size() != count) {
+            return warning("error", declaration.sourceFile, renderedRange,
+                    "SOURCE_RANGE_INVALID", "indexed declaration range is outside the source file");
+        }
         SourceContext out = new SourceContext();
         out.status = "ok";
         out.sourceFile = declaration.sourceFile;
@@ -99,14 +145,12 @@ public final class SourceContextService {
             out.snippet = "";
             return out;
         }
-        int start = declaration.beginLine + offset;
-        int end = start + count - 1;
         out.startLine = start;
         out.endLine = end;
         int width = String.valueOf(end).length();
         StringBuilder snippet = new StringBuilder();
         for (int line = start; line <= end; line++) {
-            String text = lines.get(line - 1);
+            String text = selected.get(line - start);
             int from = line == declaration.beginLine ? declaration.beginColumn - 1 : 0;
             int to = line == declaration.endLine ? declaration.endColumn : text.length();
             if (from < 0 || from > text.length() || to < from || to > text.length()) {
@@ -136,22 +180,14 @@ public final class SourceContextService {
         return rows.wasNull() ? null : value;
     }
 
-    private static String sha256(byte[] bytes) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
-    }
-
     private record DeclarationRange(String sourceFile, Integer beginLine, Integer beginColumn,
                                     Integer endLine, Integer endColumn, boolean synthetic) {
         boolean complete() {
             return beginLine != null && beginColumn != null && endLine != null && endColumn != null;
         }
 
-        boolean validFor(List<String> lines) {
-            if (!complete() || beginLine <= 0 || endLine < beginLine || endLine > lines.size()) return false;
+        boolean validFor(int fileLines) {
+            if (!complete() || beginLine <= 0 || endLine < beginLine || endLine > fileLines) return false;
             if (beginColumn <= 0 || endColumn <= 0) return false;
             return endLine > beginLine || endColumn >= beginColumn;
         }

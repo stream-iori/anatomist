@@ -15,37 +15,42 @@ prompt:
     和通知分发的完整静态路径，并说明风控、仓储和通知通道的 Spring 配置证据。
     项目里同时存在在线与批处理同名 OrderService，请先用 Anatomist 全局 search 枚举并消歧。
     对于 Qualifier、候选实现和 XML 顺序，请明确哪些是静态配置事实，哪些不能证明运行时
-    实际选择。只分析，不修改项目。
+    实际选择。必须使用新的 NDJSON 原子管道：`search | resolve | annotations` 查 HTTP 入口，
+    `resolve | calls | dispatch` 查调用点，`search | resolve | members` 查 XML artifact；不得
+    使用 legacy `context`、`bean-config` 或 `call-path`。只分析，不修改项目。
 checks:
   - id: routed-through-evidence-gate
     type: extension
     provider: anatomist
     severity: hard
-    config: {check: command_sequence, commands: [skill, doctor, index, search, context]}
+    config: {check: command_sequence, commands: [skill, doctor, index, search, resolve]}
     covers: [anatomist-routing]
-  - id: complex-query-coverage
-    type: extension
-    provider: anatomist
-    severity: hard
-    config: {check: commands_present, commands: [search, context, bean-config]}
-    covers: [anatomist-routing]
-  - id: search-result-was-consumed
+  - id: http-route-pipeline
     type: extension
     provider: anatomist
     severity: hard
     config:
-      check: command_output_regex
-      command: 'anatomist\s+search\s+.*OrderService'
-      all: [com.example.shop.application.OrderService, com.example.shop.batch.OrderService]
+      check: semantic_pipeline
+      commands: [search, resolve, annotations]
+      records: [annotation, evidence]
+    covers: [anatomist-routing]
+  - id: calls-dispatch-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [resolve, calls, dispatch]
+      records: [dispatch_target, evidence]
     covers: [grounded-answer]
-  - id: spring-evidence-was-consumed
+  - id: xml-members-pipeline
     type: extension
     provider: anatomist
     severity: hard
     config:
-      check: command_output_regex
-      command: 'anatomist\s+context\s+.*com\.example\.shop\.application\.OrderService'
-      all: [strictRiskPolicy, auditedOrderRepository, 'AMBIGUOUS|ambiguous']
+      check: semantic_pipeline
+      commands: [search, resolve, members]
+      records: [entity, evidence]
     covers: [grounded-answer]
   - id: business-answer
     type: extension

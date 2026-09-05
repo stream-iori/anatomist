@@ -51,6 +51,28 @@ class XmlBeanExtractorTest {
         assertEquals("orderSvc", n.label);
         assertEquals(XML, n.sourceFile);
         assertEquals("L1", n.sourceLocation);
+        assertTrue(r.nodes.stream().anyMatch(x -> "ARTIFACT".equals(x.kind)
+                && x.id.equals(XmlBeanExtractor.artifactNodeId(XML))));
+        assertNotNull(n.beginColumn);
+        assertNotNull(n.endColumn);
+    }
+
+    @Test
+    void emitsAbstractParentAndFactoryFactsWithoutFakeTypeBinding() {
+        List<ParsedBean> beans = parse("<beans>"
+                + "<bean id='template' abstract='true'/>"
+                + "<bean id='factory' class='p.Factory'/>"
+                + "<bean id='made' parent='template' factory-bean='factory' factory-method='create'/>"
+                + "</beans>");
+        ExtractionResult result = new ExtractionResult();
+        new XmlBeanExtractor().extract(beans, Set.of("p.Factory"), XML, result);
+        String made = XmlBeanExtractor.beanNodeId("made", XML);
+        assertTrue(result.edges.stream().anyMatch(edge -> made.equals(edge.sourceId)
+                && "PARENT_BEAN".equals(edge.relation)));
+        assertTrue(result.edges.stream().anyMatch(edge -> made.equals(edge.sourceId)
+                && "FACTORY_BEAN".equals(edge.relation)));
+        assertTrue(result.edges.stream().noneMatch(edge -> made.equals(edge.sourceId)
+                && "DEFINED_BY".equals(edge.relation)));
     }
 
     @Test

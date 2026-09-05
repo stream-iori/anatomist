@@ -15,7 +15,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
-        <revision>0.14.0</revision>
+        <revision>0.16.0</revision>
         <changelist>-SNAPSHOT</changelist>
 
         <javaparser.version>3.28.2</javaparser.version>
@@ -26,7 +26,7 @@
         <surefire.version>3.2.5</surefire.version>
         <native.version>0.10.3</native.version>
         <anatomist.test.groups></anatomist.test.groups>
-        <anatomist.test.excludedGroups>regex-performance</anatomist.test.excludedGroups>
+        <anatomist.test.excludedGroups>regex-performance,stream-performance</anatomist.test.excludedGroups>
     </properties>
 
     <dependencies>

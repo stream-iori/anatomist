@@ -1,7 +1,43 @@
 # 查询体系原子化与跨语言重构实施方案
 
-> 状态：待实施
-> 当前版本基线：`0.14.0`
+> 状态：本轮 P0–P5 已完成；JVM、native、stream stress、benchmark、Jury Agent E2E 全部通过
+> 当前开发版本：`0.16.0-SNAPSHOT`
+
+> 本节 P0–P5 是当前执行批次，不等同于下文原始“阶段 0–5”。
+
+| 优先级 | 状态 | 本轮交付 |
+|---|:---:|---|
+| P0 | ✅ | 可复现 benchmark：detached baseline、交替采样、JSON 等价与本地硬门禁 |
+| P1 | ✅ | schema 18：整数内部 call-site PK、二进制稳定摘要、批量投影、增量局部刷新、独立计时 |
+| P2 | ✅ | sealed record、严格 decoder、有界逐-seed reader、cursor、capability、锁/EPIPE、128 MiB 压测、help/SKILL/docs |
+| P3 | ✅ | Java type/runtime/callable/dispatch 语义、instantiability、proof 与 open-world evidence |
+| P4 | ✅ | schema 19 资源范围、Spring Artifact IR、全套原子 operation；legacy v2 由等价门禁保护 |
+| P5 | ✅ | SKILL/help/docs/发布节奏、native、benchmark、Jury 9/9 Agent E2E；全部场景强制 canonical NDJSON pipe chain |
+
+### P3–P5 benchmark 结论（2026-09-05，Apple M3 Pro，native）
+
+基线：`dd2e575`；默认采样：查询 30 次、full index 5 次、no-op 20 次、RSS 5 次。
+
+| 门禁 | 基线 | 当前 | 变化 | 结论 |
+|---|---:|---:|---:|:---:|
+| legacy search p50 / p95 | 188.77 / 203.20 ms | 185.90 / 196.46 ms | -1.5% / -3.3% | ✅ |
+| legacy context p50 / p95 | 177.43 / 193.58 ms | 173.21 / 188.61 ms | -2.4% / -2.6% | ✅ |
+| legacy callees p50 / p95 | 173.82 / 187.02 ms | 173.30 / 191.86 ms | -0.3% / +2.6% | ✅ |
+| full index p50 / p95 | 7544.03 / 7925.06 ms | 7746.89 / 7772.56 ms | +2.7% / -1.9% | ✅ |
+| no-op incremental p50 / p95 | 1040.21 / 1100.21 ms | 1047.10 / 1071.86 ms | +0.7% / -2.6% | ✅ |
+| DB / binary / peak RSS | 58,040,320 / 57,714,216 / 33,144,832 B | 76,107,776 / 58,342,552 / 30,195,712 B | +31.1% / +1.1% / -8.9% | ✅ |
+| legacy 归一化 JSON | 3/3 相同 | 3/3 相同 | 无漂移 | ✅ |
+| type-relations pipeline p50 / p95 | — | 371.24 / 403.28 ms | candidate-only | ✅ 记录 |
+| calls-dispatch pipeline p50 / p95 | — | 370.93 / 384.74 ms | candidate-only | ✅ 记录 |
+
+报告由 `just bench-query-refactor dd2e575` 生成到
+`target/benchmarks/query-refactor/{results.json,report.md}`；生成物不提交。
+旧版本没有 semantic operation，因此新管道只记录 candidate 延迟，不伪造同比。
+
+Jury 9 个 Agent E2E 均实跑通过，且每个 case 都至少有一条 hard `semantic_pipeline`
+门禁。adapter 同时验证同一条真实 `|` 链、NDJSON 格式、指定 record 和最终 stream
+evidence，不能用分开的新命令、legacy 命令或 `json/table | jq` 伪装通过。E2E login shell
+固定使用本次 `target/anatomist`，不再误用用户已安装旧版。
 
 ## 结论
 
@@ -1246,7 +1282,9 @@ refactor(cli): route legacy queries through semantic operations
 - 新命令在 JVM 和 native binary 下结果一致；
 - 性能达到基线阶段确定的门槛。
 
-`0.15.x` 只承诺 stream contract、索引身份和已经走通的 Java 垂直切片。Artifact 全量保真、所有 legacy 路由和文档默认切换可以在后续 minor 分批完成，不能用版本目标倒逼假实现。
+`0.16.x` 承诺 stream contract、索引身份、Java semantic operation 与 Spring XML
+Artifact IR。Legacy v2 入口继续兼容；未实现的跨语言 frontend 不得仅凭 contract
+fixture 宣称已支持。
 
 建议 commit：
 
@@ -1612,9 +1650,9 @@ Skill 不再让 Agent 在重叠命令间做选择，而是给出数据变换路�
 
 | 阶段       | 行为                                                                  |
 | ---------- | --------------------------------------------------------------------- |
-| `0.15.x`   | 三类身份、新 stream contract 和已完成的 Java 垂直切片；旧命令默认不变 |
-| 后续 minor | 文档和 Skill 默认使用新命令；旧命令标注 alias                         |
-| 稳定后     | 评估隐藏重叠命令，但不自动删除脚本依赖入口                            |
+| `0.16.x`   | 三类身份、完整 Java/Artifact semantic operation；旧命令默认不变       |
+| `0.17.x+`  | 可在文档/help 标注重叠旧命令为 alias；stdout 继续兼容                   |
+| `1.0` 前   | 至少提前两个 minor 并发布等价报告，才评估隐藏重叠入口                   |
 
 ### 15.2 兼容约束
 

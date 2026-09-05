@@ -250,6 +250,18 @@ final class NodeResolver {
 
     SymbolResolution resolveNode(String input) {
         if (input == null || input.isBlank()) return notFound(input, SymbolResolution.TargetKind.NODE);
+        List<String> exactNodeIds = runStringColumn("SELECT id FROM nodes WHERE id=?"
+                + selectorClause(), List.of(input));
+        if (!exactNodeIds.isEmpty()) {
+            return retarget(exact(input, SymbolResolution.TargetKind.NODE, exactNodeIds),
+                    SymbolResolution.TargetKind.NODE);
+        }
+        List<String> exactNames = runStringColumn("SELECT id FROM nodes WHERE qualified_name=?"
+                + selectorClause() + " ORDER BY id", List.of(input));
+        if (!exactNames.isEmpty()) {
+            return retarget(uniqueOrAmbiguous(input, SymbolResolution.TargetKind.NODE, exactNames),
+                    SymbolResolution.TargetKind.NODE);
+        }
         if (input.contains("#") || input.contains("(") || input.contains(")")) {
             return retarget(resolveMethod(input), SymbolResolution.TargetKind.NODE);
         }

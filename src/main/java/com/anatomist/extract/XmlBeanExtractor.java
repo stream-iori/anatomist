@@ -8,6 +8,7 @@ import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
+import com.anatomist.model.ProducerIds;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,14 +63,39 @@ public final class XmlBeanExtractor {
     public void extractWithResolvedBeans(List<ParsedBean> beans, Set<String> knownIds,
                                          Map<String, BeanRefTarget> existingBeans,
                                          String sourceFile, ExtractionResult result) {
+        int inferredEndLine = Math.max(1, beans.stream().mapToInt(ParsedBean::endLine).max().orElse(1));
+        extractWithResolvedBeans(beans, knownIds, existingBeans, sourceFile,
+                new ArtifactRange(inferredEndLine, 1), result);
+    }
+
+    public void extractWithResolvedBeans(List<ParsedBean> beans, Set<String> knownIds,
+                                         Map<String, BeanRefTarget> existingBeans,
+                                         String sourceFile, ArtifactRange artifactRange,
+                                         ExtractionResult result) {
         // bean name → its declared class FQN, for resolving refs to classes.
         Map<String, String> beanClass = new HashMap<>();
-        for (ParsedBean b : beans) beanClass.putIfAbsent(b.name(), b.className());
+        for (ParsedBean b : beans) if (b.className() != null) beanClass.putIfAbsent(b.name(), b.className());
+
+        String artifactId = artifactNodeId(sourceFile);
+        Node artifact = new Node();
+        artifact.id = artifactId;
+        artifact.label = sourceFile.substring(sourceFile.lastIndexOf('/') + 1);
+        artifact.kind = GraphConstants.Kind.ARTIFACT;
+        artifact.qualifiedName = sourceFile;
+        artifact.sourceFile = sourceFile;
+        artifact.sourceLocation = "L1";
+        artifact.beginLine = 1; artifact.beginColumn = 1;
+        artifact.endLine = artifactRange.endLine();
+        artifact.endColumn = artifactRange.endColumn(); artifact.sourceOrdinal = 0;
+        artifact.scope = scope;
+        artifact.producerId = ProducerIds.SPRING_XML;
+        artifact.metadata = metadataJson(Map.of("format", "xml", "mechanism", "spring.xml.beans"));
+        result.nodes.add(artifact);
 
         for (ParsedBean b : beans) {
             String beanId = beanNodeId(b.name(), sourceFile);
             String cls = b.className();
-            boolean classKnown = knownIds.contains(cls);
+            boolean classKnown = cls != null && knownIds.contains(cls);
 
             Node n = new Node();
             n.id = beanId;
@@ -78,23 +104,58 @@ public final class XmlBeanExtractor {
             n.qualifiedName = b.name();
             n.sourceFile = sourceFile;
             n.sourceLocation = "L" + b.line();
+            n.beginLine = b.line(); n.beginColumn = b.column();
+            n.endLine = b.endLine(); n.endColumn = b.endColumn(); n.sourceOrdinal = b.ordinal();
             n.scope = scope;
-            n.metadata = metadataJson(Map.of("className", cls, "source", "xml"));
+            n.producerId = ProducerIds.SPRING_XML;
+            Map<String,Object> beanMetadata = new LinkedHashMap<>();
+            beanMetadata.put("source", "xml");
+            if (cls != null) beanMetadata.put("className", cls);
+            beanMetadata.put("abstract", b.abstractBean());
+            if (b.parent() != null) beanMetadata.put("parent", b.parent());
+            if (b.factoryBean() != null) beanMetadata.put("factoryBean", b.factoryBean());
+            if (b.factoryMethod() != null) beanMetadata.put("factoryMethod", b.factoryMethod());
+            if (b.nestedIn() != null) beanMetadata.put("nestedIn", b.nestedIn());
+            n.metadata = metadataJson(beanMetadata);
             result.nodes.add(n);
 
+            Edge artifactContains = baseEdge(GraphConstants.Relation.XML_CONTAINS, sourceFile, b.line());
+            artifactContains.sourceId = artifactId; artifactContains.targetId = beanId;
+            artifactContains.isExternal = false; artifactContains.sourceOrdinal = b.ordinal();
+            result.edges.add(artifactContains);
+
             // DEFINED_BY: BEAN → class.
-            Edge def = baseEdge(GraphConstants.Relation.DEFINED_BY, sourceFile, b.line());
-            def.sourceId = beanId;
-            if (classKnown) { def.targetId = cls; def.isExternal = false; }
-            else { def.externalTargetFqn = cls; def.isExternal = true; def.resolution = GraphConstants.Resolution.XML; }
-            result.edges.add(def);
+            if (cls != null) {
+                Edge def = baseEdge(GraphConstants.Relation.DEFINED_BY, sourceFile, b.line());
+                def.sourceId = beanId;
+                if (classKnown) { def.targetId = cls; def.isExternal = false; }
+                else { def.externalTargetFqn = cls; def.isExternal = true; def.resolution = GraphConstants.Resolution.XML; }
+                result.edges.add(def);
+            }
+            emitBeanReference(beanId, b.parent(), GraphConstants.Relation.PARENT_BEAN,
+                    sourceFile, b.line(), beanClass, existingBeans, result);
+            emitBeanReference(beanId, b.factoryBean(), GraphConstants.Relation.FACTORY_BEAN,
+                    sourceFile, b.line(), beanClass, existingBeans, result);
 
             List<XmlConfigNode> refs = new ArrayList<>();
             emitConfigTree(beanId, beanId, b.children(), sourceFile, result, beanClass,
                     existingBeans, knownIds, refs);
-            emitWires(cls, classKnown, refs, beanClass, existingBeans, knownIds,
+            if (cls != null) emitWires(cls, classKnown, refs, beanClass, existingBeans, knownIds,
                     sourceFile, b.line(), result);
         }
+    }
+
+    /** One-past-end position of the complete resource snapshot. */
+    public record ArtifactRange(int endLine, int endColumn) {
+        public ArtifactRange {
+            if (endLine < 1 || endColumn < 1) {
+                throw new IllegalArgumentException("artifact range must be positive");
+            }
+        }
+    }
+
+    public static String artifactNodeId(String sourceFile) {
+        return "artifact:xml:" + sourceFile;
     }
 
     public static String beanNodeId(String beanName, String sourceFile) {
@@ -107,6 +168,7 @@ public final class XmlBeanExtractor {
         e.confidence = GraphConstants.Confidence.EXTRACTED;
         e.sourceFile = sourceFile;
         e.sourceLocation = "L" + line;
+        e.producerId = ProducerIds.SPRING_XML;
         return e;
     }
 
@@ -129,7 +191,12 @@ public final class XmlBeanExtractor {
             n.qualifiedName = id;
             n.sourceFile = sourceFile;
             n.sourceLocation = "L" + child.line;
+            n.beginLine = child.line; n.beginColumn = Math.max(1, child.column);
+            n.endLine = child.endLine > 0 ? child.endLine : child.line;
+            n.endColumn = child.endColumn > 0 ? child.endColumn : Math.max(1, child.column);
+            n.sourceOrdinal = child.ordinal;
             n.scope = scope;
+            n.producerId = ProducerIds.SPRING_XML;
             n.metadata = metadataJson(metadataOf(child));
             result.nodes.add(n);
 
@@ -208,7 +275,7 @@ public final class XmlBeanExtractor {
             case "null" -> "null:" + ordinal;
             default -> n.kind;
         };
-        return parentId + "/" + segment + "@L" + n.line + "C" + n.column + "I" + ordinal;
+        return parentId + "/" + segment + "@I" + ordinal;
     }
 
     private static String safe(String value) {
@@ -239,6 +306,7 @@ public final class XmlBeanExtractor {
             case "idref" -> GraphConstants.Kind.XML_IDREF;
             case "value" -> GraphConstants.Kind.XML_VALUE;
             case "null" -> GraphConstants.Kind.XML_NULL;
+            case "bean" -> GraphConstants.Kind.BEAN;
             default -> "XML_" + kind.toUpperCase(java.util.Locale.ROOT).replace('-', '_');
         };
     }
@@ -251,7 +319,24 @@ public final class XmlBeanExtractor {
         if (n.index != null) m.put("index", n.index);
         if (n.bean != null) m.put("bean", n.bean);
         if (n.value != null) m.put("value", n.value);
+        m.put("ordinal", n.ordinal);
         return m;
+    }
+
+    private static void emitBeanReference(String sourceId, String name, String relation,
+                                          String sourceFile, int line,
+                                          Map<String, String> xmlBeanClass,
+                                          Map<String, BeanRefTarget> existingBeans,
+                                          ExtractionResult result) {
+        if (name == null || name.isBlank()) return;
+        Edge edge = baseEdge(relation, sourceFile, line);
+        edge.sourceId = sourceId;
+        String local = xmlBeanClass.containsKey(name) ? beanNodeId(name, sourceFile) : null;
+        BeanRefTarget existing = existingBeans.get("bean:" + name);
+        if (local != null) { edge.targetId = local; edge.isExternal = false; }
+        else if (existing != null) { edge.targetId = existing.beanId(); edge.isExternal = false; }
+        else { edge.externalTargetFqn = name; edge.isExternal = true; edge.resolution = GraphConstants.Resolution.XML; }
+        result.edges.add(edge);
     }
 
     private static String metadataJson(Map<String, ?> metadata) {

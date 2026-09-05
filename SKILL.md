@@ -6,36 +6,48 @@ description: "Use for source-backed Java structural analysis: declarations, cont
 # anatomist
 
 1. Work from the exact checkout being analysed.
-2. Run `anatomist skill core` and follow its index and evidence gate.
-3. Run `anatomist skill topics`, then load only the one relevant scene.
-4. Before executing a selected command, read `anatomist <command> --help`; it is
-   the source of truth for the installed CLI version.
+2. Run `anatomist skill core`; obey its index/health gate.
+3. Run `anatomist skill topics`, then load only the relevant scene.
+4. Read `anatomist <command> --help`; installed help is authoritative.
 
-Select `.anatomist/config.toml`, then `~/.anatomist/config.toml`, otherwise built-in defaults. Files do not merge; CLI flags override.
-Lombok defaults off. Enable source-only modeling per project:
+Config order: project, user, otherwise built-in defaults. Files do not merge;
+CLI flags override. Prefer `index --incremental`. After policy changes, re-index
+and inspect `doctor --format json` `config_source`.
 
-```toml
-[extensions.lombok]
-mode = "ast"
-strict = false
+Use the canonical NDJSON pipeline:
+
+```text
+find        search --format ndjson | resolve --unique
+members     ... | members [--recursive]
+types       ... | type-relations
+runtime     ... | runtime-implementations
+calls       ... | calls | dispatch
+config      ... | bindings
+evidence    ... | source
 ```
 
-In AST mode, `lombok.modeled_capabilities` are signature facts; partial/unmodeled values
-need proof. Structured `edge.lombok_usage` proves source use only. A mapped field is a
-lead, not compile/runtime proof; never invent Builder nodes when `builder_type` is null.
-For a missing symbol, inspect `doctor --format json --index <db>` for
-`config_source`, `config_path`, and `scan_policy_hash`, then run
-`index --incremental` after a policy change.
+Examples:
 
-Prefer incremental index synchronization. Load `anatomist skill flow` for
-source-backed value, exception, guard, or suspected taint questions.
+```bash
+anatomist search PaymentGateway --kind type --format ndjson |
+  anatomist resolve --unique |
+  anatomist runtime-implementations --instantiability yes |
+  anatomist source
 
-Use `anatomist declarations-of --file <project-relative.java> --format json`
-when a caller needs stable type/method/constructor seeds from changed files.
-Use its AST-derived filters; do not parse Java declarations with regex.
+anatomist resolve 'OrderService#run()' --kind callable --exact --unique |
+  anatomist calls | anatomist dispatch | anatomist source
 
-For a resolved method, use `context '<exact-signature>' --source`; follow
-`next_queries` if truncated.
+anatomist search applicationContext --kind artifact --format ndjson |
+  anatomist resolve --unique | anatomist members --recursive
+```
 
-Anatomist returns static source evidence, not proof of runtime execution or
-business meaning. Use runtime evidence when the question asks what happened online.
+Stages check revision/profile and seed/final evidence. Never conclude
+absence when `coverage` is not `complete`; `--accept-unframed` intentionally
+downgrades it. `calls` is source syntax plus static resolution. `dispatch` gives
+possible static candidates, not observed execution. Framework bindings come from
+artifact producers, not Java semantics.
+
+Use `declarations-of --file <relative.java>` for changed files. Use
+`context '<exact-signature>' --source` for one method; follow `next_queries`.
+
+Lombok is off. Modeled AST facts are evidence; partial capability needs proof.

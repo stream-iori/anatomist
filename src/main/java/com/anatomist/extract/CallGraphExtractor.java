@@ -159,17 +159,16 @@ public class CallGraphExtractor implements Extractor {
         String enclosingId = enclosingMethodId(callNode);
         if (enclosingId == null) return;
 
-        Edge e = new Edge();
-        e.sourceId = enclosingId;
-        e.relation = GraphConstants.Relation.CALLS;
+        Edge e = baseEdge(callNode, enclosingId);
         e.callKind = callKind;
-        e.confidence = GraphConstants.Confidence.EXTRACTED;
-        e.sourceLocation = "L" + callNode.getBegin().map(p -> p.line).orElse(0);
-        e.context = ControlContext.of(callNode);
 
         ResolvedTypeDeclaration decl;
         try { decl = target.declaringType(); }
         catch (RuntimeException ex) { ctx.incrementUnresolved(ex, callNode, target.getName()); return; }
+        if (e.receiverStaticType == null) {
+            try { e.receiverStaticType = decl.getQualifiedName(); }
+            catch (RuntimeException ignored) { /* optional best-effort call-site facet */ }
+        }
 
         if (ctx.isProjectInternal(decl)) {
             if (target instanceof ResolvedMethodDeclaration m) {
@@ -1094,6 +1093,7 @@ public class CallGraphExtractor implements Extractor {
         e.confidence = GraphConstants.Confidence.EXTRACTED;
         e.sourceLocation = "L" + callNode.getBegin().map(p -> p.line).orElse(0);
         e.context = ControlContext.of(callNode);
+        CallSiteFacts.attach(e, callNode);
         return e;
     }
 

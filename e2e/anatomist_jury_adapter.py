@@ -33,6 +33,43 @@ _QUERY_COMMANDS = {
     "field-access",
     "call-path",
     "overview",
+    "resolve",
+    "describe",
+    "members",
+    "type-relations",
+    "runtime-implementations",
+    "callable-relations",
+    "bindings",
+    "annotations",
+    "related-docs",
+    "references",
+    "calls",
+    "dispatch",
+    "accesses",
+    "regions",
+    "sites-in",
+    "trace",
+    "source",
+}
+_SEMANTIC_PIPELINE_COMMANDS = {
+    "search",
+    "resolve",
+    "describe",
+    "members",
+    "type-relations",
+    "runtime-implementations",
+    "callable-relations",
+    "bindings",
+    "annotations",
+    "related-docs",
+    "references",
+    "calls",
+    "dispatch",
+    "accesses",
+    "regions",
+    "sites-in",
+    "trace",
+    "source",
 }
 
 
@@ -121,7 +158,7 @@ def _event_commands(event: object) -> list[str]:
 
 
 def _segments(command: str) -> list[str]:
-    return [part.strip() for part in re.split(r"&&|\|\||[;\n]", command) if part.strip()]
+    return [part.strip() for part in re.split(r"&&|\|\||(?<!\|)\|(?!\|)|[;\n]", command) if part.strip()]
 
 
 def _anatomist_segment(segment: str) -> tuple[str, list[str]] | None:
@@ -207,7 +244,7 @@ def anatomist_subcommands(commands: list[str]) -> list[str]:
     """Return Anatomist subcommands in observed execution order."""
     result: list[str] = []
     for command in commands:
-        for segment in re.split(r"&&|\|\||[;\n]", command):
+        for segment in re.split(r"&&|\|\||(?<!\|)\|(?!\|)|[;\n]", command):
             try:
                 tokens = shlex.split(segment)
             except ValueError:
@@ -222,6 +259,91 @@ def anatomist_subcommands(commands: list[str]) -> list[str]:
                         break
                 break
     return result
+
+
+def semantic_pipelines(trace: object) -> list[dict[str, object]]:
+    """Return actual shell pipelines made exclusively of semantic CLI commands.
+
+    A flat subcommand trace is insufficient evidence: an Agent could run modern
+    commands separately and never pass a framed stream between them.  Keep the
+    original pipe boundary from the command event and attach the terminal output
+    that was visible to the Agent.
+    """
+    pipelines: list[dict[str, object]] = []
+    for event_index, event in enumerate(getattr(trace, "tool_events", [])):
+        raw_input = getattr(event, "raw_input", {})
+        aggregated = raw_input.get("aggregated_output", "") if isinstance(raw_input, dict) else ""
+        output = str(getattr(event, "raw_output", "") or aggregated)
+        exit_code = raw_input.get("exit_code") if isinstance(raw_input, dict) else None
+        for command in _event_commands(event):
+            for chain in re.split(r"&&|\|\||[;\n]", command):
+                parts = [part.strip() for part in re.split(r"(?<!\|)\|(?!\|)", chain) if part.strip()]
+                if len(parts) < 2:
+                    continue
+                parsed = [_anatomist_segment(part) for part in parts]
+                if any(item is None for item in parsed):
+                    continue
+                segments = [
+                    {"command": part, "subcommand": item[0], "args": item[1]}
+                    for part, item in zip(parts, parsed)
+                    if item is not None
+                ]
+                if not all(item["subcommand"] in _SEMANTIC_PIPELINE_COMMANDS for item in segments):
+                    continue
+                pipelines.append(
+                    {
+                        "event_index": event_index,
+                        "command": chain.strip(),
+                        "segments": segments,
+                        "output": output,
+                        "exit_code": exit_code,
+                    }
+                )
+    return pipelines
+
+
+def contains_contiguous_sequence(observed: list[str], required: list[str]) -> bool:
+    if not required:
+        return True
+    width = len(required)
+    return any(observed[index : index + width] == required
+               for index in range(len(observed) - width + 1))
+
+
+def _pipeline_is_ndjson(pipeline: dict[str, object]) -> bool:
+    segments = pipeline["segments"]
+    if not isinstance(segments, list) or not segments:
+        return False
+    for index, segment in enumerate(segments):
+        args = segment["args"]
+        if not isinstance(args, list):
+            return False
+        for position, argument in enumerate(args):
+            if argument == "--format":
+                if position + 1 >= len(args) or args[position + 1] != "ndjson":
+                    return False
+            elif argument.startswith("--format=") and argument != "--format=ndjson":
+                return False
+        if index == 0 and segment["subcommand"] == "search":
+            if "--format=ndjson" not in args and not any(
+                argument == "--format" and position + 1 < len(args)
+                and args[position + 1] == "ndjson"
+                for position, argument in enumerate(args)
+            ):
+                return False
+    return True
+
+
+def _semantic_records(output: str) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for line in output.splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("contract") == "semantic-stream/v1":
+            records.append(value)
+    return records
 
 
 def contains_sequence(observed: list[str], required: list[str]) -> bool:
@@ -352,7 +474,6 @@ class _AnatomistCheckProvider:
         self, config: dict[str, object], context: object, state: dict[str, object]
     ) -> object:
         check = config.get("check")
-        commands = trace_commands(context.trace)
         executions = executed_anatomist_invocations(context.trace)
         observed = [str(item["subcommand"]) for item in executions]
         if check == "commands_present":
@@ -401,6 +522,81 @@ class _AnatomistCheckProvider:
                 f"no command output matched command={command_pattern!r}, "
                 f"required={required_patterns}, forbidden={forbidden_patterns}"
             )
+        if check == "semantic_pipeline":
+            required_commands = [str(item) for item in config.get("commands", [])]
+            candidates = [
+                pipeline for pipeline in semantic_pipelines(context.trace)
+                if _pipeline_is_ndjson(pipeline)
+                and contains_contiguous_sequence(
+                    [str(segment["subcommand"]) for segment in pipeline["segments"]],
+                    required_commands,
+                )
+            ]
+            if not candidates:
+                observed_pipelines = [
+                    [str(segment["subcommand"]) for segment in pipeline["segments"]]
+                    for pipeline in semantic_pipelines(context.trace)
+                ]
+                raise RuntimeError(
+                    f"expected one NDJSON pipe chain containing {required_commands}; "
+                    f"observed_pipelines={observed_pipelines}"
+                )
+            pipeline = candidates[-1]
+            required_records = {str(item) for item in config.get("records", [])}
+            decoded = _semantic_records(str(pipeline["output"]))
+            found = {str(item.get("record")) for item in decoded}
+            missing = sorted(required_records - found)
+            final = next((item for item in reversed(decoded)
+                          if item.get("record") == "evidence"
+                          and item.get("scope") == "stream"), None)
+            if missing or final is None:
+                raise RuntimeError(
+                    f"semantic output missing records={missing}, final_stream_evidence={final is not None}"
+                )
+            if final.get("negative_conclusion_safe") is True and final.get("coverage") != "complete":
+                raise RuntimeError("incomplete semantic stream incorrectly marked negative-safe")
+            return {
+                "commands": required_commands,
+                "pipeline": pipeline["command"],
+                "records": sorted(found),
+                "final": final,
+            }
+        if check == "source_page_followed":
+            target = re.compile(str(config.get("target", "")), re.IGNORECASE)
+            first_page = None
+            continuation = None
+            for pipeline in semantic_pipelines(context.trace):
+                command = str(pipeline["command"])
+                subcommands = [str(segment["subcommand"]) for segment in pipeline["segments"]]
+                if target.search(command) is None or "source" not in subcommands:
+                    continue
+                source_segments = [segment for segment in pipeline["segments"]
+                                   if segment["subcommand"] == "source"]
+                offsets = [
+                    argument for segment in source_segments for argument in segment["args"]
+                    if argument.startswith("--offset=")
+                ]
+                has_offset = bool(offsets) or any(
+                    argument == "--offset"
+                    for segment in source_segments for argument in segment["args"]
+                )
+                records = _semantic_records(str(pipeline["output"]))
+                truncated = any(
+                    item.get("record") == "source_slice"
+                    and isinstance(item.get("source"), dict)
+                    and item["source"].get("truncated") is True
+                    for item in records
+                )
+                if truncated and not has_offset:
+                    first_page = pipeline
+                if has_offset:
+                    continuation = pipeline
+            if first_page is None or continuation is None:
+                raise RuntimeError(
+                    f"expected a truncated source pipeline and a later --offset continuation for {target.pattern!r}"
+                )
+            return {"target": target.pattern, "first": first_page["command"],
+                    "continuation": continuation["command"]}
         if check == "followed_next_query":
             target = str(config.get("target", ""))
             invocations = executions
@@ -516,6 +712,59 @@ class _AnatomistCheckProvider:
             if missing:
                 raise RuntimeError(f"query output missing patterns: {missing}")
             return {"arguments": arguments, "required_patterns": required_patterns}
+        if check == "semantic_query_output_regex":
+            project = Path(state["project"])
+            binary = Path(state["binary"])
+            raw_pipeline = config.get("pipeline", [])
+            if not isinstance(raw_pipeline, list) or len(raw_pipeline) < 2:
+                raise ValueError("semantic_query_output_regex.pipeline requires at least two commands")
+            commands: list[list[str]] = []
+            index = project / str(config.get("index", ".anatomist/index.db"))
+            for raw_arguments in raw_pipeline:
+                if not isinstance(raw_arguments, list) or not raw_arguments or not all(
+                    isinstance(item, str) for item in raw_arguments
+                ):
+                    raise ValueError("semantic_query_output_regex.pipeline commands must be string lists")
+                arguments = list(raw_arguments)
+                if arguments[0] not in _SEMANTIC_PIPELINE_COMMANDS:
+                    raise ValueError("semantic_query_output_regex only accepts semantic commands")
+                if "--index" not in arguments and not any(item.startswith("--index=") for item in arguments):
+                    arguments.extend(["--index", str(index)])
+                commands.append([str(binary), *arguments])
+            processes: list[subprocess.Popen[str]] = []
+            previous = None
+            try:
+                for command in commands:
+                    process = subprocess.Popen(
+                        command, cwd=project, stdin=previous, stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE, text=True,
+                    )
+                    if previous is not None:
+                        previous.close()
+                    previous = process.stdout
+                    processes.append(process)
+                stdout, stderr = processes[-1].communicate(timeout=int(config.get("timeout_sec", 30)))
+                errors = [stderr]
+                for process in processes[:-1]:
+                    process.wait(timeout=5)
+                    if process.stderr is not None:
+                        errors.append(process.stderr.read())
+                failed = [process.returncode for process in processes if process.returncode != 0]
+                if failed:
+                    raise RuntimeError(
+                        f"semantic pipeline failed: returncodes={failed}, stderr={' '.join(errors)[-2000:]}"
+                    )
+            finally:
+                for process in processes:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+            required_patterns = [str(item) for item in config.get("all", [])]
+            missing = [pattern for pattern in required_patterns
+                       if re.search(pattern, stdout, re.IGNORECASE | re.DOTALL) is None]
+            if missing:
+                raise RuntimeError(f"semantic pipeline output missing patterns: {missing}")
+            return {"pipeline": commands, "required_patterns": required_patterns}
         if check == "index_fresh":
             project = Path(state["project"])
             binary = Path(state["binary"])

@@ -15,8 +15,12 @@ prompt:
     和事件 publish 之前抛出 OrderRejectedException；非加急订单行为保持不变。
     规则放在现有 OrderAdmissionPolicy，并在 application 模块补回归测试。先用 Anatomist
     定位入口、调用顺序和影响面，再修改并运行测试；最后增量同步索引，用 changed-file
-    declarations 和精确源码 context 复核。不要修改 POM、配置、acceptance-tests 或其他模块，
-    不要提交 Git。
+    declarations 和新的 `resolve --exact | source` 复核。影响定位必须使用
+    `resolve | calls | dispatch` 或 `resolve | references`，不得使用 legacy `context`、
+    `callers-of`、`used-by`、`call-path` 或 `branches-of`。不要修改 POM、配置、
+    acceptance-tests 或其他模块，不要提交 Git。所有语义管道必须保持 NDJSON（`search` 显式
+    `--format ndjson`，其余保持默认或显式 NDJSON），并以 Anatomist 语义命令结束；不得改用
+    `--format json/table`，也不得在管道后接 `jq`、`sed` 等会丢弃 final stream evidence 的命令。
 checks:
   - id: full-change-route
     type: extension
@@ -24,13 +28,16 @@ checks:
     severity: hard
     config:
       check: command_sequence
-      commands: [skill, doctor, index, context, index, declarations-of, context]
+      commands: [skill, doctor, index, resolve, calls, dispatch, index, declarations-of, resolve, source]
     covers: [anatomist-routing]
-  - id: impact-query-used
+  - id: impact-pipeline
     type: extension
     provider: anatomist
     severity: hard
-    config: {check: commands_any, commands: [callers-of, used-by, call-path, branches-of]}
+    config:
+      check: semantic_pipeline
+      commands: [resolve, calls, dispatch]
+      records: [dispatch_target, evidence]
     covers: [anatomist-routing]
   - id: bounded-diff
     type: extension
@@ -68,11 +75,10 @@ checks:
     provider: anatomist
     severity: hard
     config:
-      check: query_output_regex
-      arguments:
-        - context
-        - 'com.example.shop.application.OrderAdmissionPolicy#check(com.example.shop.domain.CreateOrderRequest)'
-        - --source
+      check: semantic_query_output_regex
+      pipeline:
+        - [resolve, 'com.example.shop.application.OrderAdmissionPolicy#check(com.example.shop.domain.CreateOrderRequest)', --kind, callable, --exact, --unique, --format, ndjson]
+        - [source, --format, ndjson]
       all: ['RESTRICTED_SKU|X-RESTRICTED', expedited, OrderRejectedException]
     covers: [change-verified]
   - id: agent-consumed-changed-source
@@ -80,9 +86,9 @@ checks:
     provider: anatomist
     severity: hard
     config:
-      check: command_output_regex
-      command: 'anatomist\s+context\s+.*OrderAdmissionPolicy#check.*--source'
-      all: ['RESTRICTED_SKU|X-RESTRICTED', expedited, OrderRejectedException]
+      check: semantic_pipeline
+      commands: [resolve, source]
+      records: [source_slice, evidence]
     covers: [grounded-answer]
   - id: change-answer
     type: extension

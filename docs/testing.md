@@ -16,6 +16,10 @@ Gradle Groovy/Kotlin toolchain/gradle.properties。
 - L1 用最小代码片段精确锁定单个边/节点的生成（断言精确到 Node ID 字符串）
 - L2 验证 ID 一致性、外键、FTS5 触发器、增量 diff
 - L3 锁定 Agent 看到的契约（命令输出 JSON Schema）
+- `SemanticPipelineIT` 锁定 type/runtime/call/dispatch 分层、open-world
+  evidence，以及 Artifact `members/bindings` 管道。
+- Spring parser/extractor 单测锁定 abstract/parent/factory/nested bean、精确
+  范围、数值 ordinal 与 artifact 根身份。
 
 **不 mock 解析器**：JavaParser + SymbolSolver 的解析与绑定行为本身就是被测核心，mock 等于不测。所有层都用真 JavaParser + 真 JavaSymbolSolver；测试 helper 见 `src/test/java/com/anatomist/core/JavaParserTestSupport.java`。
 
@@ -102,6 +106,11 @@ L1 fixture 各加一条 negative 断言覆盖。
 
 ## 四、Golden File 模式
 
+`SemanticStreamReaderTest` covers framing, forward-compatible fields, unknown record
+rejection, depth/size bounds, and identity conflicts. `SemanticPipelineIT` covers
+`search → resolve` and `resolve(callable) → calls → source`, explicit unframed input, exact same-line ranges,
+ambiguous targets, stable site IDs, and revision behavior across rebuild modes.
+
 每个场景一个目录：
 
 ```
@@ -136,13 +145,15 @@ sdk env
 |------|----------|------|
 | `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | 包含 `context --enrich`；recipe 使用 fail-fast，命令失败不会被 `head` 掩盖。 |
 | `just native-smoke` | JVM jar 与 native binary 输出一致性 | 包含精确方法 `context --source`；失败时保留 `/tmp/anatomist-native-smoke-*.log` 并打印 native 诊断。 |
+| `just stream-stress` | 10 万 seed 的有界流 | 在 `-Xmx128m` 子 JVM 中验证逐 seed 交付；默认测试排除。 |
+| `just bench-query-refactor [BASELINE_REF]` | 查询重构本地性能硬门禁 | detached worktree 构建基线，交替采样；报告写入 `target/benchmarks/query-refactor/`。 |
 | `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |
 | `just extension-e2e-native` | 上述场景 + JVM/native JSON 对拍 | 使用 SDKMAN JDK 25 构建 native binary；对比前归一化回显的临时 index 路径。 |
 | `just external-cli PROJECT=/path/to/project` | 大型外部项目复杂 CLI | opt-in，本地手动跑；默认目标是 `/Users/stream/codes/antcodes/ipay/imerchantsettle`。 |
 | `just agent-e2e-contract` | 校验 Jury Case、suite 和 trace adapter | 不调用模型，不进入 Maven 依赖。 |
 | `just agent-e2e-fixture` | 构建并查询复杂多模块 fixture | 不调用模型；验证 search 消歧、Spring、callback、branch 和源码分页。 |
-| `just agent-e2e-complex` | 4 条复杂多模块真实 Agent 用例 | 覆盖业务链路、分页 flow、影响分析和改码闭环。 |
-| `just agent-e2e-smoke` | 全部 7 条真实 Agent E2E | 预计 15–20 分钟；产物写入忽略的 `e2e/jury-runs/`。 |
+| `just agent-e2e-complex` | 6 条复杂多模块真实 Agent 用例 | 覆盖业务链路、分页 flow、影响分析、改码闭环和两条新 NDJSON 管道。 |
+| `just agent-e2e-smoke` | 全部 9 条真实 Agent E2E | 全部使用新 NDJSON 原子管道；预计约 20 分钟，产物写入忽略的 `e2e/jury-runs/`。 |
 
 `external-cli` 会重建临时 DB，并固定验证 Facade API、Handler 入口、DAO 正反查、字段访问和调用链，不进入默认 CI。
 
@@ -196,7 +207,13 @@ Javadoc 标签扫描，每项上限 3 秒。生产正则只允许静态预编译
 | SQLite 大小 | 70k 行项目 < 30MB | 看 .db 体积 |
 | 内存峰值 | < 1GB heap | `-Xmx1g` 跑通 |
 
-**不卡硬阈值,CI 记录 trend,回归超 20% 才 fail**。
+常规 CI 仍只做正确性和趋势记录。查询重构另设本地硬门禁：legacy/native 与
+full/no-op index 的 p50 `≤ +5%`、p95 `≤ +10%`，最终 DB `≤ +35%`，native binary
+与查询峰值 RSS `≤ +5%`，并要求 legacy 归一化 JSON 完全一致。运行：
+
+```bash
+just bench-query-refactor dd2e575
+```
 
 增量正确性还要覆盖：size/mtime 快路径、`--verify-content`、恢复时间戳、
 契约指纹对 body/签名的区分、impact SQL 索引计划和 Spring XML 入边保留。

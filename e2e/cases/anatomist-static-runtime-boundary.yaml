@@ -13,7 +13,8 @@ prompt:
   text: |
     请基于当前项目先说明 sample.DispatchService#dispatch(boolean) 在什么条件下调用
     notifyCustomer()，再判断昨晚的 order-42 请求是否确定执行过该调用，并给出依据。
-    只做分析，不要修改源码。
+    必须使用新的 NDJSON 原子管道 `resolve --exact | regions | sites-in` 和
+    `resolve --exact | source`；不得使用 legacy `context`。只做分析，不要修改源码。
 setup:
   commands:
     - id: stage-project
@@ -35,7 +36,25 @@ checks:
     provider: anatomist
     severity: hard
     description: Agent 必须经过 freshness 门禁再读取精确方法源码。
-    config: {check: command_sequence, commands: [skill, doctor, index, context]}
+    config: {check: command_sequence, commands: [skill, doctor, index, resolve]}
+    covers: [anatomist-routing]
+  - id: guarded-call-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [resolve, regions, sites-in]
+      records: [evidence]
+    covers: [anatomist-routing]
+  - id: guarded-source-pipeline
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: semantic_pipeline
+      commands: [resolve, source]
+      records: [source_slice, evidence]
     covers: [anatomist-routing]
   - id: runtime-boundary-answer
     type: extension
