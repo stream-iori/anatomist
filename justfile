@@ -16,6 +16,7 @@ FIXTURE    := ROOT + "/fixtures/mini-spring-shop"
 SOURCES    := FIXTURE + "/api/src/main/java:" + FIXTURE + "/domain/src/main/java:" + FIXTURE + "/service/src/main/java"
 SMOKE_DB   := "/tmp/anatomist-smoke.db"
 NATIVE_BIN := ROOT + "/target/anatomist"
+RELEASED_BIN := env_var_or_default("ANATOMIST_BASELINE_BIN", env_var("HOME") + "/.local/bin/anatomist")
 SKILL_FILE := ROOT + "/SKILL.md"
 JURY_BIN := env_var_or_default("JURY_BIN", "jury")
 INSTALL_DIR := env_var_or_default("ANATOMIST_INSTALL_DIR", env_var("HOME") + "/.local/bin")
@@ -219,9 +220,21 @@ stream-stress:
         -Danatomist.test.excludedGroups= \
         -Dtest=SemanticStreamStressIT test
 
-# Compare the current native binary with a detached baseline; writes JSON + Markdown reports
-bench-query-refactor BASELINE_REF="dd2e575": native
+# Product regression: compare installed 0.14.x with current 1.0; writes JSON + Markdown reports
+bench-query-refactor: native
     python3 scripts/benchmark-query-refactor.py \
+        --baseline-bin "{{RELEASED_BIN}}" \
+        --candidate-bin "{{NATIVE_BIN}}"
+
+# Reproducible product regression when the released binary is unavailable
+bench-query-refactor-git BASELINE_REF="dd2e575": native
+    python3 scripts/benchmark-query-refactor.py \
+        --baseline-ref "{{BASELINE_REF}}" \
+        --candidate-bin "{{NATIVE_BIN}}"
+
+# Same-contract comparison for pipeline-engine changes; both binaries query one immutable DB
+bench-semantic-pipeline BASELINE_REF="f5a9ef2": native
+    python3 scripts/benchmark-semantic-pipeline.py \
         --baseline-ref "{{BASELINE_REF}}" \
         --candidate-bin "{{NATIVE_BIN}}"
 

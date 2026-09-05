@@ -146,7 +146,9 @@ sdk env
 | `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | 运行真实 `search\|resolve\|members`、`resolve\|calls\|dispatch\|source` 管道。 |
 | `just native-smoke` | JVM jar 与 native binary 输出一致性 | 对 1.0 终端查询和多段 NDJSON pipeline 归一化 revision 后逐字对拍。 |
 | `just stream-stress` | 10 万 seed 的有界流 | 在 `-Xmx128m` 子 JVM 中验证逐 seed 交付；默认测试排除。 |
-| `just bench-query-refactor [BASELINE_REF]` | 查询重构本地性能硬门禁 | detached worktree 构建基线，交替采样；报告写入 `target/benchmarks/query-refactor/`。 |
+| `just bench-query-refactor` | 0.14 → 1.0 产品回归 | 默认冻结并使用 `~/.local/bin/anatomist`；可用 `ANATOMIST_BASELINE_BIN` 覆盖。 |
+| `just bench-query-refactor-git [BASELINE_REF]` | 可复现的 0.14 → 1.0 回归 | detached worktree 构建旧版本；报告写入 `target/benchmarks/query-refactor/`。 |
+| `just bench-semantic-pipeline [BASELINE_REF]` | 1.0 pipeline 引擎专项 | 两个 semantic-stream/v1 binary 查询同一个只读 DB，并逐字对拍 NDJSON。 |
 | `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |
 | `just extension-e2e-native` | 上述场景 + JVM/native JSON 对拍 | 使用 SDKMAN JDK 25 构建 native binary；对比前归一化回显的临时 index 路径。 |
 | `just external-cli PROJECT=/path/to/project` | 大型外部项目复杂 CLI | opt-in，本地手动跑；默认目标是 `/Users/stream/codes/antcodes/ipay/imerchantsettle`。 |
@@ -214,8 +216,28 @@ Javadoc 标签扫描，每项上限 3 秒。生产正则只允许静态预编译
 保证，不要求新旧 JSON 字节一致。运行：
 
 ```bash
-just bench-query-refactor dd2e575
+just bench-query-refactor
+# 没有已安装旧版时：
+just bench-query-refactor-git dd2e575
 ```
+
+pipeline 执行引擎优化使用独立的同契约 benchmark，避免把 0.14 聚合命令的语义差异
+混入优化收益。基线可使用冻结 binary，默认 recipe 则从融合前提交 `f5a9ef2` 构建。
+脚本只用基线 binary 创建一次索引，两个查询实现交替读取同一个 DB；覆盖单段 resolve、
+两段 type pipeline、三段 calls pipeline 和自动选出的最高扇出 callable。每个 workload
+必须保持原始 NDJSON 字节一致、包含最终 stream evidence，且 p50/p95 不得超过回归预算：
+
+```bash
+just bench-semantic-pipeline f5a9ef2
+# 融合验收时额外要求 calls p50 至少改善 25%：
+python3 scripts/benchmark-semantic-pipeline.py \
+  --baseline-ref f5a9ef2 \
+  --candidate-bin target/anatomist \
+  --required-calls-improvement-pct 25
+```
+
+两类报告都记录 binary 版本和 SHA-256。产品回归回答“1.0 相比已发布版本是否退化”；
+pipeline 专项只回答“执行引擎优化是否有效”，二者不能互相替代。
 
 增量正确性还要覆盖：size/mtime 快路径、`--verify-content`、恢复时间戳、
 契约指纹对 body/签名的区分、impact SQL 索引计划和 Spring XML 入边保留。

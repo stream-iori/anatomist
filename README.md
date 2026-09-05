@@ -107,7 +107,8 @@ just test
 just golden-update
 just smoke
 just native-smoke
-just bench-query-refactor dd2e575
+just bench-query-refactor
+just bench-semantic-pipeline f5a9ef2
 ```
 
 运行时依赖保持精简，JSON 手写，支持 native-image。禁止把本地数据库、机器路径或 smoke 产物提交到仓库。

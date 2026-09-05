@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Compare the 1.0 semantic pipeline with a detached 0.1x baseline."""
+"""Compare the 1.0 semantic pipeline with a released or git-built 0.1x baseline."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import platform
@@ -27,7 +28,11 @@ RSS_RUNS = 5
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baseline-ref", default="dd2e575")
+    baseline = parser.add_mutually_exclusive_group()
+    baseline.add_argument("--baseline-bin", type=Path,
+                          help="Released baseline binary (default ~/.local/bin/anatomist).")
+    baseline.add_argument("--baseline-ref",
+                          help="Build the baseline from a detached git worktree.")
     parser.add_argument("--candidate-bin", type=Path, default=Path("target/anatomist"))
     parser.add_argument("--output", type=Path, default=Path("target/benchmarks/query-refactor"))
     parser.add_argument("--query-runs", type=int, default=QUERY_RUNS)
@@ -35,6 +40,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--noop-runs", type=int, default=NOOP_RUNS)
     parser.add_argument("--rss-runs", type=int, default=RSS_RUNS)
     return parser.parse_args()
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def checked(command: list[str], *, cwd: Path | None = None,
@@ -226,7 +239,7 @@ def markdown(report: dict) -> str:
     database = report["artifacts"]["database"]
     return "\n".join([
         "# Anatomist 1.0 benchmark", "",
-        f"结论：**{conclusion}**（baseline `{report['environment']['baseline_ref']}`）", "",
+        f"结论：**{conclusion}**（baseline `{report['environment']['baseline_label']}`）", "",
         *rows, "",
         "| DB facts | Baseline | Candidate |", "|---|---:|---:|",
         f"| bytes | {database['old']['bytes']} | {database['new']['bytes']} |",
@@ -237,6 +250,8 @@ def markdown(report: dict) -> str:
         "",
         "共同 search 直接同比；type/calls 是同一用户任务的旧聚合命令与 1.0 多进程管道同比。",
         "功能门禁检查 candidate 的 record、目标文本与 final stream evidence，不比较不兼容的 JSON 外观。",
+        f"Baseline: `{report['environment']['baseline_version']}` / `{report['environment']['baseline_sha256']}`。",
+        f"Candidate: `{report['environment']['candidate_version']}` / `{report['environment']['candidate_sha256']}`。",
         "时间单位 ms；DB、binary、RSS 单位 byte。", "",
     ])
 
@@ -256,10 +271,24 @@ def main() -> int:
     worktree = temp / "baseline"
     baseline_added = False
     try:
-        checked(["git", "worktree", "add", "--detach", str(worktree), args.baseline_ref], cwd=root)
-        baseline_added = True
-        checked(["just", "native"], cwd=worktree)
-        baseline_bin = (worktree / "target/anatomist").resolve()
+        if args.baseline_ref:
+            checked(["git", "worktree", "add", "--detach", str(worktree),
+                     args.baseline_ref], cwd=root)
+            baseline_added = True
+            checked(["just", "native"], cwd=worktree)
+            baseline_bin = (worktree / "target/anatomist").resolve()
+            baseline_label = "git:" + args.baseline_ref
+        else:
+            source = (args.baseline_bin or Path.home() / ".local/bin/anatomist").expanduser()
+            source = source.resolve()
+            if not source.is_file():
+                raise SystemExit(f"baseline binary missing: {source}")
+            baseline_bin = temp / "baseline-anatomist"
+            shutil.copy2(source, baseline_bin)
+            baseline_label = "binary:" + str(source)
+
+        baseline_version = run_command([str(baseline_bin), "--version"]).decode().strip()
+        candidate_version = run_command([str(candidate_bin), "--version"]).decode().strip()
 
         old_db = temp / "baseline.db"
         new_db = temp / "candidate.db"
@@ -391,7 +420,11 @@ def main() -> int:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "system": platform.platform(),
                 "machine": platform.machine(),
-                "baseline_ref": args.baseline_ref,
+                "baseline_label": baseline_label,
+                "baseline_version": baseline_version,
+                "baseline_sha256": sha256(baseline_bin),
+                "candidate_version": candidate_version,
+                "candidate_sha256": sha256(candidate_bin),
                 "candidate_head": checked(
                     ["git", "rev-parse", "HEAD"], cwd=root, capture=True
                 ).stdout.strip(),

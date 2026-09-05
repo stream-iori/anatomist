@@ -66,6 +66,17 @@ schema 21 通过 owner 字典、部分索引和重叠索引裁剪，使 DB 降�
 多进程 type/calls 管道仍是 1.0 的明确性能债；当前功能、体积和既定性能预算均通过，
 不阻塞 1.0。原始数据见 `target/benchmarks/query-refactor/results.json` 和 `report.md`。
 
+### 后续 benchmark 基础设施
+
+| 对比 | 基线 | 约束 |
+|---|---|---|
+| 产品回归 | 默认 `~/.local/bin/anatomist` 0.14.x，也可指定旧 git ref | 按同一用户任务比较，允许输出协议不同 |
+| pipeline 引擎 | 融合前 `f5a9ef2` 或冻结 binary | 同一个只读 DB、原始 NDJSON 字节相等、交替采样 |
+
+`scripts/benchmark-semantic-pipeline.py` 固定覆盖单段 resolve、两段 type pipeline、
+三段 calls pipeline 和自动选出的最高扇出 callable。融合实现验收时，除 p50/p95
+回归门禁外，calls 两项 p50 至少改善 25%。
+
 以下内容是 1.0 决策前的设计推导，保留用于解释来源；其中“保留 legacy”与
 `0.16/0.17` 发布节奏已被上表取代。
 

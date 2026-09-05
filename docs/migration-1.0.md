@@ -57,6 +57,8 @@ anatomist doctor --agent-preflight --format json --index /path/to/index.db
 | JVM/native 对拍 | `just native-smoke` |
 | 扩展生命周期 | `just extension-e2e-jvm` / `just extension-e2e-native` |
 | Agent E2E 合同与 fixture | `just agent-e2e-contract` / `just agent-e2e-fixture` |
-| 旧版基线性能和 DB 体积 | `just bench-query-refactor <baseline-ref>` |
+| 已安装旧版的性能和 DB 体积 | `just bench-query-refactor` |
+| 可复现旧提交基线 | `just bench-query-refactor-git <baseline-ref>` |
+| 1.0 pipeline 引擎优化 | `just bench-semantic-pipeline <baseline-ref>` |
 
 1.0 的 `calls` 只证明源码调用语法及静态解析，`dispatch` 只给可能目标；Spring `INJECTS/WIRES` 用于缩小候选，不会制造不存在的调用事实。
