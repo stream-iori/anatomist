@@ -77,6 +77,7 @@ public class SchemaManager {
             st.execute("DELETE FROM call_site_owners");
             st.execute("DELETE FROM declarations");
             st.execute("DELETE FROM semantic_annotations");
+            st.execute("DELETE FROM annotation_meta_relations");
             st.execute("DELETE FROM annotations");
             st.execute("DELETE FROM edges");
             st.execute("DELETE FROM nodes");

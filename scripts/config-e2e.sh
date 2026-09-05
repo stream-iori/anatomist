@@ -3,6 +3,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODE="${1:-jvm}"
+export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+if [[ "$MODE" == "jvm" && -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]]; then
+  set +u
+  # shellcheck disable=SC1091
+  source "$SDKMAN_DIR/bin/sdkman-init.sh"
+  sdk env >/dev/null
+  set -u
+fi
 E2E_TMP="$(mktemp -d "${TMPDIR:-/tmp}/anatomist-config-e2e.XXXXXX")"
 trap 'rm -rf "$E2E_TMP"' EXIT
 PROJECT="$E2E_TMP/project"
@@ -30,8 +38,8 @@ printf '%s\n' '[scan]' 'scopes = ["TEST"]' > "$E2E_HOME/.anatomist/config.toml"
 
 GLOBAL_DB="$E2E_TMP/global.db"
 HOME="$E2E_HOME" "${CLI[@]}" index "$PROJECT" --no-classpath --java-version 17 --output "$GLOBAL_DB" >/dev/null
-HOME="$E2E_HOME" "${CLI[@]}" search GlobalTest --scope TEST --index "$GLOBAL_DB" | grep -q '"symbol_id" : "p.GlobalTest"'
-if HOME="$E2E_HOME" "${CLI[@]}" search Keep --index "$GLOBAL_DB" | grep -q '"symbol_id" : "p.Keep"'; then
+HOME="$E2E_HOME" "${CLI[@]}" search GlobalTest --scope TEST --index "$GLOBAL_DB" | grep -q '"qualified_name":"p.GlobalTest"'
+if HOME="$E2E_HOME" "${CLI[@]}" search Keep --index "$GLOBAL_DB" | grep -q '"qualified_name":"p.Keep"'; then
   echo "global TEST-only config unexpectedly indexed main source" >&2
   exit 1
 fi
@@ -41,12 +49,12 @@ printf '%s\n' '[scan]' 'include = ["src/main/java/**"]' 'exclude = ["**/Drop.jav
   > "$PROJECT/.anatomist/config.toml"
 PROJECT_DB="$E2E_TMP/project.db"
 HOME="$E2E_HOME" "${CLI[@]}" index "$PROJECT" --no-classpath --java-version 17 --output "$PROJECT_DB" >/dev/null
-HOME="$E2E_HOME" "${CLI[@]}" search Keep --index "$PROJECT_DB" | grep -q '"symbol_id" : "p.Keep"'
-if HOME="$E2E_HOME" "${CLI[@]}" search GlobalTest --scope TEST --index "$PROJECT_DB" | grep -q '"symbol_id" : "p.GlobalTest"'; then
+HOME="$E2E_HOME" "${CLI[@]}" search Keep --index "$PROJECT_DB" | grep -q '"qualified_name":"p.Keep"'
+if HOME="$E2E_HOME" "${CLI[@]}" search GlobalTest --scope TEST --index "$PROJECT_DB" | grep -q '"qualified_name":"p.GlobalTest"'; then
   echo "project config did not replace global config" >&2
   exit 1
 fi
-if HOME="$E2E_HOME" "${CLI[@]}" search Drop --index "$PROJECT_DB" | grep -q '"symbol_id" : "p.Drop"'; then
+if HOME="$E2E_HOME" "${CLI[@]}" search Drop --index "$PROJECT_DB" | grep -q '"qualified_name":"p.Drop"'; then
   echo "project scan.exclude did not apply" >&2
   exit 1
 fi
@@ -54,14 +62,14 @@ fi
 CLI_DB="$E2E_TMP/cli.db"
 HOME="$E2E_HOME" "${CLI[@]}" index "$PROJECT" --no-classpath --java-version 17 \
   --scan-include 'src/main/java/**' --scan-exclude '**/Keep.java' --output "$CLI_DB" >/dev/null
-HOME="$E2E_HOME" "${CLI[@]}" search Drop --index "$CLI_DB" | grep -q '"symbol_id" : "p.Drop"'
+HOME="$E2E_HOME" "${CLI[@]}" search Drop --index "$CLI_DB" | grep -q '"qualified_name":"p.Drop"'
 
 printf '%s\n' '[scan]' 'include = ["src/main/java/**"]' 'exclude = ["**/Keep.java"]' \
   > "$PROJECT/.anatomist/config.toml"
 HOME="$E2E_HOME" "${CLI[@]}" index "$PROJECT" --no-classpath --java-version 17 \
   --incremental --output "$PROJECT_DB" >/dev/null 2>"$E2E_TMP/incremental.err"
 grep -q 'scan policy changed' "$E2E_TMP/incremental.err"
-HOME="$E2E_HOME" "${CLI[@]}" search Drop --index "$PROJECT_DB" | grep -q '"symbol_id" : "p.Drop"'
+HOME="$E2E_HOME" "${CLI[@]}" search Drop --index "$PROJECT_DB" | grep -q '"qualified_name":"p.Drop"'
 
 printf '%s\n' '[scan]' 'exclude = "invalid"' > "$PROJECT/.anatomist/config.toml"
 set +e

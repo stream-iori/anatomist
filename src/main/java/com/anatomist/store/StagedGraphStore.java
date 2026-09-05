@@ -5,6 +5,7 @@ import com.anatomist.core.SourceIdentity;
 import com.anatomist.core.SourceIdentityResolver;
 import com.anatomist.model.BeanRefTarget;
 import com.anatomist.model.Annotation;
+import com.anatomist.model.AnnotationMetaRelation;
 import com.anatomist.model.Edge;
 import com.anatomist.model.Declaration;
 import com.anatomist.model.ExtractionResult;
@@ -12,6 +13,8 @@ import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.anatomist.model.SemanticAnnotation;
 import com.anatomist.model.ProducerIds;
+import com.anatomist.model.SymbolFact;
+import com.anatomist.model.TypeRelationFact;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -131,6 +134,7 @@ public final class StagedGraphStore implements AutoCloseable {
             try (PreparedStatement nodes = c.prepareStatement(NODE_INSERT);
                  PreparedStatement edges = c.prepareStatement(EDGE_INSERT);
                  PreparedStatement annotations = c.prepareStatement(ANNOTATION_INSERT);
+                 PreparedStatement annotationMeta = c.prepareStatement(ANNOTATION_META_INSERT);
                  PreparedStatement semantics = c.prepareStatement(SEMANTIC_INSERT);
                  PreparedStatement declarations = c.prepareStatement(DECLARATION_INSERT)) {
                 for (Node node : result.nodes) bindNode(nodes, node, normalized);
@@ -139,6 +143,10 @@ public final class StagedGraphStore implements AutoCloseable {
                 edges.executeBatch();
                 for (Annotation annotation : result.annotations) bindAnnotation(annotations, annotation, normalized);
                 annotations.executeBatch();
+                for (AnnotationMetaRelation relation : result.annotationMetaRelations) {
+                    bindAnnotationMeta(annotationMeta, relation);
+                }
+                annotationMeta.executeBatch();
                 for (SemanticAnnotation semantic : result.semanticAnnotations) {
                     bindSemantic(semantics, semantic,
                             semantic.sourceFile == null ? nodeSourceFiles.get(semantic.nodeId) : semantic.sourceFile,
@@ -306,24 +314,88 @@ public final class StagedGraphStore implements AutoCloseable {
         return out;
     }
 
+    public List<SymbolFact> symbolFacts() {
+        try (Statement statement = connection().createStatement();
+             ResultSet rows = statement.executeQuery(
+                     "SELECT id,symbol_id,kind,module,scope,source_file,metadata FROM stage_nodes")) {
+            List<SymbolFact> out = new ArrayList<>();
+            while (rows.next()) {
+                out.add(new SymbolFact(rows.getString(1), rows.getString(2), rows.getString(3),
+                        rows.getString(4), rows.getString(5), rows.getString(6), rows.getString(7)));
+            }
+            return List.copyOf(out);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read staged symbol facts", e);
+        }
+    }
+
+    public List<TypeRelationFact> typeRelations() {
+        String sql = "SELECT source_ref,target_ref,external_target_fqn,relation FROM stage_edges "
+                + "WHERE relation IN ('INHERITS','IMPLEMENTS')";
+        try (Statement statement = connection().createStatement();
+             ResultSet rows = statement.executeQuery(sql)) {
+            List<TypeRelationFact> out = new ArrayList<>();
+            while (rows.next()) {
+                String source = symbol(rows.getString(1));
+                String target = rows.getString(2) != null ? symbol(rows.getString(2)) : rows.getString(3);
+                if (source != null && target != null) {
+                    out.add(new TypeRelationFact(source, target, rows.getString(4)));
+                }
+            }
+            return List.copyOf(out);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read staged type relations", e);
+        }
+    }
+
+    private static String symbol(String id) {
+        return NodeKeyFactory.isKey(id) ? NodeKeyFactory.symbolId(id) : id;
+    }
+
     public Map<String, BeanRefTarget> rawBeanTargets() {
         Map<String, BeanRefTarget> out = new HashMap<>();
-        String sql = "SELECT n.symbol_id,e.target_ref,e.external_target_fqn FROM stage_edges e "
-                + "JOIN stage_nodes n ON n.id=e.source_ref "
-                + "OR (e.source_is_key=0 AND n.symbol_id=e.source_ref) "
-                + "WHERE e.relation=? AND n.symbol_id LIKE 'bean:%' ORDER BY e.seq";
-        try (PreparedStatement statement = connection().prepareStatement(sql)) {
-            statement.setString(1, GraphConstants.Relation.DEFINED_BY);
-            try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    String target = rows.getString(2) != null ? rows.getString(2) : rows.getString(3);
-                    out.put(rows.getString(1), new BeanRefTarget(rows.getString(1), target));
-                }
+        String sql = "SELECT symbol_id,metadata FROM stage_nodes WHERE kind='BEAN' ORDER BY seq";
+        try (Statement statement = connection().createStatement();
+             ResultSet rows = statement.executeQuery(sql)) {
+            while (rows.next()) {
+                String bean = rows.getString(1);
+                String type = beanClassFromMetadata(rows.getString(2));
+                if (type == null) type = fallbackBeanClass(bean);
+                out.put(bean, new BeanRefTarget(bean, type));
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to read staged bean targets", e);
         }
         return out;
+    }
+
+    private String fallbackBeanClass(String bean) throws SQLException {
+        String sql = "SELECT COALESCE(target_ref,external_target_fqn) FROM stage_edges "
+                + "WHERE relation='DEFINED_BY' AND source_ref=? ORDER BY seq";
+        try (PreparedStatement statement = connection().prepareStatement(sql)) {
+            statement.setString(1, bean);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    String target = rows.getString(1);
+                    if (target != null && !target.contains("#")) return target;
+                }
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String beanClassFromMetadata(String metadata) {
+        if (metadata == null) return null;
+        try {
+            Object tree = com.anatomist.json.Json.parseTree(metadata);
+            if (!(tree instanceof Map<?, ?> map)) return null;
+            for (String key : List.of("productClass", "returnType", "className")) {
+                Object value = map.get(key);
+                if (value != null && !String.valueOf(value).isBlank()) return String.valueOf(value);
+            }
+        } catch (RuntimeException ignored) { }
+        return null;
     }
 
     public Map<String, FileCacheService.SourceFileStats> sourceFileStats() {
@@ -367,6 +439,7 @@ public final class StagedGraphStore implements AutoCloseable {
             try (Statement statement = c.createStatement()) {
                 statement.executeUpdate("DELETE FROM semantic_annotations WHERE producer_id IN (" + producers + ")");
                 statement.executeUpdate("DELETE FROM annotations WHERE producer_id IN (" + producers + ")");
+                statement.executeUpdate("DELETE FROM annotation_meta_relations WHERE producer_id IN (" + producers + ")");
                 statement.executeUpdate("DELETE FROM declarations WHERE producer_id IN (" + producers + ")");
                 statement.executeUpdate("DELETE FROM edges WHERE producer_id IN (" + producers + ")");
             }
@@ -378,6 +451,8 @@ public final class StagedGraphStore implements AutoCloseable {
                  PreparedStatement annotations = c.prepareStatement(
                         "DELETE FROM annotations WHERE node_id IN "
                                 + "(SELECT id FROM nodes WHERE source_file IN (" + placeholders + "))");
+                 PreparedStatement annotationMeta = c.prepareStatement(
+                        "DELETE FROM annotation_meta_relations WHERE source_file IN (" + placeholders + ")");
                  PreparedStatement edges = c.prepareStatement(
                         "DELETE FROM edges WHERE (source_file IN (" + placeholders + ")"
                                 + (rebuildDerivedWiring ? "" : " AND (metadata IS NULL OR NOT ("
@@ -391,10 +466,12 @@ public final class StagedGraphStore implements AutoCloseable {
                         "DELETE FROM declarations WHERE source_file IN (" + placeholders + ")")) {
                 bindFiles(semantic, files, 1);
                 bindFiles(annotations, files, 1);
+                bindFiles(annotationMeta, files, 1);
                 bindFiles(edges, files, 2);
                 bindFiles(cache, files, 1);
                 bindFiles(declarations, files, 1);
-                semantic.executeUpdate(); annotations.executeUpdate(); edges.executeUpdate(); cache.executeUpdate();
+                semantic.executeUpdate(); annotations.executeUpdate(); annotationMeta.executeUpdate();
+                edges.executeUpdate(); cache.executeUpdate();
                 declarations.executeUpdate();
             }
         }
@@ -558,11 +635,43 @@ public final class StagedGraphStore implements AutoCloseable {
             throws SQLException {
         SourceIdentity identity = identities.resolve(annotation.sourceFile);
         boolean key = normalized || NodeKeyFactory.isKey(annotation.nodeId);
-        statement.setString(1, annotation.nodeId); statement.setString(2, annotation.annotationFqn);
-        statement.setString(3, annotation.attributes); statement.setString(4, annotation.sourceFile);
-        statement.setString(5, identity.module()); statement.setString(6, identity.scope().name());
-        statement.setInt(7, key ? 1 : 0); statement.setString(8, key ? annotation.nodeId : null);
-        statement.setString(9, producer(annotation.producerId, ProducerIds.JAVA_CORE));
+        int i = 1;
+        statement.setString(i++, annotation.nodeId);
+        statement.setString(i++, annotation.annotationFqn);
+        statement.setString(i++, annotation.rawName == null ? annotation.annotationFqn : annotation.rawName);
+        statement.setString(i++, annotation.attributes);
+        statement.setString(i++, annotation.targetKind == null ? "entity" : annotation.targetKind);
+        statement.setString(i++, annotation.targetPath);
+        statement.setString(i++, annotation.language == null ? "java" : annotation.language);
+        statement.setString(i++, annotation.mechanism == null ? "java.annotation" : annotation.mechanism);
+        statement.setString(i++, annotation.resolutionStatus == null ? "exact" : annotation.resolutionStatus);
+        statement.setString(i++, annotation.sourceFile);
+        statement.setString(i++, annotation.sourceLocation);
+        setNullableInt(statement, i++, annotation.beginLine);
+        setNullableInt(statement, i++, annotation.beginColumn);
+        setNullableInt(statement, i++, annotation.endLine);
+        setNullableInt(statement, i++, annotation.endColumn);
+        statement.setString(i++, identity.module()); statement.setString(i++, identity.scope().name());
+        statement.setInt(i++, key ? 1 : 0); statement.setString(i++, key ? annotation.nodeId : null);
+        statement.setString(i, producer(annotation.producerId, ProducerIds.JAVA_CORE));
+        statement.addBatch();
+    }
+
+    private static void bindAnnotationMeta(PreparedStatement statement,
+                                           AnnotationMetaRelation relation) throws SQLException {
+        int i = 1;
+        statement.setString(i++, relation.annotationFqn);
+        statement.setString(i++, relation.metaAnnotationFqn);
+        statement.setString(i++, relation.rawName == null
+                ? relation.metaAnnotationFqn : relation.rawName);
+        statement.setString(i++, relation.language == null ? "java" : relation.language);
+        statement.setString(i++, relation.mechanism == null
+                ? "java.annotation.meta" : relation.mechanism);
+        statement.setString(i++, relation.resolutionStatus == null
+                ? "exact" : relation.resolutionStatus);
+        statement.setString(i++, relation.sourceFile);
+        statement.setString(i++, relation.sourceLocation);
+        statement.setString(i, producer(relation.producerId, ProducerIds.JAVA_CORE));
         statement.addBatch();
     }
 
@@ -651,6 +760,7 @@ public final class StagedGraphStore implements AutoCloseable {
     private static void clearGraph(Statement statement) throws SQLException {
         statement.executeUpdate("DELETE FROM declarations");
         statement.executeUpdate("DELETE FROM semantic_annotations");
+        statement.executeUpdate("DELETE FROM annotation_meta_relations");
         statement.executeUpdate("DELETE FROM annotations");
         statement.executeUpdate("DELETE FROM call_site_targets");
         statement.executeUpdate("DELETE FROM call_sites");
@@ -698,8 +808,17 @@ public final class StagedGraphStore implements AutoCloseable {
                 + "source_location,begin_line,begin_column,end_line,end_column,source_ordinal,syntax_target,"
                 + "receiver_static_type,metadata,producer_id FROM " + ALIAS
                 + ".stage_edges WHERE relation<>'" + GraphConstants.Relation.CALLS + "' ORDER BY seq");
-        statement.executeUpdate("INSERT INTO annotations(node_id,annotation_fqn,attributes,source_file,producer_id) SELECT resolved_node,"
-                + "annotation_fqn,attributes,source_file,producer_id FROM " + ALIAS + ".stage_annotations ORDER BY seq");
+        statement.executeUpdate("INSERT INTO annotations(node_id,annotation_fqn,raw_name,attributes,target_kind,"
+                + "target_path,language,mechanism,resolution_status,source_file,source_location,begin_line,"
+                + "begin_column,end_line,end_column,producer_id) SELECT resolved_node,annotation_fqn,raw_name,"
+                + "attributes,target_kind,target_path,language,mechanism,resolution_status,source_file,"
+                + "source_location,begin_line,begin_column,end_line,end_column,producer_id FROM " + ALIAS
+                + ".stage_annotations ORDER BY seq");
+        statement.executeUpdate("INSERT OR IGNORE INTO annotation_meta_relations(annotation_fqn,"
+                + "meta_annotation_fqn,raw_name,language,mechanism,resolution_status,source_file,"
+                + "source_location,producer_id) SELECT annotation_fqn,meta_annotation_fqn,raw_name,language,"
+                + "mechanism,resolution_status,source_file,source_location,producer_id FROM " + ALIAS
+                + ".stage_annotation_meta ORDER BY seq");
         statement.executeUpdate("INSERT INTO semantic_annotations(node_id,doc_id,category,business_label,"
                 + "business_description,domain_context,source,confidence,source_file,producer_id) SELECT resolved_node,NULLIF(doc_id,0),"
                 + "category,business_label,business_description,domain_context,source,confidence,source_file,producer_id FROM " + ALIAS
@@ -765,6 +884,7 @@ public final class StagedGraphStore implements AutoCloseable {
             statement.executeUpdate("DELETE FROM stage_semantic_annotations");
             statement.executeUpdate("DELETE FROM stage_declarations");
             statement.executeUpdate("DELETE FROM stage_annotations");
+            statement.executeUpdate("DELETE FROM stage_annotation_meta");
             statement.executeUpdate("DELETE FROM stage_edges");
             statement.executeUpdate("DELETE FROM stage_nodes");
             statement.executeUpdate("DELETE FROM sqlite_sequence WHERE name LIKE 'stage_%'");
@@ -795,8 +915,13 @@ public final class StagedGraphStore implements AutoCloseable {
             + "begin_line,begin_column,end_line,end_column,source_ordinal,syntax_target,receiver_static_type,metadata,source_module,"
             + "source_scope,source_is_key,target_is_key,resolved_source,resolved_target,target_arity_key,producer_id) "
             + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-    private static final String ANNOTATION_INSERT = "INSERT INTO stage_annotations(node_ref,annotation_fqn,attributes,"
-            + "source_file,source_module,source_scope,node_is_key,resolved_node,producer_id) VALUES (?,?,?,?,?,?,?,?,?)";
+    private static final String ANNOTATION_INSERT = "INSERT INTO stage_annotations(node_ref,annotation_fqn,raw_name,"
+            + "attributes,target_kind,target_path,language,mechanism,resolution_status,source_file,source_location,"
+            + "begin_line,begin_column,end_line,end_column,source_module,source_scope,node_is_key,resolved_node,producer_id)"
+            + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String ANNOTATION_META_INSERT = "INSERT INTO stage_annotation_meta(annotation_fqn,"
+            + "meta_annotation_fqn,raw_name,language,mechanism,resolution_status,source_file,source_location,producer_id)"
+            + " VALUES (?,?,?,?,?,?,?,?,?)";
     private static final String SEMANTIC_INSERT = "INSERT INTO stage_semantic_annotations(node_ref,doc_id,category,"
             + "business_label,business_description,domain_context,source,confidence,source_file,source_module,"
             + "source_scope,node_is_key,resolved_node,producer_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
@@ -832,9 +957,14 @@ public final class StagedGraphStore implements AutoCloseable {
                     + "resolved_target TEXT,target_arity_key TEXT,producer_id TEXT NOT NULL)",
             "CREATE INDEX stage_edges_refs ON stage_edges(source_ref,target_ref,external_target_fqn)",
             "CREATE TABLE stage_annotations(seq INTEGER PRIMARY KEY AUTOINCREMENT,node_ref TEXT,annotation_fqn TEXT,"
-                    + "attributes TEXT,source_file TEXT,source_module TEXT,source_scope TEXT,node_is_key INTEGER,"
-                    + "resolved_node TEXT,producer_id TEXT NOT NULL)",
+                    + "raw_name TEXT NOT NULL,attributes TEXT,target_kind TEXT NOT NULL,target_path TEXT,language TEXT NOT NULL,"
+                    + "mechanism TEXT NOT NULL,resolution_status TEXT NOT NULL,source_file TEXT,source_location TEXT,"
+                    + "begin_line INTEGER,begin_column INTEGER,end_line INTEGER,end_column INTEGER,source_module TEXT,"
+                    + "source_scope TEXT,node_is_key INTEGER,resolved_node TEXT,producer_id TEXT NOT NULL)",
             "CREATE INDEX stage_annotations_ref ON stage_annotations(node_ref)",
+            "CREATE TABLE stage_annotation_meta(seq INTEGER PRIMARY KEY AUTOINCREMENT,annotation_fqn TEXT NOT NULL,"
+                    + "meta_annotation_fqn TEXT,raw_name TEXT NOT NULL,language TEXT NOT NULL,mechanism TEXT NOT NULL,"
+                    + "resolution_status TEXT NOT NULL,source_file TEXT,source_location TEXT,producer_id TEXT NOT NULL)",
             "CREATE TABLE stage_semantic_annotations(seq INTEGER PRIMARY KEY AUTOINCREMENT,node_ref TEXT,doc_id INTEGER,"
                     + "category TEXT,business_label TEXT,business_description TEXT,domain_context TEXT,source TEXT,"
                     + "confidence TEXT,source_file TEXT,source_module TEXT,source_scope TEXT,node_is_key INTEGER,"

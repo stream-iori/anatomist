@@ -11,13 +11,15 @@ public class ExtractionResult {
     public final List<Node> nodes = new ArrayList<>();
     public final List<Edge> edges = new ArrayList<>();
     public final List<Annotation> annotations = new ArrayList<>();
+    public final List<AnnotationMetaRelation> annotationMetaRelations = new ArrayList<>();
     public final List<SemanticAnnotation> semanticAnnotations = new ArrayList<>();
     public final List<Declaration> declarations = new ArrayList<>();
     public final Map<String, Object> stats = new HashMap<>();
 
     /** Number of graph facts currently retained by this batch. */
     public int factCount() {
-        return nodes.size() + edges.size() + annotations.size() + semanticAnnotations.size()
+        return nodes.size() + edges.size() + annotations.size() + annotationMetaRelations.size()
+                + semanticAnnotations.size()
                 + declarations.size();
     }
 
@@ -27,6 +29,7 @@ public class ExtractionResult {
         nodes.addAll(other.nodes);
         edges.addAll(other.edges);
         annotations.addAll(other.annotations);
+        annotationMetaRelations.addAll(other.annotationMetaRelations);
         semanticAnnotations.addAll(other.semanticAnnotations);
         declarations.addAll(other.declarations);
         other.stats.forEach((key, value) -> {
@@ -43,6 +46,7 @@ public class ExtractionResult {
         nodes.clear();
         edges.clear();
         annotations.clear();
+        annotationMetaRelations.clear();
         semanticAnnotations.clear();
         declarations.clear();
     }

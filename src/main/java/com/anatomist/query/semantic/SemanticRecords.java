@@ -182,7 +182,7 @@ public final class SemanticRecords {
             case "ARTIFACT" -> "artifact";
             case "XML_PROPERTY" -> "property";
             case "XML_ENTRY", "XML_LIST", "XML_MAP", "XML_VALUE", "XML_REF", "XML_IDREF",
-                    "XML_NULL", "XML_CONSTRUCTOR_ARG" -> "config_entity";
+                    "XML_NULL", "XML_CONSTRUCTOR_ARG", "XML_CALLABLE_REF" -> "config_entity";
             default -> storageKind.toLowerCase(java.util.Locale.ROOT);
         };
     }

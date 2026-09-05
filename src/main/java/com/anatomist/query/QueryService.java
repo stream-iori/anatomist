@@ -49,6 +49,7 @@ public class QueryService implements AutoCloseable {
     private final BranchSliceService branchSlices;
     private final JavaSemanticService javaSemantics;
     private final GenericSemanticService genericSemantics;
+    private final AnnotationQueryService annotationQueries;
 
     public Connection connection() { return conn; }
 
@@ -105,6 +106,7 @@ public class QueryService implements AutoCloseable {
         this.branchSlices = new BranchSliceService(conn, resolver, callGraph, sourceWindows);
         this.javaSemantics = new JavaSemanticService(conn, resolver);
         this.genericSemantics = new GenericSemanticService(conn, resolver);
+        this.annotationQueries = new AnnotationQueryService(conn);
     }
 
     @Override
@@ -154,7 +156,18 @@ public class QueryService implements AutoCloseable {
     public SemanticCursor<NodeRow> semanticSearchCursor(SearchService.SemanticMode mode,
                                                          String selector, String kind,
                                                          int limit, int offset) {
-        return search.semanticCursor(mode, selector, kind, limit, offset);
+        return search.semanticCursor(mode, selector, kind, limit, offset, false);
+    }
+
+    public SemanticCursor<NodeRow> semanticSearchCursor(SearchService.SemanticMode mode,
+                                                         String selector, String kind,
+                                                         int limit, int offset,
+                                                         boolean includeMeta) {
+        return search.semanticCursor(mode, selector, kind, limit, offset, includeMeta);
+    }
+
+    public List<AnnotationRow> annotations(String entityId, boolean includeMeta) {
+        return annotationQueries.annotations(entityId, includeMeta);
     }
 
     public List<NodeRow> implementorsOf(String typeRef) {

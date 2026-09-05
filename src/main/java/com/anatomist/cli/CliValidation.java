@@ -25,6 +25,7 @@ final class CliValidation {
             GraphConstants.Kind.RECORD,
             GraphConstants.Kind.ROUTE,
             GraphConstants.Kind.XML_CONSTRUCTOR_ARG,
+            GraphConstants.Kind.XML_CALLABLE_REF,
             GraphConstants.Kind.XML_ENTRY,
             GraphConstants.Kind.XML_IDREF,
             GraphConstants.Kind.XML_LIST,

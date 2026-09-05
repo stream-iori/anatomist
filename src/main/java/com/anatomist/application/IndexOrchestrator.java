@@ -126,7 +126,8 @@ public class IndexOrchestrator {
                 if (!resources.isEmpty()) {
                     ExtractionResult xmlResult = new ExtractionResult();
                     new ProjectAnalysisRunner().run(extensions, analysisContext, resources,
-                            new DefaultProjectFactView(staging.allSymbolIds(), staging.rawBeanTargets()),
+                            new DefaultProjectFactView(staging.allSymbolIds(), staging.rawBeanTargets(),
+                                    staging.symbolFacts(), staging.typeRelations()),
                             xmlResult, extensionReport);
                     staging.writeRawBatch(xmlResult);
                     xmlResult.clearFacts();

@@ -46,18 +46,24 @@ public class TypeContextService {
         }
 
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT annotation_fqn, attributes, producer_id FROM annotations WHERE node_id = ?")) {
+                "SELECT annotation_fqn,raw_name,attributes,target_kind,target_path,resolution_status,"
+                        + "source_location,producer_id FROM annotations WHERE node_id = ?")) {
             ps.setString(1, node.id);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     Map<String, Object> row = new LinkedHashMap<>();
                     row.put("annotation_fqn", rs.getString(1));
-                    String attrs = rs.getString(2);
+                    row.put("raw_name", rs.getString(2));
+                    String attrs = rs.getString(3);
                     if (attrs != null && !attrs.isEmpty()) {
                         try { row.put("attributes", Json.parseTree(attrs)); }
                         catch (Exception e) { row.put("attributes", attrs); }
                     }
-                    row.put("producer_id", rs.getString(3));
+                    row.put("target_kind", rs.getString(4));
+                    if (rs.getString(5) != null) row.put("target_path", rs.getString(5));
+                    row.put("resolution_status", rs.getString(6));
+                    if (rs.getString(7) != null) row.put("source_location", rs.getString(7));
+                    row.put("producer_id", rs.getString(8));
                     r.annotations.add(row);
                 }
             }

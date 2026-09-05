@@ -41,6 +41,9 @@ public class SearchCommand extends SemanticCommand {
     @Option(names = "--by-annotation", description = "Treat <term> as an annotation FQN/substring.")
     boolean byAnnotation;
 
+    @Option(names = "--include-meta", description = "With --by-annotation, include cycle-safe meta-annotation matches (max depth 16).")
+    boolean includeMeta;
+
     @Override
     protected Result execute(QueryService q, SemanticIdentity identity,
                              SemanticStreamWriter writer) {
@@ -55,7 +58,7 @@ public class SearchCommand extends SemanticCommand {
         if (count) {
             int total = 0;
             try (SemanticCursor<NodeRow> rows = q.semanticSearchCursor(
-                    mode, selector, kind, SemanticRecords.MAX_LIMIT, 0)) {
+                    mode, selector, kind, SemanticRecords.MAX_LIMIT, 0, includeMeta)) {
                 while (rows.hasNext()) { rows.next(); total++; }
             }
             var result = SemanticRecords.common("result_count", seed, null, identity);
@@ -72,7 +75,7 @@ public class SearchCommand extends SemanticCommand {
             return new Result(1, 1, true, false);
         }
         try (SemanticCursor<NodeRow> rows = q.semanticSearchCursor(
-                mode, selector, kind, limit + 1, offset)) {
+                mode, selector, kind, limit + 1, offset, includeMeta)) {
             while (rows.hasNext()) {
                 NodeRow row = rows.next();
                 if (emitted >= limit) {
@@ -97,6 +100,8 @@ public class SearchCommand extends SemanticCommand {
                 "search term and --name are mutually exclusive");
         if (byAnnotation && !hasTerm) throw new IllegalArgumentException(
                 "--by-annotation requires a search term");
+        if (includeMeta && !byAnnotation) throw new IllegalArgumentException(
+                "--include-meta requires --by-annotation");
         if (kind != null && !kind.isBlank()) {
             String normalized = kind.toLowerCase(Locale.ROOT);
             if (!List.of("type", "callable", "value", "artifact", "component", "config_entity", "entity")

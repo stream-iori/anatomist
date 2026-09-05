@@ -13,6 +13,8 @@ Execute them as `pipeline --index <db> -- <stage> --then <stage>` and require fi
 stream evidence.
 Routes, annotations, names, and documents are
 technical signals; verify source/configuration before calling them business rules.
+Annotation search is direct by default. Add `--include-meta` only for composed
+definitions, then inspect `direct`, `meta_depth`, `via`, and `resolution_status`.
 
 Use `source --limit/--offset` until the required declaration range is covered.
 Read an entire type only when state or lifecycle spans fields, constructors,

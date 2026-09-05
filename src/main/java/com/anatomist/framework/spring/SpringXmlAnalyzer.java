@@ -44,11 +44,25 @@ public final class SpringXmlAnalyzer implements ProjectResourceAnalyzer {
         if (!enabled(context)) return;
         var xmlFiles = resources.stream().map(ProjectResource::path).toList();
         if (xmlFiles.isEmpty()) return;
-        extractXmlBeans(context.projectRoot(), xmlFiles, facts.knownNodeIds(), facts.beanTargets(), result);
+        extractXmlBeans(context.projectRoot(), xmlFiles, facts, result);
+    }
+
+    public static void extractXmlBeans(Path projectRoot, List<Path> xmlFiles,
+                                       ProjectFactView facts, ExtractionResult result) {
+        extractXmlBeans(projectRoot, xmlFiles, facts.knownNodeIds(), facts.beanTargets(), facts, result);
     }
 
     public static void extractXmlBeans(Path projectRoot, List<Path> xmlFiles, Set<String> knownIds,
                                        Map<String, BeanRefTarget> existingBeans,
+                                       ExtractionResult result) {
+        ProjectFactView facts = new com.anatomist.framework.DefaultProjectFactView(
+                knownIds, existingBeans);
+        extractXmlBeans(projectRoot, xmlFiles, knownIds, existingBeans, facts, result);
+    }
+
+    private static void extractXmlBeans(Path projectRoot, List<Path> xmlFiles, Set<String> knownIds,
+                                       Map<String, BeanRefTarget> existingBeans,
+                                       ProjectFactView facts,
                                        ExtractionResult result) {
         List<XmlSource> parsed = new ArrayList<>();
         SpringBeanParser beanParser = new SpringBeanParser();
@@ -67,14 +81,25 @@ public final class SpringXmlAnalyzer implements ProjectResourceAnalyzer {
                 String beanId = XmlBeanExtractor.beanNodeId(b.name(), src.sourceFile());
                 allKnownIds.add(beanId);
                 putUnique(resolvedBeans, ambiguous, "bean:" + b.name(),
-                        new BeanRefTarget(beanId, b.className()));
+                        new BeanRefTarget(beanId,
+                                b.factoryMethod() == null ? b.className() : null));
+            }
+        }
+        List<ParsedBean> allBeans = parsed.stream().flatMap(source -> source.beans().stream()).toList();
+        Map<String, String> products = XmlBeanExtractor.resolveProductClasses(
+                allBeans, resolvedBeans, facts, "<spring-xml-set>");
+        for (Map.Entry<String, String> product : products.entrySet()) {
+            String key = "bean:" + product.getKey();
+            BeanRefTarget target = resolvedBeans.get(key);
+            if (target != null && !ambiguous.contains(key)) {
+                resolvedBeans.put(key, new BeanRefTarget(target.beanId(), product.getValue()));
             }
         }
 
         XmlBeanExtractor xmlExtractor = new XmlBeanExtractor("MAIN");
         for (XmlSource src : parsed) {
             xmlExtractor.extractWithResolvedBeans(src.beans(), allKnownIds, resolvedBeans,
-                    src.sourceFile(), src.range(), result);
+                    src.sourceFile(), src.range(), facts, result);
         }
     }
 

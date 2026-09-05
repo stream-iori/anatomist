@@ -29,8 +29,20 @@ import java.util.Set;
 public final class SpringComponentAnalyzer implements com.anatomist.framework.JavaAstAnalyzer {
 
     private static final Set<String> COMPONENTS = Set.of(
-            "Component", "Service", "Repository", "Controller", "RestController", "Configuration");
-    private static final Set<String> INJECTION = Set.of("Autowired", "Resource", "Inject");
+            "org.springframework.stereotype.Component",
+            "org.springframework.stereotype.Service",
+            "org.springframework.stereotype.Repository",
+            "org.springframework.stereotype.Controller",
+            "org.springframework.web.bind.annotation.RestController",
+            "org.springframework.context.annotation.Configuration");
+    private static final Set<String> BEAN = Set.of("org.springframework.context.annotation.Bean");
+    private static final Set<String> INJECTION = Set.of(
+            "org.springframework.beans.factory.annotation.Autowired",
+            "jakarta.annotation.Resource", "javax.annotation.Resource",
+            "jakarta.inject.Inject", "javax.inject.Inject");
+    private static final Set<String> QUALIFIER = Set.of(
+            "org.springframework.beans.factory.annotation.Qualifier",
+            "jakarta.inject.Named", "javax.inject.Named");
 
     private final ExtractionContext ctx;
 
@@ -72,44 +84,56 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
     }
 
     private void emitComponentBean(ClassOrInterfaceDeclaration n, String sourceFile, ExtractionResult result) {
-        Optional<AnnotationExpr> ann = SpringAnnotationSupport.first(n.getAnnotations(), COMPONENTS);
+        Optional<SpringAnnotationSupport.Match> ann = SpringAnnotationSupport.firstMatch(
+                n.getAnnotations(), COMPONENTS);
         if (ann.isEmpty()) return;
         ResolvedReferenceTypeDeclaration type;
         try { type = n.resolve(); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         String typeId = ctx.idGenerator().forType(type);
-        String beanName = beanName(ann.get(), type.getName());
+        String beanName = beanName(ann.get().annotation(), type.getName());
         String beanId = beanId(beanName);
-        result.nodes.add(beanNode(beanId, beanName, sourceFile, lineOf(n),
-                Map.of("className", type.getQualifiedName(), "source", "annotation",
-                        "stereotype", SpringAnnotationSupport.simpleName(ann.get()))));
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("className", type.getQualifiedName());
+        metadata.put("source", "annotation");
+        metadata.put("stereotype", ann.get().rootFqn());
+        metadata.putAll(SpringAnnotationSupport.evidence(ann.get()));
+        result.nodes.add(beanNode(beanId, beanName, sourceFile, lineOf(n), metadata));
         result.edges.add(edge(beanId, typeId, GraphConstants.Relation.DEFINED_BY,
                 sourceFile, lineOf(n), GraphConstants.Confidence.CONFIGURED, null));
     }
 
     private void emitBeanMethod(MethodDeclaration n, String sourceFile, ExtractionResult result) {
-        Optional<AnnotationExpr> ann = SpringAnnotationSupport.first(n.getAnnotations(), Set.of("Bean"));
+        Optional<SpringAnnotationSupport.Match> ann = SpringAnnotationSupport.firstMatch(
+                n.getAnnotations(), BEAN);
         if (ann.isEmpty()) return;
         ResolvedMethodDeclaration method;
         try { method = n.resolve(); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         String methodId = ctx.idGenerator().forMethod(method);
-        String explicit = SpringAnnotationSupport.stringAttribute(ann.get(), "value");
-        if (explicit == null) explicit = SpringAnnotationSupport.stringAttribute(ann.get(), "name");
+        String explicit = SpringAnnotationSupport.stringAttribute(ann.get().annotation(), "value");
+        if (explicit == null) explicit = SpringAnnotationSupport.stringAttribute(ann.get().annotation(), "name");
         String beanName = explicit != null && !explicit.isBlank() ? explicit : n.getNameAsString();
-        String returnType = n.getTypeAsString();
+        String returnType;
+        try { returnType = method.getReturnType().describe(); }
+        catch (RuntimeException ignored) { returnType = n.getTypeAsString(); }
         String beanId = beanId(beanName);
-        result.nodes.add(beanNode(beanId, beanName, sourceFile, lineOf(n),
-                Map.of("factoryMethod", methodId, "returnType", returnType, "source", "bean_method")));
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("factoryMethod", methodId);
+        metadata.put("returnType", returnType);
+        metadata.put("source", "bean_method");
+        metadata.putAll(SpringAnnotationSupport.evidence(ann.get()));
+        result.nodes.add(beanNode(beanId, beanName, sourceFile, lineOf(n), metadata));
         result.edges.add(edge(beanId, methodId, GraphConstants.Relation.DEFINED_BY,
                 sourceFile, lineOf(n), GraphConstants.Confidence.CONFIGURED, null));
     }
 
     private void emitFieldInjection(FieldDeclaration n, String sourceFile, ExtractionResult result) {
-        Optional<AnnotationExpr> ann = SpringAnnotationSupport.first(n.getAnnotations(), INJECTION);
+        Optional<SpringAnnotationSupport.Match> ann = SpringAnnotationSupport.firstMatch(
+                n.getAnnotations(), INJECTION);
         if (ann.isEmpty()) return;
-        AnnotationExpr qualifier = SpringAnnotationSupport.first(
-                n.getAnnotations(), Set.of("Qualifier")).orElse(null);
+        SpringAnnotationSupport.Match qualifier = SpringAnnotationSupport.firstMatch(
+                n.getAnnotations(), QUALIFIER).orElse(null);
         for (VariableDeclarator var : n.getVariables()) {
             ResolvedFieldDeclaration field;
             try {
@@ -128,11 +152,12 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
     }
 
     private void emitConstructorInjection(ConstructorDeclaration n, String sourceFile, ExtractionResult result) {
-        AnnotationExpr injection = SpringAnnotationSupport.first(n.getAnnotations(), INJECTION).orElse(null);
+        SpringAnnotationSupport.Match injection = SpringAnnotationSupport.firstMatch(
+                n.getAnnotations(), INJECTION).orElse(null);
         ClassOrInterfaceDeclaration owner = n.findAncestor(ClassOrInterfaceDeclaration.class).orElse(null);
         boolean implicitSingleConstructor = injection == null && owner != null
                 && owner.getConstructors().size() == 1
-                && SpringAnnotationSupport.first(owner.getAnnotations(), COMPONENTS).isPresent();
+                && SpringAnnotationSupport.firstMatch(owner.getAnnotations(), COMPONENTS).isPresent();
         if (injection == null && !implicitSingleConstructor) return;
         ResolvedConstructorDeclaration ctor;
         try { ctor = n.resolve(); }
@@ -142,8 +167,8 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         for (var p : n.getParameters()) {
             try {
-                AnnotationExpr qualifier = SpringAnnotationSupport.first(
-                        p.getAnnotations(), Set.of("Qualifier")).orElse(null);
+                SpringAnnotationSupport.Match qualifier = SpringAnnotationSupport.firstMatch(
+                        p.getAnnotations(), QUALIFIER).orElse(null);
                 emitInjection(ownerId, p.getType().resolve(), sourceFile, lineOf(p),
                         injection, qualifier, implicitSingleConstructor, result);
             } catch (RuntimeException e) { ctx.incrementUnresolved(e); }
@@ -151,7 +176,8 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
     }
 
     private void emitInjection(String ownerId, ResolvedType injectedType, String sourceFile, int line,
-                               AnnotationExpr injection, AnnotationExpr qualifier,
+                               SpringAnnotationSupport.Match injection,
+                               SpringAnnotationSupport.Match qualifier,
                                boolean implicitConstructor, ExtractionResult result) {
         if (injectedType == null || !injectedType.isReferenceType()) return;
         var td = injectedType.asReferenceType().getTypeDeclaration().orElse(null);
@@ -161,20 +187,22 @@ public final class SpringComponentAnalyzer implements com.anatomist.framework.Ja
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("injectedType", injectedType.describe());
         if (injection != null) {
-            meta.put("annotation", SpringAnnotationSupport.simpleName(injection));
+            meta.put("annotation", injection.rootFqn());
+            meta.putAll(SpringAnnotationSupport.evidence(injection));
         }
         if (implicitConstructor) meta.put("implicitSingleConstructor", true);
         String qualifierValue = null;
         if (qualifier != null) {
-            qualifierValue = SpringAnnotationSupport.stringAttribute(qualifier, "value");
+            qualifierValue = SpringAnnotationSupport.stringAttribute(qualifier.annotation(), "value");
             if (qualifierValue == null) {
-                qualifierValue = SpringAnnotationSupport.stringAttribute(qualifier, "name");
+                qualifierValue = SpringAnnotationSupport.stringAttribute(qualifier.annotation(), "name");
             }
         } else if (injection != null
-                && "Resource".equals(SpringAnnotationSupport.simpleName(injection))) {
-            qualifierValue = SpringAnnotationSupport.stringAttribute(injection, "name");
+                && ("jakarta.annotation.Resource".equals(injection.rootFqn())
+                || "javax.annotation.Resource".equals(injection.rootFqn()))) {
+            qualifierValue = SpringAnnotationSupport.stringAttribute(injection.annotation(), "name");
             if (qualifierValue == null) {
-                qualifierValue = SpringAnnotationSupport.stringAttribute(injection, "value");
+                qualifierValue = SpringAnnotationSupport.stringAttribute(injection.annotation(), "value");
             }
         }
         if (qualifierValue != null) meta.put("qualifier", qualifierValue);

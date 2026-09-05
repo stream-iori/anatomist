@@ -73,7 +73,7 @@ public class SearchService {
         StringBuilder sql = new StringBuilder()
                 .append("SELECT DISTINCT ").append(RowMappers.NODE_COLS).append(" ")
                 .append("FROM nodes n JOIN annotations a ON n.id = a.node_id ")
-                .append("WHERE a.annotation_fqn LIKE ? ");
+                .append("WHERE COALESCE(a.annotation_fqn,a.raw_name) LIKE ? ");
         String like = "%" + annotationTerm.replace("@", "") + "%";
         List<Object> args = new ArrayList<>();
         args.add(like);
@@ -135,7 +135,7 @@ public class SearchService {
         StringBuilder sql = new StringBuilder()
                 .append("SELECT COUNT(DISTINCT n.id) ")
                 .append("FROM nodes n JOIN annotations a ON n.id = a.node_id ")
-                .append("WHERE a.annotation_fqn LIKE ? ");
+                .append("WHERE COALESCE(a.annotation_fqn,a.raw_name) LIKE ? ");
         List<Object> args = new ArrayList<>();
         args.add("%" + annotationTerm.replace("@", "") + "%");
         sql.append(resolver.selectorClause("n")).append(' ');
@@ -261,6 +261,12 @@ public class SearchService {
     /** Cursor used by semantic NDJSON search; legacy list queries keep their v2 behavior. */
     public SemanticCursor<NodeRow> semanticCursor(SemanticMode mode, String selector,
                                                    String semanticKind, int limit, int offset) {
+        return semanticCursor(mode, selector, semanticKind, limit, offset, false);
+    }
+
+    public SemanticCursor<NodeRow> semanticCursor(SemanticMode mode, String selector,
+                                                   String semanticKind, int limit, int offset,
+                                                   boolean includeMeta) {
         List<String> kinds = semanticKinds(semanticKind);
         boolean externalOnly = GraphConstants.Kind.EXTERNAL_CLASS.equals(semanticKind);
         String filter = kinds.isEmpty() ? "" : " AND n.kind IN (" + qmarks(kinds.size()) + ")";
@@ -279,21 +285,32 @@ public class SearchService {
                     + resolver.selectorClause("n") + filter;
             baseArgs.add(globToLike(selector));
             order = " ORDER BY n.qualified_name";
+        } else if (includeMeta) {
+            from = " FROM nodes n WHERE EXISTS (WITH RECURSIVE closure(name,depth,seen) AS ("
+                    + "SELECT COALESCE(a.annotation_fqn,a.raw_name),0,'>'||COALESCE(a.annotation_fqn,a.raw_name)||'>' "
+                    + "FROM annotations a WHERE a.node_id=n.id UNION ALL SELECT m.meta_annotation_fqn,c.depth+1,"
+                    + "c.seen||m.meta_annotation_fqn||'>' FROM closure c JOIN (SELECT DISTINCT annotation_fqn,"
+                    + "meta_annotation_fqn FROM annotation_meta_relations) m "
+                    + "ON m.annotation_fqn=c.name WHERE c.depth<16 AND m.meta_annotation_fqn IS NOT NULL "
+                    + "AND instr(c.seen,'>'||m.meta_annotation_fqn||'>')=0) "
+                    + "SELECT 1 FROM closure WHERE name LIKE ?) " + resolver.selectorClause("n") + filter;
+            baseArgs.add("%" + selector.replace("@", "") + "%");
+            order = " ORDER BY n.qualified_name";
         } else {
             from = " FROM nodes n JOIN annotations a ON n.id=a.node_id "
-                    + "WHERE a.annotation_fqn LIKE ? " + resolver.selectorClause("n") + filter;
+                    + "WHERE COALESCE(a.annotation_fqn,a.raw_name) LIKE ? " + resolver.selectorClause("n") + filter;
             baseArgs.add("%" + selector.replace("@", "") + "%");
             order = " ORDER BY n.qualified_name";
         }
         baseArgs.addAll(kinds);
         int internalTotal = externalOnly ? 0 : runScalarInt(conn,
-                "SELECT COUNT(" + (mode == SemanticMode.ANNOTATION ? "DISTINCT n.id" : "*") + ")" + from,
+                "SELECT COUNT(" + (mode == SemanticMode.ANNOTATION && !includeMeta ? "DISTINCT n.id" : "*") + ")" + from,
                 baseArgs);
         int internalOffset = Math.min(offset, internalTotal);
         int internalAvailable = Math.max(0, internalTotal - offset);
         int internalLimit = Math.min(limit, internalAvailable);
         SemanticCursor<NodeRow> internal = internalLimit == 0 ? emptyCursor()
-                : nodeCursor("SELECT " + (mode == SemanticMode.ANNOTATION ? "DISTINCT " : "")
+                : nodeCursor("SELECT " + (mode == SemanticMode.ANNOTATION && !includeMeta ? "DISTINCT " : "")
                         + RowMappers.NODE_COLS + from + order + " LIMIT ? OFFSET ?",
                         withPage(baseArgs, internalLimit, internalOffset));
 
@@ -371,7 +388,8 @@ public class SearchService {
             case "artifact" -> List.of("ARTIFACT");
             case "component" -> List.of("BEAN");
             case "config_entity" -> List.of("XML_PROPERTY", "XML_ENTRY", "XML_LIST", "XML_MAP",
-                    "XML_VALUE", "XML_REF", "XML_IDREF", "XML_NULL", "XML_CONSTRUCTOR_ARG");
+                    "XML_VALUE", "XML_REF", "XML_IDREF", "XML_NULL", "XML_CONSTRUCTOR_ARG",
+                    "XML_CALLABLE_REF");
             case GraphConstants.Kind.EXTERNAL_CLASS -> List.of();
             default -> List.of(kind);
         };

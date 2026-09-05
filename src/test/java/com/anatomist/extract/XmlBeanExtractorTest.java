@@ -71,8 +71,12 @@ class XmlBeanExtractorTest {
                 && "PARENT_BEAN".equals(edge.relation)));
         assertTrue(result.edges.stream().anyMatch(edge -> made.equals(edge.sourceId)
                 && "FACTORY_BEAN".equals(edge.relation)));
-        assertTrue(result.edges.stream().noneMatch(edge -> made.equals(edge.sourceId)
-                && "DEFINED_BY".equals(edge.relation)));
+        assertTrue(result.edges.stream().anyMatch(edge -> made.equals(edge.sourceId)
+                && "DEFINED_BY".equals(edge.relation) && edge.isExternal
+                && "p.Factory#create()".equals(edge.externalTargetFqn)));
+        assertTrue(result.edges.stream().anyMatch(edge -> "BINDS_TO".equals(edge.relation)
+                && edge.sourceId.equals(made + "/callable-ref:factory")
+                && edge.isExternal));
     }
 
     @Test

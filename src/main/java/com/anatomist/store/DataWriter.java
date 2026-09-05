@@ -4,6 +4,7 @@ import com.anatomist.core.AnalysisCoverage;
 import com.anatomist.core.ResolutionDiagnostics;
 import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Annotation;
+import com.anatomist.model.AnnotationMetaRelation;
 import com.anatomist.model.Document;
 import com.anatomist.model.Declaration;
 import com.anatomist.model.Edge;
@@ -67,6 +68,18 @@ public class DataWriter {
             WHERE e.is_external=0
             AND sn.source_file IS NOT NULL AND tn.source_file IS NOT NULL
             AND sn.source_file <> tn.source_file
+            UNION
+            SELECT DISTINCT a.source_file, tn.source_file
+            FROM annotations a
+            JOIN nodes tn ON tn.qualified_name = a.annotation_fqn
+            WHERE a.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+            AND a.source_file <> tn.source_file
+            UNION
+            SELECT DISTINCT am.source_file, tn.source_file
+            FROM annotation_meta_relations am
+            JOIN nodes tn ON tn.qualified_name = am.meta_annotation_fqn
+            WHERE am.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+            AND am.source_file <> tn.source_file
             """;
     private static final String SQL_INSERT_NODE =
             "INSERT INTO nodes"
@@ -87,7 +100,13 @@ public class DataWriter {
                     + "syntax_target,receiver_static_type,metadata,producer_id)"
                     + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_ANNOTATION =
-            "INSERT INTO annotations(node_id,annotation_fqn,attributes,source_file,producer_id) VALUES (?,?,?,?,?)";
+            "INSERT INTO annotations(node_id,annotation_fqn,raw_name,attributes,target_kind,target_path,"
+                    + "language,mechanism,resolution_status,source_file,source_location,begin_line,begin_column,"
+                    + "end_line,end_column,producer_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String SQL_INSERT_ANNOTATION_META =
+            "INSERT OR IGNORE INTO annotation_meta_relations(annotation_fqn,meta_annotation_fqn,raw_name,"
+                    + "language,mechanism,resolution_status,source_file,source_location,producer_id)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_DECLARATION = "INSERT OR REPLACE INTO declarations(symbol_id,"
             + "qualified_name,label,kind,declaration_kind,type_kind,visibility,modifiers,declared_modifiers,"
             + "implicit_modifiers,declaring_type,source_file,source_location,begin_line,begin_column,end_line,end_column,"
@@ -143,6 +162,7 @@ public class DataWriter {
             insertNodes(c, result.nodes);
             insertEdges(c, result.edges);
             insertAnnotations(c, result.annotations);
+            insertAnnotationMetaRelations(c, result.annotationMetaRelations);
             insertSemanticAnnotations(c, result.semanticAnnotations);
             insertDeclarations(c, result.declarations);
         } catch (SQLException e) {
@@ -328,16 +348,20 @@ public class DataWriter {
             throw new RuntimeException("Failed to acquire SQLite connection", e);
         }
         try (PreparedStatement psSem = c.prepareStatement(SQL_DELETE_SEMANTIC_ANNOTATIONS_BY_SOURCE_FILE);
+             PreparedStatement psMeta = c.prepareStatement(
+                     "DELETE FROM annotation_meta_relations WHERE source_file=?");
              PreparedStatement psFc = c.prepareStatement(SQL_DELETE_FILE_CACHE_BY_SOURCE_FILE);
              PreparedStatement psDecl = c.prepareStatement("DELETE FROM declarations WHERE source_file=?");
              PreparedStatement psNodes = c.prepareStatement(SQL_DELETE_NODES_BY_SOURCE_FILE)) {
             for (String f : sourceFiles) {
                 psSem.setString(1, f); psSem.setString(2, f); psSem.addBatch();
+                psMeta.setString(1, f); psMeta.addBatch();
                 psNodes.setString(1, f); psNodes.addBatch();
                 psFc.setString(1, f); psFc.addBatch();
                 psDecl.setString(1, f); psDecl.addBatch();
             }
             psSem.executeBatch();
+            psMeta.executeBatch();
             psNodes.executeBatch();
             psFc.executeBatch();
             psDecl.executeBatch();
@@ -370,6 +394,7 @@ public class DataWriter {
             if (result != null) {
                 insertEdges(c, result.edges);
                 insertAnnotations(c, result.annotations);
+                insertAnnotationMetaRelations(c, result.annotationMetaRelations);
                 insertSemanticAnnotations(c, result.semanticAnnotations);
                 insertDeclarations(c, result.declarations);
             }
@@ -426,6 +451,8 @@ public class DataWriter {
                     "DELETE FROM semantic_annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)");
              PreparedStatement annotations = c.prepareStatement(
                     "DELETE FROM annotations WHERE node_id IN (SELECT id FROM nodes WHERE source_file=?)");
+             PreparedStatement annotationMeta = c.prepareStatement(
+                    "DELETE FROM annotation_meta_relations WHERE source_file=?");
              PreparedStatement edges = c.prepareStatement(
                     "DELETE FROM edges WHERE source_file=? "
                             + "OR source_id IN (SELECT id FROM nodes WHERE source_file=?)");
@@ -435,12 +462,14 @@ public class DataWriter {
             for (String sourceFile : sourceFiles) {
                 semantic.setString(1, sourceFile); semantic.addBatch();
                 annotations.setString(1, sourceFile); annotations.addBatch();
+                annotationMeta.setString(1, sourceFile); annotationMeta.addBatch();
                 edges.setString(1, sourceFile); edges.setString(2, sourceFile); edges.addBatch();
                 cache.setString(1, sourceFile); cache.addBatch();
                 declarations.setString(1, sourceFile); declarations.addBatch();
             }
             semantic.executeBatch();
             annotations.executeBatch();
+            annotationMeta.executeBatch();
             edges.executeBatch();
             cache.executeBatch();
             declarations.executeBatch();
@@ -563,12 +592,41 @@ public class DataWriter {
                 AND sn.source_file IS NOT NULL AND tn.source_file IS NOT NULL
                 AND sn.source_file <> tn.source_file
                 AND tn.source_file IN (%s)
-                """.formatted(placeholders, placeholders);
+                UNION
+                SELECT a.source_file, tn.source_file
+                FROM annotations a
+                JOIN nodes tn ON tn.qualified_name = a.annotation_fqn
+                WHERE a.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+                AND a.source_file <> tn.source_file
+                AND a.source_file IN (%s)
+                UNION
+                SELECT a.source_file, tn.source_file
+                FROM annotations a
+                JOIN nodes tn ON tn.qualified_name = a.annotation_fqn
+                WHERE a.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+                AND a.source_file <> tn.source_file
+                AND tn.source_file IN (%s)
+                UNION
+                SELECT am.source_file, tn.source_file
+                FROM annotation_meta_relations am
+                JOIN nodes tn ON tn.qualified_name = am.meta_annotation_fqn
+                WHERE am.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+                AND am.source_file <> tn.source_file
+                AND am.source_file IN (%s)
+                UNION
+                SELECT am.source_file, tn.source_file
+                FROM annotation_meta_relations am
+                JOIN nodes tn ON tn.qualified_name = am.meta_annotation_fqn
+                WHERE am.source_file IS NOT NULL AND tn.source_file IS NOT NULL
+                AND am.source_file <> tn.source_file
+                AND tn.source_file IN (%s)
+                """.formatted(placeholders, placeholders, placeholders,
+                        placeholders, placeholders, placeholders);
         try (PreparedStatement delete = c.prepareStatement(deleteSql);
              PreparedStatement derive = c.prepareStatement(deriveSql)) {
             bindRepeated(delete, affectedFiles, 2);
             delete.executeUpdate();
-            bindRepeated(derive, affectedFiles, 2);
+            bindRepeated(derive, affectedFiles, 6);
             derive.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("Failed to refresh incremental file_dependencies", e);
@@ -797,11 +855,47 @@ public class DataWriter {
         if (anns == null || anns.isEmpty()) return;
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_ANNOTATION)) {
             for (Annotation a : anns) {
-                ps.setString(1, a.nodeId);
-                ps.setString(2, a.annotationFqn);
-                ps.setString(3, a.attributes);
-                ps.setString(4, a.sourceFile);
-                ps.setString(5, producer(a.producerId, ProducerIds.JAVA_CORE));
+                int i = 1;
+                ps.setString(i++, a.nodeId);
+                ps.setString(i++, a.annotationFqn);
+                ps.setString(i++, a.rawName == null ? a.annotationFqn : a.rawName);
+                ps.setString(i++, a.attributes);
+                ps.setString(i++, a.targetKind == null ? "entity" : a.targetKind);
+                ps.setString(i++, a.targetPath);
+                ps.setString(i++, a.language == null ? "java" : a.language);
+                ps.setString(i++, a.mechanism == null ? "java.annotation" : a.mechanism);
+                ps.setString(i++, a.resolutionStatus == null ? "exact" : a.resolutionStatus);
+                ps.setString(i++, a.sourceFile);
+                ps.setString(i++, a.sourceLocation);
+                setNullableInt(ps, i++, a.beginLine);
+                setNullableInt(ps, i++, a.beginColumn);
+                setNullableInt(ps, i++, a.endLine);
+                setNullableInt(ps, i++, a.endColumn);
+                ps.setString(i, producer(a.producerId, ProducerIds.JAVA_CORE));
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    static void insertAnnotationMetaRelations(Connection c, List<AnnotationMetaRelation> relations)
+            throws SQLException {
+        if (relations == null || relations.isEmpty()) return;
+        try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_ANNOTATION_META)) {
+            for (AnnotationMetaRelation relation : relations) {
+                int i = 1;
+                ps.setString(i++, relation.annotationFqn);
+                ps.setString(i++, relation.metaAnnotationFqn);
+                ps.setString(i++, relation.rawName == null
+                        ? relation.metaAnnotationFqn : relation.rawName);
+                ps.setString(i++, relation.language == null ? "java" : relation.language);
+                ps.setString(i++, relation.mechanism == null
+                        ? "java.annotation.meta" : relation.mechanism);
+                ps.setString(i++, relation.resolutionStatus == null
+                        ? "exact" : relation.resolutionStatus);
+                ps.setString(i++, relation.sourceFile);
+                ps.setString(i++, relation.sourceLocation);
+                ps.setString(i, producer(relation.producerId, ProducerIds.JAVA_CORE));
                 ps.addBatch();
             }
             ps.executeBatch();

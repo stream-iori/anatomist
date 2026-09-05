@@ -62,8 +62,18 @@ final class GenericSemanticService {
             case "wires" -> "'WIRES','INJECTS'";
             case "parent" -> "'PARENT_BEAN'";
             case "factory" -> "'FACTORY_BEAN'";
-            default -> "'DEFINED_BY','WIRES','INJECTS','PARENT_BEAN','FACTORY_BEAN'";
+            case "member" -> "'BINDS_TO'";
+            default -> "'DEFINED_BY','BINDS_TO','WIRES','INJECTS','PARENT_BEAN','FACTORY_BEAN'";
         };
+        if ("member".equals(semantic) && "outgoing".equals(direction)) {
+            String sql = "WITH RECURSIVE config(id) AS (SELECT ? UNION SELECT e.target_id FROM edges e "
+                    + "JOIN config c ON e.source_id=c.id WHERE e.is_external=0 AND e.relation IN "
+                    + "('CONFIGURES','XML_CONTAINS')) SELECT " + RowMappers.edgeColsFlat("1")
+                    + RowMappers.EDGE_FROM_JOINS
+                    + " WHERE e.source_id IN (SELECT id FROM config) AND e.relation='BINDS_TO' "
+                    + "ORDER BY e.source_file,e.source_ordinal,e.id LIMIT ?";
+            return QueryInfra.runEdgeQuery(connection, sql, List.of(entity, limit));
+        }
         String endpoint = "outgoing".equals(direction) ? "e.source_id" : "e.target_id";
         String sql = "SELECT " + RowMappers.edgeColsFlat("1") + RowMappers.EDGE_FROM_JOINS
                 + " WHERE " + endpoint + "=? AND e.relation IN (" + relationFilter + ") "

@@ -34,6 +34,7 @@ From scenario requirements, only store what Agent actually queries.
 | **CONFIGURES** | Spring XML `<property>` / `<constructor-arg>` | BEAN → XML config node | XML config tree roots |
 | **XML_CONTAINS** | Spring XML map/list/entry/ref nesting | XML config node → XML config node | Preserve map keys, list order, nesting |
 | **XML_REFERS_TO** | Spring XML `<ref>` / `<idref>` | XML_REF/XML_IDREF → BEAN | Resolve configured bean references |
+| **BINDS_TO** | Spring XML callable attributes/config | XML callable/property node → Java member candidate | Bind factory/constructor/setter/init/destroy without inventing CALLS |
 
 ### Not Stored
 
@@ -43,9 +44,10 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v20)
+## Node identity, declarations, and ownership (schema v22)
 
-Schema v20 makes call-site tables the only final CALLS storage. Schema v19 added
+Schema v22 adds structural annotation uses, meta-annotation relations, and configured
+member bindings. Schema v20 makes call-site tables the only final CALLS storage. Schema v19 added
 node-level exact ranges and numeric source ordinals; v18 normalized call-site storage;
 v16 removed the former dataflow tables; v15 added nullable declaration
 range columns to `declarations`, and v14 added `producer_id` to all structural
@@ -67,7 +69,7 @@ the range and snapshot hash evidence used by `resolve --exact | source`.
 
 | Table | Ownership |
 |---|---|
-| `nodes`, `edges`, `declarations`, `annotations`, `semantic_annotations` | required `producer_id` |
+| `nodes`, `edges`, `declarations`, `annotations`, `annotation_meta_relations`, `semantic_annotations` | required `producer_id` |
 
 Multiple extensions may analyze the same source/resource. Incremental cleanup
 is producer-scoped. The same node ID cannot be claimed by two producers;
@@ -95,8 +97,10 @@ or compatibility read path.
 
 Spring XML resources own an `ARTIFACT` root. `XML_CONTAINS` links it to ordered
 beans and configuration nodes. Bean metadata retains `abstract`, `parent`,
-`factoryBean`, `factoryMethod`, and nested ownership; `PARENT_BEAN` and
-`FACTORY_BEAN` preserve construction semantics without inventing a Java type.
+`factoryBean`, `factoryMethod`, `initMethod`, `destroyMethod`, product type, and nested
+ownership. `PARENT_BEAN`/`FACTORY_BEAN` preserve construction semantics;
+`XML_CALLABLE_REF` + `BINDS_TO` connects factory/constructor/lifecycle methods, while
+property nodes bind setters. These facts never manufacture `CALLS`.
 
 ### Symbol ID Generation Rules
 
@@ -256,8 +260,8 @@ the structured object directly as `lombok_usage`.
 | `source_id` | TEXT FK→nodes.id | Caller/child/container |
 | `target_id` | TEXT FK→nodes.id | Callee/parent/contained; **internal only**, NULL for external |
 | `external_target_fqn` | TEXT | External dep FQN (e.g. `java.util.List#add`); NULL for internal |
-| `relation` | TEXT | CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO；最终库不含 CALLS |
-| `call_kind` | TEXT | 历史/暂存兼容列；schema 21 最终 `edges` 的非调用关系不使用 |
+| `relation` | TEXT | CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/BINDS_TO/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO；最终库不含 CALLS |
+| `call_kind` | TEXT | 历史/暂存兼容列；schema 22 最终 `edges` 的非调用关系不使用 |
 | `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for derived dispatch/reflection bridges |
 | `resolution` | TEXT | External only: `classpath`, `ast_fallback`, `type_fallback`, `static_name_fallback`, `source_fallback`, `reflection`, or `xml`; NULL for internal edges |
 | `context` | TEXT | READS/WRITES 的轻量控制路径；REFERENCES 的 field_type/parameter_type/return_type/generic_arg |
@@ -416,7 +420,15 @@ If an edge lacks `source_file`, query code falls back to the source node's
 | Column | Type | Description |
 |--------|------|-------------|
 | `node_id` | TEXT FK | Annotated node |
-| `annotation_fqn` | TEXT | e.g. `java.lang.Deprecated` |
+| `annotation_fqn` | TEXT nullable | 已解析/启发式 FQN；无法解析时不丢事实 |
+| `raw_name` | TEXT | 源码中写下的名字 |
 | `attributes` | TEXT | JSON e.g. `{"value": "/api/orders"}` |
+| `target_kind` / `target_path` | TEXT | type/callable/value；参数与 record component 用稳定路径 |
+| `language` / `mechanism` | TEXT | 跨语言 IR 来源；当前 frontend 为 Java |
+| `resolution_status` | TEXT | `exact` / `heuristic` / `unresolved` |
+| range columns | INTEGER | 注解自身的精确源码范围 |
 
-Separate table because annotation-based search (B4 scenario) needs SQL precision queries — can't efficiently index inside metadata JSON.
+`annotation_meta_relations` 存直接 meta 边。查询默认 direct-only；显式
+`--include-meta` 才做深度 16、环安全闭包。结构范围覆盖类型、方法、构造器、
+字段、参数、enum constant 和 record component；不覆盖 type-use、局部变量、
+package/module 与 annotation member。

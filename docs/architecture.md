@@ -50,7 +50,7 @@ IndexCommand (picocli adapter)
           TypeExtractor    → CLASS/INTERFACE/ENUM/ANONYMOUS_CLASS nodes
           MethodExtractor  → METHOD nodes + CONTAINS edges
           FieldExtractor   → FIELD nodes + CONTAINS edges
-          AnnotationExtractor → annotations table
+          AnnotationExtractor → structural annotations + direct meta relations
           CallGraphExtractor  → staged CALLS facts with call kind/location/context
               CallSiteEvidenceProvider → namespaced metadata on fallback CALLS
           HierarchyExtractor  → INHERITS/IMPLEMENTS/OVERRIDES edges
@@ -60,7 +60,7 @@ IndexCommand (picocli adapter)
               SpringComponentAnalyzer → BEAN / DEFINED_BY / INJECTS
               SpringMvcAnalyzer       → ROUTE / HANDLES
   → ProjectResourceAnalyzer pass (shared inventory + staged Java fact view):
-          SpringXmlAnalyzer       → BEAN / DEFINED_BY / WIRES (--spring-xml only)
+          SpringXmlAnalyzer       → BEAN / DEFINED_BY / WIRES / BINDS_TO (--spring-xml only)
   → ExtractorPipeline provenance → source_file on Java facts
   → GraphIdentityRewriter        → module::scope::symbol_id storage keys
   → GraphPostProcessor           → bind/prune graph facts
@@ -130,17 +130,20 @@ may reference nodes owned by another producer.
 - **DI does not manufacture calls.** `INJECTS`/`WIRES` 只作为配置证据和 dispatch
   缩小条件，不能生成不存在的源码调用点。
 - **Spring Boot basics are static facts.** `BEAN`, `ROUTE`, `INJECTS`, and `HANDLES` are configured/static evidence, not proof of the exact runtime object under profiles, conditions, or AOP.
+- **Spring matching is FQN/meta based.** Bare unresolved simple names never trigger Spring semantics. Source/classpath composed annotations use a bounded closure; `@AliasFor` rewriting is not modeled.
+- **Configured members are not calls.** XML factory/constructor/setter/init/destroy SymbolRefs emit `BINDS_TO`; ambiguous overloads retain every candidate and unresolved refs retain their raw identity.
 - **`WIRES` edges originate from CLASS nodes, not BEAN nodes.** XML WIRES must drop explicitly on XML incremental rebuild; annotation BEAN nodes must not be deleted by XML cleanup.
 
 ## Schema
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Schema v21 has no migration path. It stores call-site joins with an internal integer
+Schema v22 has no migration path. It stores structural annotation/meta facts and
+configured member bindings in addition to call-site joins with an internal integer
 primary key and keeps the public stable ID as a 32-byte SHA-256 digest. Separate
 `call_site_targets` let one syntax site retain several static candidates without
 repeating a long text key.
-`graph_semantics_version=4` identifies this meaning independently of table layout.
+`graph_semantics_version=5` identifies this meaning independently of table layout.
 `index_revision_id` is published in the same transaction as query-visible facts.
 
 ```text

@@ -124,6 +124,7 @@ public class OverviewService {
                 + "SELECT producer_id FROM nodes UNION ALL SELECT producer_id FROM edges WHERE producer_id<>'java-semantics' UNION ALL "
                 + "SELECT producer_id FROM call_site_targets UNION ALL "
                 + "SELECT producer_id FROM declarations UNION ALL SELECT producer_id FROM annotations UNION ALL "
+                + "SELECT producer_id FROM annotation_meta_relations UNION ALL "
                 + "SELECT producer_id FROM semantic_annotations) GROUP BY producer_id ORDER BY producer_id";
         queryList(conn, sql, rs -> {
             ov.producerCounts.put(rs.getString(1), rs.getLong(2));

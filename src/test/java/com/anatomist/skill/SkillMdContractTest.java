@@ -125,6 +125,18 @@ class SkillMdContractTest {
         assertTrue(core.contains("profile committed into the index"));
     }
 
+    @Test
+    void springSceneExplainsMetaAndMemberBindingEvidence() throws Exception {
+        String spring = Files.readString(sceneDir().resolve("spring.md"));
+        for (String requirement : List.of(
+                "--include-meta", "--semantic member", "resolution_status",
+                "inspect every candidate", "do not conclude the method is absent",
+                "not `CALLS`", "@AliasFor", "runtime bean selection")) {
+            assertTrue(spring.contains(requirement),
+                    "spring scene missing Agent decision rule: " + requirement);
+        }
+    }
+
     private static Path repo() {
         return Path.of(System.getProperty("user.dir"));
     }

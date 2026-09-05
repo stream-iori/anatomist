@@ -169,15 +169,47 @@ CREATE UNIQUE INDEX idx_call_site_targets_identity ON call_site_targets(
 CREATE TABLE annotations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-    annotation_fqn TEXT NOT NULL,
+    annotation_fqn TEXT,
+    raw_name TEXT NOT NULL,
     attributes TEXT,
+    target_kind TEXT NOT NULL,
+    target_path TEXT,
+    language TEXT NOT NULL,
+    mechanism TEXT NOT NULL,
+    resolution_status TEXT NOT NULL CHECK (resolution_status IN ('exact','heuristic','unresolved')),
     source_file TEXT,
+    source_location TEXT,
+    begin_line INTEGER,
+    begin_column INTEGER,
+    end_line INTEGER,
+    end_column INTEGER,
     producer_id TEXT NOT NULL DEFAULT 'java-core'
 );
 
 CREATE INDEX idx_annotations_node_id ON annotations(node_id);
 CREATE INDEX idx_annotations_fqn ON annotations(annotation_fqn);
 CREATE INDEX idx_annotations_producer_file ON annotations(producer_id, source_file);
+
+CREATE TABLE annotation_meta_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    annotation_fqn TEXT NOT NULL,
+    meta_annotation_fqn TEXT,
+    raw_name TEXT NOT NULL,
+    language TEXT NOT NULL,
+    mechanism TEXT NOT NULL,
+    resolution_status TEXT NOT NULL CHECK (resolution_status IN ('exact','heuristic','unresolved')),
+    source_file TEXT,
+    source_location TEXT,
+    producer_id TEXT NOT NULL DEFAULT 'java-core'
+);
+
+CREATE INDEX idx_annotation_meta_source ON annotation_meta_relations(annotation_fqn);
+CREATE INDEX idx_annotation_meta_target ON annotation_meta_relations(meta_annotation_fqn);
+CREATE INDEX idx_annotation_meta_producer_file ON annotation_meta_relations(producer_id, source_file);
+CREATE UNIQUE INDEX idx_annotation_meta_identity ON annotation_meta_relations(
+    annotation_fqn,COALESCE(meta_annotation_fqn,''),raw_name,language,mechanism,
+    COALESCE(source_file,''),producer_id
+);
 
 CREATE VIRTUAL TABLE node_names USING fts5(
     qualified_name,

@@ -9,6 +9,10 @@ import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
 import com.anatomist.model.Node;
 import com.anatomist.model.ProducerIds;
+import com.anatomist.model.SymbolRef;
+import com.anatomist.model.SymbolResolution;
+import com.anatomist.framework.ProjectFactView;
+import com.anatomist.framework.DefaultProjectFactView;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -72,9 +76,23 @@ public final class XmlBeanExtractor {
                                          Map<String, BeanRefTarget> existingBeans,
                                          String sourceFile, ArtifactRange artifactRange,
                                          ExtractionResult result) {
+        extractWithResolvedBeans(beans, knownIds, existingBeans, sourceFile, artifactRange,
+                new DefaultProjectFactView(knownIds, existingBeans), result);
+    }
+
+    public void extractWithResolvedBeans(List<ParsedBean> beans, Set<String> knownIds,
+                                         Map<String, BeanRefTarget> existingBeans,
+                                         String sourceFile, ArtifactRange artifactRange,
+                                         ProjectFactView facts,
+                                         ExtractionResult result) {
         // bean name → its declared class FQN, for resolving refs to classes.
         Map<String, String> beanClass = new HashMap<>();
-        for (ParsedBean b : beans) if (b.className() != null) beanClass.putIfAbsent(b.name(), b.className());
+        for (ParsedBean b : beans) {
+            if (b.className() != null && b.factoryMethod() == null) {
+                beanClass.putIfAbsent(b.name(), b.className());
+            }
+        }
+        resolveFactoryProducts(beans, beanClass, existingBeans, facts, sourceFile);
 
         String artifactId = artifactNodeId(sourceFile);
         Node artifact = new Node();
@@ -95,6 +113,7 @@ public final class XmlBeanExtractor {
         for (ParsedBean b : beans) {
             String beanId = beanNodeId(b.name(), sourceFile);
             String cls = b.className();
+            String productClass = beanClass.get(b.name());
             boolean classKnown = cls != null && knownIds.contains(cls);
 
             Node n = new Node();
@@ -111,10 +130,13 @@ public final class XmlBeanExtractor {
             Map<String,Object> beanMetadata = new LinkedHashMap<>();
             beanMetadata.put("source", "xml");
             if (cls != null) beanMetadata.put("className", cls);
+            if (productClass != null) beanMetadata.put("productClass", productClass);
             beanMetadata.put("abstract", b.abstractBean());
             if (b.parent() != null) beanMetadata.put("parent", b.parent());
             if (b.factoryBean() != null) beanMetadata.put("factoryBean", b.factoryBean());
             if (b.factoryMethod() != null) beanMetadata.put("factoryMethod", b.factoryMethod());
+            if (b.initMethod() != null) beanMetadata.put("initMethod", b.initMethod());
+            if (b.destroyMethod() != null) beanMetadata.put("destroyMethod", b.destroyMethod());
             if (b.nestedIn() != null) beanMetadata.put("nestedIn", b.nestedIn());
             n.metadata = metadataJson(beanMetadata);
             result.nodes.add(n);
@@ -125,7 +147,7 @@ public final class XmlBeanExtractor {
             result.edges.add(artifactContains);
 
             // DEFINED_BY: BEAN → class.
-            if (cls != null) {
+            if (cls != null && b.factoryMethod() == null) {
                 Edge def = baseEdge(GraphConstants.Relation.DEFINED_BY, sourceFile, b.line());
                 def.sourceId = beanId;
                 if (classKnown) { def.targetId = cls; def.isExternal = false; }
@@ -137,9 +159,41 @@ public final class XmlBeanExtractor {
             emitBeanReference(beanId, b.factoryBean(), GraphConstants.Relation.FACTORY_BEAN,
                     sourceFile, b.line(), beanClass, existingBeans, result);
 
+            List<XmlConfigNode> constructorArgs = b.children().stream()
+                    .filter(child -> "constructor-arg".equals(child.kind)).toList();
+            List<String> argumentNodeIds = constructorArgumentNodeIds(beanId, b.children());
+            if (b.factoryMethod() != null) {
+                String factoryOwner = b.factoryBean() == null ? cls
+                        : beanProductClass(b.factoryBean(), beanClass, existingBeans);
+                SymbolRef reference = symbolRef(factoryOwner, b.factoryMethod(), "method",
+                        constructorArgs, b.factoryBean() == null, "factory",
+                        "spring.xml.factory-method", sourceFile, beanClass, existingBeans);
+                emitCallableRef(beanId, beanId, "factory", reference, b.line(), sourceFile,
+                        argumentNodeIds, true, facts, result);
+            } else if (cls != null) {
+                String simple = simpleName(cls);
+                SymbolRef reference = symbolRef(cls, simple, "constructor", constructorArgs,
+                        null, "constructor", "spring.xml.constructor", sourceFile,
+                        beanClass, existingBeans);
+                emitCallableRef(beanId, beanId, "constructor", reference, b.line(), sourceFile,
+                        argumentNodeIds, false, facts, result);
+            }
+            if (productClass != null && b.initMethod() != null) {
+                emitCallableRef(beanId, beanId, "init",
+                        new SymbolRef("jvm", "java", "method", productClass, b.initMethod(), 0,
+                                List.of(), false, "init", "spring.xml.init-method", sourceFile),
+                        b.line(), sourceFile, List.of(), false, facts, result);
+            }
+            if (productClass != null && b.destroyMethod() != null) {
+                emitCallableRef(beanId, beanId, "destroy",
+                        new SymbolRef("jvm", "java", "method", productClass, b.destroyMethod(), 0,
+                                List.of(), false, "destroy", "spring.xml.destroy-method", sourceFile),
+                        b.line(), sourceFile, List.of(), false, facts, result);
+            }
+
             List<XmlConfigNode> refs = new ArrayList<>();
             emitConfigTree(beanId, beanId, b.children(), sourceFile, result, beanClass,
-                    existingBeans, knownIds, refs);
+                    existingBeans, knownIds, refs, productClass, facts);
             if (cls != null) emitWires(cls, classKnown, refs, beanClass, existingBeans, knownIds,
                     sourceFile, b.line(), result);
         }
@@ -180,7 +234,9 @@ public final class XmlBeanExtractor {
                                 Map<String, String> xmlBeanClass,
                                 Map<String, BeanRefTarget> existingBeans,
                                 Set<String> knownIds,
-                                List<XmlConfigNode> refs) {
+                                List<XmlConfigNode> refs,
+                                String ownerClass,
+                                ProjectFactView facts) {
         for (int i = 0; i < children.size(); i++) {
             XmlConfigNode child = children.get(i);
             String id = configNodeId(parentId, child, i);
@@ -212,8 +268,18 @@ public final class XmlBeanExtractor {
                 refs.add(child);
                 result.edges.add(refEdge(id, child, sourceFile, xmlBeanClass, existingBeans, knownIds));
             }
+            if ("property".equals(child.kind) && child.name != null
+                    && !child.name.isBlank() && ownerClass != null) {
+                String setter = "set" + Character.toUpperCase(child.name.charAt(0))
+                        + child.name.substring(1);
+                SymbolRef reference = symbolRef(ownerClass, setter, "method", List.of(child),
+                        false, "setter", "spring.xml.property", sourceFile,
+                        xmlBeanClass, existingBeans);
+                emitCallableBinding(id, beanId, reference, child.line, sourceFile,
+                        false, facts, result);
+            }
             emitConfigTree(beanId, id, child.children, sourceFile, result,
-                    xmlBeanClass, existingBeans, knownIds, refs);
+                    xmlBeanClass, existingBeans, knownIds, refs, ownerClass, facts);
         }
     }
 
@@ -278,6 +344,16 @@ public final class XmlBeanExtractor {
         return parentId + "/" + segment + "@I" + ordinal;
     }
 
+    private static List<String> constructorArgumentNodeIds(String beanId,
+                                                            List<XmlConfigNode> children) {
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < children.size(); i++) {
+            XmlConfigNode child = children.get(i);
+            if ("constructor-arg".equals(child.kind)) ids.add(configNodeId(beanId, child, i));
+        }
+        return List.copyOf(ids);
+    }
+
     private static String safe(String value) {
         if (value == null || value.isBlank()) return "_";
         return value.replace('/', '_').replace(' ', '_');
@@ -319,6 +395,7 @@ public final class XmlBeanExtractor {
         if (n.index != null) m.put("index", n.index);
         if (n.bean != null) m.put("bean", n.bean);
         if (n.value != null) m.put("value", n.value);
+        if (n.type != null) m.put("type", n.type);
         m.put("ordinal", n.ordinal);
         return m;
     }
@@ -341,5 +418,215 @@ public final class XmlBeanExtractor {
 
     private static String metadataJson(Map<String, ?> metadata) {
         return Json.writeCompact(metadata);
+    }
+
+    private void emitCallableRef(String beanId, String parentId, String role, SymbolRef reference,
+                                 int line, String sourceFile, List<String> argumentNodeIds,
+                                 boolean definesBean,
+                                 ProjectFactView facts, ExtractionResult result) {
+        String id = beanId + "/callable-ref:" + role;
+        Node node = new Node();
+        node.id = id;
+        node.label = role + ":" + reference.memberName();
+        node.kind = GraphConstants.Kind.XML_CALLABLE_REF;
+        node.qualifiedName = id;
+        node.sourceFile = sourceFile;
+        node.sourceLocation = "L" + line;
+        node.beginLine = line; node.beginColumn = 1;
+        node.endLine = line; node.endColumn = 1;
+        node.scope = scope;
+        node.producerId = ProducerIds.SPRING_XML;
+        SymbolResolution resolution = facts.resolve(reference);
+        Map<String, Object> metadata = bindingMetadata(reference, resolution, 0);
+        metadata.put("argumentNodeIds", argumentNodeIds);
+        node.metadata = metadataJson(metadata);
+        result.nodes.add(node);
+        Edge configures = baseEdge(GraphConstants.Relation.CONFIGURES, sourceFile, line);
+        configures.sourceId = parentId; configures.targetId = id; configures.isExternal = false;
+        result.edges.add(configures);
+        emitResolvedEdges(id, beanId, reference, resolution, line, sourceFile,
+                definesBean, result);
+    }
+
+    private static void emitCallableBinding(String sourceId, String beanId, SymbolRef reference,
+                                            int line, String sourceFile, boolean definesBean,
+                                            ProjectFactView facts, ExtractionResult result) {
+        emitResolvedEdges(sourceId, beanId, reference, facts.resolve(reference), line,
+                sourceFile, definesBean, result);
+    }
+
+    private static void emitResolvedEdges(String sourceId, String beanId, SymbolRef reference,
+                                          SymbolResolution resolution, int line, String sourceFile,
+                                          boolean definesBean, ExtractionResult result) {
+        if (resolution.candidates().isEmpty()) {
+            Edge edge = baseEdge(GraphConstants.Relation.BINDS_TO, sourceFile, line);
+            edge.sourceId = sourceId;
+            edge.externalTargetFqn = unresolvedTarget(reference);
+            edge.isExternal = true;
+            edge.resolution = GraphConstants.Resolution.XML;
+            edge.confidence = GraphConstants.Confidence.CONFIGURED;
+            edge.metadata = metadataJson(bindingMetadata(reference, resolution, 0));
+            result.edges.add(edge);
+            if (definesBean) result.edges.add(definedBy(beanId, edge, sourceFile, line));
+            return;
+        }
+        for (int i = 0; i < resolution.candidates().size(); i++) {
+            Edge edge = baseEdge(GraphConstants.Relation.BINDS_TO, sourceFile, line);
+            edge.sourceId = sourceId;
+            edge.targetId = resolution.candidates().get(i);
+            edge.isExternal = false;
+            edge.confidence = SymbolResolution.AMBIGUOUS.equals(resolution.status())
+                    ? GraphConstants.Confidence.AMBIGUOUS : GraphConstants.Confidence.CONFIGURED;
+            edge.metadata = metadataJson(bindingMetadata(reference, resolution, i));
+            result.edges.add(edge);
+            if (definesBean) result.edges.add(definedBy(beanId, edge, sourceFile, line));
+        }
+    }
+
+    private static Edge definedBy(String beanId, Edge binding, String sourceFile, int line) {
+        Edge edge = baseEdge(GraphConstants.Relation.DEFINED_BY, sourceFile, line);
+        edge.sourceId = beanId;
+        edge.targetId = binding.targetId;
+        edge.externalTargetFqn = binding.externalTargetFqn;
+        edge.isExternal = binding.isExternal;
+        edge.resolution = binding.resolution;
+        edge.confidence = binding.confidence;
+        edge.metadata = binding.metadata;
+        return edge;
+    }
+
+    private static Map<String, Object> bindingMetadata(SymbolRef reference,
+                                                        SymbolResolution resolution,
+                                                        int candidateIndex) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("role", reference.role());
+        out.put("mechanism", reference.mechanism());
+        out.put("symbolRef", symbolRefMap(reference));
+        out.put("resolutionStatus", resolution.status());
+        out.put("candidateCount", resolution.candidates().size());
+        if (!resolution.candidates().isEmpty()) out.put("candidateIndex", candidateIndex);
+        return out;
+    }
+
+    private static Map<String, Object> symbolRefMap(SymbolRef reference) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("runtime", reference.runtime());
+        out.put("languageHint", reference.languageHint());
+        out.put("symbolKind", reference.symbolKind());
+        out.put("owner", reference.owner());
+        out.put("memberName", reference.memberName());
+        out.put("arity", reference.arity());
+        out.put("parameterTypeHints", reference.parameterTypeHints());
+        out.put("staticRequirement", reference.staticRequirement());
+        out.put("role", reference.role());
+        out.put("mechanism", reference.mechanism());
+        return out;
+    }
+
+    private static SymbolRef symbolRef(String owner, String member, String kind,
+                                       List<XmlConfigNode> arguments, Boolean staticRequirement,
+                                       String role, String mechanism, String sourceFile,
+                                       Map<String, String> beanClass,
+                                       Map<String, BeanRefTarget> existingBeans) {
+        List<String> hints = arguments.stream()
+                .map(argument -> typeHint(argument, beanClass, existingBeans)).toList();
+        return new SymbolRef("jvm", "java", kind, owner, member, arguments.size(), hints,
+                staticRequirement, role, mechanism, sourceFile);
+    }
+
+    private static String typeHint(XmlConfigNode argument, Map<String, String> beanClass,
+                                   Map<String, BeanRefTarget> existingBeans) {
+        if (argument.type != null && !argument.type.isBlank()) return argument.type;
+        for (XmlConfigNode child : argument.children) {
+            if (!"ref".equals(child.kind) || child.bean == null) continue;
+            String type = beanProductClass(child.bean, beanClass, existingBeans);
+            if (type != null) return type;
+        }
+        return "";
+    }
+
+    private static String beanProductClass(String name, Map<String, String> beanClass,
+                                           Map<String, BeanRefTarget> existingBeans) {
+        String type = beanClass.get(name);
+        if (type != null) return type;
+        BeanRefTarget target = existingBeans.get("bean:" + name);
+        return target == null ? null : target.className();
+    }
+
+    private static String unresolvedTarget(SymbolRef reference) {
+        StringBuilder out = new StringBuilder();
+        out.append(reference.owner() == null ? "?" : reference.owner()).append('#')
+                .append(reference.memberName() == null ? "?" : reference.memberName()).append('(');
+        for (int i = 0; i < (reference.arity() == null ? 0 : reference.arity()); i++) {
+            if (i > 0) out.append(',');
+            String hint = i < reference.parameterTypeHints().size()
+                    ? reference.parameterTypeHints().get(i) : "";
+            out.append(hint == null || hint.isBlank() ? "?" : hint);
+        }
+        return out.append(')').toString();
+    }
+
+    private static String simpleName(String fqn) {
+        int dot = fqn.lastIndexOf('.');
+        int dollar = fqn.lastIndexOf('$');
+        return fqn.substring(Math.max(dot, dollar) + 1);
+    }
+
+    private static void resolveFactoryProducts(List<ParsedBean> beans,
+                                               Map<String, String> beanClass,
+                                               Map<String, BeanRefTarget> existingBeans,
+                                               ProjectFactView facts,
+                                               String sourceFile) {
+        for (int pass = 0; pass <= beans.size(); pass++) {
+            boolean changed = false;
+            for (ParsedBean bean : beans) {
+                if (bean.factoryMethod() == null || beanClass.containsKey(bean.name())) continue;
+                String owner = bean.factoryBean() == null ? bean.className()
+                        : beanProductClass(bean.factoryBean(), beanClass, existingBeans);
+                if (owner == null) continue;
+                List<XmlConfigNode> arguments = bean.children().stream()
+                        .filter(child -> "constructor-arg".equals(child.kind)).toList();
+                SymbolRef reference = symbolRef(owner, bean.factoryMethod(), "method", arguments,
+                        bean.factoryBean() == null, "factory", "spring.xml.factory-method",
+                        sourceFile, beanClass, existingBeans);
+                SymbolResolution resolution = facts.resolve(reference);
+                Set<String> returnTypes = resolution.candidates().stream()
+                        .map(facts::returnType).filter(java.util.Objects::nonNull)
+                        .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+                if (returnTypes.size() == 1) {
+                    beanClass.put(bean.name(), returnTypes.iterator().next());
+                    changed = true;
+                }
+            }
+            if (!changed) break;
+        }
+    }
+
+    /** Resolve bean product types across all XML resources before per-resource graph emission. */
+    public static Map<String, String> resolveProductClasses(List<ParsedBean> beans,
+                                                            Map<String, BeanRefTarget> existingBeans,
+                                                            ProjectFactView facts,
+                                                            String sourceFile) {
+        Map<String, String> products = new HashMap<>();
+        Set<String> ambiguous = new java.util.HashSet<>();
+        Map<String, Long> counts = beans.stream().collect(java.util.stream.Collectors.groupingBy(
+                ParsedBean::name, java.util.LinkedHashMap::new,
+                java.util.stream.Collectors.counting()));
+        counts.forEach((name, count) -> {
+            if (count > 1) ambiguous.add(name);
+        });
+        for (ParsedBean bean : beans) {
+            if (bean.factoryMethod() != null || bean.className() == null
+                    || ambiguous.contains(bean.name())) continue;
+            String prior = products.putIfAbsent(bean.name(), bean.className());
+            if (prior != null && !prior.equals(bean.className())) {
+                products.remove(bean.name());
+                ambiguous.add(bean.name());
+            }
+        }
+        List<ParsedBean> unambiguous = beans.stream()
+                .filter(bean -> !ambiguous.contains(bean.name())).toList();
+        resolveFactoryProducts(unambiguous, products, existingBeans, facts, sourceFile);
+        return Map.copyOf(products);
     }
 }

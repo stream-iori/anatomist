@@ -146,6 +146,6 @@ anatomist index /path/to/project --recreate --output /path/to/index.db
 |---|---|
 | [commands.md](commands.md) | 完整命令和 recipe |
 | [semantic-stream-v1.md](semantic-stream-v1.md) | framing、evidence、退出码 |
-| [data-model.md](data-model.md) | schema 21 存储模型 |
+| [data-model.md](data-model.md) | schema 22 存储模型 |
 | [testing.md](testing.md) | 测试与性能门禁 |
 | [troubleshooting.md](troubleshooting.md) | 索引和环境排查 |

@@ -84,10 +84,11 @@ Operation ID 与语言正交，例如 `calls` + `language=java`，不再公开 `
 | `calls` | entity(callable) | call_site | 源码语法与静态 target |
 | `dispatch` | call_site | dispatch_target | 静态候选，绝非运行观察 |
 | `members` | entity(container) | entity | Java/配置 containment |
-| `bindings` | entity | binding_relation | 跨域静态配置关系 |
+| `annotations` | entity | annotation | 直接注解；可选 meta 闭包 |
+| `bindings` | entity | binding_relation | 跨域静态配置关系；`member` 暴露 SymbolRef 与候选状态 |
 | `source` | entity/site/dispatch | source_slice | 源码快照校验 |
 
-Spring XML 创建 artifact 根和有序配置实体。抽象、parent、factory 与嵌套 bean 即使没有 class binding 也会保留。
+Spring XML 创建 artifact 根和有序配置实体。抽象、parent、factory 与嵌套 bean 即使没有 class binding 也会保留。member binding 的 `exact` 只有一个静态候选；`ambiguous` 会逐候选发记录；`unresolved` 保留原始 SymbolRef，不能据此断言成员不存在。
 
 ## 兼容性
 
@@ -96,6 +97,6 @@ Spring XML 创建 artifact 根和有序配置实体。抽象、parent、factory 
 | 0.1x | 旧 JSON 聚合命令；不属于 1.0 查询契约 |
 | 1.0.x | 仅 `semantic-stream/v1`；旧命令无 alias |
 
-1.0 使用 schema 21 / graph semantics 4。旧索引只能通过显式 `index --recreate` 重建。
+1.0 使用 schema 22 / graph semantics 5。旧索引只能通过显式 `index --recreate` 重建。
 
 机器可读 schema：[semantic stream](schema/semantic-stream-v1.schema.json)、[artifact IR](schema/artifact-ir-v1.schema.json)、[operation catalog](schema/operation-catalog-v1.schema.json)、[pipeline plan](schema/pipeline-plan-v1.schema.json) 和 [error](schema/error-v1.schema.json)。对象允许增加字段；未知 record type 或不兼容 major contract 会失败。

@@ -187,6 +187,19 @@ public class IncrementalIndexer {
                 ? new SourceIdentityResolver(projectRoot, sourcePaths)
                 : SourceIdentityResolver.fromRoots(projectRoot, sourceRoots);
 
+        Set<String> dependencyCandidates = transitiveDependents(toDelete, diskHashes);
+        dependencyCandidates.removeAll(primaryFiles);
+        dependencyCandidates.removeAll(deletedFiles);
+        realignTargets.addAll(dependencyCandidates);
+        pendingJava.addAll(dependencyCandidates);
+        PerformanceHistory.Decision dependencyDecision = costModel.decide(
+                primaryFiles.size() + realignTargets.size(), 0,
+                elapsedMillis(incrementalStarted));
+        if (!dependencyDecision.incremental()) {
+            degrade(s, dependencyDecision);
+            return s;
+        }
+
         long stagingStarted = startTiming();
         StagedGraphStore stagingStore = new StagedGraphStore(store.dbPath(), identities);
         stopTiming("staging_setup", stagingStarted);
@@ -332,7 +345,10 @@ public class IncrementalIndexer {
                 beanTargets.putAll(staging.rawBeanTargets());
                 ExtractionResult beanResult = new ExtractionResult();
                 new ProjectAnalysisRunner().run(projectExtensions, projectAnalysisContext, resources,
-                        new DefaultProjectFactView(extractionIds, beanTargets), beanResult, projectReport);
+                        new DefaultProjectFactView(extractionIds, beanTargets,
+                                mergedSymbolFacts(store.readSymbolFacts(), staging.symbolFacts()),
+                                mergedTypeRelations(store.readTypeRelations(), staging.typeRelations())),
+                        beanResult, projectReport);
                 GraphIdentityRewriter.rewrite(beanResult, identities, knownIds);
                 new GraphPostProcessor().process(beanResult, knownIds);
                 staging.writeNormalizedBatch(beanResult);
@@ -470,6 +486,22 @@ public class IncrementalIndexer {
         return out;
     }
 
+    private Set<String> transitiveDependents(Set<String> seeds,
+                                             Map<String, String> diskHashes) {
+        Set<String> discovered = new LinkedHashSet<>();
+        Set<String> frontier = new LinkedHashSet<>(seeds);
+        while (!frontier.isEmpty()) {
+            Set<String> next = new LinkedHashSet<>(store.dependentsOf(new ArrayList<>(frontier)));
+            next.removeAll(seeds);
+            next.removeAll(discovered);
+            next.removeIf(file -> !file.endsWith(".java") || !diskHashes.containsKey(file));
+            if (next.isEmpty()) break;
+            discovered.addAll(next);
+            frontier = next;
+        }
+        return discovered;
+    }
+
     private static Set<String> javaFiles(Set<String> files, Map<String, String> diskHashes) {
         Set<String> out = new LinkedHashSet<>();
         for (String file : files) {
@@ -523,6 +555,26 @@ public class IncrementalIndexer {
                 || com.anatomist.model.GraphConstants.Relation.IMPLEMENTS.equals(edge.relation)
                 || com.anatomist.model.GraphConstants.Relation.OVERRIDES.equals(edge.relation)
                 || com.anatomist.model.GraphConstants.Relation.CALLS.equals(edge.relation);
+    }
+
+    private static List<com.anatomist.model.SymbolFact> mergedSymbolFacts(
+            List<com.anatomist.model.SymbolFact> committed,
+            List<com.anatomist.model.SymbolFact> staged) {
+        Set<String> replacedFiles = staged.stream()
+                .map(com.anatomist.model.SymbolFact::sourceFile)
+                .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        Map<String, com.anatomist.model.SymbolFact> merged = new LinkedHashMap<>();
+        committed.stream().filter(fact -> !replacedFiles.contains(fact.sourceFile()))
+                .forEach(fact -> merged.put(fact.id(), fact));
+        staged.forEach(fact -> merged.put(fact.id(), fact));
+        return List.copyOf(merged.values());
+    }
+
+    private static List<com.anatomist.model.TypeRelationFact> mergedTypeRelations(
+            List<com.anatomist.model.TypeRelationFact> committed,
+            List<com.anatomist.model.TypeRelationFact> staged) {
+        return java.util.stream.Stream.concat(committed.stream(), staged.stream())
+                .distinct().toList();
     }
 
     private List<Path> targetJavaFiles(Set<String> toReparse) {

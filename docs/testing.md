@@ -19,7 +19,10 @@ Gradle Groovy/Kotlin toolchain/gradle.properties。
 - `SemanticPipelineIT` 锁定 type/runtime/call/dispatch 分层、open-world
   evidence，以及 Artifact `members/bindings` 管道。
 - Spring parser/extractor 单测锁定 abstract/parent/factory/nested bean、精确
-  范围、数值 ordinal 与 artifact 根身份。
+  member binding（factory/constructor/setter/init/destroy）、重载歧义、raw SymbolRef、
+  精确范围、数值 ordinal 与 artifact 根身份。
+- Annotation 契约测试锁定结构目标、未解析事实保留、meta 闭包、Spring FQN
+  防同名误判，以及 `--include-meta` / `--semantic member` Agent 管道。
 
 **不 mock 解析器**：JavaParser + SymbolSolver 的解析与绑定行为本身就是被测核心，mock 等于不测。所有层都用真 JavaParser + 真 JavaSymbolSolver；测试 helper 见 `src/test/java/com/anatomist/core/JavaParserTestSupport.java`。
 

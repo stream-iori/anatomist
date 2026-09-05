@@ -8,32 +8,102 @@ import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.resolution.declarations.ResolvedAnnotationDeclaration;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 final class SpringAnnotationSupport {
 
+    static final int MAX_META_DEPTH = 16;
+
+    record Match(AnnotationExpr annotation, String directFqn, String rootFqn,
+                 List<String> metaPath, String resolutionStatus) {}
+
     private SpringAnnotationSupport() {}
 
-    static Optional<AnnotationExpr> first(NodeList<AnnotationExpr> annotations, Set<String> names) {
-        for (AnnotationExpr ann : annotations) {
-            if (names.contains(simpleName(ann))) return Optional.of(ann);
+    /** Match only resolved/qualified framework FQNs, including bounded composed annotations. */
+    static Optional<Match> firstMatch(NodeList<AnnotationExpr> annotations, Set<String> rootFqns) {
+        for (AnnotationExpr annotation : annotations) {
+            Resolved resolved = resolve(annotation);
+            if (resolved.fqn() == null) continue;
+            if (rootFqns.contains(resolved.fqn())) {
+                return Optional.of(new Match(annotation, resolved.fqn(), resolved.fqn(),
+                        List.of(resolved.fqn()), resolved.status()));
+            }
+            if (resolved.declaration() == null) continue;
+            List<String> path = findMetaPath(resolved.declaration(), rootFqns,
+                    new HashSet<>(), 0);
+            if (!path.isEmpty()) {
+                List<String> full = new ArrayList<>();
+                full.add(resolved.fqn());
+                full.addAll(path);
+                return Optional.of(new Match(annotation, resolved.fqn(),
+                        full.get(full.size() - 1), List.copyOf(full), resolved.status()));
+            }
         }
         return Optional.empty();
     }
 
-    static boolean has(NodeList<AnnotationExpr> annotations, String name) {
-        return first(annotations, Set.of(name)).isPresent();
+    static Map<String, Object> evidence(Match match) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("annotationFqn", match.directFqn());
+        out.put("frameworkAnnotationRoot", match.rootFqn());
+        out.put("metaPath", match.metaPath());
+        out.put("annotationResolutionStatus", match.resolutionStatus());
+        return out;
     }
 
-    static String simpleName(AnnotationExpr ann) {
-        String n = ann.getNameAsString();
-        int dot = n.lastIndexOf('.');
-        return dot >= 0 ? n.substring(dot + 1) : n;
+    private static List<String> findMetaPath(ResolvedAnnotationDeclaration declaration,
+                                             Set<String> roots,
+                                             Set<String> seen,
+                                             int depth) {
+        String current = declaration.getQualifiedName();
+        if (depth >= MAX_META_DEPTH || !seen.add(current)) return List.of();
+        try {
+            List<ResolvedAnnotationDeclaration> annotations = declaration.getDeclaredAnnotations().stream()
+                    .sorted(java.util.Comparator.comparing(ResolvedAnnotationDeclaration::getQualifiedName))
+                    .toList();
+            for (ResolvedAnnotationDeclaration meta : annotations) {
+                String fqn = meta.getQualifiedName();
+                if (roots.contains(fqn)) return List.of(fqn);
+                List<String> suffix = findMetaPath(meta, roots, new HashSet<>(seen), depth + 1);
+                if (!suffix.isEmpty()) {
+                    List<String> path = new ArrayList<>();
+                    path.add(fqn);
+                    path.addAll(suffix);
+                    return List.copyOf(path);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // An unavailable classpath declaration is not a Spring match.
+        }
+        return List.of();
     }
+
+    private static Resolved resolve(AnnotationExpr annotation) {
+        try {
+            ResolvedAnnotationDeclaration declaration = annotation.resolve();
+            return new Resolved(declaration.getQualifiedName(), "exact", declaration);
+        } catch (RuntimeException ignored) {
+            String raw = annotation.getNameAsString();
+            if (raw.contains(".")) return new Resolved(raw, "heuristic", null);
+            String imported = annotation.findCompilationUnit().flatMap(unit -> unit.getImports().stream()
+                    .filter(value -> !value.isAsterisk() && !value.isStatic())
+                    .map(value -> value.getNameAsString())
+                    .filter(value -> value.endsWith("." + raw))
+                    .findFirst()).orElse(null);
+            return new Resolved(imported, imported == null ? "unresolved" : "heuristic", null);
+        }
+    }
+
+    private record Resolved(String fqn, String status,
+                            ResolvedAnnotationDeclaration declaration) {}
 
     static String stringAttribute(AnnotationExpr ann, String name) {
         if (ann instanceof SingleMemberAnnotationExpr sm && ("value".equals(name) || name == null)) {

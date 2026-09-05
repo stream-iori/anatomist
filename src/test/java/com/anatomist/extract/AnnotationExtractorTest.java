@@ -75,4 +75,55 @@ class AnnotationExtractorTest {
         assertTrue(a.attributes.contains("\"_param\":0"), a.attributes);
         assertTrue(a.attributes.contains("\"_name\":\"s\""), a.attributes);
     }
+
+    @Test
+    void preservesUnresolvedAnnotationAndStructuralTarget() {
+        CompilationUnit cu = JavaParserTestSupport.parse(
+                "package pkg; class A { @Missing String value; }");
+        ExtractionResult r = new ExtractionResult();
+        new AnnotationExtractor(ctx).extract(cu, r);
+
+        Annotation annotation = r.annotations.stream()
+                .filter(value -> "Missing".equals(value.rawName)).findFirst().orElseThrow();
+        assertNull(annotation.annotationFqn);
+        assertEquals("unresolved", annotation.resolutionStatus);
+        assertEquals("value", annotation.targetKind);
+        assertNotNull(annotation.beginLine);
+        assertNotNull(annotation.endColumn);
+    }
+
+    @Test
+    void coversRecordComponentsAndEnumConstants() {
+        CompilationUnit cu = JavaParserTestSupport.parse("""
+                package pkg;
+                @interface Mark {}
+                record R(@Mark String name) {}
+                enum E { @Mark ONE }
+                """);
+        ExtractionResult r = new ExtractionResult();
+        new AnnotationExtractor(ctx).extract(cu, r);
+
+        Annotation component = r.annotations.stream()
+                .filter(value -> "component[0]".equals(value.targetPath)).findFirst().orElseThrow();
+        assertEquals("pkg.R#name", component.nodeId);
+        assertEquals("value", component.targetKind);
+        Annotation constant = r.annotations.stream()
+                .filter(value -> "pkg.E#ONE".equals(value.nodeId)).findFirst().orElseThrow();
+        assertEquals("value", constant.targetKind);
+    }
+
+    @Test
+    void recordsDirectMetaRelations() {
+        CompilationUnit cu = JavaParserTestSupport.parse("""
+                package pkg;
+                @Deprecated @interface Composed {}
+                @Composed class A {}
+                """);
+        ExtractionResult r = new ExtractionResult();
+        new AnnotationExtractor(ctx).extract(cu, r);
+
+        assertTrue(r.annotationMetaRelations.stream().anyMatch(value ->
+                "pkg.Composed".equals(value.annotationFqn)
+                        && "java.lang.Deprecated".equals(value.metaAnnotationFqn)));
+    }
 }

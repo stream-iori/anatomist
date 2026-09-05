@@ -98,7 +98,7 @@ anatomist index <project> --recreate --output <db>
 | `--timings` | 输出各阶段耗时 |
 | `--format json` | 机器可读构建结果 |
 
-1.0 schema 21 / graph semantics 4 不兼容 0.1x。已有数据库不兼容时命令会失败并报告将丢弃的文档/语义数据量；只有显式 `--recreate` 才会删除并重建，不会静默覆盖。
+1.0 schema 22 / graph semantics 5 不兼容旧索引。已有数据库不兼容时命令会失败并报告将丢弃的数据量；只有显式 `--recreate` 才会删除并重建，不会静默覆盖。
 
 ### `doctor`
 
@@ -120,10 +120,11 @@ anatomist doctor --health-policy complete --format json --index <db>
 anatomist search OrderService --kind type --limit 20 --index <db>
 anatomist search --name '*Repository' --kind type --index <db>
 anatomist search Deprecated --by-annotation --index <db>
+anatomist search Component --by-annotation --include-meta --index <db>
 anatomist search OrderService --count --index <db>
 ```
 
-默认 NDJSON。`--count` 发出 `result_count`，不受 `--limit` 截断。`--name` 的 `*`、`?` 是 glob；SQL 通配字符 `%`、`_` 按普通字符处理。
+默认 NDJSON。`--count` 发出 `result_count`，不受 `--limit` 截断。`--name` 的 `*`、`?` 是 glob；SQL 通配字符 `%`、`_` 按普通字符处理。`--by-annotation` 默认只匹配直接注解；`--include-meta` 才展开最多 16 层、带环检测的 meta 注解。
 
 ### `resolve`
 
@@ -146,7 +147,7 @@ anatomist resolve 'p.A#run(java.lang.String)' --kind callable --exact --unique -
 |---|---|---|---|
 | `describe` | entity | entity description | 单实体结构摘要 |
 | `members` | container entity | entity | `--recursive --kind --max-depth --limit` |
-| `annotations` | entity | annotation | 源码注解事实 |
+| `annotations` | entity | annotation | 默认直接注解；`--include-meta` 输出 `direct/meta_depth/via` |
 | `related-docs` | entity | document_relation | `--limit`，启发式关联 |
 | `type-relations` | type entity | type_relation | `--direction --semantic --transitive` |
 | `runtime-implementations` | type entity | entity + proof | `--instantiability --world`；开放世界可能不完整 |
@@ -155,7 +156,7 @@ anatomist resolve 'p.A#run(java.lang.String)' --kind callable --exact --unique -
 | `dispatch` | call_site | dispatch_target | `--algorithm --world`；静态候选，不是运行观察 |
 | `references` | entity | reference_site | `--direction incoming\|outgoing --limit` |
 | `accesses` | value/entity | access_site | `--mode reads\|writes\|all --limit` |
-| `bindings` | entity | binding_relation | `--direction --semantic`；Spring/配置跨域关系 |
+| `bindings` | entity | binding_relation | `--semantic member` 查询 XML factory/constructor/setter/init/destroy；保留 exact/ambiguous/unresolved |
 | `regions` | callable entity | control_region | `--kind branch --limit` |
 | `sites-in` | control_region | site records | `--record all\|... --limit` |
 | `trace` | entity | trace | `--to --max-depth --dispatch resolved\|possible` |

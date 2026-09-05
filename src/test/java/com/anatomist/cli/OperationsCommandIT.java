@@ -47,6 +47,20 @@ class OperationsCommandIT {
     }
 
     @Test
+    void advertisesMetaAnnotationAndMemberBindingSelectors() throws Exception {
+        CliTestSupport.RunResult annotations = CliTestSupport.capture(() ->
+                new CommandLine(new AnatomistCli()).execute("operations", "annotations"));
+        assertEquals(0, annotations.exitCode(), annotations.stderr());
+        assertTrue(annotations.stdout().contains("--include-meta"), annotations.stdout());
+        assertTrue(annotations.stdout().contains("COMPOSED_ATTRIBUTE_ALIASING"), annotations.stdout());
+
+        CliTestSupport.RunResult bindings = CliTestSupport.capture(() ->
+                new CommandLine(new AnatomistCli()).execute("operations", "bindings"));
+        assertEquals(0, bindings.exitCode(), bindings.stderr());
+        assertTrue(bindings.stdout().contains("member"), bindings.stdout());
+    }
+
+    @Test
     void indexAvailabilityInspectionIsReadOnly(@TempDir Path tmp) throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
         Path db = tmp.resolve("catalog.db");

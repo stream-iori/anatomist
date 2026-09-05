@@ -1,17 +1,30 @@
 package com.anatomist.cli;
 
 import com.anatomist.query.QueryService;
+import com.anatomist.query.AnnotationRow;
 import com.anatomist.query.semantic.*;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Command(name="annotations", mixinStandardHelpOptions=true,
-        description="Return source annotation facts for an entity.",
-        footer="%nAccepts: entity%nEmits: annotation + evidence")
+        description="Return direct source annotations; optionally expand bounded meta-annotations.",
+        footer="%nAccepts: entity%nEmits: annotation + evidence%nOperation: annotations; inspect with: anatomist operations annotations%n%nExample:%n  anatomist search Checkout --kind type --format ndjson | anatomist resolve --unique | anatomist annotations --include-meta")
 public final class AnnotationsCommand extends SemanticCommand {
+    @Option(names="--include-meta", description="Include cycle-safe meta-annotation closure (max depth 16); direct annotations remain marked direct=true.")
+    boolean includeMeta;
+
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}
-    @Override protected Result execute(QueryService query,SemanticIdentity identity,SemanticStreamWriter writer){AtomicInteger seeds=new AtomicInteger(),emitted=new AtomicInteger();SemanticStreamReader.Summary input=readFrames(Set.of("entity"),acceptUnframed,identity,frame->{seeds.incrementAndGet();int count=0;for(SemanticRecord record:frame.records()){SemanticRecord.Entity entity=(SemanticRecord.Entity)record;for(Map<String,Object> annotation:query.context(entity.id(),0).annotations){String name=String.valueOf(annotation.get("annotation_fqn"));String id="annotation:sha256:"+SemanticIdentity.sha256(entity.id()+"\n"+name+"\n"+annotation.get("attributes"));String child=SemanticRecords.childSeed(frame.seedId(),"annotations",id);Map<String,Object> out=SemanticRecords.common("annotation",child,frame.seedId(),identity);out.put("id",id);out.put("entity",entity.id());out.put("name",name);if(annotation.get("attributes")!=null)out.put("attributes",annotation.get("attributes"));out.put("producer_id",annotation.get("producer_id"));out.put("origin","extracted");out.put("resolution_status","exact");out.putAll(SemanticRecords.lineage(entity.raw()));writer.write(out);writer.write(SemanticRecords.seedEvidence(child,frame.seedId(),1,true,null,identity));count++;emitted.incrementAndGet();}}boolean complete=frame.evidence().complete();writer.write(SemanticRecords.seedEvidence(frame.seedId(),null,count,complete,complete?null:"UPSTREAM_INCOMPLETE",identity));});if(seeds.get()==0)throw new IllegalArgumentException("annotations requires an entity stream on stdin");return new Result(seeds.get(),emitted.get(),input.complete(),false);}
+    @Override protected Result execute(QueryService query,SemanticIdentity identity,SemanticStreamWriter writer){AtomicInteger seeds=new AtomicInteger(),emitted=new AtomicInteger();SemanticStreamReader.Summary input=readFrames(Set.of("entity"),acceptUnframed,identity,frame->{seeds.incrementAndGet();int count=0;for(SemanticRecord record:frame.records()){SemanticRecord.Entity entity=(SemanticRecord.Entity)record;for(AnnotationRow annotation:query.annotations(entity.id(),includeMeta)){String stable=entity.id()+"\n"+annotation.name()+"\n"+annotation.targetPath()+"\n"+annotation.direct()+"\n"+annotation.metaDepth()+"\n"+annotation.via()+"\n"+annotation.attributes();String id="annotation:sha256:"+SemanticIdentity.sha256(stable);String child=SemanticRecords.childSeed(frame.seedId(),"annotations",id);Map<String,Object> out=SemanticRecords.common("annotation",child,frame.seedId(),identity);out.put("id",id);out.put("entity",entity.id());out.put("name",annotation.name());out.put("raw_name",annotation.rawName());if(annotation.attributes()!=null)out.put("attributes",annotation.attributes());out.put("target_kind",annotation.targetKind());if(annotation.targetPath()!=null)out.put("target_path",annotation.targetPath());out.put("language",annotation.language());out.put("mechanism",annotation.mechanism());out.put("direct",annotation.direct());out.put("meta_depth",annotation.metaDepth());out.put("via",via(annotation.via()));if(annotation.sourceFile()!=null)out.put("source_file",annotation.sourceFile());if(annotation.sourceLocation()!=null)out.put("source_location",annotation.sourceLocation());out.put("producer_id",annotation.producerId());out.put("origin","extracted");out.put("resolution_status",annotation.resolutionStatus());out.putAll(SemanticRecords.lineage(entity.raw()));writer.write(out);writer.write(SemanticRecords.seedEvidence(child,frame.seedId(),1,true,null,identity));count++;emitted.incrementAndGet();}}boolean complete=frame.evidence().complete();writer.write(SemanticRecords.seedEvidence(frame.seedId(),null,count,complete,complete?null:"UPSTREAM_INCOMPLETE",identity));});if(seeds.get()==0)throw new IllegalArgumentException("annotations requires an entity stream on stdin");return new Result(seeds.get(),emitted.get(),input.complete(),false);}
+
+    private static List<String> via(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        return Arrays.stream(value.split(">"))
+                .filter(part -> !part.isBlank()).toList();
+    }
 }

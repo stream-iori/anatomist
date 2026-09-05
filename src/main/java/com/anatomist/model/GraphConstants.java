@@ -15,7 +15,7 @@ public final class GraphConstants {
     public static final Set<String> MEMBER_KINDS = Set.of(Kind.METHOD, Kind.CONSTRUCTOR, Kind.FIELD);
     public static final Set<String> FIELD_ACCESS_RELATIONS = Set.of(Relation.READS, Relation.WRITES);
     public static final Set<String> FRAMEWORK_RELATIONS = Set.of(
-            Relation.DEFINED_BY, Relation.INJECTS, Relation.HANDLES, Relation.WIRES);
+            Relation.DEFINED_BY, Relation.BINDS_TO, Relation.INJECTS, Relation.HANDLES, Relation.WIRES);
     public static final Set<String> DEPENDENCY_RELATIONS = Set.of(
             Relation.CALLS, Relation.REFERENCES, Relation.WIRES, Relation.INJECTS,
             Relation.HANDLES, Relation.DEFINED_BY);
@@ -49,6 +49,7 @@ public final class GraphConstants {
         public static final String RECORD = "RECORD";
         public static final String ROUTE = "ROUTE";
         public static final String XML_CONSTRUCTOR_ARG = "XML_CONSTRUCTOR_ARG";
+        public static final String XML_CALLABLE_REF = "XML_CALLABLE_REF";
         public static final String XML_ENTRY = "XML_ENTRY";
         public static final String XML_IDREF = "XML_IDREF";
         public static final String XML_LIST = "XML_LIST";
@@ -63,6 +64,7 @@ public final class GraphConstants {
 
     public static final class Relation {
         public static final String CALLS = "CALLS";
+        public static final String BINDS_TO = "BINDS_TO";
         public static final String CONFIGURES = "CONFIGURES";
         public static final String CONTAINS = "CONTAINS";
         public static final String DEFINED_BY = "DEFINED_BY";

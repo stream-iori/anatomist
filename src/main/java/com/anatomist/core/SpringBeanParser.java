@@ -36,11 +36,12 @@ public final class SpringBeanParser {
     public record ParsedBean(String name, String className, int line, int column,
                              int endLine, int endColumn, int ordinal,
                              boolean abstractBean, String parent, String factoryBean,
-                             String factoryMethod, String nestedIn,
+                             String factoryMethod, String initMethod, String destroyMethod,
+                             String nestedIn,
                              List<XmlConfigNode> children) {
         public ParsedBean(String name, String className, int line, List<XmlConfigNode> children) {
             this(name, className, line, 1, line, 1, 0, false,
-                    null, null, null, null, children);
+                    null, null, null, null, null, null, children);
         }
     }
 
@@ -51,6 +52,7 @@ public final class SpringBeanParser {
         public Integer index;
         public String bean;
         public String value;
+        public String type;
         public final int line;
         public final int column;
         public int endLine;
@@ -181,7 +183,8 @@ public final class SpringBeanParser {
                 }
                 beanStack.push(new BeanState(name, cls, line, column, depth, beanOrdinal++,
                         "true".equalsIgnoreCase(a.getValue("abstract")), a.getValue("parent"),
-                        a.getValue("factory-bean"), a.getValue("factory-method"), nestedIn));
+                        a.getValue("factory-bean"), a.getValue("factory-method"),
+                        a.getValue("init-method"), a.getValue("destroy-method"), nestedIn));
                 return;
             }
             BeanState state = beanStack.peek();
@@ -203,7 +206,8 @@ public final class SpringBeanParser {
                 int endColumn = locator != null ? locator.getColumnNumber() : state.column;
                 beans.add(new ParsedBean(state.name, state.className, state.line, state.column,
                         endLine, endColumn, state.ordinal, state.abstractBean, state.parent,
-                        state.factoryBean, state.factoryMethod, state.nestedIn,
+                        state.factoryBean, state.factoryMethod, state.initMethod,
+                        state.destroyMethod, state.nestedIn,
                         List.copyOf(state.children)));
                 BeanState parent = beanStack.peek();
                 if (parent != null && !parent.openNodes.isEmpty()
@@ -259,6 +263,7 @@ public final class SpringBeanParser {
                     String idx = a.getValue("index");
                     n.index = idx != null ? parseInt(idx, state.constructorOrdinal) : state.constructorOrdinal;
                     state.constructorOrdinal++;
+                    n.type = a.getValue("type");
                     addAttrRefOrValue(n, a);
                 }
                 case "entry" -> {
@@ -311,7 +316,8 @@ public final class SpringBeanParser {
         }
 
         private static final class BeanState {
-            final String name, className, parent, factoryBean, factoryMethod, nestedIn;
+            final String name, className, parent, factoryBean, factoryMethod, initMethod,
+                    destroyMethod, nestedIn;
             final int line, column, depth, ordinal;
             final boolean abstractBean;
             int constructorOrdinal;
@@ -320,11 +326,13 @@ public final class SpringBeanParser {
 
             BeanState(String name, String className, int line, int column, int depth,
                       int ordinal, boolean abstractBean, String parent, String factoryBean,
-                      String factoryMethod, String nestedIn) {
+                      String factoryMethod, String initMethod, String destroyMethod,
+                      String nestedIn) {
                 this.name = name; this.className = className; this.line = line; this.column = column;
                 this.depth = depth; this.ordinal = ordinal; this.abstractBean = abstractBean;
                 this.parent = parent; this.factoryBean = factoryBean;
-                this.factoryMethod = factoryMethod; this.nestedIn = nestedIn;
+                this.factoryMethod = factoryMethod; this.initMethod = initMethod;
+                this.destroyMethod = destroyMethod; this.nestedIn = nestedIn;
             }
 
             void addNode(XmlConfigNode node) {

@@ -8,6 +8,8 @@ import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.Node;
 import com.anatomist.model.SemanticAnnotation;
+import com.anatomist.model.SymbolFact;
+import com.anatomist.model.TypeRelationFact;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -109,6 +111,7 @@ public class SqliteStore implements IndexWriter {
             DataWriter.insertNodes(c, result.nodes);
             DataWriter.insertEdges(c, result.edges);
             DataWriter.insertAnnotations(c, result.annotations);
+            DataWriter.insertAnnotationMetaRelations(c, result.annotationMetaRelations);
             DataWriter.insertSemanticAnnotations(c, result.semanticAnnotations);
             DataWriter.insertDeclarations(c, result.declarations);
             CallSitePersistence.rebuild(c);
@@ -222,4 +225,34 @@ public class SqliteStore implements IndexWriter {
     public long queryAnnotationCount() { return reader.queryAnnotationCount(); }
     public long querySemanticAnnotationCount() { return reader.querySemanticAnnotationCount(); }
     public List<IndexDiagnostic> readIndexDiagnostics() { return reader.readIndexDiagnostics(); }
+
+    public List<SymbolFact> readSymbolFacts() {
+        try (Statement statement = connection().createStatement();
+             java.sql.ResultSet rows = statement.executeQuery(
+                     "SELECT id,symbol_id,kind,module,scope,source_file,metadata FROM nodes")) {
+            List<SymbolFact> out = new java.util.ArrayList<>();
+            while (rows.next()) {
+                out.add(new SymbolFact(rows.getString(1), rows.getString(2), rows.getString(3),
+                        rows.getString(4), rows.getString(5), rows.getString(6), rows.getString(7)));
+            }
+            return List.copyOf(out);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read symbol facts", e);
+        }
+    }
+
+    public List<TypeRelationFact> readTypeRelations() {
+        String sql = "SELECT s.symbol_id,COALESCE(t.symbol_id,e.external_target_fqn),e.relation "
+                + "FROM edges e JOIN nodes s ON s.id=e.source_id LEFT JOIN nodes t ON t.id=e.target_id "
+                + "WHERE e.relation IN ('INHERITS','IMPLEMENTS')";
+        try (Statement statement = connection().createStatement();
+             java.sql.ResultSet rows = statement.executeQuery(sql)) {
+            List<TypeRelationFact> out = new java.util.ArrayList<>();
+            while (rows.next()) out.add(new TypeRelationFact(
+                    rows.getString(1), rows.getString(2), rows.getString(3)));
+            return List.copyOf(out);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to read type relations", e);
+        }
+    }
 }

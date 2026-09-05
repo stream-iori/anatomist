@@ -153,6 +153,8 @@ final class SemanticOperationRegistry {
                                 "component", "config_entity", "entity"),
                         "also_accepts", "uppercase_storage_kind"));
                 out.add(range("--limit", 1, 100_000)); out.add(range("--offset", 0, null));
+                out.add(Map.of("kind", "requires", "option", "--include-meta",
+                        "requires", "--by-annotation", "max_depth", 16));
             }
             case "resolve" -> out.add(choice("--kind",
                     List.of("entity", "type", "callable", "value")));
@@ -184,9 +186,11 @@ final class SemanticOperationRegistry {
             }
             case "bindings" -> {
                 out.add(choice("--direction", List.of("outgoing", "incoming")));
-                out.add(choice("--semantic", List.of("any", "realizes", "wires", "parent", "factory")));
+                out.add(choice("--semantic", List.of("any", "realizes", "wires", "parent", "factory", "member")));
                 out.add(range("--limit", 1, null));
             }
+            case "annotations" -> out.add(Map.of("kind", "bounded_closure",
+                    "option", "--include-meta", "max_depth", 16, "cycle_safe", true));
             case "references" -> {
                 out.add(choice("--direction", List.of("outgoing", "incoming")));
                 out.add(range("--limit", 1, null));
@@ -268,9 +272,10 @@ final class SemanticOperationRegistry {
                 Set.of("dispatch_target"), List.of(),
                 List.of("OPEN_WORLD", "REFLECTION", "DYNAMIC_LOADING")));
         entries.add(transform("bindings", BindingsCommand.class, BindingsCommand::new,
-                Set.of("binding_relation"), List.of(), List.of("RUNTIME_CONFIGURATION")));
+                Set.of("binding_relation"), List.of(),
+                List.of("RUNTIME_CONFIGURATION", "COMPOSED_ATTRIBUTE_ALIASING")));
         entries.add(transform("annotations", AnnotationsCommand.class, AnnotationsCommand::new,
-                Set.of("annotation"), List.of(), List.of()));
+                Set.of("annotation"), List.of(), List.of("COMPOSED_ATTRIBUTE_ALIASING")));
         entries.add(transform("related-docs", RelatedDocsCommand.class, RelatedDocsCommand::new,
                 Set.of("document_relation"), List.of(), List.of("HEURISTIC_ASSOCIATION")));
         entries.add(transform("references", ReferencesCommand.class, ReferencesCommand::new,

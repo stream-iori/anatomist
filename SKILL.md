@@ -16,9 +16,6 @@ Config order: project, user, otherwise built-in defaults. Files do not merge;
 CLI flags override. Prefer `index --incremental`. After policy changes, re-index
 and inspect `doctor --format json` `config_source`.
 
-`support` means an installed provider implements an operation; `availability`
-means this index has its facts; only runtime evidence reports `coverage`.
-
 For two or more linear stages, read `anatomist pipeline --help` and prefer fused execution. Use a Unix pipeline only
 for external tools, branching, or distinct index/module/scope values.
 
@@ -28,16 +25,9 @@ members     resolve → members [--recursive]
 types       resolve → type-relations
 runtime     resolve → runtime-implementations
 calls       resolve → calls → dispatch
-config      resolve → bindings
+annotations resolve → annotations [--include-meta]
+config      resolve → bindings [--semantic member]
 evidence    resolve/site → source
-```
-
-Example:
-
-```bash
-anatomist pipeline --index index.db -- \
-  resolve 'OrderService#run()' --kind callable --exact --unique \
-  --then calls --then dispatch --then source
 ```
 
 Before execution, use `pipeline --explain -- ...` for static composition and
@@ -59,6 +49,9 @@ conclusion safe. `--accept-unframed` intentionally downgrades coverage.
 `calls` is source syntax plus static resolution. `dispatch` gives possible static
 candidates, not observed execution. Framework bindings come from artifact producers,
 not Java semantics.
+
+Annotations are direct by default; add `--include-meta` for composed definitions.
+Inspect all ambiguous members; unresolved SymbolRef is not proof of absence.
 
 Use `declarations-of --file <relative.java>` for changed files. For one method,
 run an exact callable `resolve --then source`; page until evidence is complete.

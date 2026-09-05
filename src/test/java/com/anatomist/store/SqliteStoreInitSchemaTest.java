@@ -32,6 +32,7 @@ class SqliteStoreInitSchemaTest {
         assertTrue(tables.contains("nodes"), "missing table nodes; got " + tables);
         assertTrue(tables.contains("edges"));
         assertTrue(tables.contains("annotations"));
+        assertTrue(tables.contains("annotation_meta_relations"));
         assertTrue(tables.contains("declarations"));
         assertTrue(tables.contains("call_site_owners"));
         assertTrue(tables.contains("call_sites"));
@@ -46,6 +47,7 @@ class SqliteStoreInitSchemaTest {
         assertTrue(indexes.contains("idx_nodes_kind"), "missing idx_nodes_kind; got " + indexes);
         assertTrue(indexes.contains("idx_edges_source_relation_external"));
         assertTrue(indexes.contains("idx_annotations_fqn"));
+        assertTrue(indexes.contains("idx_annotation_meta_source"));
         assertTrue(indexes.contains("idx_declarations_file"));
         assertTrue(indexes.contains("idx_call_sites_caller_order"));
         assertTrue(indexes.contains("idx_call_site_owners_source"));

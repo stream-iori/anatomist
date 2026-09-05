@@ -23,9 +23,22 @@ import java.util.Set;
 
 public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstAnalyzer {
 
-    private static final Set<String> CONTROLLERS = Set.of("Controller", "RestController");
     private static final Set<String> MAPPINGS = Set.of(
-            "RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping");
+            "org.springframework.web.bind.annotation.RequestMapping",
+            "org.springframework.web.bind.annotation.GetMapping",
+            "org.springframework.web.bind.annotation.PostMapping",
+            "org.springframework.web.bind.annotation.PutMapping",
+            "org.springframework.web.bind.annotation.DeleteMapping",
+            "org.springframework.web.bind.annotation.PatchMapping");
+    private static final Set<String> CONTROLLERS_FQN = Set.of(
+            "org.springframework.stereotype.Controller",
+            "org.springframework.web.bind.annotation.RestController");
+    private static final Set<String> REQUEST_MAPPING = Set.of(
+            "org.springframework.web.bind.annotation.RequestMapping");
+    private static final Set<String> PARAM_BINDINGS = Set.of(
+            "org.springframework.web.bind.annotation.PathVariable",
+            "org.springframework.web.bind.annotation.RequestParam",
+            "org.springframework.web.bind.annotation.RequestBody");
 
     private final ExtractionContext ctx;
 
@@ -42,13 +55,13 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
         new VoidVisitorAdapter<Void>() {
             @Override
             public void visit(ClassOrInterfaceDeclaration n, Void arg) {
-                if (!SpringAnnotationSupport.first(n.getAnnotations(), CONTROLLERS).isPresent()) {
+                if (SpringAnnotationSupport.firstMatch(n.getAnnotations(), CONTROLLERS_FQN).isEmpty()) {
                     super.visit(n, arg);
                     return;
                 }
-                List<String> basePaths = SpringAnnotationSupport.first(
-                                n.getAnnotations(), Set.of("RequestMapping"))
-                        .map(SpringMvcAnalyzer::paths)
+                List<String> basePaths = SpringAnnotationSupport.firstMatch(
+                                n.getAnnotations(), REQUEST_MAPPING)
+                        .map(match -> paths(match.annotation()))
                         .orElse(List.of(""));
                 for (MethodDeclaration m : n.getMethods()) {
                     emitRoutes(basePaths, m, sourceFile, result);
@@ -60,14 +73,15 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
 
     private void emitRoutes(List<String> basePaths, MethodDeclaration method,
                             String sourceFile, ExtractionResult result) {
-        Optional<AnnotationExpr> mapping = SpringAnnotationSupport.first(method.getAnnotations(), MAPPINGS);
+        Optional<SpringAnnotationSupport.Match> mapping = SpringAnnotationSupport.firstMatch(
+                method.getAnnotations(), MAPPINGS);
         if (mapping.isEmpty()) return;
         ResolvedMethodDeclaration resolved;
         try { resolved = method.resolve(); }
         catch (RuntimeException e) { ctx.incrementUnresolved(e); return; }
         String methodId = ctx.idGenerator().forMethod(resolved);
         for (String basePath : basePaths) {
-            for (String methodPath : paths(mapping.get())) {
+            for (String methodPath : paths(mapping.get().annotation())) {
                 String fullPath = SpringAnnotationSupport.joinPaths(basePath, methodPath);
                 for (String httpMethod : httpMethods(mapping.get())) {
                     emitRoute(mapping.get(), method, methodId, httpMethod, fullPath,
@@ -77,7 +91,7 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
         }
     }
 
-    private void emitRoute(AnnotationExpr mapping, MethodDeclaration method, String methodId,
+    private void emitRoute(SpringAnnotationSupport.Match mapping, MethodDeclaration method, String methodId,
                            String httpMethod, String fullPath, String sourceFile,
                            ExtractionResult result) {
         String routeId = routeId(httpMethod, fullPath, methodId);
@@ -108,9 +122,12 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
         result.edges.add(handles);
     }
 
-    private static Map<String, Object> routeMetadata(AnnotationExpr ann, MethodDeclaration method) {
+    private static Map<String, Object> routeMetadata(SpringAnnotationSupport.Match match,
+                                                     MethodDeclaration method) {
+        AnnotationExpr ann = match.annotation();
         Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("mappingAnnotation", SpringAnnotationSupport.simpleName(ann));
+        meta.put("mappingAnnotation", match.rootFqn());
+        meta.putAll(SpringAnnotationSupport.evidence(match));
         putIfNotEmpty(meta, "consumes", SpringAnnotationSupport.stringListAttribute(ann, "consumes"));
         putIfNotEmpty(meta, "produces", SpringAnnotationSupport.stringListAttribute(ann, "produces"));
         putIfNotEmpty(meta, "params", SpringAnnotationSupport.stringListAttribute(ann, "params"));
@@ -120,10 +137,12 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
             row.put("name", p.getNameAsString());
             row.put("type", p.getTypeAsString());
             for (AnnotationExpr a : p.getAnnotations()) {
-                String simple = SpringAnnotationSupport.simpleName(a);
-                if (Set.of("PathVariable", "RequestParam", "RequestBody").contains(simple)) {
-                    row.put("binding", simple);
-                    String value = SpringAnnotationSupport.stringAttribute(a, "value");
+                SpringAnnotationSupport.Match binding = SpringAnnotationSupport.firstMatch(
+                        new com.github.javaparser.ast.NodeList<>(a), PARAM_BINDINGS).orElse(null);
+                if (binding != null) {
+                    row.put("binding", binding.rootFqn());
+                    row.put("bindingMetaPath", binding.metaPath());
+                    String value = SpringAnnotationSupport.stringAttribute(binding.annotation(), "value");
                     if (value != null) row.put("value", value);
                 }
             }
@@ -143,17 +162,17 @@ public final class SpringMvcAnalyzer implements com.anatomist.framework.JavaAstA
         return values.isEmpty() ? List.of("") : new ArrayList<>(new LinkedHashSet<>(values));
     }
 
-    private static List<String> httpMethods(AnnotationExpr ann) {
-        String fixed = switch (SpringAnnotationSupport.simpleName(ann)) {
-            case "GetMapping" -> "GET";
-            case "PostMapping" -> "POST";
-            case "PutMapping" -> "PUT";
-            case "DeleteMapping" -> "DELETE";
-            case "PatchMapping" -> "PATCH";
+    private static List<String> httpMethods(SpringAnnotationSupport.Match match) {
+        String fixed = switch (match.rootFqn()) {
+            case "org.springframework.web.bind.annotation.GetMapping" -> "GET";
+            case "org.springframework.web.bind.annotation.PostMapping" -> "POST";
+            case "org.springframework.web.bind.annotation.PutMapping" -> "PUT";
+            case "org.springframework.web.bind.annotation.DeleteMapping" -> "DELETE";
+            case "org.springframework.web.bind.annotation.PatchMapping" -> "PATCH";
             default -> null;
         };
         if (fixed != null) return List.of(fixed);
-        List<String> values = SpringAnnotationSupport.stringListAttribute(ann, "method");
+        List<String> values = SpringAnnotationSupport.stringListAttribute(match.annotation(), "method");
         if (values.isEmpty()) return List.of("ANY");
         LinkedHashSet<String> methods = new LinkedHashSet<>();
         for (String value : values) {

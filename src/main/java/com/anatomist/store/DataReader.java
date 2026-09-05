@@ -312,19 +312,14 @@ public class DataReader {
 
     public Map<String, String> readBeanClassTargets() {
         Map<String, String> out = new HashMap<>();
-        String sql = """
-                SELECT n.symbol_id, COALESCE(e.target_id, e.external_target_fqn)
-                FROM edges e
-                JOIN nodes n ON n.id=e.source_id
-                WHERE e.relation=? AND n.kind=?
-                """;
+        String sql = "SELECT symbol_id,metadata FROM nodes WHERE kind=?";
         Connection c = conn();
         try (PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, GraphConstants.Relation.DEFINED_BY);
-            ps.setString(2, GraphConstants.Kind.BEAN);
+            ps.setString(1, GraphConstants.Kind.BEAN);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    String target = rs.getString(2);
+                    String target = beanClassFromMetadata(rs.getString(2));
+                    if (target == null) target = fallbackBeanClass(c, rs.getString(1));
                     if (target != null) out.put(rs.getString(1), target);
                 }
             }
@@ -332,6 +327,39 @@ public class DataReader {
             throw new RuntimeException("Failed to read bean class targets", e);
         }
         return out;
+    }
+
+    private static String fallbackBeanClass(Connection connection, String bean) throws SQLException {
+        String sql = "SELECT COALESCE(e.target_id,e.external_target_fqn) FROM edges e "
+                + "JOIN nodes n ON n.id=e.source_id WHERE n.symbol_id=? AND e.relation='DEFINED_BY' "
+                + "ORDER BY e.id";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, bean);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    String target = rows.getString(1);
+                    if (target != null) {
+                        String symbol = com.anatomist.core.NodeKeyFactory.isKey(target)
+                                ? com.anatomist.core.NodeKeyFactory.symbolId(target) : target;
+                        if (!symbol.contains("#")) return symbol;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String beanClassFromMetadata(String metadata) {
+        if (metadata == null) return null;
+        try {
+            Object tree = com.anatomist.json.Json.parseTree(metadata);
+            if (!(tree instanceof Map<?, ?> map)) return null;
+            for (String key : List.of("productClass", "returnType", "className")) {
+                Object value = map.get(key);
+                if (value != null && !String.valueOf(value).isBlank()) return String.valueOf(value);
+            }
+        } catch (RuntimeException ignored) { }
+        return null;
     }
 
     public Map<String, FileCacheService.SourceFileStats> sourceFileStats() {
