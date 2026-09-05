@@ -146,7 +146,7 @@ sdk env
 | `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | Shell 与 fused `resolve\|calls\|dispatch\|source` 原始字节对拍。 |
 | `just native-smoke` | JVM jar 与 native binary 输出一致性 | 同时对拍 Shell/fused 和 JVM/native。 |
 | `just stream-stress` | 10 万 seed 的有界流 | 在 `-Xmx128m` 子 JVM 中验证逐 seed 交付；默认测试排除。 |
-| `just bench-query-refactor` | 0.14 → 1.0 产品回归 | 默认冻结并使用 `~/.local/bin/anatomist`；可用 `ANATOMIST_BASELINE_BIN` 覆盖。 |
+| `just bench-query-refactor` | 0.14 → 1.0 产品回归 | 同时比较 0.14 聚合命令与 1.0 Shell、1.0 fused；fused p50/p95 使用 +15%/+25% 回归门禁。默认基线为 `~/.local/bin/anatomist`。 |
 | `just bench-query-refactor-git [BASELINE_REF]` | 可复现的 0.14 → 1.0 回归 | detached worktree 构建旧版本；报告写入 `target/benchmarks/query-refactor/`。 |
 | `just bench-semantic-pipeline [BASELINE_REF]` | 1.0 pipeline 引擎专项 | 两个 semantic-stream/v1 binary 查询同一个只读 DB，并逐字对拍 NDJSON。 |
 | `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |

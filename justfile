@@ -220,7 +220,7 @@ stream-stress:
         -Danatomist.test.excludedGroups= \
         -Dtest=SemanticStreamStressIT test
 
-# Product regression: compare installed 0.14.x with current 1.0; writes JSON + Markdown reports
+# Product regression: compare 0.14 aggregate commands with 1.0 Shell and fused workflows
 bench-query-refactor: native
     python3 scripts/benchmark-query-refactor.py \
         --baseline-bin "{{RELEASED_BIN}}" \

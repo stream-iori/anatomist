@@ -36,7 +36,7 @@
 | F2 Stage 协议 | ✅ | 20 个只读命令统一接入 typed `SemanticFrameSource` / `SemanticStreamWriter` adapter |
 | F3 CLI | ✅ | 支持 `pipeline -- ... --then ...` 和 `pipeline --file pipeline.json`；全局参数、白名单、类型和资源上限执行前校验 |
 | F4 参考执行器 | ⏭️ | 直接落地 F7 typed executor；未引入最终必删的 NDJSON spool 和临时文件分支 |
-| F5 正确性 | ✅ | 733 tests 全过；19 个 Golden 中 14 个成功场景执行 Shell/fused 原始字节对拍，5 个失败场景验证原命令；fused 错误、stdin、limit、Broken Pipe 有独立测试 |
+| F5 正确性 | ✅ | 734 tests 全过；19 个 Golden 中 14 个成功场景执行 Shell/fused 原始字节对拍，5 个失败场景验证原命令；fused 错误、stdin、limit、Broken Pipe 有独立测试 |
 | F6 性能 | ✅ | 30 轮 round-robin AB/BA；同一只读 DB；保留原始样本并记录 p50/p95、RSS、binary/DB SHA；全部 gate 通过 |
 | F7 typed 有界流 | ✅ | 中间只传 `SemanticRecord` / `SeedFrame`；按 seed 有界；无中间 JSON、无 spool；末段才写 stream evidence |
 
@@ -85,28 +85,33 @@ anatomist pipeline --index index.db -- \
 
 | 项目 | 结果 | 证据 |
 |---|:---:|---|
-| JUnit / IT | ✅ | `mvn -q test`：733 tests，0 failure/error/skip |
+| JUnit / IT | ✅ | `mvn -q test`：734 tests，0 failure/error/skip |
 | Golden | ✅ | 19 个 scenario 全部使用真实 `pipeline.json`；14 个成功场景做 Shell/fused 原始字节对拍 |
 | JVM / native | ✅ | `just native-smoke` 覆盖 Shell/fused/JVM/native 对拍；`just extension-e2e-native` 通过 |
 | Agent contract | ✅ | adapter 9/9；Jury smoke 9、complex 6；fixture contract 通过 |
-| Benchmark | ✅ | `dd2e575` 对比报告所有 gate 通过 |
+| Benchmark | ✅ | 已安装 0.14.0 与当前 1.0 Shell/fused 直接对比；所有 gate 通过 |
 
 | Benchmark 核心指标 | 0.1x baseline | 1.0 candidate | 变化 |
 |---|---:|---:|---:|
-| SQLite DB | 56,741,888 B | 37,576,704 B | **-33.8%** |
-| `edges(CALLS)` | 18,928 | 0 | -100% |
-| owners / sites / targets | 0 / 0 / 0 | 2,727 / 18,762 / 18,919 | 字典化单一事实源 |
-| 全量索引 p50 | 7,835.92 ms | 7,900.89 ms | +0.8% |
-| no-op 增量 p50 | 1,109.06 ms | 1,096.74 ms | -1.1% |
-| 启动 p50 | 12.98 ms | 10.73 ms | -17.3% |
-| 搜索 p50 | 180.38 ms | 149.72 ms | -17.0% |
-| 峰值 RSS | 33,308,672 B | 27,901,952 B | -16.2% |
-| native binary | 57,714,216 B | 57,797,096 B | +0.1% |
-| type workflow p50 | 185.10 ms | 275.58 ms | +48.9% |
-| calls workflow p50 | 160.46 ms | 379.72 ms | +136.6% |
+| SQLite DB | 57,581,568 B | 38,137,856 B | **-33.8%** |
+| `edges(CALLS)` | 19,144 | 0 | -100% |
+| owners / sites / targets | 0 / 0 / 0 | 2,767 / 18,977 / 19,135 | 字典化单一事实源 |
+| 全量索引 p50 | 7,923.37 ms | 7,682.26 ms | -3.0% |
+| no-op 增量 p50 | 1,084.05 ms | 1,079.13 ms | -0.5% |
+| 启动 p50 | 12.91 ms | 11.45 ms | -11.3% |
+| 搜索 p50 | 227.03 ms | 195.85 ms | -13.7% |
+| 峰值 RSS | 33,587,200 B | 28,213,248 B | -16.0% |
+| native binary | 57,732,368 B | 57,813,656 B | +0.1% |
+| type workflow Shell p50 | 200.75 ms | 332.45 ms | +65.6% |
+| calls workflow Shell p50 | 207.71 ms | 424.84 ms | +104.5% |
+| type workflow fused p50 | 194.74 ms | 188.57 ms | **-3.2%** |
+| calls workflow fused p50 | 201.48 ms | 211.99 ms | +5.2% |
+| type workflow fused p95 | 335.93 ms | 322.56 ms | **-4.0%** |
+| calls workflow fused p95 | 444.61 ms | 436.32 ms | **-1.9%** |
 
 schema 21 通过 owner 字典、部分索引和重叠索引裁剪，使 DB 降幅超过 30% 硬门禁。
-原产品 benchmark 中的多进程 type/calls 性能债已由上面的 fused pipeline 解决；
+与 0.14 聚合命令直接对比，fused type/calls 的 p50 分别为 -3.2% / +5.2%，
+p95 分别为 -4.0% / -1.9%，通过 +15%/+25% 门禁。多进程性能债已由 fused pipeline 解决；
 Shell 管道保留为兼容/跨 scope/外部工具入口。产品回归原始数据见
 `target/benchmarks/query-refactor/results.json`，融合专项见
 `target/benchmarks/semantic-pipeline/results.json`。
@@ -115,7 +120,7 @@ Shell 管道保留为兼容/跨 scope/外部工具入口。产品回归原始数
 
 | 对比 | 基线 | 约束 |
 |---|---|---|
-| 产品回归 | 默认 `~/.local/bin/anatomist` 0.14.x，也可指定旧 git ref | 按同一用户任务比较，允许输出协议不同 |
+| 产品回归 | 默认 `~/.local/bin/anatomist` 0.14.x，也可指定旧 git ref | 同一用户任务同时比较 1.0 Shell/fused；允许输出协议不同；fused 使用 +15%/+25% p50/p95 门禁 |
 | pipeline 引擎 | 融合前 `f5a9ef2` 或冻结 binary | 同一个只读 DB、原始 NDJSON 字节相等、交替采样 |
 
 `scripts/benchmark-semantic-pipeline.py` 固定覆盖单段 resolve、两段 type pipeline、

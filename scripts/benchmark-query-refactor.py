@@ -248,7 +248,9 @@ def markdown(report: dict) -> str:
         f"| call sites | {database['old'].get('call_sites', 0)} | {database['new'].get('call_sites', 0)} |",
         f"| call targets | {database['old'].get('call_site_targets', 0)} | {database['new'].get('call_site_targets', 0)} |",
         "",
-        "共同 search 直接同比；type/calls 是同一用户任务的旧聚合命令与 1.0 多进程管道同比。",
+        "共同 search 直接同比；type/calls 是旧聚合命令与 1.0 Shell 多进程管道同比。",
+        "type/calls `*_fused` 是同一份 0.14 聚合命令与推荐的 1.0 单进程 pipeline 直接同比。",
+        "Shell/fused 功能门禁还要求两种 1.0 执行方式的原始 NDJSON 字节一致。",
         "功能门禁检查 candidate 的 record、目标文本与 final stream evidence，不比较不兼容的 JSON 外观。",
         f"Baseline: `{report['environment']['baseline_version']}` / `{report['environment']['baseline_sha256']}`。",
         f"Candidate: `{report['environment']['candidate_version']}` / `{report['environment']['candidate_sha256']}`。",
@@ -303,18 +305,22 @@ def main() -> int:
         selector = "com.anatomist.query.QueryService"
         callable_selector = selector + "#search(java.lang.String,java.lang.String,int)"
 
+        old_type_workflow = lambda: run_command([
+            str(baseline_bin), "context", selector, "--index", str(old_db)
+        ])
+        old_calls_workflow = lambda: run_command([
+            str(baseline_bin), "callees-of", callable_selector,
+            "--depth", "1", "--index", str(old_db)
+        ])
         old_commands = {
             "startup": lambda: run_command([str(baseline_bin), "--version"]),
             "search": lambda: run_command([
                 str(baseline_bin), "search", "QueryService", "--index", str(old_db)
             ]),
-            "type_workflow": lambda: run_command([
-                str(baseline_bin), "context", selector, "--index", str(old_db)
-            ]),
-            "calls_workflow": lambda: run_command([
-                str(baseline_bin), "callees-of", callable_selector,
-                "--depth", "1", "--index", str(old_db)
-            ]),
+            "type_workflow": old_type_workflow,
+            "calls_workflow": old_calls_workflow,
+            "type_workflow_fused": old_type_workflow,
+            "calls_workflow_fused": old_calls_workflow,
         }
         new_commands = {
             "startup": lambda: run_command([str(candidate_bin), "--version"]),
@@ -331,6 +337,16 @@ def main() -> int:
                  "--exact", "--unique", "--index", str(new_db)],
                 [str(candidate_bin), "calls", "--index", str(new_db)],
                 [str(candidate_bin), "dispatch", "--index", str(new_db)],
+            ]),
+            "type_workflow_fused": lambda: run_command([
+                str(candidate_bin), "pipeline", "--index", str(new_db), "--",
+                "resolve", selector, "--kind", "type", "--unique",
+                "--then", "describe",
+            ]),
+            "calls_workflow_fused": lambda: run_command([
+                str(candidate_bin), "pipeline", "--index", str(new_db), "--",
+                "resolve", callable_selector, "--kind", "callable", "--exact", "--unique",
+                "--then", "calls", "--then", "dispatch",
             ]),
         }
 
@@ -356,8 +372,12 @@ def main() -> int:
 
         functional = {
             "search_stream": semantic_check(new_commands["search"](), {"entity_candidate", "evidence"}, "QueryService"),
-            "type_stream": semantic_check(new_commands["type_workflow"](), {"declaration", "evidence"}, selector),
-            "calls_stream": semantic_check(new_commands["calls_workflow"](), {"dispatch_target", "evidence"}, "search"),
+            "type_stream": semantic_check(new_commands["type_workflow_fused"](), {"declaration", "evidence"}, selector),
+            "calls_stream": semantic_check(new_commands["calls_workflow_fused"](), {"dispatch_target", "evidence"}, "search"),
+            "type_shell_fused_same": new_commands["type_workflow"]()
+                == new_commands["type_workflow_fused"](),
+            "calls_shell_fused_same": new_commands["calls_workflow"]()
+                == new_commands["calls_workflow_fused"](),
         }
         removed = subprocess.run(
             [str(candidate_bin), "context"],
@@ -395,6 +415,8 @@ def main() -> int:
             "search": (15.0, 25.0),
             "type_workflow": (200.0, 250.0),
             "calls_workflow": (250.0, 300.0),
+            "type_workflow_fused": (15.0, 25.0),
+            "calls_workflow_fused": (15.0, 25.0),
             "full_index": (15.0, 20.0),
             "noop_incremental": (15.0, 25.0),
         }
@@ -435,6 +457,13 @@ def main() -> int:
             "runs": {
                 "query": args.query_runs, "index": args.index_runs,
                 "noop": args.noop_runs, "rss": args.rss_runs,
+            },
+            "execution": {
+                "type_workflow": "0.14 context vs 1.0 Shell resolve|describe",
+                "calls_workflow": "0.14 callees-of vs 1.0 Shell resolve|calls|dispatch",
+                "type_workflow_fused": "0.14 context vs 1.0 fused pipeline",
+                "calls_workflow_fused": "0.14 callees-of vs 1.0 fused pipeline",
+                "sampling_order": "round-robin AB/BA",
             },
             "benchmarks": benchmarks,
             "functional": functional,
