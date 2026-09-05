@@ -10,6 +10,7 @@ import picocli.CommandLine;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,14 +51,10 @@ class CliContractIT {
         for (String[] args : new String[][] {
                 {"search", "--by-annotation"},
                 {"search", "A", "--kind", "TYPO"},
-                {"hierarchy", "p.A", "--scope", "TYPO"},
-                {"field-access", "p.A#missing", "--mode", "typo"},
-                {"context", "--package", "p"},
-                {"context", "p.A", "--methods-only", "--fields-only"},
-                {"context", "p.A", "--with-docs"},
+                {"resolve", "p.A", "--scope", "TYPO"},
+                {"calls", "--direction", "typo"},
                 {"overview", "--format", "yaml"},
-                {"doctor", "--format", "yaml"},
-                {"survey-baseline", "--format", "yaml"}
+                {"doctor", "--format", "yaml"}
         }) {
             RunResult result = run(args);
             assertEquals(2, result.exitCode(), String.join(" ", args)
@@ -69,11 +66,10 @@ class CliContractIT {
     }
 
     @Test
-    void contextMarkdownAndAnnotateJsonHonorFormats() throws Exception {
-        RunResult context = run("context", "p.A", "--format", "markdown");
-        assertEquals(0, context.exitCode(), context.stderr());
-        assertTrue(context.stdout().startsWith("# A (CLASS)"), context.stdout());
-
+    void semanticTableAndAnnotateJsonHonorFormats() throws Exception {
+        RunResult search = run("search", "p.A", "--format", "table");
+        assertEquals(0, search.exitCode(), search.stderr());
+        assertTrue(search.stdout().startsWith("RECORD\tID"), search.stdout());
         RunResult annotate = run("annotate", "p.A", "--category", "REVIEWED",
                 "--format", "json");
         assertEquals(0, annotate.exitCode(), annotate.stderr());
@@ -100,9 +96,23 @@ class CliContractIT {
     }
 
     private static int total(String json) {
-        Map<?, ?> root = asMap(json);
-        Map<?, ?> stats = (Map<?, ?>) root.get("stats");
-        return ((Number) stats.get("total")).intValue();
+        List<?> records = records(json);
+        for (Object value : records) {
+            Map<?, ?> record = (Map<?, ?>) value;
+            if (record.get("count") instanceof Number count) return count.intValue();
+        }
+        return (int) records.stream().map(value -> (Map<?, ?>) value)
+                .filter(record -> "entity_candidate".equals(record.get("record"))).count();
+    }
+
+    private static List<?> records(String output) {
+        String trimmed = output.trim();
+        try {
+            Object parsed = Json.parseTree(trimmed);
+            return parsed instanceof List<?> list ? list : List.of(parsed);
+        } catch (IllegalArgumentException multipleRecords) {
+            return trimmed.lines().filter(line -> !line.isBlank()).map(Json::parseTree).toList();
+        }
     }
 
     private static Map<?, ?> asMap(String json) {

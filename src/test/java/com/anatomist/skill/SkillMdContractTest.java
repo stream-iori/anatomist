@@ -66,10 +66,10 @@ class SkillMdContractTest {
         String flow = Files.readString(sceneDir().resolve("flow.md"));
         for (String requirement : List.of(
                 "does not materialize a separate data-flow graph",
-                "context '<signature>' --source",
-                "call-path",
-                "follow `next_queries` until `source.truncated=false`",
-                "not runtime proof")) {
+                "resolve exact callable | source",
+                "trace --to",
+                "source --offset",
+                "not runtime values")) {
             assertTrue(flow.contains(requirement), "missing flow decision rule: " + requirement);
         }
         for (String removed : List.of(
@@ -86,30 +86,29 @@ class SkillMdContractTest {
     @Test
     void sceneGuidanceExplainsSelectorBoundariesWithoutDuplicatingHelp() throws Exception {
         String trace = Files.readString(sceneDir().resolve("trace.md"));
-        assertTrue(trace.contains("full method signature"));
-        assertTrue(trace.contains("methodExtra"));
-        assertTrue(trace.contains("ambiguity response"));
+        assertTrue(trace.contains("full signatures"));
+        assertTrue(trace.contains("Partial names"));
+        assertTrue(trace.contains("pick one entity"));
 
         String relations = Files.readString(sceneDir().resolve("relations.md"));
-        assertTrue(relations.contains("Short type or field names"));
+        assertTrue(relations.contains("Short names"));
         assertTrue(relations.contains("--module"));
         assertTrue(relations.contains("--scope"));
 
         String flow = Files.readString(sceneDir().resolve("flow.md"));
         assertTrue(flow.contains("full exact signature"));
-        assertTrue(flow.contains("selector ambiguity response"));
-        assertTrue(flow.contains("source.truncated=false"));
+        assertTrue(flow.contains("resolve ambiguity"));
+        assertTrue(flow.contains("source --offset"));
     }
 
     @Test
     void exploreChoosesBoundedMethodPagesBeforeWholeClassSource() throws Exception {
         String explore = Files.readString(sceneDir().resolve("explore.md"));
-        assertTrue(explore.contains("exact method signature"));
-        assertTrue(explore.contains("source.truncated=false"));
-        assertTrue(explore.contains("Class-wide state or lifecycle"));
-        assertTrue(explore.contains("--methods-only"));
-        assertTrue(explore.contains("Do not read a whole class by default"));
-        assertTrue(explore.contains("pagination is not mandatory"));
+        assertTrue(explore.contains("exact method"));
+        assertTrue(explore.contains("source --limit/--offset"));
+        assertTrue(explore.contains("state or lifecycle"));
+        assertTrue(explore.contains("resolve exact methods first"));
+        assertTrue(explore.contains("needs no extra page"));
     }
 
     @Test

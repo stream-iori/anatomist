@@ -1,1 +1,1 @@
-ERROR: --package requires --enrich
+ERROR: MISSING_STREAM_EVIDENCE: input ended without final stream evidence

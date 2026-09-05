@@ -64,7 +64,9 @@ public final class DeclarationQueryService {
     public List<DeclarationRow> find(String file, String module, String scope, Set<String> visibility,
                                      Set<String> kinds, boolean topLevelTypes, boolean directMembers,
                                      boolean includeSynthetic, int limit, int offset) {
-        Query query = build("SELECT symbol_id,qualified_name,label,kind,declaration_kind,type_kind,visibility,"
+        Query query = build("SELECT (SELECT n.id FROM nodes n WHERE n.symbol_id=d.symbol_id "
+                + "AND n.module=d.module AND n.scope=d.scope AND n.source_file=d.source_file LIMIT 1),"
+                + "symbol_id,qualified_name,label,kind,declaration_kind,type_kind,visibility,"
                 + "modifiers,declared_modifiers,implicit_modifiers,declaring_type,source_file,source_location,module,"
                 + "scope,nesting_depth,direct_member,synthetic,producer_id,"
                 + "(SELECT json_extract(n.metadata,'$.lombok') FROM nodes n "
@@ -134,7 +136,8 @@ public final class DeclarationQueryService {
 
     private static DeclarationRow row(ResultSet rows) throws SQLException {
         DeclarationRow out = new DeclarationRow(); int i = 1;
-        out.symbolId = rows.getString(i++); out.qualifiedName = rows.getString(i++); out.label = rows.getString(i++);
+        out.nodeId = rows.getString(i++); out.symbolId = rows.getString(i++);
+        out.qualifiedName = rows.getString(i++); out.label = rows.getString(i++);
         out.kind = rows.getString(i++); out.declarationKind = rows.getString(i++); out.typeKind = rows.getString(i++);
         out.visibility = rows.getString(i++); out.modifiers = strings(rows.getString(i++));
         out.declaredModifiers = strings(rows.getString(i++)); out.implicitModifiers = strings(rows.getString(i++));

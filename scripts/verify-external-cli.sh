@@ -71,48 +71,48 @@ echo
 echo "| Check | Result |"
 echo "|---|---|"
 
-out="$(run_cli implementors-of SettleApplyServiceV3 --recursive)"
+out="$(run_cli search SettleApplyServiceV3 --kind type | run_cli resolve --unique | run_cli runtime-implementations)"
 assert_contains "SettleApplyServiceV3 facade" "$out" "SettleApplyServiceV3Impl"
 printf '| %-34s | PASS |\n' "SettleApplyServiceV3 facade"
 
-out="$(run_cli implementors-of SettleTaskExecuteService --recursive)"
+out="$(run_cli search SettleTaskExecuteService --kind type | run_cli resolve --unique | run_cli runtime-implementations)"
 assert_contains "SettleTaskExecuteService facade" "$out" "SettleTaskExecuteServiceImpl"
 printf '| %-34s | PASS |\n' "SettleTaskExecuteService facade"
 
-out="$(run_cli implementors-of ReconHandler --recursive)"
+out="$(run_cli search ReconHandler --kind type | run_cli resolve --unique | run_cli runtime-implementations)"
 assert_contains "ReconHandler implementation" "$out" "AbstractReconHandler"
 assert_contains "ReconHandler implementation" "$out" "ReconDetailCompareHandler"
 assert_contains "ReconHandler implementation" "$out" "ReconDetailConfirmHandler"
 printf '| %-34s | PASS |\n' "ReconHandler implementors"
 
-out="$(run_cli context ReconHandler --with-callees=2)"
+out="$(run_cli resolve ReconHandler --kind type --unique | run_cli runtime-implementations)"
 assert_contains "ReconHandler call graph" "$out" "AbstractReconHandler#handle"
 assert_contains "ReconHandler call graph" "$out" "ReconDetailCompareHandler#doHandle"
 assert_contains "ReconHandler call graph" "$out" "ReconDetailConfirmHandler#doHandle"
 printf '| %-34s | PASS |\n' "ReconHandler call graph"
 
-out="$(run_cli call-path TrafficEngineExecutor#execute TrafficSettleEngineDAO#queryEngineById --depth 3 --source-window=1)"
-assert_contains "TrafficEngineExecutor DAO path" "$out" '"found" : true'
+out="$(run_cli resolve TrafficEngineExecutor#execute --kind callable | run_cli trace --to TrafficSettleEngineDAO#queryEngineById --max-depth 3 --dispatch possible)"
+assert_contains "TrafficEngineExecutor DAO path" "$out" 'trace_step'
 assert_contains "TrafficEngineExecutor DAO path" "$out" "queryEngineById"
-printf '| %-34s | PASS |\n' "DAO forward call-path"
+printf '| %-34s | PASS |\n' "DAO forward trace"
 
-out="$(run_cli used-by TrafficSettleEngineDAO --limit 80)"
+out="$(run_cli resolve TrafficSettleEngineDAO --kind type --unique | run_cli references --direction incoming --limit 80)"
 assert_contains "TrafficSettleEngineDAO reverse lookup" "$out" "queryEngineById"
 assert_contains "TrafficSettleEngineDAO reverse lookup" "$out" "updateEngineById"
 assert_contains "TrafficSettleEngineDAO reverse lookup" "$out" "selectByDateAndStatus"
 assert_contains "TrafficSettleEngineDAO reverse lookup" "$out" "insert"
-printf '| %-34s | PASS |\n' "DAO reverse used-by"
+printf '| %-34s | PASS |\n' "DAO reverse references"
 
-out="$(run_cli deps-of TrafficEngineExecutor --filter TrafficSettleEngineDAO --limit 80)"
+out="$(run_cli resolve TrafficEngineExecutor --kind type --unique | run_cli members --recursive --limit 200 | run_cli references --direction outgoing --limit 80)"
 assert_contains "TrafficEngineExecutor DAO deps" "$out" "queryEngineById"
 assert_contains "TrafficEngineExecutor DAO deps" "$out" "updateEngineById"
-printf '| %-34s | PASS |\n' "DAO deps-of"
+printf '| %-34s | PASS |\n' "DAO outgoing references"
 
-out="$(run_cli field-access com.ipay.trafficcompare.engine.TrafficEngineExecutor#trafficSettleEngineDAO --limit 50)"
-assert_contains "TrafficEngineExecutor DAO field reads" "$out" '"relation" : "READS"'
+out="$(run_cli resolve com.ipay.trafficcompare.engine.TrafficEngineExecutor#trafficSettleEngineDAO --kind value --unique | run_cli accesses --limit 50)"
+assert_contains "TrafficEngineExecutor DAO field reads" "$out" 'access_site'
 assert_contains "TrafficEngineExecutor DAO field reads" "$out" "execute"
 assert_contains "TrafficEngineExecutor DAO field reads" "$out" "checkAndUpdateEngineExecuteResult"
-printf '| %-34s | PASS |\n' "DAO field-access"
+printf '| %-34s | PASS |\n' "DAO accesses"
 
 echo
 echo "external CLI verification PASSED"

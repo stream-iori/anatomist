@@ -1,13 +1,18 @@
 # Branch decision guide
 
-Use `branches-of` to discover calls and field accesses physically contained in
-branch-like source blocks. Use the branch filters on `callees-of`, `callers-of`,
-`field-access`, `deps-of`, or `used-by` after the owner or target is known.
+Use one real semantic pipeline:
 
-Read the selected command's `--help`, request a small source window, and inspect the
-returned control context before explaining the condition. Use loop filtering only
-for edges physically contained in loops.
+```text
+resolve '<exact-callable>' --kind callable --exact --unique
+  | regions --kind branch
+  | sites-in --record all
+  | source
+```
 
-Branch results locate indexed edges inside syntax blocks. They do not prove path
-feasibility, business semantics, or runtime execution. A missing branch-contained
-edge is not proof that no runtime branch exists.
+`regions` derives lightweight syntax contexts; `sites-in` returns calls and accesses
+physically inside them. Use `--record call_site` or `access_site` to narrow results.
+Inspect source before explaining the condition.
+
+These facts do not prove path feasibility, business meaning, or runtime execution.
+A missing site is conclusive only when the final stream evidence is complete and
+negative-safe.

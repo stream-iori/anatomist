@@ -165,9 +165,13 @@ public class DataReader {
         Set<String> out = new LinkedHashSet<>();
         if (nodeIds == null || nodeIds.isEmpty()) return out;
         try (PreparedStatement ps = conn().prepareStatement(
-                "SELECT DISTINCT source_file FROM edges WHERE target_id=? AND source_file IS NOT NULL")) {
+                "SELECT source_file FROM edges WHERE target_id=? AND source_file IS NOT NULL UNION "
+                        + "SELECT cso.source_file FROM call_site_targets cst "
+                        + "JOIN call_sites cs ON cs.site_pk=cst.call_site_pk "
+                        + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk WHERE cst.target_id=?")) {
             for (String nodeId : nodeIds) {
                 ps.setString(1, nodeId);
+                ps.setString(2, nodeId);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) out.add(rs.getString(1));
                 }
@@ -184,10 +188,19 @@ public class DataReader {
         String indexedSql = "SELECT e.source_file FROM edges e "
                 + "WHERE e.target_id=? AND e.source_file IS NOT NULL UNION "
                 + "SELECT e.source_file FROM edges e WHERE e.target_id>=? AND e.target_id<? "
-                + "AND e.source_file IS NOT NULL";
+                + "AND e.source_file IS NOT NULL UNION "
+                + "SELECT cso.source_file FROM call_site_targets cst JOIN call_sites cs "
+                + "ON cs.site_pk=cst.call_site_pk JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "WHERE cst.target_id=? UNION "
+                + "SELECT cso.source_file FROM call_site_targets cst JOIN call_sites cs "
+                + "ON cs.site_pk=cst.call_site_pk JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "WHERE cst.target_id>=? AND cst.target_id<?";
         String fallbackSql = "SELECT DISTINCT e.source_file FROM edges e "
                 + "WHERE (e.target_id=? OR substr(e.target_id,1,length(?))=?) "
-                + "AND e.source_file IS NOT NULL";
+                + "AND e.source_file IS NOT NULL UNION SELECT DISTINCT cso.source_file "
+                + "FROM call_site_targets cst JOIN call_sites cs ON cs.site_pk=cst.call_site_pk "
+                + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "WHERE cst.target_id=? OR substr(cst.target_id,1,length(?))=?";
         try (PreparedStatement indexed = conn().prepareStatement(indexedSql);
              PreparedStatement fallback = conn().prepareStatement(fallbackSql)) {
             for (String ownerId : ownerIds) {
@@ -197,6 +210,9 @@ public class DataReader {
                 ps.setString(1, ownerId);
                 ps.setString(2, memberPrefix);
                 ps.setString(3, upper == null ? memberPrefix : upper);
+                ps.setString(4, ownerId);
+                ps.setString(5, memberPrefix);
+                ps.setString(6, upper == null ? memberPrefix : upper);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) out.add(rs.getString(1));
                 }
@@ -210,10 +226,17 @@ public class DataReader {
     public Set<String> sourceFilesMatchingExternalTargets(Set<String> logicalPrefixes) {
         Set<String> out = new LinkedHashSet<>();
         if (logicalPrefixes == null || logicalPrefixes.isEmpty()) return out;
-        String indexedSql = "SELECT DISTINCT source_file FROM edges WHERE is_external=1 "
-                + "AND external_target_fqn>=? AND external_target_fqn<? AND source_file IS NOT NULL";
-        String fallbackSql = "SELECT DISTINCT source_file FROM edges WHERE is_external=1 "
-                + "AND substr(external_target_fqn,1,length(?))=? AND source_file IS NOT NULL";
+        String indexedSql = "SELECT source_file FROM edges WHERE is_external=1 "
+                + "AND external_target_fqn>=? AND external_target_fqn<? AND source_file IS NOT NULL UNION "
+                + "SELECT cso.source_file FROM call_site_targets cst JOIN call_sites cs "
+                + "ON cs.site_pk=cst.call_site_pk JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "WHERE cst.external_target_fqn>=? "
+                + "AND cst.external_target_fqn<?";
+        String fallbackSql = "SELECT source_file FROM edges WHERE is_external=1 "
+                + "AND substr(external_target_fqn,1,length(?))=? AND source_file IS NOT NULL UNION "
+                + "SELECT cso.source_file FROM call_site_targets cst JOIN call_sites cs "
+                + "ON cs.site_pk=cst.call_site_pk JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "WHERE substr(cst.external_target_fqn,1,length(?))=?";
         try (PreparedStatement indexed = conn().prepareStatement(indexedSql);
              PreparedStatement fallback = conn().prepareStatement(fallbackSql)) {
             for (String prefix : logicalPrefixes) {
@@ -221,6 +244,8 @@ public class DataReader {
                 PreparedStatement ps = upper == null ? fallback : indexed;
                 ps.setString(1, prefix);
                 ps.setString(2, upper == null ? prefix : upper);
+                ps.setString(3, prefix);
+                ps.setString(4, upper == null ? prefix : upper);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) out.add(rs.getString(1));
                 }
@@ -235,10 +260,14 @@ public class DataReader {
         Set<String> out = new LinkedHashSet<>();
         if (logicalTargets == null || logicalTargets.isEmpty()) return out;
         try (PreparedStatement ps = conn().prepareStatement(
-                "SELECT DISTINCT source_file FROM edges WHERE is_external=1 "
-                        + "AND external_target_fqn=? AND source_file IS NOT NULL")) {
+                "SELECT source_file FROM edges WHERE is_external=1 "
+                        + "AND external_target_fqn=? AND source_file IS NOT NULL UNION "
+                        + "SELECT cso.source_file FROM call_site_targets cst JOIN call_sites cs "
+                        + "ON cs.site_pk=cst.call_site_pk JOIN call_site_owners cso "
+                        + "ON cso.owner_pk=cs.owner_pk WHERE cst.external_target_fqn=?")) {
             for (String target : logicalTargets) {
                 ps.setString(1, target);
+                ps.setString(2, target);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) out.add(rs.getString(1));
                 }
@@ -504,6 +533,9 @@ public class DataReader {
         try (Statement st = conn().createStatement();
              ResultSet rs = st.executeQuery("SELECT relation, COUNT(*) FROM edges GROUP BY relation")) {
             while (rs.next()) counts.put(rs.getString(1), rs.getLong(2));
+            try (ResultSet calls = st.executeQuery("SELECT COUNT(*) FROM call_site_targets")) {
+                if (calls.next()) counts.put(GraphConstants.Relation.CALLS, calls.getLong(1));
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to query relation counts", e);
         }

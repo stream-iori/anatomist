@@ -142,7 +142,7 @@ public class IndexOrchestrator {
             promotion = staging.promoteFull(store);
             stopTiming(timings, "full_stage_promote", phaseStarted);
             if (timings != null) {
-                timings.addNanos("call_site_projection", promotion.callSiteProjectionNanos());
+                timings.addNanos("call_site_persistence", promotion.callSitePersistenceNanos());
                 // Compatibility aliases retained for existing timing consumers.
                 timings.addNanos("full_write_nodes", 0L);
                 timings.addNanos("full_write_edges", 0L);

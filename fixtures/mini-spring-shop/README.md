@@ -34,7 +34,7 @@ OrderRepository
   │   └─ AuditedOrderRepository     [recursive INHERITS]
 ```
 
-该链路用于覆盖 `implementors-of OrderRepository --recursive`。
+该链路用于覆盖 `resolve OrderRepository | runtime-implementations`。
 
 ## 构建 / 测试
 
@@ -54,10 +54,12 @@ anatomist index fixtures/mini-spring-shop \
   --java-version 8 \
   --project-source "domain/src/main/java:service/src/main/java:api/src/main/java"
 
-# 查询调用链
-anatomist callees-of \
+# 查询直接调用和静态派发候选
+anatomist resolve \
   "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)" \
-  --depth 5 --format json
+  --kind callable --exact --unique |
+  anatomist calls |
+  anatomist dispatch
 ```
 
 ## 注意事项

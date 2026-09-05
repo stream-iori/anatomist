@@ -5,6 +5,7 @@ import java.util.Map;
 
 /** Public JSON contract for declarations-of. */
 public class DeclarationRow {
+    public String nodeId;
     public String symbolId;
     public String qualifiedName;
     public String label;

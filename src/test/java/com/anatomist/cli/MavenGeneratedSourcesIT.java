@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.sql.DriverManager;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MavenGeneratedSourcesIT {
@@ -41,7 +42,7 @@ class MavenGeneratedSourcesIT {
         assertNode(db, "p.Noise", "app", "GENERATED", 0);
         RunResult mainSearch = run(db, "search", "GeneratedOne");
         assertEquals(0, mainSearch.exitCode(), mainSearch.stderr());
-        assertTrue(mainSearch.stdout().contains("\"total\" : 0"), mainSearch.stdout());
+        assertFalse(mainSearch.stdout().contains("p.GeneratedOne"), mainSearch.stdout());
         RunResult generatedSearch = run(db, "search", "GeneratedOne", "--scope", "GENERATED");
         assertEquals(0, generatedSearch.exitCode(), generatedSearch.stderr());
         assertTrue(generatedSearch.stdout().contains("p.GeneratedOne"), generatedSearch.stdout());

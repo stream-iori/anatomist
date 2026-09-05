@@ -1,20 +1,16 @@
 # Spring decision guide
 
-Use `context`, `deps-of`, and `used-by` for annotation-driven handlers, injection,
-wiring, and definitions. Use `bean-config` when XML map keys, list order, nested
-values, references, or constructor/property structure matters.
+| Need | Pipeline |
+|---|---|
+| MVC handler annotations | `search | resolve | annotations` |
+| Injection/config bindings | `search | resolve | bindings` |
+| XML ordered/nested structure | `search --kind artifact | resolve --unique | members --recursive` |
+| Java impact from configured types | `resolve | references` plus `bindings` evidence |
 
-Read the selected query command's `--help`. Before trusting completeness, confirm
-that the existing index profile includes the required classpath and Spring XML
-coverage; preserve that profile through the incremental gate.
+Confirm the index profile includes classpath and `--spring-xml` when needed, then keep
+that profile through incremental indexing. Qualifiers, profiles, conditions, proxies,
+generated code, and runtime configuration can change the actual object.
 
-Injection and wiring facts show static configuration relationships. Profiles,
-conditional beans, proxies, generated code, and runtime configuration can select a
-different path, so use runtime evidence for claims about what actually ran.
-
-MVC routes expand multiple class paths, method paths, and HTTP methods; route
-identity includes the handler, so group by the human route label when comparing
-duplicate endpoints. Injection facts include explicit injection and the common
-single-constructor component convention, with qualifiers in edge metadata.
-Page broad XML bean matches with `--limit`/`--offset` and narrow duplicates with
-`--module`/`--scope`.
+`INJECTS` and `WIRES` are static configuration facts. They may narrow dispatch
+candidates but never manufacture a source call site. Use logs/traces/runtime responses
+for claims about what actually ran.

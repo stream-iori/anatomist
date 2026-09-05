@@ -26,10 +26,10 @@ Interpret evidence conservatively:
 - Say an item is absent only when evidence confirms an empty result and marks a
   negative conclusion safe.
 - For bounded traversals, also require result, depth, and compute-budget
-  truncation signals to be clear. Follow suggested continuation queries when present.
+   truncation signals to be clear. Continue explicit limit/offset pages when needed.
 - Static paths describe possible source relationships, not runtime execution.
 - Use logs, traces, metrics, configuration, or runtime responses when the question
   asks what happened online.
 
-Prefer incremental synchronization. Build a fresh index only when no usable index
-exists or the reported schema/layout/profile transition requires rebuilding.
+Prefer incremental synchronization. For a 0.1x/schema/semantics mismatch, use explicit
+`index <project> --recreate`; 1.0 never silently deletes an incompatible index.

@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class IndexReplacementIT {
 
     @Test
-    void semanticsMismatchRecreatesAndDropsRenewableContent(@TempDir Path tmp) throws Exception {
+    void semanticsMismatchRequiresExplicitRecreateThenDropsRenewableContent(@TempDir Path tmp) throws Exception {
         Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
         Path database = tmp.resolve("index.db");
         indexOk(project, database);
@@ -34,7 +34,14 @@ class IndexReplacementIT {
                     + "WHERE key='graph_semantics_version'");
         }
 
-        var rebuilt = CliTestSupport.runIndex(project, "--incremental", "--no-classpath",
+        var rejected = CliTestSupport.runIndex(project, "--incremental", "--no-classpath",
+                "--output", database.toString(), "--format", "json");
+        assertEquals(3, rejected.exitCode(), rejected.stderr());
+        assertTrue(rejected.stderr().contains("rerun with --recreate"), rejected.stderr());
+        assertEquals(1, scalar(database, "SELECT count(*) FROM documents"));
+        assertEquals(1, scalar(database, "SELECT count(*) FROM semantic_annotations"));
+
+        var rebuilt = CliTestSupport.runIndex(project, "--recreate", "--no-classpath",
                 "--output", database.toString(), "--format", "json");
         assertEquals(0, rebuilt.exitCode(), rebuilt.stderr());
         Map<?, ?> rebuild = (Map<?, ?>) object(rebuilt.stdout()).get("rebuild");

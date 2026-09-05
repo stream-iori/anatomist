@@ -44,7 +44,7 @@ class RowMappersTest {
             t.pkg = "p"; t.sourceFile = "p/B.java"; t.sourceLocation = "L1"; t.scope = "MAIN";
             r.nodes.add(a); r.nodes.add(m); r.nodes.add(t);
             Edge e = new Edge();
-            e.sourceId = "p.A#run()"; e.targetId = "p.B#foo()"; e.relation = "CALLS";
+            e.sourceId = "p.A#run()"; e.targetId = "p.B#foo()"; e.relation = "REFERENCES";
             e.callKind = "INSTANCE"; e.isExternal = false; e.context = "loop";
             e.metadata = "{\"lombok_usage\":{\"status\":\"usage-observed\",\"mapping_status\":\"mapped\"}}";
             e.sourceFile = "p/A.java"; e.sourceLocation = "L2";
@@ -59,7 +59,7 @@ class RowMappersTest {
         Path db = freshDb(tmp);
         String sql = "SELECT " + RowMappers.edgeColsFlat("1")
                 + RowMappers.EDGE_FROM_JOINS
-                + " WHERE e.relation = 'CALLS'";
+                + " WHERE e.relation = 'REFERENCES'";
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -67,7 +67,7 @@ class RowMappersTest {
             EdgeRow row = RowMappers.mapEdge(rs);
             assertEquals("p.A#run()", row.source);
             assertEquals("p.B#foo()", row.target);
-            assertEquals("CALLS", row.relation);
+            assertEquals("REFERENCES", row.relation);
             assertEquals("INSTANCE", row.callKind);
             assertFalse(row.isExternal);
             assertEquals(1, row.depth);
@@ -111,7 +111,7 @@ class RowMappersTest {
                 + "  SELECT e.source_id, e.target_id, e.external_target_fqn, e.relation,"
                 + "         e.call_kind, e.confidence, e.resolution, e.is_external, e.source_file,"
                 + "         e.source_location, e.context, e.metadata, e.producer_id, 1 AS depth"
-                + "    FROM edges e WHERE e.relation='CALLS'"
+                + "    FROM edges e WHERE e.relation='REFERENCES'"
                 + ") SELECT " + RowMappers.EDGE_COLS_CHAIN
                 + "    FROM chain c "
                 + "    LEFT JOIN nodes src ON c.source_id = src.id "

@@ -69,7 +69,9 @@ class AgentContractIT {
     void removedDataflowCommandsAndIndexOptionsFailParsing() {
         for (String command : List.of(
                 "flow-materialize", "flow-of", "flow-path", "flow-summary",
-                "guards-of", "exception-flow", "taint-path")) {
+                "guards-of", "exception-flow", "taint-path", "context", "callees-of",
+                "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of",
+                "deps-of", "used-by", "field-access", "call-path", "survey-baseline")) {
             RunResult result = runCli(command);
             assertEquals(2, result.exitCode, command);
         }
@@ -97,17 +99,18 @@ class AgentContractIT {
         assertEquals(Boolean.TRUE, json.get("index_exists"));
         assertTrue(((List<?>) json.get("commands")).contains("search"));
         assertTrue(((List<?>) json.get("commands")).contains("skill"));
-        assertTrue(((List<?>) json.get("commands")).contains("survey-baseline"));
-        assertTrue(((List<?>) json.get("commands")).contains("branches-of"));
+        assertTrue(((List<?>) json.get("commands")).contains("overview"));
+        assertFalse(((List<?>) json.get("commands")).contains("branches-of"));
         assertFalse(((List<?>) json.get("commands")).contains("flow-materialize"));
-        assertTrue(((List<?>) json.get("commands")).contains("bean-config"));
+        assertFalse(((List<?>) json.get("commands")).contains("bean-config"));
         assertFalse(((List<?>) json.get("commands")).contains("watch"));
         assertFalse(((List<?>) json.get("commands")).contains("export"));
         assertTrue(((List<?>) json.get("capabilities")).contains("branch-context-slices"));
         assertTrue(((List<?>) json.get("capabilities")).contains("spring-xml-config-tree"));
         assertTrue(((List<?>) json.get("capabilities")).contains("source-snapshot-fingerprint"));
-        assertTrue(((List<?>) json.get("capabilities")).contains("context-source-view-v2"));
-        assertTrue(((List<?>) json.get("capabilities")).contains("json-query-output-v2"));
+        assertFalse(((List<?>) json.get("capabilities")).contains("context-source-view-v2"));
+        assertFalse(((List<?>) json.get("capabilities")).contains("json-query-output-v2"));
+        assertEquals("semantic-stream/v1", json.get("query_contract"));
         assertEquals(com.anatomist.core.GraphSemantics.VERSION,
                 ((Number) json.get("graph_semantics_version")).intValue());
         assertTrue(((List<?>) json.get("capabilities")).contains("core-reflection"));
@@ -321,22 +324,6 @@ class AgentContractIT {
     }
 
     @Test
-    void surveyBaselineRejectsIndexFromDifferentProject(@TempDir Path tmp) throws Exception {
-        Path db = buildFixtureIndex(tmp, false);
-        Path other = Files.createDirectories(tmp.resolve("other-project"));
-
-        RunResult r = runCli("survey-baseline", other.toString(),
-                "--format", "json", "--index", db.toString());
-
-        assertEquals(2, r.exitCode, r.stderr);
-        Map<?, ?> json = asObject(r.stdout);
-        assertEquals("error", json.get("status"));
-        assertEquals("INDEX_PROJECT_MISMATCH", json.get("error"));
-        assertEquals(other.toRealPath().toString(), json.get("project_path"));
-        assertEquals(fixture().toRealPath().toString(), json.get("index_source_root"));
-    }
-
-    @Test
     void strictHealthReturnsNonZeroForPersistedDegradedIndex(@TempDir Path tmp) throws Exception {
         Path db = buildFixtureIndex(tmp, false);
         try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
@@ -351,10 +338,6 @@ class AgentContractIT {
         assertEquals(3, doctor.exitCode, doctor.stderr);
         assertEquals("degraded", asObject(doctor.stdout).get("health"));
 
-        RunResult survey = runCli("survey-baseline", "--strict-health", "--format", "json",
-                "--index", db.toString());
-        assertEquals(3, survey.exitCode, survey.stderr);
-        assertEquals("degraded", asObject(survey.stdout).get("health"));
     }
 
     @Test
@@ -393,41 +376,6 @@ class AgentContractIT {
     }
 
     @Test
-    void queryEvidenceDisclosesIndeterminateEmptyWithoutChangingExitCode(@TempDir Path tmp)
-            throws Exception {
-        Path db = buildFixtureIndex(tmp, false);
-        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
-             var statement = connection.createStatement()) {
-            statement.executeUpdate("INSERT INTO index_diagnostics"
-                    + "(severity,code,phase,source_file,module,scope,occurrence_count,sample) VALUES "
-                    + "('warning','THIRDPARTY_SYMBOL_MISSING','full_extract_call_graph',"
-                    + "'service/src/main/java/example/Unknown.java','service','MAIN',2,'missing')");
-            statement.executeUpdate("""
-                    INSERT INTO analysis_coverage(
-                      source_file,module,scope,capability,status,occurrences,
-                      groups_count,codes,code_counts,details_truncated)
-                    VALUES ('service/src/main/java/example/Unknown.java','service','MAIN',
-                      'CALL_INCOMING','partial',2,1,
-                      '["THIRDPARTY_SYMBOL_MISSING"]',
-                      '{"THIRDPARTY_SYMBOL_MISSING":2}',0)
-                    ON CONFLICT(source_file,module,scope,capability) DO UPDATE SET
-                      status=excluded.status, occurrences=excluded.occurrences,
-                      groups_count=excluded.groups_count, codes=excluded.codes,
-                      code_counts=excluded.code_counts
-                    """);
-        }
-
-        RunResult callers = runCli("callers-of",
-                "com.example.shop.domain.dto.OrderResult#getFinalPrice()",
-                "--index", db.toString());
-        assertEquals(0, callers.exitCode, callers.stderr);
-        Map<?, ?> evidence = (Map<?, ?>) asObject(callers.stdout).get("evidence");
-        assertEquals("indeterminate", evidence.get("status"));
-        assertEquals("QUERY_COVERAGE_INCOMPLETE", evidence.get("code"));
-        assertEquals(Boolean.FALSE, evidence.get("negative_conclusion_safe"));
-    }
-
-    @Test
     void doctorRejectsCompatibleButEmptyIndex(@TempDir Path tmp) throws Exception {
         Path db = tmp.resolve("empty.db");
         try (SqliteStore store = new SqliteStore(db)) {
@@ -457,29 +405,6 @@ class AgentContractIT {
 
         assertEquals(2, doctor.exitCode, doctor.stderr);
         assertTrue(doctor.stderr.contains("complete-policy alias"));
-    }
-
-    @Test
-    void beanConfigJson_reportsSpringXmlConfigTree(@TempDir Path tmp) throws Exception {
-        Path db = buildFixtureIndex(tmp, true);
-
-        RunResult r = runCli("bean-config", "orderService",
-                "--property", "eventPublisher",
-                "--format", "json",
-                "--index", db.toString());
-        assertEquals(0, r.exitCode, r.stderr);
-        Map<?, ?> json = asObject(r.stdout);
-        List<?> results = (List<?>) json.get("results");
-        assertFalse(results.isEmpty());
-        Map<?, ?> bean = (Map<?, ?>) results.get(0);
-        List<?> children = (List<?>) bean.get("children");
-        assertEquals(1, children.size());
-        Map<?, ?> property = (Map<?, ?>) children.get(0);
-        assertEquals("property", property.get("xmlKind"));
-        assertEquals("eventPublisher", property.get("name"));
-        List<?> refs = (List<?>) property.get("children");
-        assertEquals("ref", ((Map<?, ?>) refs.get(0)).get("xmlKind"));
-        assertEquals("orderEventPublisher", ((Map<?, ?>) refs.get(0)).get("bean"));
     }
 
     @Test

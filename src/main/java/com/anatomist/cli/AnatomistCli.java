@@ -8,7 +8,7 @@ import picocli.CommandLine.HelpCommand;
         name = "anatomist",
         mixinStandardHelpOptions = true,
         versionProvider = BuildVersionProvider.class,
-        description = "Java code intelligence tool — indexes source into SQLite for structural/semantic queries.",
+        description = "Java code intelligence tool with a semantic-stream/v1 query contract.",
         header = {
                 "",
                 "@|bold anatomist|@ — Java code intelligence for Agent LLMs",
@@ -21,19 +21,14 @@ import picocli.CommandLine.HelpCommand;
                 "  anatomist skill topics                   Choose Agent task guidance",
                 "  anatomist doctor --format json            Check CLI/schema/index",
                 "  anatomist index . --format json           Build index JSON summary",
-                "  anatomist survey-baseline . --format json Structural baseline",
-                "  anatomist search OrderService             Find nodes by name",
+                "  anatomist overview                       Structural baseline",
+                "  anatomist search OrderService             Find entity candidates",
                 "  anatomist resolve 'Class#method()' --kind callable --exact --unique |",
                 "    anatomist calls | anatomist dispatch | anatomist source",
-                "  anatomist callees-of Class#method         Show outgoing calls",
-                "  anatomist callees-of Class#method --source-window=3",
-                "  anatomist branches-of Class#method --source-window=3",
-                "  anatomist bean-config FilterRegistry --property filters",
-                "  anatomist context com.example.MyClass     Type overview + members",
                 "  anatomist declarations-of --file src/main/java/com/example/MyClass.java",
                 "",
                 "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",
-                "@|bold Output:|@   Existing queries default to v2 JSON; semantic sources use --format ndjson.",
+                "@|bold Output:|@   Query commands emit semantic-stream/v1; NDJSON is the default.",
                 ""
         },
         commandListHeading = "%n@|bold Commands:|@%n",
@@ -60,20 +55,8 @@ import picocli.CommandLine.HelpCommand;
                 SitesInCommand.class,
                 TraceCommand.class,
                 SourceCommand.class,
-                ContextCommand.class,
                 DeclarationsOfCommand.class,
-                CalleesOfCommand.class,
-                CallersOfCommand.class,
-                BranchesOfCommand.class,
-                BeanConfigCommand.class,
-                HierarchyCommand.class,
-                ImplementorsOfCommand.class,
-                DepsOfCommand.class,
-                UsedByCommand.class,
-                FieldAccessCommand.class,
-                CallPathCommand.class,
                 OverviewCommand.class,
-                SurveyBaselineCommand.class,
                 AnnotateCommand.class,
                 DoctorCommand.class
         }
@@ -133,20 +116,8 @@ public class AnatomistCli implements Runnable {
             case "sites-in" -> new SitesInCommand();
             case "trace" -> new TraceCommand();
             case "source" -> new SourceCommand();
-            case "context" -> new ContextCommand();
             case "declarations-of" -> new DeclarationsOfCommand();
-            case "callees-of" -> new CalleesOfCommand();
-            case "callers-of" -> new CallersOfCommand();
-            case "branches-of" -> new BranchesOfCommand();
-            case "bean-config" -> new BeanConfigCommand();
-            case "hierarchy" -> new HierarchyCommand();
-            case "implementors-of" -> new ImplementorsOfCommand();
-            case "deps-of" -> new DepsOfCommand();
-            case "used-by" -> new UsedByCommand();
-            case "field-access" -> new FieldAccessCommand();
-            case "call-path" -> new CallPathCommand();
             case "overview" -> new OverviewCommand();
-            case "survey-baseline" -> new SurveyBaselineCommand();
             case "annotate" -> new AnnotateCommand();
             case "doctor" -> new DoctorCommand();
             default -> null;
@@ -155,7 +126,7 @@ public class AnatomistCli implements Runnable {
 
     @Command(name = "anatomist", mixinStandardHelpOptions = true,
             versionProvider = BuildVersionProvider.class,
-            description = "Java code intelligence tool — indexes source into SQLite for structural/semantic queries.")
+            description = "Java code intelligence tool with a semantic-stream/v1 query contract.")
     private static final class RuntimeRoot implements Runnable {
         @Override public void run() { }
     }

@@ -1,153 +1,55 @@
 # Getting Started
 
-## Install (pre-built binary)
+## 安装
 
-One-line install for macOS Apple Silicon:
+macOS Apple Silicon 一键安装：
 
 ```bash
 curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | sh -s -- --components anatomist
+anatomist --version
 ```
 
-This downloads the native binary to `~/.local/bin/anatomist`. Custom install path:
+默认安装到 `~/.local/bin/anatomist`，并为支持的 Agent 客户端安装同版本 `SKILL.md`。可用 `ANATOMIST_INSTALL_DIR` 改目录，用 `DIORAMA_CLIENTS=codex` 只安装指定客户端，用 `ANATOMIST_INSTALL_SKILL=0` 跳过 skill。
 
-```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_INSTALL_DIR=/usr/local/bin sh -s -- --components anatomist
-```
+GitHub Release 资产：
 
-After install, ensure `~/.local/bin` is in your PATH (the script will remind you if not).
-
-The installer also downloads `anatomist/SKILL.md` and installs it for common agent clients:
-
-| Client | Skill path |
-|--------|------------|
-| Qoder | `~/.qoder/skills/anatomist/SKILL.md` |
-| Codex | `${CODEX_HOME:-~/.codex}/skills/anatomist/SKILL.md` |
-
-Install only selected clients:
-
-```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  DIORAMA_CLIENTS="codex" sh -s -- --components anatomist
-```
-
-Skip skill install:
-
-```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  ANATOMIST_INSTALL_SKILL=0 sh -s -- --components anatomist
-```
-
-## Install from GitHub Releases
-
-GitHub release assets are published at `stream-iori/anatomist`:
-
-| Platform | Asset |
-|----------|-------|
+| 平台 | 资产 |
+|---|---|
 | macOS Apple Silicon | `anatomist-darwin-aarch64` |
 | Linux amd64 | `anatomist-linux-amd64` |
-| JVM fallback | `anatomist.jar` |
+| JVM | `anatomist.jar` |
 
-macOS Apple Silicon:
-
-```bash
-curl -Lo anatomist \
-  https://github.com/stream-iori/anatomist/releases/latest/download/anatomist-darwin-aarch64
-chmod +x anatomist
-./anatomist --version
-```
-
-Linux amd64:
+源码构建需要 JDK/GraalVM 25、Maven 3.9+ 和 `just`：
 
 ```bash
-curl -Lo anatomist \
-  https://github.com/stream-iori/anatomist/releases/latest/download/anatomist-linux-amd64
-chmod +x anatomist
-./anatomist --version
+just jar       # target/anatomist.jar
+just native    # target/anatomist
 ```
 
-## Skill installation
-
-The versioned skill path is selected from the unified release manifest, so use
-the installer instead of the former flat `anatomist/SKILL.md` URL:
+## 建立索引
 
 ```bash
-curl -fsSL http://6.12.3.250:8100/dist-bin/install.sh | \
-  DIORAMA_CLIENTS="codex" sh -s -- --components anatomist
-```
-
-For a custom mirror, use `--mirror http://your-mirror/dist-bin`. The manifest
-and the selected skill must come from the same mirror/version.
-
-The skill file must keep Codex-compatible YAML frontmatter:
-
-```yaml
----
-name: anatomist
-description: Use when analyzing Java code structure with anatomist.
----
-```
-
-The installed `SKILL.md` is only a compact bootstrap. Task guidance ships inside
-the same-version binary:
-
-```bash
-anatomist skill topics
-anatomist skill core
-```
-
-Use `skill` to choose the workflow and evidence boundary; use the selected
-command's `--help` for exact syntax and defaults.
-
-## Build from source
-
-### Prerequisites
-
-- JDK 25+; use the GraalVM 25 version pinned by `.sdkmanrc` for native builds
-- Maven 3.9+
-- `just` task runner (`brew install just`)
-
-### Build
-
-```bash
-just jar          # → target/anatomist.jar (fat JVM jar)
-just native       # → target/anatomist (native binary, requires GraalVM)
-```
-
-## Index a project
-
-```bash
-# Index the bundled example fixture
 anatomist index fixtures/mini-spring-shop \
-    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
-    --no-classpath \
-    --output /tmp/shop.db
+  --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
+  --no-classpath --output /tmp/shop.db
 
-# Index a real Maven project (auto-detects classpath)
-anatomist index /path/to/your/project --output /tmp/project.db
+anatomist doctor --agent-preflight --format json --index /tmp/shop.db
 ```
 
-Key flags:
-- `--project-source` — colon-separated source roots (relative to project path)
-- `--no-classpath` — skip Maven dependency resolution (faster, loses external type info)
-- `--output` — SQLite database path (default: `$ANATOMIST_HOME/indexes/<repo-key>/index.db`; `$ANATOMIST_HOME` defaults to `~/.anatomist`)
-- `--incremental` — only re-parse changed files
-- `--spring-xml` — include Spring XML `<beans>` wiring facts
-- `--lombok off|ast` — opt in to common Lombok AST signatures; query results disclose modeled, partial, and unmodeled capabilities
-- `--timings` — show per-phase costs without changing default output
-- `--health-policy integrity` — reject incomplete parse/graph snapshots while
-  allowing disclosed third-party resolution gaps
-- `--jdk-home` — local JDK home for native-image catalog resolution; defaults
-  to `ANATOMIST_JDK_HOME` when set
-- `--scan-scope MAIN|TEST|GENERATED` — repeatable source-root scope selector
-- `--scan-include <glob>` / `--scan-exclude <glob>` — repeatable
-  project-relative file rules
+常用参数：
 
-### Configure scan scope
+| 参数 | 说明 |
+|---|---|
+| `--output` | SQLite 路径 |
+| `--incremental` | 只处理变化文件和受影响闭包 |
+| `--verify-content` | 不信任 mtime/size，重新计算文件 hash |
+| `--spring-xml` | 加入 Spring XML 静态配置 |
+| `--lombok ast` | 加入源码级 Lombok 签名证据 |
+| `--health-policy integrity` | parse/graph 不完整则拒绝提交 |
+| `--scan-scope/--scan-include/--scan-exclude` | 控制扫描范围 |
+| `--java-version/--jdk-home` | 目标语言版本和本地 JDK 类型目录 |
 
-The selected config is exactly one file: project
-`.anatomist/config.toml`, otherwise `~/.anatomist/config.toml`, otherwise
-built-in defaults. A project file replaces—not merges with—the user file.
+`.anatomist/config.toml`、用户配置、内置默认值三选一，不合并。完整配置见 [config.toml](config.toml)。
 
 ```toml
 [scan]
@@ -156,113 +58,77 @@ include = ["src/**"]
 exclude = ["**/*IT.java"]
 ```
 
-`**` crosses directories; `*` and `?` do not. `source_roots` may replace
-`scopes` for explicit `module@scope=path` mappings, but the two keys cannot be
-combined. Invalid config fails closed with exit code 2. On a policy change,
-`index --incremental` performs a full rebuild. Full details are in [the command reference](commands.md#configuration).
-
-Maven dependency classpaths are cached under
-`$ANATOMIST_HOME/cache/classpath` using the project POM files and Maven
-`settings.xml` as the fingerprint. Changing either invalidates the cache. For a
-legacy reactor that inherits a `jdk.tools/tools.jar` system dependency,
-anatomist retries Maven with a local JDK 8. Set
-`ANATOMIST_MAVEN_JAVA_HOME=/path/to/jdk` to override the Maven runtime without
-changing the JVM that runs anatomist.
-
-The native binary bundles a real Java 8 type catalog and does not download
-catalogs. To resolve a Java 9–25 target against its local JDK API, pass a
-matching path once; the generated catalog is cached under
-`$ANATOMIST_HOME/catalogs`:
+每次源码修改后，先通过索引门禁再查询：
 
 ```bash
-anatomist index /path/to/project --java-version 17 --jdk-home /path/to/jdk-17
+anatomist index . --incremental --health-policy integrity --format json --output /tmp/project.db &&
+anatomist doctor --agent-preflight --format json --index /tmp/project.db
 ```
 
-For every Agent query after local edits, use the explicit query gate:
+## 第一条查询管道
 
-```bash
-anatomist index fixtures/mini-spring-shop --incremental --health-policy integrity --format json --output /tmp/shop.db \
-  && anatomist search OrderService --index /tmp/shop.db
-```
-
-Use `--verify-content` on the index command when files may have been rewritten
-with restored timestamps. Reuse the source-root, scan-policy, classpath,
-Java-version, and Spring XML options from the initial index.
-Read query `evidence.status` before making a negative claim:
-`confirmed_empty` is conclusive; `indeterminate` is not.
-
-If `--timings` shows a slow `metadata_git` phase, check `doctor` and optionally
-enable Git's repository-local untracked cache yourself:
-
-```bash
-git config core.untrackedCache true
-```
-
-Anatomist only detects and recommends this setting; it does not change Git
-configuration or the Git index automatically.
-
-## Query the index
-
-Existing queries return a v2 JSON envelope. Semantic pipelines use NDJSON records.
-Pass the same `--index` to every process.
-
-```bash
-# Search by name
-anatomist search OrderService --index /tmp/shop.db
-
-# View class structure
-anatomist context com.example.shop.service.OrderService --index /tmp/shop.db
-
-# Read one exact method body, with snapshot-verified source evidence
-anatomist context 'com.example.shop.service.OrderService#createOrder(java.lang.String)' \
-    --source --index /tmp/shop.db
-
-# Trace call chain (3 levels deep)
-anatomist callees-of com.example.shop.service.OrderService#createOrder --depth 3 --index /tmp/shop.db
-
-# Impact analysis: who calls this method?
-anatomist callers-of com.example.shop.service.OrderService#createOrder --depth 2 --index /tmp/shop.db
-
-# Dependencies with pagination
-anatomist deps-of com.example.shop.service.OrderService --limit 20 --index /tmp/shop.db
-```
-
-## Output format
+把同一个 `--index` 传给每段：
 
 ```bash
 set -o pipefail
-anatomist search OrderService --kind type --format ndjson --index /tmp/shop.db |
-  anatomist resolve --unique --index /tmp/shop.db
+anatomist search OrderService --kind type --index /tmp/shop.db |
+  anatomist resolve --unique --index /tmp/shop.db |
+  anatomist members --recursive --index /tmp/shop.db
 ```
 
-`search` needs explicit `--format ndjson`; semantic-only downstream commands default
-to NDJSON and verify revision, profile, seed evidence, and final evidence.
+精确方法源码：
 
-Every query outputs a JSON envelope:
-
-```json
-{
-  "contract_version": 2,
-  "query": "deps-of OrderService --limit 20",
-  "results": [...],
-  "stats": {"total": 45, "offset": 0, "truncated": true}
-}
+```bash
+anatomist resolve \
+  'com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' \
+  --kind callable --exact --unique --index /tmp/shop.db |
+  anatomist source --limit 200 --index /tmp/shop.db
 ```
 
-Query JSON is a versioned projection, not a database-row dump. Version 2 omits
-default provenance and fields already represented by `source`, `target`, the
-parent node, or `source_range`.
+调用点、静态派发候选和源码：
 
-- `total` — full result count before pagination
-- `truncated` — whether there are more results on the current depth/page
-- `depth_truncated` — whether graph traversal can continue beyond the requested depth
-- Use `next_queries` to paginate, enlarge `--limit`, or increase `--depth`; follow
-  every applicable suggestion before treating results as exhaustive
+```bash
+anatomist resolve 'p.A#run()' --kind callable --exact --unique --index /tmp/project.db |
+  anatomist calls --direction outgoing --index /tmp/project.db |
+  anatomist dispatch --algorithm auto --index /tmp/project.db |
+  anatomist source --index /tmp/project.db
+```
 
-## Next steps
+## 如何读输出
 
-- [Architecture](architecture.md) — package layout, indexing pipeline, design constraints
-- [Data Model](data-model.md) — Node ID rules, edge semantics, metadata JSON
-- [Commands](commands.md) — full CLI reference
-- [Testing](testing.md) — how to run tests, fixture design
-- [Troubleshooting](troubleshooting.md) — indexing and environment diagnosis
+查询默认是 NDJSON。典型流：
+
+```text
+entity/call_site/... records
+evidence(scope=seed)
+evidence(scope=stream)   ← 最终完整性结论
+```
+
+| 看到什么 | 怎么做 |
+|---|---|
+| `coverage=complete` 且 `negative_conclusion_safe=true` | 空结果可以作为否定证据 |
+| `truncated=true` | 增大 `--limit` 或继续 `--offset` |
+| `partial/unknown/indeterminate` | 补 classpath、能力或上游证据 |
+| revision/snapshot/profile 冲突，exit 4 | 不要拼接不同索引快照的流 |
+
+`calls` 是源码调用点和静态 target；`dispatch` 是可能目标。两者都不证明运行时执行。
+
+## 从 0.1x 升级
+
+1.0 不读取旧 schema，也不保留旧查询命令。显式重建：
+
+```bash
+anatomist index /path/to/project --recreate --output /path/to/index.db
+```
+
+未传 `--recreate` 时不会静默删除数据库。完整命令映射见 [migration-1.0.md](migration-1.0.md)。
+
+## 下一步
+
+| 文档 | 用途 |
+|---|---|
+| [commands.md](commands.md) | 完整命令和 recipe |
+| [semantic-stream-v1.md](semantic-stream-v1.md) | framing、evidence、退出码 |
+| [data-model.md](data-model.md) | schema 21 存储模型 |
+| [testing.md](testing.md) | 测试与性能门禁 |
+| [troubleshooting.md](troubleshooting.md) | 索引和环境排查 |

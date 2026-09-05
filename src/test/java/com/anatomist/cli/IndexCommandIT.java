@@ -379,7 +379,7 @@ class IndexCommandIT {
     }
 
     @Test
-    void incrementalRecreatesIncompatibleSchema(@TempDir Path tmp) throws Exception {
+    void incompatibleSchemaRequiresExplicitRecreate(@TempDir Path tmp) throws Exception {
         Path fixture = CliTestSupport.miniSpringFixture();
         String projectSource = CliTestSupport.miniSpringProjectSource(fixture);
         Path db = tmp.resolve("index.db");
@@ -394,10 +394,16 @@ class IndexCommandIT {
             st.execute("PRAGMA user_version = 1");
         }
 
-        CliTestSupport.assertIndexOk(fixture,
+        var rejected = CliTestSupport.runIndex(fixture,
                 "--project-source", projectSource,
                 "--no-classpath",
                 "--incremental",
+                "--output", db.toString());
+        assertEquals(3, rejected.exitCode(), rejected.stderr());
+
+        CliTestSupport.assertIndexOk(fixture,
+                "--project-source", projectSource,
+                "--no-classpath", "--recreate",
                 "--output", db.toString());
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);

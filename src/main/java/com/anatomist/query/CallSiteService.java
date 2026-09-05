@@ -35,22 +35,23 @@ final class CallSiteService {
     SemanticCursor<CallSiteRow> cursor(String methodRef, String direction) {
         List<String> ids = resolver.resolveMethod(methodRef).requireFamilyOrExactIds();
         String predicate = switch (direction) {
-            case "outgoing" -> "cs.caller_id IN (" + qmarks(ids.size()) + ")";
+            case "outgoing" -> "cso.caller_id IN (" + qmarks(ids.size()) + ")";
             case "incoming" -> "EXISTS (SELECT 1 FROM call_site_targets hit "
                     + "WHERE hit.call_site_pk=cs.site_pk AND hit.target_id IN ("
                     + qmarks(ids.size()) + "))";
             default -> throw new IllegalArgumentException(
                     "--direction must be outgoing or incoming; got " + direction);
         };
-        String sql = "SELECT 'callsite:sha256:'||lower(hex(cs.stable_hash)),cs.caller_id,"
-                + "cs.source_file,cs.begin_line,cs.begin_column,"
-                + "cs.end_line,cs.end_column,cs.ordinal,cs.syntax_target,cs.receiver_static_type,"
-                + "cs.dispatch_kind,cs.origin,cs.resolution_status,cs.producer_id,"
+        String sql = "SELECT 'callsite:sha256:'||lower(hex(cs.stable_hash)),cso.caller_id,"
+                + "cso.source_file,cs.begin_line,cs.begin_column,"
+                + "cs.end_line,cs.end_column,cs.ordinal,cs.context,cs.syntax_target,cs.receiver_static_type,"
+                + "cs.dispatch_kind,cs.metadata,cs.origin,cs.resolution_status,cs.producer_id,"
                 + "cst.target_id,cst.external_target_fqn,cst.resolution_status,cst.confidence,"
                 + "cst.producer_id,tgt.qualified_name FROM call_sites cs "
+                + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
                 + "JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
                 + "LEFT JOIN nodes tgt ON tgt.id=cst.target_id WHERE " + predicate
-                + " ORDER BY cs.source_file,cs.begin_line,cs.begin_column,cs.ordinal,cs.stable_hash,"
+                + " ORDER BY cso.source_file,cs.begin_line,cs.begin_column,cs.ordinal,cs.stable_hash,"
                 + "cst.target_id,cst.external_target_fqn";
         try {
             PreparedStatement statement = connection.prepareStatement(sql);
@@ -68,9 +69,10 @@ final class CallSiteService {
             site.sourceFile = rows.getString(3); site.beginLine = rows.getInt(4);
             site.beginColumn = rows.getInt(5); site.endLine = rows.getInt(6);
             site.endColumn = rows.getInt(7); site.ordinal = rows.getInt(8);
-            site.syntaxTarget = rows.getString(9); site.receiverStaticType = rows.getString(10);
-            site.dispatchKind = rows.getString(11); site.origin = rows.getString(12);
-            site.resolutionStatus = rows.getString(13); site.producerId = rows.getString(14);
+            site.context = rows.getString(9); site.syntaxTarget = rows.getString(10);
+            site.receiverStaticType = rows.getString(11); site.dispatchKind = rows.getString(12);
+            site.metadata = rows.getString(13); site.origin = rows.getString(14);
+            site.resolutionStatus = rows.getString(15); site.producerId = rows.getString(16);
             return site;
         } catch (SQLException failure) {
             throw new RuntimeException(failure);
@@ -97,11 +99,11 @@ final class CallSiteService {
                 CallSiteRow site = mapSite(rows);
                 String siteId = site.id;
                 do {
-                    String internal = rows.getString(15);
-                    String external = rows.getString(16);
+                    String internal = rows.getString(17);
+                    String external = rows.getString(18);
                     site.targets.add(new CallSiteRow.Target(internal == null ? external : internal,
-                            rows.getString(20), external != null, rows.getString(17),
-                            rows.getString(18), rows.getString(19)));
+                            rows.getString(22), external != null, rows.getString(19),
+                            rows.getString(20), rows.getString(21)));
                     positioned = rows.next();
                 } while (positioned && siteId.equals(rows.getString(1)));
                 return site;

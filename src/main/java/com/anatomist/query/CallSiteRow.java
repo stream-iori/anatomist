@@ -13,9 +13,11 @@ public final class CallSiteRow {
     public int endLine;
     public int endColumn;
     public int ordinal;
+    public String context;
     public String syntaxTarget;
     public String receiverStaticType;
     public String dispatchKind;
+    public String metadata;
     public String origin;
     public String resolutionStatus;
     public String producerId;

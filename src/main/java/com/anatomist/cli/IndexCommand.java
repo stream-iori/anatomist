@@ -279,20 +279,19 @@ public class IndexCommand implements Callable<Integer> {
                 : output.toAbsolutePath().normalize();
         Files.createDirectories(dbPath.getParent());
 
+        com.anatomist.store.IndexCompatibility.Report compatibility =
+                com.anatomist.store.IndexCompatibility.inspect(dbPath);
+        if (compatibility.requiresRecreate() && !recreate) {
+            System.err.println("ERROR: " + compatibility.primaryReason()
+                    + ": index is incompatible with 1.0; rerun with --recreate "
+                    + "(discards " + compatibility.documents() + " documents and "
+                    + compatibility.semanticAnnotations() + " semantic annotations)");
+            return 3;
+        }
+
         boolean useIncremental = incremental && !full && !recreate && Files.exists(dbPath);
 
         if (useIncremental) {
-            com.anatomist.store.IndexCompatibility.Report compatibility =
-                    com.anatomist.store.IndexCompatibility.inspect(dbPath);
-            if (compatibility.requiresRecreate()) {
-                String reason = compatibility.primaryReason();
-                System.err.println("INFO: incremental degraded to recreate (" + reason + ")");
-                IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
-                return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                        sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
-                        runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, true,
-                        phaseTimings, totalStarted);
-            }
             boolean schemaIncompatible;
             try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
                  SqliteStore store = new SqliteStore(dbPath)) {

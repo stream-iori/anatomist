@@ -1,0 +1,1 @@
+{"stages":[["resolve","com.example.shop.service.OrderValidator#validate","--kind","callable","--unique"],["calls","--direction","incoming"]]}

@@ -11,16 +11,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SmokeRecipeContractTest {
 
     @Test
-    void smokeRecipe_usesCurrentEnrichCommandAndFailsFast() throws Exception {
+    void smokeRecipe_usesCanonicalPipelinesAndFailsFast() throws Exception {
         String justfile = Files.readString(repoRoot().resolve("justfile"));
         String smoke = recipeBody(justfile, "smoke:");
 
         assertTrue(smoke.contains("set -euo pipefail"),
                 "smoke recipe must fail fast and propagate command failures");
-        assertFalse(smoke.contains(" enrich --node "),
-                "standalone enrich command was removed; use context --enrich");
-        assertTrue(smoke.contains("context --enrich OrderService"),
-                "smoke recipe should exercise the current enrichment CLI");
+        assertTrue(smoke.contains("search | resolve | members"));
+        assertTrue(smoke.contains("resolve | calls | dispatch | source"));
+        assertFalse(smoke.contains("callees-of"));
+        assertFalse(smoke.contains("context --enrich"));
     }
 
     private static Path repoRoot() {

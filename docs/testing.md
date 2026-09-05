@@ -115,21 +115,21 @@ ambiguous targets, stable site IDs, and revision behavior across rebuild modes.
 
 ```
 tests/scenarios/<scenario-id>/
-├── input.cmd               # 一行 CLI 命令（args 用空格分隔，支持 # 注释与 "..." 引号段）
+├── pipeline.json           # {"stages":[["resolve",...],["calls",...]]}
 ├── expected.exit           # 可选；默认 0
 ├── expected.json           # 可选；stdout JSON 结构对比
 └── expected.stderr         # 可选；stderr 文本精确对比
 ```
 
-**Driver**：`src/test/java/com/anatomist/cli/GoldenFileIT` — `@TestFactory` 自动遍历 `tests/scenarios/*/input.cmd`，对每个目录跑一条 `DynamicTest`，命令通过 `AnatomistCli` 一次性执行后比对。规范化策略：
+**Driver**：`src/test/java/com/anatomist/cli/GoldenFileIT` — `@TestFactory` 自动遍历 `tests/scenarios/*/pipeline.json`，在同一 JVM 中把每段 stdout 接到下一段 stdin，真实验证 framing、identity 和 evidence。规范化策略：
 
 - 内置 JSON codec 递归排序 map key，让输出顺序稳定（不依赖 JsonUnit / AssertJ JSON 这种额外依赖，保持 4 dep 预算）
 - 项目根绝对路径替换为 `${PROJECT}`，跨机器/CI 稳定
-- 自动注入 `--index <built-db>`，input.cmd 不用写 `--index`
+- 自动向每一段注入 `--index <built-db>`，pipeline 不用重复写 `--index`
 
 **刷新机制**：`mvn test -Dtest=GoldenFileIT -Dgolden.update=true` 重新生成场景实际需要的输出、错误和退出码期望。CI 默认不带这个开关，diff 不为空即 fail。**这套用例同时作为对外的命令使用手册**。
 
-场景由 `tests/scenarios/*/input.cmd` 动态发现，覆盖正向结果、合法空结果、
+场景由 `tests/scenarios/*/pipeline.json` 动态发现，覆盖正向结果、合法空结果、
 缺失/歧义选择器、非法参数、调用链、关系、分支和 overview；不再维护易失效的手工数量。
 
 ## 五、本地 E2E / Smoke 命令
@@ -143,8 +143,8 @@ sdk env
 
 | 命令 | 验证什么 | 说明 |
 |------|----------|------|
-| `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | 包含 `context --enrich`；recipe 使用 fail-fast，命令失败不会被 `head` 掩盖。 |
-| `just native-smoke` | JVM jar 与 native binary 输出一致性 | 包含精确方法 `context --source`；失败时保留 `/tmp/anatomist-native-smoke-*.log` 并打印 native 诊断。 |
+| `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | 运行真实 `search\|resolve\|members`、`resolve\|calls\|dispatch\|source` 管道。 |
+| `just native-smoke` | JVM jar 与 native binary 输出一致性 | 对 1.0 终端查询和多段 NDJSON pipeline 归一化 revision 后逐字对拍。 |
 | `just stream-stress` | 10 万 seed 的有界流 | 在 `-Xmx128m` 子 JVM 中验证逐 seed 交付；默认测试排除。 |
 | `just bench-query-refactor [BASELINE_REF]` | 查询重构本地性能硬门禁 | detached worktree 构建基线，交替采样；报告写入 `target/benchmarks/query-refactor/`。 |
 | `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |
@@ -207,9 +207,11 @@ Javadoc 标签扫描，每项上限 3 秒。生产正则只允许静态预编译
 | SQLite 大小 | 70k 行项目 < 30MB | 看 .db 体积 |
 | 内存峰值 | < 1GB heap | `-Xmx1g` 跑通 |
 
-常规 CI 仍只做正确性和趋势记录。查询重构另设本地硬门禁：legacy/native 与
-full/no-op index 的 p50 `≤ +5%`、p95 `≤ +10%`，最终 DB `≤ +35%`，native binary
-与查询峰值 RSS `≤ +5%`，并要求 legacy 归一化 JSON 完全一致。运行：
+常规 CI 仍只做正确性和趋势记录。1.0 重构另设本地硬门禁：共同 `search`
+场景直接比较；旧聚合命令与新原子 pipeline 按同一用户任务比较，并给多进程
+启动留出明确预算。full/no-op index、native binary、查询峰值 RSS 设回归上限；
+最终 DB 必须比旧版至少小 30%。功能等价由新协议 record/evidence 场景检查和测试矩阵
+保证，不要求新旧 JSON 字节一致。运行：
 
 ```bash
 just bench-query-refactor dd2e575

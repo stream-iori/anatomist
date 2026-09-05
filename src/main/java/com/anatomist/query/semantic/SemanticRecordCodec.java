@@ -42,7 +42,8 @@ final class SemanticRecordCodec {
                     source(raw, false), raw);
             case "source_slice" -> new SemanticRecord.SourceSlice(header,
                     requiredString(raw, "id"), source(raw, false), raw);
-            case "declaration", "annotation", "document_relation", "binding_relation", "trace" ->
+            case "declaration", "annotation", "document_relation", "binding_relation", "trace",
+                    "result_count", "project_summary", "package_summary", "package_dependency" ->
                     new SemanticRecord.Generic(header, requiredString(raw, "id"), raw);
             case "evidence" -> evidence(header, raw);
             default -> throw invalid("UNSUPPORTED_RECORD_TYPE",

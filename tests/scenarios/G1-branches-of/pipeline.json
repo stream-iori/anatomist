@@ -1,0 +1,1 @@
+{"stages":[["resolve","com.example.shop.repository.InMemoryOrderRepository#save","--kind","callable","--unique"],["regions"],["sites-in","--record","call_site"]]}

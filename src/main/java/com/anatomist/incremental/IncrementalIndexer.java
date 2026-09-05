@@ -348,7 +348,7 @@ public class IncrementalIndexer {
                         rebuildDerivedWiring);
         stopTiming("stage_promote", graphStarted);
         if (timings != null) {
-            timings.addNanos("call_site_projection", promoted.callSiteProjectionNanos());
+            timings.addNanos("call_site_persistence", promoted.callSitePersistenceNanos());
         }
         stopTiming("graph_replace", graphStarted);
         stopTiming("graph_write", graphStarted);

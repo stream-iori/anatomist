@@ -30,9 +30,10 @@ class ExternalCliRecipeContractTest {
                 "script should source SDKMAN without nounset breaking sdkman-init.sh");
         assertTrue(!body.contains("mapfile"),
                 "script should stay compatible with macOS bash 3");
-        assertTrue(body.contains("call-path"), "script should verify forward call path");
-        assertTrue(body.contains("used-by"), "script should verify reverse DAO lookup");
-        assertTrue(body.contains("field-access"), "script should verify DAO field reads");
+        assertTrue(body.contains(" trace --to "), "script should verify forward trace");
+        assertTrue(body.contains(" references --direction incoming"),
+                "script should verify reverse DAO lookup");
+        assertTrue(body.contains(" accesses --limit"), "script should verify DAO field reads");
     }
 
     private static Path repoRoot() {

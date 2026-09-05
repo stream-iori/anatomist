@@ -20,70 +20,6 @@
       "type": "com.anatomist.cli.AnnotateCommand"
     },
     {
-      "type": "com.anatomist.cli.CallPathCommand"
-    },
-    {
-      "type": "com.anatomist.cli.CalleesOfCommand",
-      "fields": [
-        {
-          "name": "depth"
-        },
-        {
-          "name": "index"
-        },
-        {
-          "name": "method"
-        }
-      ],
-      "methods": [
-        {
-          "name": "<init>",
-          "parameterTypes": []
-        }
-      ]
-    },
-    {
-      "type": "com.anatomist.cli.CallersOfCommand"
-    },
-    {
-      "type": "com.anatomist.cli.BranchesOfCommand"
-    },
-    {
-      "type": "com.anatomist.cli.ContextCommand"
-    },
-    {
-      "type": "com.anatomist.cli.DepsOfCommand"
-    },
-    {
-      "type": "com.anatomist.cli.EnrichCommand",
-      "fields": [
-        {
-          "name": "target"
-        }
-      ],
-      "methods": [
-        {
-          "name": "<init>",
-          "parameterTypes": []
-        }
-      ]
-    },
-    {
-      "type": "com.anatomist.cli.EnrichCommand$Target"
-    },
-    {
-      "type": "com.anatomist.cli.FieldReadersCommand"
-    },
-    {
-      "type": "com.anatomist.cli.FieldWritersCommand"
-    },
-    {
-      "type": "com.anatomist.cli.HierarchyCommand"
-    },
-    {
-      "type": "com.anatomist.cli.ImplementorsOfCommand"
-    },
-    {
       "type": "com.anatomist.cli.IndexCommand",
       "fields": [
         {
@@ -128,9 +64,6 @@
       "type": "com.anatomist.cli.IndexDocsCommand"
     },
     {
-      "type": "com.anatomist.cli.PackageDepsCommand"
-    },
-    {
       "type": "com.anatomist.cli.SearchCommand",
       "fields": [
         {
@@ -155,9 +88,6 @@
           "parameterTypes": []
         }
       ]
-    },
-    {
-      "type": "com.anatomist.cli.UsedByCommand"
     },
     {
       "type": "com.sun.org.apache.xerces.internal.jaxp.SAXParserFactoryImpl",

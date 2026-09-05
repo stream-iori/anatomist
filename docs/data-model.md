@@ -9,7 +9,7 @@ From scenario requirements, only store what Agent actually queries.
 | Relation | Source | What's Stored | Use Case |
 |----------|--------|---------------|----------|
 | **CONTAINS** | Class/Enum → Method/Field | parent → child node | "What methods does OrderService have?" |
-| **CALLS** | `MethodCallExpr.resolve()` or exact reflection handle propagation | caller method → callee method; `call_kind` = INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE/REFLECTION | Call chain tracing, impact analysis |
+| **CALLS** | `MethodCallExpr.resolve()` or exact reflection handle propagation | `call_site_owners` 去重 caller/file，`call_sites` 保存位置，targets 保存目标 | Call chain tracing, impact analysis |
 | **INHERITS** | `getAncestors()` class ancestors | child → parent class | Inheritance chain |
 | **IMPLEMENTS** | `getAncestors()` interface ancestors | implementor → interface | "Who implements this interface?" |
 | **ANNOTATED_WITH** | `getAnnotations().resolve()` | node → annotation | "All nodes annotated with @Deprecated" |
@@ -43,10 +43,11 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v19)
+## Node identity, declarations, and ownership (schema v20)
 
-Schema v19 adds node-level exact ranges and numeric source ordinals. Schema v18
-normalizes canonical call-site storage; v17 introduced those facts; v16 removed the former dataflow tables; v15 added nullable declaration
+Schema v20 makes call-site tables the only final CALLS storage. Schema v19 added
+node-level exact ranges and numeric source ordinals; v18 normalized call-site storage;
+v16 removed the former dataflow tables; v15 added nullable declaration
 range columns to `declarations`, and v14 added `producer_id` to all structural
 fact tables. An older index must be rebuilt; no migration or compatibility read
 path is provided. Declaration rows preserve AST-derived
@@ -62,7 +63,7 @@ uses this table only.
 
 All four values are present together or all are `NULL`. Synthetic declarations
 keep them `NULL`. Source text remains in the checkout; the database stores only
-the range and snapshot hash evidence used by `context --source`.
+the range and snapshot hash evidence used by `resolve --exact | source`.
 
 | Table | Ownership |
 |---|---|
@@ -179,7 +180,7 @@ XML_*:                  parent XML id + segment + source location      → bean:
   "signature": "checkout(String orderId, List<OrderItem> items)"
 }
 
-// optional on a fallback CALLS edge to a project-source Lombok type
+// optional on a fallback call site to a project-source Lombok type
 {
   "lombok_usage": {
     "status": "usage-observed",
@@ -245,8 +246,8 @@ XML_*:                  parent XML id + segment + source location      → bean:
 }
 ```
 
-The stored object lives at `edges.metadata.lombok_usage`. Query edge rows also expose
-the same object directly as `lombok_usage`; raw `metadata` remains for compatibility.
+The stored object lives at `call_sites.metadata.lombok_usage`. `calls` also exposes
+the structured object directly as `lombok_usage`.
 
 ## Edges Table Design
 
@@ -255,11 +256,11 @@ the same object directly as `lombok_usage`; raw `metadata` remains for compatibi
 | `source_id` | TEXT FK→nodes.id | Caller/child/container |
 | `target_id` | TEXT FK→nodes.id | Callee/parent/contained; **internal only**, NULL for external |
 | `external_target_fqn` | TEXT | External dep FQN (e.g. `java.util.List#add`); NULL for internal |
-| `relation` | TEXT | CALLS/CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO |
-| `call_kind` | TEXT | CALLS only: INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE/REFLECTION |
+| `relation` | TEXT | CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO；最终库不含 CALLS |
+| `call_kind` | TEXT | 历史/暂存兼容列；schema 21 最终 `edges` 的非调用关系不使用 |
 | `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for derived dispatch/reflection bridges |
 | `resolution` | TEXT | External only: `classpath`, `ast_fallback`, `type_fallback`, `static_name_fallback`, `source_fallback`, `reflection`, or `xml`; NULL for internal edges |
-| `context` | TEXT | CALLS/READS/WRITES: lightweight control path such as `for@L4>if-then@L5`; REFERENCES: field_type/parameter_type/return_type/generic_arg |
+| `context` | TEXT | READS/WRITES 的轻量控制路径；REFERENCES 的 field_type/parameter_type/return_type/generic_arg |
 | `is_external` | INTEGER | 0=internal, 1=external |
 | `source_file` | TEXT | Relative source file path when known |
 | `source_location` | TEXT | Line marker such as `L32`; query commands can turn this into `source_window` snippets |
@@ -272,10 +273,9 @@ the same object directly as `lombok_usage`; raw `metadata` remains for compatibi
 **Target split rationale**: Prevents name collision between internal node ID and external FQN text; schema enforces correctness without runtime checks.
 
 **External reverse-query contract**: External targets intentionally have no row in
-`nodes`. `callers-of Type#method(signature)` therefore reads incoming external
-`CALLS` from `external_target_fqn`; `used-by Type` reads both the exact type FQN
-and its `Type#…` member prefix. `search Type` synthesizes an `EXTERNAL_CLASS`
-row from these edges; it is a query result, not a row in `nodes`. It aggregates
+`nodes`. Incoming `calls` reads `call_site_targets.external_target_fqn`; incoming
+`references` reads external edge targets. `search Type` synthesizes an `EXTERNAL_CLASS`
+result from both stores; it is not a row in `nodes`. It aggregates
 `external_edge_count`, `relation_counts`, `resolution_counts`, and
 `confidence_counts`. External edge results include `external_target=true`,
 `is_external=true`, `external_target_fqn`, `resolution`, and `confidence` so
@@ -309,7 +309,8 @@ belong on every node or edge.
 
 ## Canonical call sites
 
-`call_sites` stores caller, exact begin/end positions, numeric ordinal, syntax target,
+`call_site_owners` interns each `(caller_id, source_file)` pair. `call_sites` stores only
+its integer `owner_pk`, exact begin/end positions, numeric ordinal, syntax target,
 receiver static type, dispatch kind, origin, resolution status, and producer.
 `call_site_targets` stores one or more internal/external static targets. The stable
 site ID excludes revision and target, so ambiguous overloads share a site and an
@@ -318,18 +319,21 @@ equivalent full rebuild preserves its identity.
 ```text
 public ID: callsite:sha256:<hex(stable_hash)>
                          │
+call_site_owners.owner_pk ──< call_sites.owner_pk
+                                      │
 call_sites.site_pk (INTEGER) ──< call_site_targets.call_site_pk
 ```
 
-`site_pk` is private storage identity; it must never leak into query output.
+`owner_pk` and `site_pk` are private storage identities; they must never leak into query output.
 `stable_hash` is the 32-byte binary digest used to reconstruct the unchanged public ID.
 Incremental promotion captures affected callers before graph replacement and refreshes
-only their projection; unrelated call sites retain their rows.
+only their persisted sites; unrelated call sites retain their rows. `edges` 中的
+`CALLS` 数量必须始终为 0。
 
 ## Index Diagnostics
 
 `index_diagnostics` persists bounded, machine-readable health findings. The
-same rows drive `index`, `doctor`, and `survey-baseline` health output.
+same rows drive `index`, `doctor`, and `overview`/query evidence.
 
 | Finding | `none` | `integrity` | `complete` / `--strict-health` |
 |---|---:|---:|---:|
@@ -359,11 +363,8 @@ Outgoing queries narrow file-scoped diagnostics to their anchor files;
 incoming/global queries remain conservative because an unresolved caller can
 originate anywhere.
 
-Query JSON contract v2 is a compact public projection. Storage-only aliases are
-not exposed twice: `source`/`target` are the edge identities; source windows
-inherit file/line identity from their parent; context source views inherit the
-file and declaration range from their node. Default `java-core`, `EXTRACTED`,
-and false external markers are implicit.
+`semantic-stream/v1` 是公开投影。存储主键 `site_pk`、内部别名和重复默认值不应泄漏；
+每条记录用 revision/snapshot/profile 与 evidence 说明解释边界。
 
 `analysis_coverage` stores file-level aggregates before the 5,000-row storage
 retention step. The upstream resolution tracker still has a 50,000-group bound;
@@ -393,7 +394,7 @@ It recognizes SymbolSolver-confirmed JDK APIs only:
 | `Class.forName("p.Target")` | `REFERENCES` target type |
 | `Target.class.getMethod("run", String.class)` | `REFERENCES` target method |
 | `getConstructor(...)` / `getDeclaredConstructor(...)` | `REFERENCES` target constructor |
-| `Method.invoke(...)` / `Constructor.newInstance(...)` | `CALLS`, `call_kind=REFLECTION` |
+| `Method.invoke(...)` / `Constructor.newInstance(...)` | call site，`dispatch_kind=REFLECTION` |
 
 Generated facts use `confidence=INFERRED` and JSON metadata containing
 `via=reflection`, `operation`, `resolution=EXACT`, target class/member/signature,
@@ -404,7 +405,7 @@ non-unique values produce no target fact.
 `source_window` is not stored as a table. It is derived at query time from:
 
 ```
-project_meta.source_root + edges.source_file + edges.source_location
+project_meta.source_root + call_sites/edges.source_file + exact source range
 ```
 
 If an edge lacks `source_file`, query code falls back to the source node's

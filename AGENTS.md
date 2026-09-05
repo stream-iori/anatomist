@@ -8,7 +8,7 @@
 | `src/main/resources/schema.sql` | SQLite schema source of truth. |
 | `src/main/resources/export/` | HTML export templates. |
 | `src/test/java/` | JUnit 5 unit and integration tests (`*Test`, `*IT`). |
-| `tests/scenarios/` | Golden-file CLI scenarios with `input.cmd` and `expected.json`. |
+| `tests/scenarios/` | Golden semantic pipelines with `pipeline.json` and expected outputs. |
 | `fixtures/` | Java projects used for indexing tests and smoke checks. |
 | `docs/` | Architecture, commands, data model, testing, and config references. |
 
@@ -23,7 +23,7 @@
 | `just jar` | Build `target/anatomist.jar`. |
 | `just native` | Build GraalVM native binary at `target/anatomist`. |
 | `just smoke` | Index bundled fixture and run core CLI queries. |
-| `just release-native 0.16.0` | Build a versioned macOS arm64 native binary. |
+| `just release-native 1.0.0` | Build a versioned macOS arm64 native binary. |
 | `just install-from target/anatomist` | Install a built native binary to the local user path. |
 | `just golden-update` | Refresh expected JSON after intentional output changes. |
 
@@ -37,14 +37,14 @@ java -jar target/anatomist.jar search OrderService --kind type --format ndjson -
   | java -jar target/anatomist.jar runtime-implementations --index /tmp/shop.db
 ```
 
-For an already resolved method, use `context '<exact-signature>' --source` as
-the primary local-control-flow evidence. Its source is snapshot-verified and
-paged; use graph/flow queries only for relation or path proof. With
+For an exact method, use `resolve '<exact-signature>' --kind callable --exact --unique | source`
+as the primary local-control-flow evidence. Source is snapshot-verified and
+paged; use graph/flow pipelines only for relation or path proof. With
 `--lombok ast`, treat Lombok output as evidence: modeled capabilities are facts,
 while partial/unmodeled capabilities require further verification. Call-query
 edges expose structured `lombok_usage`; `usage-observed` proves source use only,
 not compilation or runtime execution.
-Follow source `next_queries` when a conclusion must cover the whole declaration.
+Follow source pagination when a conclusion must cover the whole declaration.
 Read an entire type only when state or lifecycle spans fields, constructors,
 initializers, or several methods; for a large class, select exact methods first.
 

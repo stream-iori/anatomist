@@ -15,9 +15,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Adds DI-informed edges after all extractors have contributed raw graph data.
- * The original interface CALLS are preserved; these extra edges make the
- * configured narrowing visible without pretending it is always a runtime fact.
+ * Adds DI binding edges after all extractors have contributed raw graph data.
+ * Runtime call candidates are derived by the dispatch query, never persisted as CALLS.
  */
 public final class WiringResolver {
 
@@ -32,14 +31,11 @@ public final class WiringResolver {
         if (edges == null || edges.isEmpty()) return List.of();
 
         Map<String, List<String>> implTypesByInterface = new HashMap<>();
-        Map<String, List<String>> implMethodsByInterfaceMethod = new HashMap<>();
         for (Edge e : edges) {
             if (isGenerated(e)) continue;
             if (e.isExternal || e.targetId == null || e.sourceId == null) continue;
             if (GraphConstants.Relation.IMPLEMENTS.equals(e.relation)) {
                 implTypesByInterface.computeIfAbsent(e.targetId, k -> new ArrayList<>()).add(e.sourceId);
-            } else if (GraphConstants.Relation.OVERRIDES.equals(e.relation)) {
-                implMethodsByInterfaceMethod.computeIfAbsent(e.targetId, k -> new ArrayList<>()).add(e.sourceId);
             }
         }
 
@@ -51,31 +47,11 @@ public final class WiringResolver {
                         && GraphConstants.Relation.INJECTS.equals(e.relation) && !e.isExternal
                         && e.sourceId != null && e.targetId != null)
                 .toList();
-        Set<String> injectedTypePairs = new HashSet<>();
-        for (Edge injection : injections) {
-            injectedTypePairs.add(injection.sourceId + "\u0000" + injection.targetId);
-        }
-
         for (Edge inject : injections) {
             List<String> implTypes = distinct(implTypesByInterface.get(inject.targetId));
             if (!implTypes.isEmpty()) {
                 addWires(inject, implTypes, additions, seen);
             }
-        }
-
-        for (Edge call : edges) {
-            if (isGenerated(call)) continue;
-            if (!GraphConstants.Relation.CALLS.equals(call.relation) || call.isExternal || call.targetId == null) continue;
-            String callerType = ownerTypeOfMethod(call.sourceId);
-            String calleeType = ownerTypeOfMethod(call.targetId);
-            if (callerType == null || calleeType == null) continue;
-            boolean callerInjectsCalleeType = injectedTypePairs.contains(
-                    callerType + "\u0000" + calleeType);
-            if (!callerInjectsCalleeType) continue;
-
-            List<String> implMethods = distinct(implMethodsByInterfaceMethod.get(call.targetId));
-            if (implMethods.isEmpty()) continue;
-            addWiredCalls(call, calleeType, implMethods, additions, seen);
         }
 
         return additions;
@@ -100,40 +76,9 @@ public final class WiringResolver {
         }
     }
 
-    private void addWiredCalls(Edge call, String interfaceType, List<String> implMethods,
-                               List<Edge> additions, Set<String> seen) {
-        String confidence = implMethods.size() == 1
-                ? GraphConstants.Confidence.INFERRED
-                : GraphConstants.Confidence.AMBIGUOUS;
-        String metadata = metadata(GraphConstants.MetadataVia.INJECTED_CALL, interfaceType, call.targetId, implMethods);
-        for (String implMethod : implMethods) {
-            Edge e = new Edge();
-            e.sourceId = call.sourceId;
-            e.targetId = implMethod;
-            e.relation = GraphConstants.Relation.CALLS;
-            e.callKind = call.callKind;
-            e.confidence = confidence;
-            e.context = call.context;
-            e.isExternal = false;
-            e.sourceFile = call.sourceFile;
-            e.sourceLocation = call.sourceLocation;
-            e.metadata = metadata;
-            addIfNew(e, additions, seen);
-        }
-    }
-
     private static String metadata(String via, String source, List<String> candidates) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("via", via);
-        m.put("source", source);
-        m.put("candidates", candidates);
-        return Json.writeCompact(m);
-    }
-
-    private static String metadata(String via, String interfaceType, String source, List<String> candidates) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("via", via);
-        m.put("interfaceType", interfaceType);
         m.put("source", source);
         m.put("candidates", candidates);
         return Json.writeCompact(m);

@@ -1,275 +1,579 @@
-{
-  "contract_version" : 2,
-  "evidence" : {
-    "affected_dimensions" : [ "external_resolution", "other_resolution" ],
-    "coverage" : "partial",
-    "diagnostic_counts" : {
-      "FIELD_NOT_FOUND" : 3,
-      "THIRDPARTY_SYMBOL_MISSING" : 24,
-      "UNSUPPORTED_RESOLUTION" : 2
-    },
-    "diagnostic_query" : "anatomist doctor --format json --diagnostic-code FIELD_NOT_FOUND --index <same-index>",
-    "negative_conclusion_safe" : false,
-    "status" : "partial_aggregate"
+[ {
+  "contract" : "semantic-stream/v1",
+  "external_relation_counts" : {
+    "CALLS" : 23,
+    "REFERENCES" : 13
   },
-  "query" : "overview --format json",
-  "results" : [ {
-    "external_edge_counts" : {
-      "CALLS" : 23,
-      "REFERENCES" : 13
-    },
-    "internal_edge_counts" : {
-      "CALLS" : 29,
-      "CONTAINS" : 76,
-      "DEFINED_BY" : 6,
-      "HANDLES" : 2,
-      "IMPLEMENTS" : 1,
-      "INHERITS" : 2,
-      "INJECTS" : 5,
-      "OVERRIDES" : 4,
-      "READS" : 23,
-      "REFERENCES" : 32,
-      "WIRES" : 1,
-      "WRITES" : 19
-    },
-    "kind_counts" : {
-      "ANONYMOUS_CLASS" : 1,
-      "BEAN" : 6,
-      "CLASS" : 14,
-      "CONSTRUCTOR" : 7,
-      "ENUM" : 1,
-      "ENUM_CONSTANT" : 6,
-      "FIELD" : 20,
-      "INTERFACE" : 1,
-      "LAMBDA" : 1,
-      "METHOD" : 40,
-      "METHOD_REF" : 1,
-      "ROUTE" : 2
-    },
-    "package_deps" : [ {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "java-core" : 1
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.controller",
-      "target_package" : "com.example.shop.domain.dto"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "java-core" : 1
-      },
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.controller",
-      "target_package" : "com.example.shop.service"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "spring-components" : 1
-      },
-      "relation" : "INJECTS",
-      "source_package" : "com.example.shop.controller",
-      "target_package" : "com.example.shop.service"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "java-core" : 1
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.controller",
-      "target_package" : "com.example.shop.service"
-    }, {
-      "edge_count" : 3,
-      "producer_counts" : {
-        "java-core" : 3
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.domain.dto",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 2,
-      "producer_counts" : {
-        "java-core" : 2
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.domain.event",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "java-core" : 1
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.event",
-      "target_package" : "com.example.shop.domain.event"
-    }, {
-      "edge_count" : 3,
-      "producer_counts" : {
-        "java-core" : 3
-      },
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.repository",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 7,
-      "producer_counts" : {
-        "java-core" : 7
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.repository",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 10,
-      "producer_counts" : {
-        "java-core" : 10
-      },
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.domain.dto"
-    }, {
-      "edge_count" : 4,
-      "producer_counts" : {
-        "java-core" : 4
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.domain.dto"
-    }, {
-      "edge_count" : 3,
-      "producer_counts" : {
-        "java-core" : 3
-      },
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 3,
-      "producer_counts" : {
-        "java-core" : 3
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.domain.entity"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "java-core" : 1
-      },
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.domain.event"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "java-core" : 1
-      },
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.event"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "spring-components" : 1
-      },
-      "relation" : "INJECTS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.event"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "java-core" : 1
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.event"
-    }, {
-      "edge_count" : 4,
-      "producer_counts" : {
-        "derived-wiring" : 2,
-        "java-core" : 2
-      },
-      "relation" : "CALLS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.repository"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "spring-components" : 1
-      },
-      "relation" : "INJECTS",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.repository"
-    }, {
-      "edge_count" : 1,
-      "producer_counts" : {
-        "java-core" : 1
-      },
-      "relation" : "REFERENCES",
-      "source_package" : "com.example.shop.service",
-      "target_package" : "com.example.shop.repository"
-    } ],
-    "packages" : [ {
-      "methods" : 1,
-      "name" : "com.example.shop",
-      "producer_counts" : {
-        "java-core" : 2
-      },
-      "types" : 1
-    }, {
-      "methods" : 2,
-      "name" : "com.example.shop.controller",
-      "producer_counts" : {
-        "java-core" : 4
-      },
-      "types" : 1
-    }, {
-      "methods" : 7,
-      "name" : "com.example.shop.domain.dto",
-      "producer_counts" : {
-        "java-core" : 13
-      },
-      "types" : 2
-    }, {
-      "methods" : 18,
-      "name" : "com.example.shop.domain.entity",
-      "producer_counts" : {
-        "java-core" : 34
-      },
-      "types" : 3
-    }, {
-      "methods" : 2,
-      "name" : "com.example.shop.domain.event",
-      "producer_counts" : {
-        "java-core" : 4
-      },
-      "types" : 1
-    }, {
-      "methods" : 2,
-      "name" : "com.example.shop.event",
-      "producer_counts" : {
-        "java-core" : 4
-      },
-      "types" : 1
-    }, {
-      "methods" : 6,
-      "name" : "com.example.shop.repository",
-      "producer_counts" : {
-        "java-core" : 11
-      },
-      "types" : 3
-    }, {
-      "methods" : 9,
-      "name" : "com.example.shop.service",
-      "producer_counts" : {
-        "java-core" : 18
-      },
-      "types" : 5
-    } ],
-    "producer_counts" : {
-      "derived-wiring" : 3,
-      "java-core" : 380,
-      "spring-components" : 17,
-      "spring-mvc" : 4
-    }
-  } ]
-}
+  "id" : "project:sha256:0d52b4f93a8a011841a27a5fdf7d1eb538302e668609366754425630faa44580",
+  "index_revision_id" : "${REVISION}",
+  "internal_relation_counts" : {
+    "CALLS" : 27,
+    "CONTAINS" : 76,
+    "DEFINED_BY" : 6,
+    "HANDLES" : 2,
+    "IMPLEMENTS" : 1,
+    "INHERITS" : 2,
+    "INJECTS" : 5,
+    "OVERRIDES" : 4,
+    "READS" : 23,
+    "REFERENCES" : 32,
+    "WIRES" : 1,
+    "WRITES" : 19
+  },
+  "kind_counts" : {
+    "ANONYMOUS_CLASS" : 1,
+    "BEAN" : 6,
+    "CLASS" : 14,
+    "CONSTRUCTOR" : 7,
+    "ENUM" : 1,
+    "ENUM_CONSTANT" : 6,
+    "FIELD" : 20,
+    "INTERFACE" : 1,
+    "LAMBDA" : 1,
+    "METHOD" : 40,
+    "METHOD_REF" : 1,
+    "ROUTE" : 2
+  },
+  "origin" : "derived",
+  "producer_counts" : {
+    "derived-wiring" : 1,
+    "java-core" : 380,
+    "spring-components" : 17,
+    "spring-mvc" : 4
+  },
+  "record" : "project_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:75642ac214cca63b27278d26",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "totals" : {
+    "methods" : 47,
+    "package_deps" : 20,
+    "packages" : 8,
+    "types" : 17
+  }
+}, {
+  "callables" : 1,
+  "contract" : "semantic-stream/v1",
+  "id" : "package:sha256:dbbf3d8654438d1f972ef64067d6520aec2eb425f82a04237a0718fb9081ba32",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "package" : "com.example.shop",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 2
+  },
+  "record" : "package_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:285b15eca652fae25385533a",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "types" : 1
+}, {
+  "callables" : 2,
+  "contract" : "semantic-stream/v1",
+  "id" : "package:sha256:5ff6705bb0bd7d8b256c699064ee5ca3ba3da11c2ac3b0eaee15dd9d3a5dadfd",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "package" : "com.example.shop.controller",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 4
+  },
+  "record" : "package_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:60c6fbcd84054df3365b229d",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "types" : 1
+}, {
+  "callables" : 7,
+  "contract" : "semantic-stream/v1",
+  "id" : "package:sha256:cdbe9c42880cbf7ea3e9853f86ce805283b80b3cc6da06f98345484fb3664044",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "package" : "com.example.shop.domain.dto",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 13
+  },
+  "record" : "package_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:a53c35dfb6a9dabcf52d6883",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "types" : 2
+}, {
+  "callables" : 18,
+  "contract" : "semantic-stream/v1",
+  "id" : "package:sha256:9772a979d383ea40990a42d3a21822e01ded38328c27346469f6eec2d7a157e9",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "package" : "com.example.shop.domain.entity",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 34
+  },
+  "record" : "package_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:f3c6e5ae71e89a6365711c8b",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "types" : 3
+}, {
+  "callables" : 2,
+  "contract" : "semantic-stream/v1",
+  "id" : "package:sha256:5ff5773bfb5f0e3c6bcda1e6fbf6bfc97175f3518da042049174517e474131a1",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "package" : "com.example.shop.domain.event",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 4
+  },
+  "record" : "package_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:4b0c98a8aeed56ae9b4c4a2d",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "types" : 1
+}, {
+  "callables" : 2,
+  "contract" : "semantic-stream/v1",
+  "id" : "package:sha256:985642c2762c18159c4025e09b69fac732fbed3f06f03fbaf1ad5dc298077d9d",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "package" : "com.example.shop.event",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 4
+  },
+  "record" : "package_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:d4aed569ea2721323fd116e9",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "types" : 1
+}, {
+  "callables" : 6,
+  "contract" : "semantic-stream/v1",
+  "id" : "package:sha256:8e42a2bc52d42a96071d8678acf9c15ac3088535e6264caa94760a6ad073886d",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "package" : "com.example.shop.repository",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 11
+  },
+  "record" : "package_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:436b621b4ae80daaf34b306c",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "types" : 3
+}, {
+  "callables" : 9,
+  "contract" : "semantic-stream/v1",
+  "id" : "package:sha256:4a7bf6b8123be5a35dc40167a53fe408291360f9579426693a4ae66e3cb4a9b3",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "package" : "com.example.shop.service",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 18
+  },
+  "record" : "package_summary",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:3abfc749b22951b59b7b29d2",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "types" : 5
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:e96ece84cfa08e31ff70254870337be83f74c05908d52de797f170d057ac2a7b",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:a219a27a523c8b3a8180f1f8",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.controller",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.dto"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:c512dc57b8d74b6576bbf44365cbc24322ca10c4c97f5cf94797aa527f123058",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "CALLS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:a5d0fbcb0b3854f175240725",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.controller",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.service"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:4bbdc8d8a26bfda840bea8c7fae89b7abe0da8886fd2eb4b7d9016c9719e6409",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "spring-components" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "INJECTS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:6040bfccbb74dd85060a2ff6",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.controller",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.service"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:1e4cbdba777af6bdf428251e5033187fdea2fd5e16cf9409ac91a7cdb5623dc9",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:4903d7270ccb55d67a5b6a5e",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.controller",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.service"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 3,
+  "id" : "package-dependency:sha256:83f0b66ad37f97f922538c43a93f69a855aece01438777d1483db1b4efc9774e",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 3
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:ccfd94b0cd3b85e51b23144a",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.domain.dto",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.entity"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 2,
+  "id" : "package-dependency:sha256:0767d7f395b6e63ed2869948a961853408527999135cf344da8522525bf75542",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 2
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:626b267debc92de5045dd9a2",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.domain.event",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.entity"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:c667afa9f627cc02e6b8505a6cdc7667ddf66f07d78014317ebfa1fac39ae661",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:4b80d113317c88bdbf6027a4",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.event",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.event"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 3,
+  "id" : "package-dependency:sha256:e3026270dc31dded0889000457964e7d1e3b7a149616e119864bbc60448801a9",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 3
+  },
+  "record" : "package_dependency",
+  "relation" : "CALLS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:1643f889b05b8ff9eeb9a4e4",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.repository",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.entity"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 7,
+  "id" : "package-dependency:sha256:d836f6d0ccbf11a8363cf7ed29ceae7e122592e02992c716a56bf8c4b69fa21d",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 7
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:8b25776aba1e8ad755b253fb",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.repository",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.entity"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 10,
+  "id" : "package-dependency:sha256:8ec1c1b35476288bc7cfd33f2c95ba71310839cb3b14262b5c70cdb0d2554b82",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 10
+  },
+  "record" : "package_dependency",
+  "relation" : "CALLS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:dda29137dee2660e6ff0e6a7",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.dto"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 4,
+  "id" : "package-dependency:sha256:38ad183b9fcc514897076916b17d0e6cfcb144d948967c8169bd1f597ad11f43",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 4
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:0062bbd42e14dd1a31a6059b",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.dto"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 3,
+  "id" : "package-dependency:sha256:42acbc5d35281fe04f1376ce73c521e8852941903d617c25442ea816b394d5d3",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 3
+  },
+  "record" : "package_dependency",
+  "relation" : "CALLS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:d0c6374aec821aaf908d2f45",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.entity"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 3,
+  "id" : "package-dependency:sha256:1aa7ca8b60ebd2b4d178a81a40f1112731019025721301c13d6ec62ee69b0495",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 3
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:67ae37c0cb828472584fa059",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.entity"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:36a2a1bc346605d742aa701479148cc5fdf9f016cbde88b731f9f1b64c489ec0",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "CALLS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:5d1372d1615cf144f032bd8e",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.domain.event"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:4e812c6bab3051b496484db4e5f34a9fe728a5a6943c4785c9d588390321c4d5",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "CALLS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:01556fc4c36c3b6925c5b1ba",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.event"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:8417de0dc523d42194a19e946391056985187f945ca8b673d9d6075e7f6f06db",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "spring-components" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "INJECTS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:df008d355e6c5ceab44632eb",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.event"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:11523154d8f98b3f09d4fdc2ce40c9be15c7260545c173e8a6797b4abe922900",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:8c14cea8fe030ce8a2f55643",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.event"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 2,
+  "id" : "package-dependency:sha256:9042a5579992f1e3c1a4deb5375ae2db9be759da1defecd0c4a6f57540e6474d",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 2
+  },
+  "record" : "package_dependency",
+  "relation" : "CALLS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:aa73e3f6e3b8e067c0368eb6",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.repository"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:fd9645d878be3122724f793e43a3173c7111d8b95ccea11c4549946bcf48458d",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "spring-components" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "INJECTS",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:a0d7c1d50d3f644e75f5995b",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.repository"
+}, {
+  "contract" : "semantic-stream/v1",
+  "edge_count" : 1,
+  "id" : "package-dependency:sha256:ca401568456488270b3923b6058ac56451d30deddbd55a68997177b03e3c64e7",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "derived",
+  "parent_seed_id" : "seed:75642ac214cca63b27278d26",
+  "producer_counts" : {
+    "java-core" : 1
+  },
+  "record" : "package_dependency",
+  "relation" : "REFERENCES",
+  "resolution_status" : "exact",
+  "seed_id" : "seed:b84480e6925c7f663e7886dc",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_package" : "com.example.shop.service",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target_package" : "com.example.shop.repository"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 29,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:75642ac214cca63b27278d26",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 29,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "record" : "evidence",
+  "scope" : "stream",
+  "seeds" : {
+    "total" : 1
+  },
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+} ]

@@ -94,12 +94,12 @@ class MicroFixtureIT {
 
     @Test
     void staticVsInstance_callKindBranches() throws Exception {
-        int statik = scalar("SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+        int statik = scalar("SELECT count(*) FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN nodes s ON s.id=cso.caller_id "
                 + " WHERE s.symbol_id='micro.StaticVsInstance#demo()' "
-                + "   AND e.call_kind='STATIC'");
-        int instance = scalar("SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
+                + "   AND cs.dispatch_kind='STATIC'");
+        int instance = scalar("SELECT count(*) FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN nodes s ON s.id=cso.caller_id "
                 + " WHERE s.symbol_id='micro.StaticVsInstance#demo()' "
-                + "   AND e.call_kind='INSTANCE'");
+                + "   AND cs.dispatch_kind='INSTANCE'");
         assertTrue(statik >= 1,   "expected ≥1 STATIC call; got " + statik);
         assertTrue(instance >= 1, "expected ≥1 INSTANCE call; got " + instance);
     }

@@ -1,104 +1,266 @@
-{
-  "contract_version" : 2,
-  "evidence" : {
-    "coverage" : "complete",
-    "negative_conclusion_safe" : true,
-    "status" : "positive"
+[ {
+  "contract" : "semantic-stream/v1",
+  "derived_from" : [ {
+    "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
+    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
+    "record" : "entity"
+  } ],
+  "domain" : "language",
+  "facets" : {
+    "storage_kind" : "FIELD"
   },
-  "query" : "context com.example.shop.repository.InMemoryOrderRepository --scope MAIN",
-  "results" : [ {
-    "annotations" : [ ],
-    "framework" : [ {
-      "confidence" : "CONFIGURED",
-      "depth" : 1,
-      "producer_id" : "spring-components",
-      "relation" : "DEFINED_BY",
-      "source" : "service::MAIN::bean:inMemoryOrderRepository",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_label" : "inMemoryOrderRepository",
-      "source_location" : "L11",
-      "target" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-      "target_label" : "InMemoryOrderRepository"
-    }, {
-      "confidence" : "INFERRED",
-      "depth" : 1,
-      "metadata" : "{\"via\":\"injection\",\"source\":\"service::MAIN::com.example.shop.repository.OrderRepository\",\"candidates\":[\"service::MAIN::com.example.shop.repository.InMemoryOrderRepository\"]}",
-      "producer_id" : "derived-wiring",
-      "relation" : "WIRES",
-      "source" : "service::MAIN::com.example.shop.service.OrderService",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_label" : "OrderService",
-      "source_location" : "L22",
-      "target" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-      "target_label" : "InMemoryOrderRepository"
-    } ],
-    "members" : [ {
-      "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#store",
-      "javadoc" : null,
-      "kind" : "FIELD",
-      "label" : "store",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#store",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_location" : "L14",
-      "symbol_id" : "com.example.shop.repository.InMemoryOrderRepository#store"
-    }, {
-      "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#seq",
-      "javadoc" : null,
-      "kind" : "FIELD",
-      "label" : "seq",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#seq",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_location" : "L15",
-      "symbol_id" : "com.example.shop.repository.InMemoryOrderRepository#seq"
-    }, {
-      "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
-      "javadoc" : null,
-      "kind" : "METHOD",
-      "label" : "save",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_location" : "L17",
-      "symbol_id" : "com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)"
-    }, {
-      "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#findById(java.lang.String)",
-      "javadoc" : null,
-      "kind" : "METHOD",
-      "label" : "findById",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#findById",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_location" : "L26",
-      "symbol_id" : "com.example.shop.repository.InMemoryOrderRepository#findById(java.lang.String)"
-    }, {
-      "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#deleteAll()",
-      "javadoc" : null,
-      "kind" : "METHOD",
-      "label" : "deleteAll",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#deleteAll",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_location" : "L31",
-      "symbol_id" : "com.example.shop.repository.InMemoryOrderRepository#deleteAll()"
-    } ],
-    "node" : {
-      "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-      "javadoc" : null,
-      "kind" : "CLASS",
-      "label" : "InMemoryOrderRepository",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_location" : "L11",
-      "symbol_id" : "com.example.shop.repository.InMemoryOrderRepository"
-    }
-  } ]
-}
+  "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#store",
+  "index_revision_id" : "${REVISION}",
+  "kind" : "value",
+  "language" : "java",
+  "module" : "service",
+  "name" : "store",
+  "origin" : "extracted",
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "producer_id" : "java-core",
+  "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#store",
+  "record" : "entity",
+  "resolution_status" : "exact",
+  "scope" : "MAIN",
+  "seed_id" : "seed:75578553e0ae18ba8db44ed8",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source" : {
+    "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+    "start_line" : 14
+  },
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:75578553e0ae18ba8db44ed8",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "derived_from" : [ {
+    "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
+    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
+    "record" : "entity"
+  } ],
+  "domain" : "language",
+  "facets" : {
+    "storage_kind" : "FIELD"
+  },
+  "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#seq",
+  "index_revision_id" : "${REVISION}",
+  "kind" : "value",
+  "language" : "java",
+  "module" : "service",
+  "name" : "seq",
+  "origin" : "extracted",
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "producer_id" : "java-core",
+  "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#seq",
+  "record" : "entity",
+  "resolution_status" : "exact",
+  "scope" : "MAIN",
+  "seed_id" : "seed:8fe34f1f0e9b9e65345497b6",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source" : {
+    "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+    "start_line" : 15
+  },
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:8fe34f1f0e9b9e65345497b6",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "derived_from" : [ {
+    "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
+    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
+    "record" : "entity"
+  } ],
+  "domain" : "language",
+  "facets" : {
+    "storage_kind" : "METHOD"
+  },
+  "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+  "index_revision_id" : "${REVISION}",
+  "kind" : "callable",
+  "language" : "java",
+  "module" : "service",
+  "name" : "save",
+  "origin" : "extracted",
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "producer_id" : "java-core",
+  "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save",
+  "record" : "entity",
+  "resolution_status" : "exact",
+  "scope" : "MAIN",
+  "seed_id" : "seed:dd07e02f4053a967d2379aac",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source" : {
+    "end_column" : 5,
+    "end_line" : 24,
+    "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+    "ordinal" : 0,
+    "start_column" : 5,
+    "start_line" : 17
+  },
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:dd07e02f4053a967d2379aac",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "derived_from" : [ {
+    "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
+    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
+    "record" : "entity"
+  } ],
+  "domain" : "language",
+  "facets" : {
+    "storage_kind" : "METHOD"
+  },
+  "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#findById(java.lang.String)",
+  "index_revision_id" : "${REVISION}",
+  "kind" : "callable",
+  "language" : "java",
+  "module" : "service",
+  "name" : "findById",
+  "origin" : "extracted",
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "producer_id" : "java-core",
+  "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#findById",
+  "record" : "entity",
+  "resolution_status" : "exact",
+  "scope" : "MAIN",
+  "seed_id" : "seed:1d83126d8981c865624fa6ac",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source" : {
+    "end_column" : 5,
+    "end_line" : 29,
+    "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+    "ordinal" : 0,
+    "start_column" : 5,
+    "start_line" : 26
+  },
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:1d83126d8981c865624fa6ac",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "derived_from" : [ {
+    "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
+    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
+    "record" : "entity"
+  } ],
+  "domain" : "language",
+  "facets" : {
+    "storage_kind" : "METHOD"
+  },
+  "id" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#deleteAll()",
+  "index_revision_id" : "${REVISION}",
+  "kind" : "callable",
+  "language" : "java",
+  "module" : "service",
+  "name" : "deleteAll",
+  "origin" : "extracted",
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "producer_id" : "java-core",
+  "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#deleteAll",
+  "record" : "entity",
+  "resolution_status" : "exact",
+  "scope" : "MAIN",
+  "seed_id" : "seed:0eedbfc7b65073b7c0d63093",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source" : {
+    "end_column" : 5,
+    "end_line" : 34,
+    "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+    "ordinal" : 0,
+    "start_column" : 5,
+    "start_line" : 31
+  },
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:0eedbfc7b65073b7c0d63093",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 5,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:dec7642a16d4d5f755b75266",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 5,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "record" : "evidence",
+  "scope" : "stream",
+  "seeds" : {
+    "total" : 1
+  },
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+} ]

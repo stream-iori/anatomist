@@ -8,10 +8,10 @@
 - `framework/` — Compile-time extension SPI. `AstModelExtension` augments the in-memory AST, `CallSiteEvidenceProvider` decorates fallback calls without changing graph shape, `JavaUnitAnalyzer` emits per-unit facts, `ProjectResourceProvider` discovers shared resources, and `ProjectResourceAnalyzer` emits project-resource facts. `AnalyzerRegistry` wires built-ins.
 - `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
 - `framework/lombok/` — Opt-in signature-only Lombok AST model and root `lombok.config` subset; queries disclose modeled/partial/unmodeled capability evidence rather than inventing unmodeled members.
-- `store/` — `SqliteStore` (schema + atomic batched write)
+- `store/` — schema、staging、原子替换和 `CallSitePersistence`；最终调用事实写入字典化的 `call_site_owners` / `call_sites` / `call_site_targets`。
 - `semantic/` — Post-index annotations from direct code evidence: `SemanticPostProcessor` writes Javadoc summaries only; it does not infer architecture roles or business categories from names/annotations.
-- `query/` — Read-only query layer. `QueryService` delegates to focused services (`SearchService`, `TypeContextService`, `SourceContextService`, `CallGraphService`, `BranchSliceService`, `DependencyService`, `EnrichmentService`, `OverviewService`). Result POJOs include `SourceContext` and `SourceRequest` alongside `QueryEnvelope`, `NodeRow`, `EdgeRow`, `BranchSlice`, `ContextResult`, `HierarchyResult`, `OverviewResult`, `PackageStat`, `BlockResult`, `SliceResult`, `EnrichResult`, `PagedResult<T>`. `IndexedSourceVerifier` checks source snapshots before returning exact declaration text. `CallChainSlicer` groups call chains into class/package blocks. `JsonFormatter` + `DtoCodecs` handle serialisation (no Jackson).
-- `query/semantic/` — Language-neutral records, NDJSON framing, three-part identity, and closeable pull cursors.
+- `query/` — 只读查询层；`QueryService` 组合 search、declaration、call-site、Java semantic、generic semantic、overview 和源码快照校验服务。
+- `query/semantic/` — `semantic-stream/v1` records、NDJSON framing、三类身份和有界 cursor。
 - `cli/` — picocli adapters; `IndexOutput` owns the full/incremental text and JSON contract instead of mixing rendering into `IndexCommand`.
 
 ## Indexing pipeline
@@ -30,7 +30,7 @@ IndexCommand (picocli adapter)
           MethodExtractor  → METHOD nodes + CONTAINS edges
           FieldExtractor   → FIELD nodes + CONTAINS edges
           AnnotationExtractor → annotations table
-          CallGraphExtractor  → CALLS edges with call_kind
+          CallGraphExtractor  → staged CALLS facts with call kind/location/context
               CallSiteEvidenceProvider → namespaced metadata on fallback CALLS
           HierarchyExtractor  → INHERITS/IMPLEMENTS/OVERRIDES edges
           ReferenceExtractor  → REFERENCES edges with context
@@ -45,6 +45,7 @@ IndexCommand (picocli adapter)
   → GraphPostProcessor           → bind/prune graph facts
   → StagedGraphStore → sibling temporary SQLite DB
   → quick_check + foreign_key_check + schema/semantics gate
+  → CallSitePersistence interns owners, writes call_sites/call_site_targets, drops final edges(CALLS)
   → atomic replacement of the live index
   → IndexHealthService           → persisted index_diagnostics
 ```
@@ -98,11 +99,15 @@ may reference nodes owned by another producer.
   including indexed documents and manual semantic annotations, is renewable.
 - **No architecture role inference.** The index stores code facts and lightweight semantic annotations. Higher-level architecture judgment belongs to the calling Agent.
 - **JavaDoc stored as summary only.** Extracted via `JavadocSummary.extract()` (strips @tags, first sentence rule).
-- **Query output is Agent-bounded and discloses each bound.** Call traversals use
-  MAX_DEPTH=20 + BFS dedup and report `depth_truncated`; pageable commands report
-  `truncated`. Agents must follow the corresponding `next_queries` before making
-  exhaustive claims.
-- **Exact source is primary local control-flow evidence.** `context --source` returns only the indexed declaration range, verifies its snapshot, and pages long bodies. The graph does not persist a second `control_regions` projection.
+- **Query output is Agent-bounded and discloses each bound.** `evidence` 和
+  `truncated` 决定是否能作完整/否定结论；分页未完成时必须继续查询。
+- **Exact source is primary local control-flow evidence.** `resolve --exact | source`
+  只返回索引声明范围，校验源码快照，并对长方法分页。
+- **CALLS has one final source of truth.** extractor 可在 staging 中使用 CALLS，
+  但提交库的 `edges` 不含 CALLS；查询、overview 和增量影响分析统一读取
+  `call_site_owners` / `call_sites` / `call_site_targets`。
+- **DI does not manufacture calls.** `INJECTS`/`WIRES` 只作为配置证据和 dispatch
+  缩小条件，不能生成不存在的源码调用点。
 - **Spring Boot basics are static facts.** `BEAN`, `ROUTE`, `INJECTS`, and `HANDLES` are configured/static evidence, not proof of the exact runtime object under profiles, conditions, or AOP.
 - **`WIRES` edges originate from CLASS nodes, not BEAN nodes.** XML WIRES must drop explicitly on XML incremental rebuild; annotation BEAN nodes must not be deleted by XML cleanup.
 
@@ -110,11 +115,11 @@ may reference nodes owned by another producer.
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Schema v18 has no migration path. It stores call-site joins with an internal integer
+Schema v20 has no migration path. It stores call-site joins with an internal integer
 primary key and keeps the public stable ID as a 32-byte SHA-256 digest. Separate
 `call_site_targets` let one syntax site retain several static candidates without
 repeating a long text key.
-`graph_semantics_version=2` identifies this meaning independently of table layout.
+`graph_semantics_version=4` identifies this meaning independently of table layout.
 `index_revision_id` is published in the same transaction as query-visible facts.
 
 ```text

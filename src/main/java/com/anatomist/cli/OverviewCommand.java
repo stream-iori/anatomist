@@ -1,12 +1,11 @@
 package com.anatomist.cli;
 
-import com.anatomist.query.JsonFormatter;
-import com.anatomist.query.MarkdownFormatter;
 import com.anatomist.query.OverviewResult;
 import com.anatomist.query.PackageStat;
-import com.anatomist.query.QueryEnvelope;
-import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.semantic.SemanticIdentity;
+import com.anatomist.query.semantic.SemanticRecords;
+import com.anatomist.query.semantic.SemanticStreamWriter;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -20,12 +19,12 @@ import java.util.concurrent.Callable;
 
 @Command(name = "overview",
         mixinStandardHelpOptions = true,
-        description = "Top-down project summary: node-kind counts, edge counts, "
-                    + "per-package type/method tallies, and the package dependency skeleton.")
+        description = "Emit project, package, and package-dependency semantic summaries.",
+        footer = "%nAccepts: CLI index selector%nEmits: project_summary | package_summary | package_dependency + evidence%n%nExample:%n  anatomist overview --format ndjson")
 public class OverviewCommand implements Callable<Integer> {
 
-    @Option(names = "--format", description = "Output format: markdown | json (default: markdown).")
-    String format = "markdown";
+    @Option(names = "--format", description = "Semantic projection: ndjson | json | table.")
+    String format = "ndjson";
 
     @Option(names = "--depth",
             description = "Collapse package tree to the first N dot-segments (default: 0 = no collapse).")
@@ -44,50 +43,57 @@ public class OverviewCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
-            format = CliValidation.choice("--format", format, "markdown", "json");
+            format = CliValidation.choice("--format", format, "ndjson", "json", "table");
             CliValidation.nonNegative("--depth", depth);
             CliValidation.nonNegative("--limit", limit);
             CliValidation.nonNegative("--offset", offset);
             Path db = IndexPath.resolve(index);
-            try (QueryService q = new QueryService(db)) {
-            if (depsOnly) {
-                List<Map<String, Object>> rows = q.packageDeps();
-                int total = rows.size();
-                int effectiveLimit = limit > 0 ? limit : total;
-                int safeOffset = Math.max(0, Math.min(offset, total));
-                int end = Math.min(safeOffset + effectiveLimit, total);
-                List<Map<String, Object>> page = rows.subList(safeOffset, end);
-                QueryEnvelope env = new QueryEnvelope(buildQueryString(), page);
-                env.stats.put("total", total);
-                env.stats.put("offset", safeOffset);
-                env.stats.put("truncated", end < total);
-                if (end < total) {
-                    env.stats.put("limit", effectiveLimit);
-                    env.stats.put("next_offset", end);
-                    env.nextQueries = List.of("overview --deps-only --limit " + effectiveLimit
-                            + " --offset " + end);
-                    Disclosure.putBudget(env, "package_deps", page.size(), total);
+            try (QueryService q = new QueryService(db);
+                 SemanticStreamWriter writer = new SemanticStreamWriter(System.out, format)) {
+                SemanticIdentity identity = SemanticIdentity.read(q.connection());
+                OverviewResult ov = q.overview();
+                if (depth > 0) ov.packages = collapse(ov.packages, depth);
+                String root = SemanticRecords.rootSeed("overview", identity.sourceSnapshotId());
+                int emitted = 0;
+                if (!depsOnly) {
+                    var project = SemanticRecords.common("project_summary", root, null, identity);
+                    project.put("id", "project:sha256:" + SemanticIdentity.sha256(
+                            identity.sourceSnapshotId()));
+                    project.put("kind_counts", ov.kindCounts);
+                    project.put("internal_relation_counts", ov.internalEdgeCounts);
+                    project.put("external_relation_counts", ov.externalEdgeCounts);
+                    project.put("producer_counts", ov.producerCounts);
+                    project.put("totals", ov.toStats());
+                    project.put("origin", "derived"); project.put("resolution_status", "exact");
+                    writer.write(project); emitted++;
+                    for (PackageStat pkg : ov.packages) {
+                        String seed = SemanticRecords.childSeed(root, "package", pkg.name);
+                        var row = SemanticRecords.common("package_summary", seed, root, identity);
+                        row.put("id", "package:sha256:" + SemanticIdentity.sha256(pkg.name));
+                        row.put("package", pkg.name); row.put("types", pkg.types);
+                        row.put("callables", pkg.methods); row.put("producer_counts", pkg.producerCounts);
+                        row.put("origin", "derived"); row.put("resolution_status", "exact");
+                        writer.write(row); emitted++;
+                    }
                 }
-                env.evidence = new QueryCoverageService(q.connection()).assess(
-                        QueryCoverageService.Capability.AGGREGATE,
-                        List.of(), null, "MAIN", total > 0, true);
-                JsonFormatter.emit(System.out, env);
+                List<Map<String, Object>> deps = ov.packageDeps;
+                int effectiveLimit = limit > 0 ? limit : deps.size();
+                int start = Math.min(offset, deps.size());
+                int end = Math.min(start + effectiveLimit, deps.size());
+                for (Map<String, Object> dep : deps.subList(start, end)) {
+                    String stable = dep.get("source_package") + "\n" + dep.get("target_package")
+                            + "\n" + dep.get("relation");
+                    String seed = SemanticRecords.childSeed(root, "package-dependency", stable);
+                    var row = SemanticRecords.common("package_dependency", seed, root, identity);
+                    row.put("id", "package-dependency:sha256:" + SemanticIdentity.sha256(stable));
+                    row.putAll(dep); row.put("origin", "derived"); row.put("resolution_status", "exact");
+                    writer.write(row); emitted++;
+                }
+                boolean complete = end >= deps.size();
+                writer.write(SemanticRecords.seedEvidence(root, null, emitted, complete,
+                        complete ? null : "RESULT_LIMIT", !complete, identity));
+                writer.write(SemanticRecords.streamEvidence(1, emitted, complete, !complete, identity));
                 return 0;
-            }
-            OverviewResult ov = q.overview();
-            if (depth > 0) ov.packages = collapse(ov.packages, depth);
-            if ("json".equalsIgnoreCase(format)) {
-                QueryEnvelope env = new QueryEnvelope(buildQueryString(), List.of(ov));
-                env.stats.clear();
-                env.stats.putAll(ov.toStats());
-                env.evidence = new QueryCoverageService(q.connection()).assess(
-                        QueryCoverageService.Capability.AGGREGATE,
-                        List.of(), null, "MAIN", true, true);
-                JsonFormatter.emit(System.out, env);
-            } else {
-                System.out.print(MarkdownFormatter.format(ov));
-            }
-            return 0;
             }
         } catch (IllegalArgumentException failure) {
             return CliValidation.emit(failure);

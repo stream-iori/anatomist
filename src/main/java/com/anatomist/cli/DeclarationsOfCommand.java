@@ -2,11 +2,10 @@ package com.anatomist.cli;
 
 import com.anatomist.query.DeclarationQueryService;
 import com.anatomist.query.DeclarationRow;
-import com.anatomist.query.JsonFormatter;
-import com.anatomist.query.QueryEnvelope;
-import com.anatomist.query.QueryBudget;
-import com.anatomist.query.QueryEvidence;
 import com.anatomist.query.QueryService;
+import com.anatomist.query.semantic.SemanticIdentity;
+import com.anatomist.query.semantic.SemanticRecords;
+import com.anatomist.query.semantic.SemanticStreamWriter;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -19,8 +18,8 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 
 @Command(name = "declarations-of", mixinStandardHelpOptions = true,
-        description = "Enumerate AST-backed Java type, method, and constructor declarations in one indexed file.",
-        footer = "%nExample:%n  anatomist declarations-of --file src/main/java/com/example/AuthenticationService.java --visibility public,protected --kind type,method --top-level-types --direct-members --format json")
+        description = "Enumerate declarations in one indexed source file.",
+        footer = "%nAccepts: CLI file selector%nEmits: entity + evidence%n%nExample:%n  anatomist declarations-of --file src/main/java/com/example/AuthenticationService.java --visibility public,protected --kind type,method --format ndjson")
 public final class DeclarationsOfCommand implements Callable<Integer> {
     private static final Set<String> VISIBILITIES = Set.of("public", "protected", "private", "package");
     private static final Set<String> KINDS = Set.of("type", "method", "constructor");
@@ -42,14 +41,16 @@ public final class DeclarationsOfCommand implements Callable<Integer> {
     boolean includeSynthetic;
     @Option(names = "--limit", defaultValue = "100", description = "Page size, 1..1000 (default 100).") int limit;
     @Option(names = "--offset", defaultValue = "0", description = "Rows to skip (default 0).") int offset;
-    @Option(names = "--format", defaultValue = "json", description = "Output format: json.") String format;
+    @Option(names = "--format", defaultValue = "ndjson", description = "Semantic projection: ndjson | json | table.") String format;
 
     @Override public Integer call() {
         Path db = index == null ? null : index.toAbsolutePath().normalize();
         try {
             validate();
             db = IndexPath.resolve(index);
-            try (QueryService service = new QueryService(db)) {
+            try (QueryService service = new QueryService(db);
+                 SemanticStreamWriter writer = new SemanticStreamWriter(System.out, format)) {
+                SemanticIdentity identity = SemanticIdentity.read(service.connection());
                 DeclarationQueryService declarations = new DeclarationQueryService(service.connection());
                 declarations.verifyFile(db, file, module, scope);
                 Set<String> visibilities = csv(visibility, VISIBILITIES, "--visibility");
@@ -58,31 +59,69 @@ public final class DeclarationsOfCommand implements Callable<Integer> {
                         topLevelTypes, directMembers, includeSynthetic);
                 List<DeclarationRow> results = declarations.find(file, module, scope, visibilities, kinds,
                         topLevelTypes, directMembers, includeSynthetic, limit, offset);
-                QueryEnvelope envelope = new QueryEnvelope(query(), results);
-                Disclosure.putPaging(envelope, total, limit, offset);
-                Disclosure.putBudget(envelope, "rows", results.size(), total);
-                envelope.evidence = QueryEvidence.positiveComplete();
-                if (Boolean.TRUE.equals(envelope.stats.get("truncated"))) {
-                    envelope.nextQueries = List.of(queryWithOffset(((Number) envelope.stats.get("next_offset")).intValue()));
+                String root = SemanticRecords.rootSeed("declarations-of", file);
+                for (DeclarationRow row : results) {
+                    String seed = SemanticRecords.childSeed(root, "declaration", row.nodeId);
+                    writer.write(entity(row, seed, root, identity));
+                    writer.write(SemanticRecords.seedEvidence(seed, root, 1, true, null, identity));
                 }
-                JsonFormatter.emit(System.out, envelope);
+                boolean complete = offset + results.size() >= total;
+                writer.write(SemanticRecords.seedEvidence(root, null, results.size(), complete,
+                        complete ? null : "RESULT_LIMIT", !complete, identity));
+                writer.write(SemanticRecords.streamEvidence(1, results.size(), complete,
+                        !complete, identity));
                 return 0;
             }
         } catch (DeclarationQueryService.DeclarationQueryException failure) {
-            return fail(failure.code(), failure.getMessage());
+            System.err.println("ERROR[" + failure.code() + "]: " + failure.getMessage());
+            return 3;
         } catch (IllegalStateException failure) {
             String message = failure.getMessage() == null ? "index query failed" : failure.getMessage();
             String code = message.startsWith("SCHEMA_MISMATCH") ? "SCHEMA_MISMATCH" : "GRAPH_INTEGRITY_FAILED";
-            return fail(code, message);
+            System.err.println("ERROR[" + code + "]: " + message);
+            return 3;
         } catch (IllegalArgumentException failure) {
             if (failure.getMessage() != null && (failure.getMessage().contains("index db not found")
-                    || failure.getMessage().contains("no index db found"))) return fail("INDEX_MISSING", failure.getMessage());
+                    || failure.getMessage().contains("no index db found"))) {
+                System.err.println("ERROR[INDEX_MISSING]: " + failure.getMessage());
+                return 3;
+            }
             return CliValidation.emit(failure);
         }
     }
 
+    private static java.util.Map<String, Object> entity(DeclarationRow row, String seed,
+                                                         String parent, SemanticIdentity identity) {
+        var out = SemanticRecords.common("entity", seed, parent, identity);
+        out.put("id", row.nodeId);
+        out.put("symbol_id", row.symbolId);
+        out.put("domain", "language"); out.put("language", "java");
+        out.put("kind", "type".equals(row.declarationKind) ? "type" : "callable");
+        out.put("name", row.label); out.put("qualified_name", row.qualifiedName);
+        out.put("module", row.module); out.put("scope", row.scope);
+        out.put("producer_id", row.producerId); out.put("origin", row.synthetic ? "derived" : "extracted");
+        out.put("resolution_status", "exact");
+        var source = new java.util.LinkedHashMap<String, Object>();
+        source.put("file", row.sourceFile);
+        Integer line = SemanticRecords.line(row.sourceLocation);
+        if (line != null) source.put("start_line", line);
+        out.put("source", source);
+        var facets = new java.util.LinkedHashMap<String, Object>();
+        facets.put("declaration_kind", row.declarationKind); facets.put("visibility", row.visibility);
+        facets.put("storage_kind", row.kind); facets.put("modifiers", row.modifiers);
+        facets.put("declared_modifiers", row.declaredModifiers);
+        facets.put("implicit_modifiers", row.implicitModifiers);
+        facets.put("direct_member", row.directMember);
+        facets.put("nesting_depth", row.nestingDepth); facets.put("synthetic", row.synthetic);
+        if (row.typeKind != null) facets.put("type_kind", row.typeKind);
+        if (row.declaringType != null) facets.put("declaring_type", row.declaringType);
+        if (row.lombok != null) facets.put("lombok", row.lombok);
+        out.put("facets", facets);
+        return out;
+    }
+
     private void validate() {
-        format = CliValidation.choice("--format", format, "json");
+        format = CliValidation.choice("--format", format, "ndjson", "json", "table");
         scope = CliValidation.scope(scope, true);
         CliValidation.nonNegative("--offset", offset);
         CliValidation.positive("--limit", limit);
@@ -111,15 +150,6 @@ public final class DeclarationsOfCommand implements Callable<Integer> {
             values.add(value);
         });
         return Set.copyOf(values);
-    }
-
-    private int fail(String code, String message) {
-        QueryEnvelope envelope = new QueryEnvelope(query(), List.of());
-        envelope.stats.clear(); envelope.stats.put("total", 0); envelope.stats.put("offset", offset);
-        envelope.stats.put("limit", limit); envelope.stats.put("truncated", false);
-        envelope.budget = new QueryBudget("rows", 0, 0, false);
-        envelope.evidence = QueryEvidence.indeterminate(code, message);
-        JsonFormatter.emit(System.out, envelope); return 3;
     }
 
     private String query() { return queryWithOffset(offset); }

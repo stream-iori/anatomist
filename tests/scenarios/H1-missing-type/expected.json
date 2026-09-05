@@ -1,16 +1,1 @@
-{
-  "candidates" : [ ],
-  "code" : "SYMBOL_NOT_FOUND",
-  "contract_version" : 2,
-  "message" : "no type matches selector 'com.example.shop.missing.DoesNotExist'",
-  "results" : [ ],
-  "selector" : "com.example.shop.missing.DoesNotExist",
-  "selector_status" : "NOT_FOUND",
-  "stats" : {
-    "ambiguous" : false,
-    "candidates" : 0,
-    "reason" : "symbol_not_found",
-    "total" : 0
-  },
-  "status" : "error"
-}
+[ ]

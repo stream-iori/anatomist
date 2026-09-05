@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Derives DI-informed edges from SQLite without materializing the whole edge table. */
+/** Derives DI binding facts without manufacturing runtime CALLS edges. */
 final class DatabaseWiringResolver {
 
     private static final int WRITE_BATCH_SIZE = 1_000;
@@ -30,13 +30,7 @@ final class DatabaseWiringResolver {
 
         Map<String, List<String>> implementations = relationMap(connection,
                 GraphConstants.Relation.IMPLEMENTS);
-        Map<String, List<String>> overrides = relationMap(connection,
-                GraphConstants.Relation.OVERRIDES);
         List<Edge> injections = relationEdges(connection, GraphConstants.Relation.INJECTS);
-        Set<String> injectedPairs = new HashSet<>();
-        for (Edge injection : injections) {
-            injectedPairs.add(injection.sourceId + "\u0000" + injection.targetId);
-        }
 
         int written = 0;
         List<Edge> pending = new ArrayList<>(WRITE_BATCH_SIZE);
@@ -65,47 +59,6 @@ final class DatabaseWiringResolver {
             }
         }
 
-        String callSql = "SELECT source_id,target_id,call_kind,context,source_file,source_location "
-                + "FROM edges WHERE relation=? AND is_external=0 AND target_id IS NOT NULL ORDER BY id";
-        try (PreparedStatement statement = connection.prepareStatement(callSql)) {
-            statement.setString(1, GraphConstants.Relation.CALLS);
-            try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    String sourceId = rows.getString(1);
-                    String targetId = rows.getString(2);
-                    String callerType = ownerTypeOfMethod(sourceId);
-                    String calleeType = ownerTypeOfMethod(targetId);
-                    if (callerType == null || calleeType == null
-                            || !injectedPairs.contains(callerType + "\u0000" + calleeType)) {
-                        continue;
-                    }
-                    List<String> candidates = distinct(overrides.get(targetId));
-                    if (candidates.isEmpty()) continue;
-                    String confidence = candidates.size() == 1
-                            ? GraphConstants.Confidence.INFERRED : GraphConstants.Confidence.AMBIGUOUS;
-                    String metadata = metadata(GraphConstants.MetadataVia.INJECTED_CALL,
-                            calleeType, targetId, candidates);
-                    for (String candidate : candidates) {
-                        Edge edge = new Edge();
-                        edge.sourceId = sourceId;
-                        edge.targetId = candidate;
-                        edge.relation = GraphConstants.Relation.CALLS;
-                        edge.callKind = rows.getString(3);
-                        edge.context = rows.getString(4);
-                        edge.confidence = confidence;
-                        edge.sourceFile = rows.getString(5);
-                        edge.sourceLocation = rows.getString(6);
-                        edge.metadata = metadata;
-                        edge.producerId = ProducerIds.DERIVED_WIRING;
-                        pending.add(edge);
-                        if (pending.size() >= WRITE_BATCH_SIZE) {
-                            written += insertNew(connection, pending);
-                            pending.clear();
-                        }
-                    }
-                }
-            }
-        }
         written += insertNew(connection, pending);
         return written;
     }
@@ -213,19 +166,4 @@ final class DatabaseWiringResolver {
         return Json.writeCompact(value);
     }
 
-    private static String metadata(String via, String interfaceType,
-                                   String source, List<String> candidates) {
-        Map<String, Object> value = new LinkedHashMap<>();
-        value.put("via", via);
-        value.put("interfaceType", interfaceType);
-        value.put("source", source);
-        value.put("candidates", candidates);
-        return Json.writeCompact(value);
-    }
-
-    private static String ownerTypeOfMethod(String methodId) {
-        if (methodId == null) return null;
-        int hash = methodId.indexOf('#');
-        return hash <= 0 ? null : methodId.substring(0, hash);
-    }
 }

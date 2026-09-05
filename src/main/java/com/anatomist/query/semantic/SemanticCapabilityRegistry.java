@@ -41,10 +41,12 @@ public final class SemanticCapabilityRegistry {
         return switch (capability) {
             case STREAM -> true;
             case ENTITY_LOOKUP -> tableExists("nodes");
-            case CALL_SITES -> tableExists("call_sites") && tableExists("call_site_targets");
+            case CALL_SITES -> tableExists("call_site_owners")
+                    && tableExists("call_sites") && tableExists("call_site_targets");
             case TYPE_SEMANTICS -> tableExists("nodes") && tableExists("edges")
                     && tableExists("declarations");
-            case DISPATCH -> tableExists("call_sites") && tableExists("call_site_targets")
+            case DISPATCH -> tableExists("call_site_owners")
+                    && tableExists("call_sites") && tableExists("call_site_targets")
                     && tableExists("edges") && tableExists("declarations");
             case SOURCE_SNAPSHOT -> metadata("source_root") && metadata("source_snapshot_fingerprint");
         };

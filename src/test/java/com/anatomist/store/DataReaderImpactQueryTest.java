@@ -54,7 +54,7 @@ class DataReaderImpactQueryTest {
             String externalPlan = explain(store, "SELECT DISTINCT source_file FROM edges "
                     + "WHERE is_external=1 AND external_target_fqn>='p.External#' "
                     + "AND external_target_fqn<'p.External$' AND source_file IS NOT NULL");
-            assertTrue(ownerPlan.contains("idx_edges_target_id"), ownerPlan);
+            assertTrue(ownerPlan.contains("idx_edges_target_relation"), ownerPlan);
             assertTrue(externalPlan.contains("idx_edges_external_target_fqn"), externalPlan);
             assertFalse(ownerPlan.contains("SCAN edges"), ownerPlan);
             assertFalse(externalPlan.contains("SCAN edges"), externalPlan);

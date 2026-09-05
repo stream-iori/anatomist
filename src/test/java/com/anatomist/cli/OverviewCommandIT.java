@@ -67,17 +67,16 @@ class OverviewCommandIT {
         String out = runOverview("--format", "json");
         assertTrue(out.contains("\"kind_counts\""), out);
         assertTrue(out.contains("\"CLASS\""), out);
-        assertTrue(out.contains("\"packages\""));
+        assertTrue(out.contains("\"record\" : \"package_summary\""));
         assertTrue(out.contains("com.example.shop.service"), "expected a service package name");
-        assertTrue(out.contains("\"package_deps\""));
+        assertTrue(out.contains("\"record\" : \"package_dependency\""));
     }
 
     @Test
-    void overview_markdown_rendersTables() {
-        String out = runOverview("--format", "markdown");
-        assertTrue(out.contains("# Project Overview"));
-        assertTrue(out.contains("## Node Kinds"));
-        assertTrue(out.contains("## Packages"));
+    void overview_table_isSemanticProjection() {
+        String out = runOverview("--format", "table");
+        assertTrue(out.contains("RECORD\tID"));
+        assertTrue(out.contains("project_summary"));
     }
 
     @Test

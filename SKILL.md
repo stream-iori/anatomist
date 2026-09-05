@@ -1,6 +1,6 @@
 ---
 name: anatomist
-description: "Use for source-backed Java structural analysis: declarations, context, call paths, branches, types, Spring, and targeted flow."
+description: "Source-backed Java analysis through semantic-stream/v1 pipelines."
 ---
 
 # anatomist
@@ -26,14 +26,9 @@ config      ... | bindings
 evidence    ... | source
 ```
 
-Examples:
+Example:
 
 ```bash
-anatomist search PaymentGateway --kind type --format ndjson |
-  anatomist resolve --unique |
-  anatomist runtime-implementations --instantiability yes |
-  anatomist source
-
 anatomist resolve 'OrderService#run()' --kind callable --exact --unique |
   anatomist calls | anatomist dispatch | anatomist source
 
@@ -47,7 +42,11 @@ downgrades it. `calls` is source syntax plus static resolution. `dispatch` gives
 possible static candidates, not observed execution. Framework bindings come from
 artifact producers, not Java semantics.
 
-Use `declarations-of --file <relative.java>` for changed files. Use
-`context '<exact-signature>' --source` for one method; follow `next_queries`.
+Use `declarations-of --file <relative.java>` for changed files. For one method,
+use `resolve '<exact-signature>' --kind callable --exact --unique | source` and
+follow source pagination until evidence is complete.
+
+1.0 cannot read 0.1x indexes. Run `index <project> --recreate`; there is no alias
+or silent rebuild.
 
 Lombok is off. Modeled AST facts are evidence; partial capability needs proof.

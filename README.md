@@ -1,160 +1,113 @@
 # anatomist
 
-JavaParser + SymbolSolver-based Java code intelligence tool. Indexes a Java project into SQLite once, then answers structural/semantic questions via CLI — no re-parsing per query. Designed as an Agent LLM tool (Claude Code, Cursor, ...).
+Java 代码结构索引与查询工具。源码只解析一次，事实写入 SQLite；1.0 的公开查询接口只有 `semantic-stream/v1` NDJSON 管道。
 
-```
-┌────────────────────┐    seconds–minutes     ┌────────────────────┐
-│  Java source tree  │ ─────────────────────▶ │   SQLite snapshot  │
-└────────────────────┘   index (one-shot)     │  nodes + edges +   │
-                                              │  FTS5 + semantic   │
-                                              └─────────┬──────────┘
-                                                        │ milliseconds
-                                                        ▼
-                                       ┌───────────────────────────────┐
-                                       │  CLI / JSON responses for     │
-                                       │  search / context / callers / │
-                                       │  callees / hierarchy / deps   │
-                                       └───────────────────────────────┘
+```text
+Java source ── index ──> SQLite snapshot ── semantic pipeline ──> evidence
+                             │
+                             ├─ nodes / declarations / edges（非调用关系）
+                             └─ call_site_owners / call_sites / targets（唯一调用事实）
 ```
 
----
-
-## Quick start
+## 快速开始
 
 ```bash
-# Build
-just jar                    # → target/anatomist.jar
-# or: just native           # → target/anatomist (GraalVM native binary)
+just jar                 # target/anatomist.jar
+# just native            # target/anatomist
 
-# Index
 java -jar target/anatomist.jar index fixtures/mini-spring-shop \
-    --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
-    --no-classpath --output /tmp/shop.db
+  --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
+  --no-classpath --output /tmp/shop.db
 
-# Query
-java -jar target/anatomist.jar callees-of \
-    com.example.shop.service.OrderService#createOrder \
-    --depth 3 --index /tmp/shop.db
+java -jar target/anatomist.jar search OrderService --kind type --index /tmp/shop.db |
+  java -jar target/anatomist.jar resolve --unique --index /tmp/shop.db |
+  java -jar target/anatomist.jar members --recursive --index /tmp/shop.db
 ```
 
-Semantic one-shell pipeline:
+调用与源码证据：
 
 ```bash
-set -o pipefail
-anatomist search OrderService --kind type --format ndjson --index /tmp/shop.db |
-  anatomist resolve --unique --index /tmp/shop.db |
-  anatomist runtime-implementations --instantiability yes --index /tmp/shop.db |
-  anatomist source --index /tmp/shop.db
+java -jar target/anatomist.jar \
+  resolve 'com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' \
+  --kind callable --exact --unique --index /tmp/shop.db |
+java -jar target/anatomist.jar calls --index /tmp/shop.db |
+java -jar target/anatomist.jar dispatch --index /tmp/shop.db |
+java -jar target/anatomist.jar source --index /tmp/shop.db
 ```
 
-For calls use `resolve | calls | dispatch | source`. For Spring XML, index with
-`--spring-xml`, then use `search --kind artifact | resolve | members` and
-`bindings`. Legacy queries keep v2 JSON defaults. Possible dispatch candidates
-are not runtime observations.
+每一段都校验 `index_revision_id`、源码快照和语义配置。最终 `evidence` 不是 `complete` 时，不能据此断言“没有结果”。
 
-### Configure scan scope
+## 1.0 查询模型
 
-Put one complete project profile in `.anatomist/config.toml`. It replaces the
-user-wide `~/.anatomist/config.toml` rather than merging with it:
+| 需求 | 管道 |
+|---|---|
+| 搜索并消歧 | `search | resolve --unique` |
+| 类型成员 | `resolve | members [--recursive]` |
+| 类型关系/实现 | `resolve | type-relations` / `runtime-implementations` |
+| 调用点/派发候选 | `resolve | calls | dispatch` |
+| 引用/字段访问 | `resolve | references` / `accesses` |
+| 分支内事实 | `resolve | regions | sites-in` |
+| 路径 | `resolve | trace --to ... --dispatch resolved|possible` |
+| Spring/配置 | `search --kind artifact | resolve | members`，或 `bindings` |
+| 精确源码 | `resolve --exact | source` |
+| 文件声明 | `declarations-of --file ...` |
+| 项目基线 | `overview` |
+
+0.1x 的聚合查询命令已删除，没有别名。升级时旧索引也必须显式重建：
+
+```bash
+anatomist index . --recreate --output /path/to/index.db
+```
+
+详见 [1.0 迁移指南](docs/migration-1.0.md)。
+
+## 配置
+
+项目配置放在 `.anatomist/config.toml`。项目配置、用户配置和内置默认值三选一，不合并；CLI 参数优先。
 
 ```toml
 [scan]
 scopes = ["MAIN", "GENERATED"]
 include = ["src/**"]
 exclude = ["**/*IT.java"]
-```
 
-The complete commented configuration template is [docs/config.toml](docs/config.toml).
-Lombok is disabled by default. Enable source-only AST modeling per project when
-needed:
-
-```toml
 [extensions.lombok]
 mode = "ast"
 strict = false
 ```
 
-`ast` does not run Lombok or read `target/classes`; it adds signature evidence
-and structured `lombok_usage` evidence to relevant query edges. `strict = true`
-promotes incomplete Lombok coverage to the complete health gate.
+完整模板见 [docs/config.toml](docs/config.toml)。Lombok 默认关闭；`ast` 只提供源码结构证据，不运行 Lombok，也不证明运行时行为。
 
-CLI overrides are available when needed: `--scan-scope`, `--scan-include`, and
-`--scan-exclude`. See [the command reference](docs/commands.md#configuration)
-for root selection, glob semantics, and incremental rebuilding.
+## 能力边界
 
-For Agent integration, prefer machine-readable health and build checks:
+| 能做 | 不能证明 |
+|---|---|
+| Java 8–25 声明、类型、引用、调用点、字段访问 | 动态代理、AOP、运行时 profile 的实际选择 |
+| Spring 注解与 XML 的静态配置事实 | 精确堆别名、路径可行性 |
+| 有快照校验和分页的源码证据 | 跨语言分析、向量语义相似度 |
+| 增量索引、健康诊断、GraalVM native | 把静态 dispatch candidate 当成运行观察 |
 
-```bash
-anatomist doctor --format json --index /tmp/shop.db
-anatomist index . --health-policy integrity --format json --output /tmp/shop.db
-anatomist survey-baseline . --format json --index /tmp/shop.db
-```
+## 文档
 
----
+| 文档 | 内容 |
+|---|---|
+| [入门](docs/getting-started.md) | 安装、索引、第一条管道 |
+| [命令](docs/commands.md) | 1.0 CLI 与常用 recipe |
+| [迁移](docs/migration-1.0.md) | 0.1x → 1.0，旧命令映射与重建规则 |
+| [流协议](docs/semantic-stream-v1.md) | NDJSON framing、evidence、退出码 |
+| [数据模型](docs/data-model.md) | schema 21 与调用点唯一存储 |
+| [架构](docs/architecture.md) | 索引流水线和不变量 |
+| [测试](docs/testing.md) | JUnit、pipeline golden、E2E、benchmark |
+| [协作指南](AGENTS.md) / [Agent Skill](SKILL.md) | 开发和 Agent 使用约束 |
 
-## What it does
-
-- Canonical semantic pipelines for entity lookup, type/runtime relations, call
-  sites, dispatch, containment, configuration bindings, and source evidence
-- Stable Agent contract: index/doctor expose committed state, health dimensions,
-  policy gate, and structured classpath quality; queries expose evidence coverage
-- AST-backed `declarations-of --file ...` contract for type/method/constructor discovery without regex parsing
-- Progressive disclosure for large repos: `survey-baseline`, paged search, paged context members, and paged/filtered call chains
-- Source-backed graph slices: `callees-of` / `callers-of` / `call-path --source-window=3` return file/line snippets for Agent evidence
-- Exact declaration reading: `context '<method-signature>' --source` returns the snapshot-verified source range with paging
-- Index snapshot metadata in `project_meta`: source root, source paths, index time, git commit/branch/dirty/remote
-- SymbolSolver-level call resolution (not naive label match) — distinguishes INSTANCE/STATIC/CONSTRUCTOR/SUPER/INTERFACE
-- Stable IDs for lambdas, method refs, anonymous classes
-- Incremental re-index (only changed files)
-- Java 8–25 Maven/Gradle language-level detection with parse completeness health
-- Explainable resolution diagnostics by file, module, scope, phase, and reason
-- Lossless capability coverage aggregates independent of bounded diagnostic samples
-- Bounded Java core-reflection targets for `Class.forName`, method/constructor
-  lookup, `Method.invoke`, and `Constructor.newInstance`
-- Source-driven value tracing: use structural call paths to select exact methods,
-  then inspect snapshot-verified bodies with `context --source`
-- Spring XML bean wiring (`--spring-xml`)
-- Optional Lombok AST signatures (`--lombok ast`) with synthetic provenance and structured modeled/partial/unmodeled evidence
-- Structured Lombok call-site evidence (`lombok_usage`) for uniquely mapped Accessors and syntactically connected Builder chains
-- Pagination + keyword filter on all list queries
-- GraalVM native binary (~10ms cold start vs ~300ms JVM)
-
-## What it doesn't do
-
-- No embedded LLM — all reasoning delegated to calling Agent
-- No cross-language (Java only)
-- No unbounded/runtime reflection, dynamic proxy, or AOP dispatch proof
-- No precise heap-alias or path-feasibility solver
-- No vector/semantic similarity (relies on FTS5 + Agent reasoning)
-
----
-
-## Documentation
-
-| Doc | Purpose |
-|-----|---------|
-| [introduce.md](introduce.md) | Chinese introduction: capabilities, evidence boundaries, installation, and first workflow |
-| [docs/getting-started.md](docs/getting-started.md) | Installation, first index, first query |
-| [docs/commands.md](docs/commands.md) | Agent CLI reference (commands + flags) |
-| [docs/config.toml](docs/config.toml) | Complete commented project configuration template |
-| [docs/architecture.md](docs/architecture.md) | Package layout, indexing pipeline, design constraints |
-| [docs/data-model.md](docs/data-model.md) | Node ID rules, edge semantics, metadata JSON |
-| [docs/testing.md](docs/testing.md) | Test strategy, fixtures, golden files |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Indexing, cache, and environment diagnosis |
-| [AGENTS.md](AGENTS.md) | Contributor and Agent collaboration guide |
-| [SKILL.md](SKILL.md) | Compact Agent bootstrap; task guidance is embedded behind `anatomist skill [scene]` |
-| [todo.md](todo.md) | Future work |
-
----
-
-## For contributors
+## 开发
 
 ```bash
-brew install just           # task runner
-just                        # list all recipes
-just test                   # run all tests (unit + IT)
-just native-smoke           # verify native binary = JVM jar output
-just golden-update          # refresh golden files after output format changes
+just test
+just golden-update
+just smoke
+just native-smoke
+just bench-query-refactor dd2e575
 ```
 
-3 production dependencies: `javaparser-symbol-solver-core` + `sqlite-jdbc` + `picocli`. No Jackson, no javassist, no Spring at runtime. JSON I/O is hand-written. Native-image compatible.
+运行时依赖保持精简，JSON 手写，支持 native-image。禁止把本地数据库、机器路径或 smoke 产物提交到仓库。

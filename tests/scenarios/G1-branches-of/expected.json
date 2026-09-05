@@ -1,78 +1,142 @@
-{
-  "budget" : {
-    "emitted" : 1,
-    "mode" : "branch_slices",
-    "total" : 1,
-    "truncated" : false
-  },
-  "contract_version" : 2,
-  "evidence" : {
-    "coverage" : "complete",
-    "negative_conclusion_safe" : true,
-    "status" : "positive"
-  },
-  "query" : "branches-of 'com.example.shop.repository.InMemoryOrderRepository#save' --depth 1 --source-window 1 --scope MAIN",
-  "results" : [ {
-    "branch_kind" : "if-then",
-    "branch_line" : 19,
-    "calls" : [ {
-      "call_kind" : "INSTANCE",
-      "confidence" : "INFERRED",
-      "context" : "if-then@L19",
-      "depth" : 1,
-      "relation" : "CALLS",
-      "source" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_label" : "save",
-      "source_location" : "L20",
-      "target" : "domain::MAIN::com.example.shop.domain.entity.Order#setId(java.lang.String)",
-      "target_label" : "setId"
-    }, {
-      "call_kind" : "INSTANCE",
-      "confidence" : "INFERRED",
-      "context" : "if-then@L19",
-      "depth" : 1,
-      "external_target_fqn" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()",
-      "is_external" : true,
-      "relation" : "CALLS",
-      "resolution" : "ast_fallback",
-      "source" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_label" : "save",
-      "source_location" : "L20"
-    } ],
-    "context" : "if-then@L19",
-    "owner" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
-    "owner_label" : "save",
-    "reads" : [ {
-      "context" : "if-then@L19",
-      "depth" : 1,
-      "relation" : "READS",
-      "source" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
-      "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-      "source_label" : "save",
-      "source_location" : "L20",
-      "target" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#seq",
-      "target_label" : "seq"
-    } ],
-    "source_file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
-    "source_window" : {
-      "end_line" : 20,
-      "snippet" : "18 |     public Order save(Order order) {\n19 |         if (order.getId() == null) {\n20 |             order.setId(\"ord-\" + seq.incrementAndGet());",
-      "start_line" : 18
-    },
-    "writes" : [ ]
+[ {
+  "caller" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+  "context" : "if-then@L19",
+  "contract" : "semantic-stream/v1",
+  "derived_from" : [ {
+    "id" : "region:sha256:81a50c12d5eb7a124d3a47a1ddbd7b1a73c6f89bb3943cdbc5059c5029d914b2",
+    "record" : "control_region"
   } ],
-  "stats" : {
-    "depth_effective" : 1,
-    "depth_limit_reached" : false,
-    "depth_requested" : 1,
-    "depth_truncated" : false,
-    "frontier_count" : 0,
-    "limit" : 50,
-    "max_depth" : 1,
-    "offset" : 0,
-    "total" : 1,
-    "truncated" : false
-  }
-}
+  "dispatch_kind" : "unknown",
+  "external_target" : false,
+  "id" : "call_site:sha256:d65e2d84a14b6dae0a99b84b7aa30c6f6bc62d44ba000351da52dcae445c7324",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "extracted",
+  "parent_seed_id" : "seed:75d60b8f9c4acfd75f1f5ba0",
+  "producer_id" : "java-core",
+  "record" : "call_site",
+  "resolution_status" : "exact",
+  "resolved_target" : "domain::MAIN::com.example.shop.domain.entity.Order#setId(java.lang.String)",
+  "resolved_targets" : [ {
+    "external" : false,
+    "id" : "domain::MAIN::com.example.shop.domain.entity.Order#setId(java.lang.String)",
+    "resolution_status" : "exact"
+  } ],
+  "seed_id" : "seed:b189f43fb81b6b32fb5d9d4a",
+  "semantic" : "CALLS",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source" : {
+    "end_column" : 55,
+    "end_line" : 20,
+    "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+    "ordinal" : 0,
+    "start_column" : 13,
+    "start_line" : 20
+  },
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target" : "domain::MAIN::com.example.shop.domain.entity.Order#setId(java.lang.String)"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "parent_seed_id" : "seed:75d60b8f9c4acfd75f1f5ba0",
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:b189f43fb81b6b32fb5d9d4a",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "caller" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
+  "context" : "if-then@L19",
+  "contract" : "semantic-stream/v1",
+  "derived_from" : [ {
+    "id" : "region:sha256:81a50c12d5eb7a124d3a47a1ddbd7b1a73c6f89bb3943cdbc5059c5029d914b2",
+    "record" : "control_region"
+  } ],
+  "dispatch_kind" : "unknown",
+  "external_target" : true,
+  "id" : "call_site:sha256:2d1c8202ef5285dc6f8059a8ba660445dbb82efa5a412a652e805717f1ec3f4a",
+  "index_revision_id" : "${REVISION}",
+  "origin" : "extracted",
+  "parent_seed_id" : "seed:75d60b8f9c4acfd75f1f5ba0",
+  "producer_id" : "java-core",
+  "record" : "call_site",
+  "resolution_status" : "heuristic",
+  "resolved_target" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()",
+  "resolved_targets" : [ {
+    "external" : true,
+    "id" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()",
+    "resolution_status" : "heuristic"
+  } ],
+  "seed_id" : "seed:b189f43fb81b6b32fb5d9d4a",
+  "semantic" : "CALLS",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source" : {
+    "end_column" : 54,
+    "end_line" : 20,
+    "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
+    "ordinal" : 0,
+    "start_column" : 34,
+    "start_line" : 20
+  },
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "target" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "parent_seed_id" : "seed:75d60b8f9c4acfd75f1f5ba0",
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:b189f43fb81b6b32fb5d9d4a",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 2,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:75d60b8f9c4acfd75f1f5ba0",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 0,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : true,
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:69bb46ddbf9abe9f1cd0c8cd",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "empty",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 2,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "record" : "evidence",
+  "scope" : "stream",
+  "seeds" : {
+    "total" : 2
+  },
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+} ]

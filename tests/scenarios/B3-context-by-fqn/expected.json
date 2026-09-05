@@ -1,208 +1,79 @@
-{
-  "contract_version" : 2,
-  "evidence" : {
-    "coverage" : "complete",
-    "negative_conclusion_safe" : true,
-    "status" : "positive"
+[ {
+  "contract" : "semantic-stream/v1",
+  "derived_from" : [ {
+    "id" : "service::MAIN::com.example.shop.service.OrderService",
+    "qualified_name" : "com.example.shop.service.OrderService",
+    "record" : "entity"
+  } ],
+  "domain" : "language",
+  "entity" : "service::MAIN::com.example.shop.service.OrderService",
+  "facets" : {
+    "storage_kind" : "CLASS"
   },
-  "query" : "context com.example.shop.service.OrderService --scope MAIN",
-  "results" : [ {
-    "annotations" : [ ],
-    "framework" : [ {
-      "confidence" : "CONFIGURED",
-      "depth" : 1,
-      "producer_id" : "spring-components",
-      "relation" : "DEFINED_BY",
-      "source" : "service::MAIN::bean:orderService",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_label" : "orderService",
-      "source_location" : "L18",
-      "target" : "service::MAIN::com.example.shop.service.OrderService",
-      "target_label" : "OrderService"
-    }, {
-      "confidence" : "CONFIGURED",
-      "depth" : 1,
-      "metadata" : "{\"injectedType\":\"com.example.shop.service.OrderService\",\"annotation\":\"Autowired\"}",
-      "producer_id" : "spring-components",
-      "relation" : "INJECTS",
-      "source" : "api::MAIN::com.example.shop.controller.OrderController",
-      "source_file" : "api/src/main/java/com/example/shop/controller/OrderController.java",
-      "source_label" : "OrderController",
-      "source_location" : "L20",
-      "target" : "service::MAIN::com.example.shop.service.OrderService",
-      "target_label" : "OrderService"
-    }, {
-      "confidence" : "CONFIGURED",
-      "depth" : 1,
-      "metadata" : "{\"injectedType\":\"com.example.shop.repository.OrderRepository\",\"annotation\":\"Autowired\"}",
-      "producer_id" : "spring-components",
-      "relation" : "INJECTS",
-      "source" : "service::MAIN::com.example.shop.service.OrderService",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_label" : "OrderService",
-      "source_location" : "L22",
-      "target" : "service::MAIN::com.example.shop.repository.OrderRepository",
-      "target_label" : "OrderRepository"
-    }, {
-      "confidence" : "CONFIGURED",
-      "depth" : 1,
-      "metadata" : "{\"injectedType\":\"com.example.shop.service.OrderValidator\",\"annotation\":\"Autowired\"}",
-      "producer_id" : "spring-components",
-      "relation" : "INJECTS",
-      "source" : "service::MAIN::com.example.shop.service.OrderService",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_label" : "OrderService",
-      "source_location" : "L24",
-      "target" : "service::MAIN::com.example.shop.service.OrderValidator",
-      "target_label" : "OrderValidator"
-    }, {
-      "confidence" : "CONFIGURED",
-      "depth" : 1,
-      "metadata" : "{\"injectedType\":\"com.example.shop.service.PriceCalculator\",\"annotation\":\"Autowired\"}",
-      "producer_id" : "spring-components",
-      "relation" : "INJECTS",
-      "source" : "service::MAIN::com.example.shop.service.OrderService",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_label" : "OrderService",
-      "source_location" : "L26",
-      "target" : "service::MAIN::com.example.shop.service.PriceCalculator",
-      "target_label" : "PriceCalculator"
-    }, {
-      "confidence" : "CONFIGURED",
-      "depth" : 1,
-      "metadata" : "{\"injectedType\":\"com.example.shop.event.OrderEventPublisher\",\"annotation\":\"Autowired\"}",
-      "producer_id" : "spring-components",
-      "relation" : "INJECTS",
-      "source" : "service::MAIN::com.example.shop.service.OrderService",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_label" : "OrderService",
-      "source_location" : "L28",
-      "target" : "service::MAIN::com.example.shop.event.OrderEventPublisher",
-      "target_label" : "OrderEventPublisher"
-    }, {
-      "confidence" : "INFERRED",
-      "depth" : 1,
-      "metadata" : "{\"via\":\"injection\",\"source\":\"service::MAIN::com.example.shop.repository.OrderRepository\",\"candidates\":[\"service::MAIN::com.example.shop.repository.InMemoryOrderRepository\"]}",
-      "producer_id" : "derived-wiring",
-      "relation" : "WIRES",
-      "source" : "service::MAIN::com.example.shop.service.OrderService",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_label" : "OrderService",
-      "source_location" : "L22",
-      "target" : "service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-      "target_label" : "InMemoryOrderRepository"
-    } ],
-    "members" : [ {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#orderRepository",
-      "javadoc" : null,
-      "kind" : "FIELD",
-      "label" : "orderRepository",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#orderRepository",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L22",
-      "symbol_id" : "com.example.shop.service.OrderService#orderRepository"
-    }, {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#validator",
-      "javadoc" : null,
-      "kind" : "FIELD",
-      "label" : "validator",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#validator",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L24",
-      "symbol_id" : "com.example.shop.service.OrderService#validator"
-    }, {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#calculator",
-      "javadoc" : null,
-      "kind" : "FIELD",
-      "label" : "calculator",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#calculator",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L26",
-      "symbol_id" : "com.example.shop.service.OrderService#calculator"
-    }, {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#publisher",
-      "javadoc" : null,
-      "kind" : "FIELD",
-      "label" : "publisher",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#publisher",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L28",
-      "symbol_id" : "com.example.shop.service.OrderService#publisher"
-    }, {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
-      "javadoc" : null,
-      "kind" : "METHOD",
-      "label" : "createOrder",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#createOrder",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L30",
-      "symbol_id" : "com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)"
-    }, {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
-      "javadoc" : null,
-      "kind" : "METHOD",
-      "label" : "createOrder",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#createOrder",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L43",
-      "symbol_id" : "com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)"
-    }, {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#applyDiscount(double)",
-      "javadoc" : null,
-      "kind" : "METHOD",
-      "label" : "applyDiscount",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#applyDiscount",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L50",
-      "symbol_id" : "com.example.shop.service.OrderService#applyDiscount(double)"
-    }, {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#countExpensiveItems(java.util.List)",
-      "javadoc" : null,
-      "kind" : "METHOD",
-      "label" : "countExpensiveItems",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#countExpensiveItems",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L55",
-      "symbol_id" : "com.example.shop.service.OrderService#countExpensiveItems(java.util.List)"
-    }, {
-      "id" : "service::MAIN::com.example.shop.service.OrderService#cleanupTask()",
-      "javadoc" : null,
-      "kind" : "METHOD",
-      "label" : "cleanupTask",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService#cleanupTask",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L61",
-      "symbol_id" : "com.example.shop.service.OrderService#cleanupTask()"
-    } ],
-    "node" : {
-      "id" : "service::MAIN::com.example.shop.service.OrderService",
-      "javadoc" : null,
-      "kind" : "CLASS",
-      "label" : "OrderService",
-      "module" : "service",
-      "qualified_name" : "com.example.shop.service.OrderService",
-      "scope" : "MAIN",
-      "source_file" : "service/src/main/java/com/example/shop/service/OrderService.java",
-      "source_location" : "L18",
-      "symbol_id" : "com.example.shop.service.OrderService"
-    }
-  } ]
-}
+  "id" : "declaration:sha256:b134e32c4d49169844677091fd3f6ba8baf7f5877ffdc4ed0d789775ef691084",
+  "index_revision_id" : "${REVISION}",
+  "kind" : "type",
+  "language" : "java",
+  "module" : "service",
+  "name" : "OrderService",
+  "origin" : "extracted",
+  "parent_seed_id" : "seed:db09a7f719a0c7b294622382",
+  "producer_id" : "java-core",
+  "qualified_name" : "com.example.shop.service.OrderService",
+  "record" : "declaration",
+  "resolution_status" : "exact",
+  "scope" : "MAIN",
+  "seed_id" : "seed:bbcbea15fe47a69dc905f257",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source" : {
+    "end_column" : 1,
+    "end_line" : 69,
+    "file" : "service/src/main/java/com/example/shop/service/OrderService.java",
+    "ordinal" : 0,
+    "start_column" : 1,
+    "start_line" : 18
+  },
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "parent_seed_id" : "seed:db09a7f719a0c7b294622382",
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:bbcbea15fe47a69dc905f257",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "record" : "evidence",
+  "scope" : "seed",
+  "seed_id" : "seed:db09a7f719a0c7b294622382",
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+}, {
+  "contract" : "semantic-stream/v1",
+  "coverage" : "complete",
+  "emitted" : 1,
+  "index_revision_id" : "${REVISION}",
+  "negative_conclusion_safe" : false,
+  "record" : "evidence",
+  "scope" : "stream",
+  "seeds" : {
+    "total" : 1
+  },
+  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
+  "status" : "positive",
+  "truncated" : false
+} ]

@@ -65,27 +65,31 @@ class NonFlowMavenFixtureIT {
     }
 
     @Test
-    void beanConfigPagesAndEscapesLiteralWildcards() throws Exception {
-        RunResult first = run("bean-config", "pagedBean", "--format", "json",
+    void componentSearchPagesAndEscapesLiteralWildcards() throws Exception {
+        RunResult count = run("search", "--name", "pagedBean*", "--kind", "component",
+                "--module", "alpha", "--count");
+        assertEquals(0, count.exitCode(), count.stdout() + count.stderr());
+        assertEquals(24, ((Number) record(count.stdout(), "result_count").get("count")).intValue());
+
+        RunResult first = run("search", "--name", "pagedBean*", "--kind", "component",
                 "--module", "alpha", "--limit", "10");
         assertEquals(0, first.exitCode(), first.stdout() + first.stderr());
-        Map<?, ?> firstJson = asMap(first.stdout());
-        Map<?, ?> stats = (Map<?, ?>) firstJson.get("stats");
-        assertEquals(24, ((Number) stats.get("total")).intValue());
-        assertEquals(10, ((List<?>) firstJson.get("results")).size());
-        assertEquals(true, stats.get("truncated"));
-        assertFalse(((List<?>) firstJson.get("next_queries")).isEmpty());
+        assertEquals(10, records(first.stdout()).stream()
+                .filter(row -> "entity_candidate".equals(row.get("record"))).count());
+        assertEquals(true, record(first.stdout(), "evidence", "scope", "stream")
+                .get("truncated"));
 
-        RunResult last = run("bean-config", "pagedBean", "--format", "json",
+        RunResult last = run("search", "--name", "pagedBean*", "--kind", "component",
                 "--module", "alpha", "--limit", "10", "--offset", "20");
         assertEquals(0, last.exitCode(), last.stdout() + last.stderr());
-        assertEquals(4, ((List<?>) asMap(last.stdout()).get("results")).size());
+        assertEquals(4, records(last.stdout()).stream()
+                .filter(row -> "entity_candidate".equals(row.get("record"))).count());
 
-        RunResult literal = run("bean-config", "literal%_", "--format", "json",
+        RunResult literal = run("search", "--name", "literal%_*", "--kind", "component",
                 "--module", "alpha");
         assertEquals(0, literal.exitCode(), literal.stdout() + literal.stderr());
-        List<?> results = (List<?>) asMap(literal.stdout()).get("results");
-        assertEquals(1, results.size());
+        assertEquals(1, records(literal.stdout()).stream()
+                .filter(row -> "entity_candidate".equals(row.get("record"))).count());
         assertTrue(literal.stdout().contains("literal%_bean"), literal.stdout());
         assertFalse(literal.stdout().contains("literalXYZbean"), literal.stdout());
     }
@@ -113,7 +117,21 @@ class NonFlowMavenFixtureIT {
         return CliTestSupport.capture(() -> new CommandLine(new AnatomistCli()).execute(command));
     }
 
-    private static Map<?, ?> asMap(String json) {
-        return (Map<?, ?>) Json.parseTree(json);
+    @SuppressWarnings("unchecked")
+    private static List<Map<?, ?>> records(String output) {
+        List<Map<?, ?>> result = new java.util.ArrayList<>();
+        output.lines().filter(line -> !line.isBlank())
+                .map(Json::parseTree).forEach(value -> result.add((Map<?, ?>) value));
+        return result;
+    }
+
+    private static Map<?, ?> record(String output, String type) {
+        return records(output).stream().filter(row -> type.equals(row.get("record")))
+                .findFirst().orElseThrow();
+    }
+
+    private static Map<?, ?> record(String output, String type, String key, String value) {
+        return records(output).stream().filter(row -> type.equals(row.get("record")))
+                .filter(row -> value.equals(row.get(key))).findFirst().orElseThrow();
     }
 }

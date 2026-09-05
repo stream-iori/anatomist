@@ -1,43 +1,75 @@
-# 查询体系原子化与跨语言重构实施方案
+# 查询体系原子化与 1.0 实施记录
 
-> 状态：本轮 P0–P5 已完成；JVM、native、stream stress、benchmark、Jury Agent E2E 全部通过
-> 当前开发版本：`0.16.0-SNAPSHOT`
+> 当前目标版本：`1.0.0-SNAPSHOT`
+> 公开查询契约：仅 `semantic-stream/v1`
+> 索引契约：schema 21 / graph semantics 4，0.1x 必须显式 `--recreate`
 
-> 本节 P0–P5 是当前执行批次，不等同于下文原始“阶段 0–5”。
+## 1.0 决策
 
-| 优先级 | 状态 | 本轮交付 |
+| 决策 | 结果 |
+|---|---|
+| 发布路线 | 不发布过渡 0.17，直接进入 1.0 |
+| 兼容面 | 覆盖 0.1x 使用场景，不保留旧命令、别名或旧 JSON 输出 |
+| 调用事实 | `call_site_owners` 字典化 caller/file；`call_sites` + targets 保存事实，`edges(CALLS)=0` |
+| 重建策略 | schema/semantics 不兼容时 fail closed；仅显式 `--recreate` 删除旧库 |
+| Spring DI | 只产生配置/绑定事实；可缩小 dispatch candidate，不制造 CALLS |
+| E2E | golden 必须执行 `pipeline.json` 的真实 stdin/stdout 管道 |
+| 性能 | 与 `dd2e575` 比较同一用户任务；DB 体积至少降低 30% |
+
+## 实施状态
+
+| 批次 | 状态 | 交付/门禁 |
 |---|:---:|---|
-| P0 | ✅ | 可复现 benchmark：detached baseline、交替采样、JSON 等价与本地硬门禁 |
-| P1 | ✅ | schema 18：整数内部 call-site PK、二进制稳定摘要、批量投影、增量局部刷新、独立计时 |
-| P2 | ✅ | sealed record、严格 decoder、有界逐-seed reader、cursor、capability、锁/EPIPE、128 MiB 压测、help/SKILL/docs |
-| P3 | ✅ | Java type/runtime/callable/dispatch 语义、instantiability、proof 与 open-world evidence |
-| P4 | ✅ | schema 19 资源范围、Spring Artifact IR、全套原子 operation；legacy v2 由等价门禁保护 |
-| P5 | ✅ | SKILL/help/docs/发布节奏、native、benchmark、Jury 9/9 Agent E2E；全部场景强制 canonical NDJSON pipe chain |
+| P0 | ✅ | 版本 1.0.0、schema 21、semantics 4、公开命令面冻结 |
+| P1 | ✅ | CALLS 单一存储；full/incremental 直写 call-site 表；影响闭包读取新表 |
+| P2 | ✅ | `search`/`declarations-of`/`overview` 全部语义流；显式 recreate 与丢弃量提示 |
+| P3 | ✅ | 删除 12 个旧命令及其聚合实现测试；canonical help/doctor/skill |
+| P4 | ✅ | `calls/dispatch/trace/regions/sites-in` 使用新事实；DI 边界锁定 |
+| P5 | ✅ | 文档、pipeline golden、shell/native E2E、旧版 benchmark 和最终全量验收 |
 
-### P3–P5 benchmark 结论（2026-09-05，Apple M3 Pro，native）
+### 1.0 最终验收
 
-基线：`dd2e575`；默认采样：查询 30 次、full index 5 次、no-op 20 次、RSS 5 次。
+| 门禁 | 要求 |
+|---|---|
+| `mvn clean test` | 全部 JUnit/IT 通过 |
+| Golden | 每个 scenario 只有 `pipeline.json`，无旧命令执行 |
+| `just smoke` / `just native-smoke` | 真实新管道通过，JVM/native 输出一致 |
+| extension / Agent fixture | canonical pipeline 覆盖 Lombok、Spring XML、增量、分页 |
+| benchmark | baseline detached worktree；报告 search、同任务 workflow、index、DB、binary、RSS |
+| 文档扫描 | 除迁移/历史说明外，不把旧命令写成可执行入口 |
 
-| 门禁 | 基线 | 当前 | 变化 | 结论 |
-|---|---:|---:|---:|:---:|
-| legacy search p50 / p95 | 188.77 / 203.20 ms | 185.90 / 196.46 ms | -1.5% / -3.3% | ✅ |
-| legacy context p50 / p95 | 177.43 / 193.58 ms | 173.21 / 188.61 ms | -2.4% / -2.6% | ✅ |
-| legacy callees p50 / p95 | 173.82 / 187.02 ms | 173.30 / 191.86 ms | -0.3% / +2.6% | ✅ |
-| full index p50 / p95 | 7544.03 / 7925.06 ms | 7746.89 / 7772.56 ms | +2.7% / -1.9% | ✅ |
-| no-op incremental p50 / p95 | 1040.21 / 1100.21 ms | 1047.10 / 1071.86 ms | +0.7% / -2.6% | ✅ |
-| DB / binary / peak RSS | 58,040,320 / 57,714,216 / 33,144,832 B | 76,107,776 / 58,342,552 / 30,195,712 B | +31.1% / +1.1% / -8.9% | ✅ |
-| legacy 归一化 JSON | 3/3 相同 | 3/3 相同 | 无漂移 | ✅ |
-| type-relations pipeline p50 / p95 | — | 371.24 / 403.28 ms | candidate-only | ✅ 记录 |
-| calls-dispatch pipeline p50 / p95 | — | 370.93 / 384.74 ms | candidate-only | ✅ 记录 |
+### 最终验收结果
 
-报告由 `just bench-query-refactor dd2e575` 生成到
-`target/benchmarks/query-refactor/{results.json,report.md}`；生成物不提交。
-旧版本没有 semantic operation，因此新管道只记录 candidate 延迟，不伪造同比。
+| 项目 | 结果 | 证据 |
+|---|:---:|---|
+| JUnit / IT | ✅ | `mvn -q clean test`：721 tests，0 failure/error/skip |
+| Golden | ✅ | 19 个 scenario 全部使用真实 `pipeline.json`，无 `input.cmd` |
+| JVM / native | ✅ | `just smoke`、`just native-smoke`、extension JVM/native 全通过 |
+| Agent contract | ✅ | adapter 9/9；Jury smoke 9、complex 6；fixture contract 通过 |
+| Benchmark | ✅ | `dd2e575` 对比报告所有 gate 通过 |
 
-Jury 9 个 Agent E2E 均实跑通过，且每个 case 都至少有一条 hard `semantic_pipeline`
-门禁。adapter 同时验证同一条真实 `|` 链、NDJSON 格式、指定 record 和最终 stream
-evidence，不能用分开的新命令、legacy 命令或 `json/table | jq` 伪装通过。E2E login shell
-固定使用本次 `target/anatomist`，不再误用用户已安装旧版。
+| Benchmark 核心指标 | 0.1x baseline | 1.0 candidate | 变化 |
+|---|---:|---:|---:|
+| SQLite DB | 56,741,888 B | 37,576,704 B | **-33.8%** |
+| `edges(CALLS)` | 18,928 | 0 | -100% |
+| owners / sites / targets | 0 / 0 / 0 | 2,727 / 18,762 / 18,919 | 字典化单一事实源 |
+| 全量索引 p50 | 7,835.92 ms | 7,900.89 ms | +0.8% |
+| no-op 增量 p50 | 1,109.06 ms | 1,096.74 ms | -1.1% |
+| 启动 p50 | 12.98 ms | 10.73 ms | -17.3% |
+| 搜索 p50 | 180.38 ms | 149.72 ms | -17.0% |
+| 峰值 RSS | 33,308,672 B | 27,901,952 B | -16.2% |
+| native binary | 57,714,216 B | 57,797,096 B | +0.1% |
+| type workflow p50 | 185.10 ms | 275.58 ms | +48.9% |
+| calls workflow p50 | 160.46 ms | 379.72 ms | +136.6% |
+
+schema 21 通过 owner 字典、部分索引和重叠索引裁剪，使 DB 降幅超过 30% 硬门禁。
+多进程 type/calls 管道仍是 1.0 的明确性能债；当前功能、体积和既定性能预算均通过，
+不阻塞 1.0。原始数据见 `target/benchmarks/query-refactor/results.json` 和 `report.md`。
+
+以下内容是 1.0 决策前的设计推导，保留用于解释来源；其中“保留 legacy”与
+`0.16/0.17` 发布节奏已被上表取代。
+
+## 历史方案（只作设计背景）
 
 ## 结论
 

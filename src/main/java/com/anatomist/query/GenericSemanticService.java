@@ -73,6 +73,26 @@ final class GenericSemanticService {
 
     List<GenericSemanticRows.Site> sites(String entity, String direction,
                                           Set<String> relations, int limit) {
+        List<GenericSemanticRows.Site> out = new ArrayList<>();
+        if (relations.contains(GraphConstants.Relation.CALLS)) {
+            out.addAll(callSites(entity, direction, limit));
+        }
+        Set<String> edgeRelations = new HashSet<>(relations);
+        edgeRelations.remove(GraphConstants.Relation.CALLS);
+        if (!edgeRelations.isEmpty()) out.addAll(edgeSites(entity, direction, edgeRelations, limit));
+        out.sort(java.util.Comparator.comparing(GenericSemanticRows.Site::sourceFile,
+                        java.util.Comparator.nullsLast(String::compareTo))
+                .thenComparing(GenericSemanticRows.Site::beginLine,
+                        java.util.Comparator.nullsLast(Integer::compareTo))
+                .thenComparing(GenericSemanticRows.Site::beginColumn,
+                        java.util.Comparator.nullsLast(Integer::compareTo))
+                .thenComparing(GenericSemanticRows.Site::ordinal,
+                        java.util.Comparator.nullsLast(Integer::compareTo)));
+        return List.copyOf(out.subList(0, Math.min(limit, out.size())));
+    }
+
+    private List<GenericSemanticRows.Site> edgeSites(String entity, String direction,
+                                                      Set<String> relations, int limit) {
         String endpoint = "outgoing".equals(direction) ? "source_id" : "target_id";
         String placeholders = String.join(",", java.util.Collections.nCopies(relations.size(), "?"));
         String sql = "SELECT source_id,target_id,external_target_fqn,relation,source_file,"
@@ -92,6 +112,29 @@ final class GenericSemanticService {
                         nullable(rows, 9), nullable(rows, 10), rows.getString(11), rows.getString(12),
                         rows.getString(13), rows.getString(14)));
                 return List.copyOf(out);
+            }
+        } catch (SQLException failure) { throw rethrow(failure); }
+    }
+
+    private List<GenericSemanticRows.Site> callSites(String entity, String direction, int limit) {
+        String predicate = "outgoing".equals(direction) ? "cso.caller_id=?"
+                : "cst.target_id=?";
+        String sql = "SELECT cso.caller_id,cst.target_id,cst.external_target_fqn,'CALLS',"
+                + "cso.source_file,cs.begin_line,cs.begin_column,cs.end_line,cs.end_column,"
+                + "cs.ordinal,cs.context,cs.producer_id,cst.confidence,NULL FROM call_sites cs "
+                + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk WHERE " + predicate
+                + " ORDER BY cso.source_file,cs.begin_line,cs.begin_column,cs.ordinal LIMIT ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, entity); statement.setInt(2, limit);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<GenericSemanticRows.Site> out = new ArrayList<>();
+                while (rows.next()) out.add(new GenericSemanticRows.Site(
+                        rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4),
+                        rows.getString(5), nullable(rows, 6), nullable(rows, 7), nullable(rows, 8),
+                        nullable(rows, 9), nullable(rows, 10), rows.getString(11), rows.getString(12),
+                        rows.getString(13), rows.getString(14)));
+                return out;
             }
         } catch (SQLException failure) { throw rethrow(failure); }
     }

@@ -88,7 +88,7 @@ public class DoctorCommand implements Callable<Integer> {
         out.put("index_state", exists ? "unknown" : "missing");
         out.put("required_graph_semantics_version",
                 com.anatomist.core.GraphSemantics.VERSION);
-        out.put("query_json_contract_version", 2);
+        out.put("query_contract", "semantic-stream/v1");
         com.anatomist.store.IndexCompatibility.Report compatibility =
                 com.anatomist.store.IndexCompatibility.inspect(db);
         out.put("compatibility_action", compatibility.action().name().toLowerCase());
@@ -106,21 +106,18 @@ public class DoctorCommand implements Callable<Integer> {
                 "type-relations", "runtime-implementations", "callable-relations", "calls",
                 "dispatch", "bindings", "annotations", "related-docs", "references",
                 "accesses", "regions", "sites-in", "trace", "source",
-                "context", "declarations-of", "callees-of",
-                "callers-of", "branches-of", "bean-config", "hierarchy", "implementors-of", "deps-of", "used-by",
-                "field-access", "call-path", "overview", "survey-baseline",
+                "declarations-of", "overview",
                 "annotate", "doctor"));
         out.put("capabilities", List.of(
-                "json-query-output-v2", "index-json-summary",
+                "semantic-stream-v1", "index-json-summary",
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
-                "branch-context-slices", "source-snapshot-fingerprint", "context-source-view-v2",
+                "branch-context-slices", "source-snapshot-fingerprint",
                 "graph-semantics-version", "core-reflection",
                 "agent-preflight", "agent-skill-topics"));
         @SuppressWarnings("unchecked")
         List<String> capabilities = new java.util.ArrayList<>((List<String>) out.get("capabilities"));
         capabilities.add("file-resolution-coverage");
         capabilities.add("declarations-by-file-v1");
-        capabilities.add("semantic-stream-v1");
         out.put("capabilities", List.copyOf(capabilities));
 
         if (exists && compatibility.requiresRecreate()) {

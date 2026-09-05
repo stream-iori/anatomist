@@ -199,9 +199,10 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges e "
-                            + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
-                            + "WHERE e.relation='CALLS' AND e.is_external=0 "
+                    "SELECT count(*) FROM call_sites cs JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                            + "JOIN nodes s ON s.id=cso.caller_id JOIN nodes t ON t.id=cst.target_id "
+                            + "WHERE cst.target_id IS NOT NULL "
                             + "AND s.symbol_id='p.A#run()' AND t.symbol_id='p.B#foo()'"));
         }
     }
@@ -296,8 +297,10 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
-                            + "JOIN nodes t ON t.id=e.target_id WHERE s.symbol_id='p.A#run()' "
+                    "SELECT count(*) FROM call_sites cs JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                            + "JOIN nodes s ON s.id=cso.caller_id JOIN nodes t ON t.id=cst.target_id "
+                            + "WHERE s.symbol_id='p.A#run()' "
                             + "AND t.symbol_id='p.B#foo(java.lang.String)'"));
         }
     }
@@ -321,9 +324,10 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges e JOIN nodes s ON s.id=e.source_id "
-                            + "JOIN nodes t ON t.id=e.target_id WHERE s.symbol_id='p.A#run()' "
-                            + "AND t.symbol_id='p.B#added()' AND e.is_external=0"));
+                    "SELECT count(*) FROM call_sites cs JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                            + "JOIN nodes s ON s.id=cso.caller_id JOIN nodes t ON t.id=cst.target_id "
+                            + "WHERE s.symbol_id='p.A#run()' AND t.symbol_id='p.B#added()'"));
         }
     }
 
@@ -380,8 +384,8 @@ class IncrementalIndexerIT {
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(220, scalar(st,
-                    "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target_id "
-                            + "WHERE e.relation='CALLS' AND t.symbol_id='p.Hub#value()'"));
+                    "SELECT count(*) FROM call_site_targets cst JOIN nodes t ON t.id=cst.target_id "
+                            + "WHERE t.symbol_id='p.Hub#value()'"));
         }
     }
 
@@ -483,7 +487,7 @@ class IncrementalIndexerIT {
             st.execute("UPDATE file_cache SET schema_version = 999");
         }
 
-        // Incremental should detect mismatch and re-do full index
+        // Per-file cache metadata is recoverable and may trigger a full refresh.
         assertIncrementalOk(project, db);
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
@@ -507,7 +511,14 @@ class IncrementalIndexerIT {
             st.execute("DELETE FROM file_cache");
         }
 
-        assertIncrementalOk(project, db);
+        RunResult rejected = CliTestSupport.runIndex(project,
+                "--project-source", CliTestSupport.miniSpringProjectSource(project),
+                "--no-classpath", "--output", db.toString(), "--incremental");
+        assertEquals(3, rejected.exitCode());
+        assertTrue(rejected.stderr().contains("--recreate"), rejected.stderr());
+        CliTestSupport.assertIndexOk(project,
+                "--project-source", CliTestSupport.miniSpringProjectSource(project),
+                "--no-classpath", "--output", db.toString(), "--recreate");
 
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
@@ -633,13 +644,8 @@ class IncrementalIndexerIT {
                             + "AND s.symbol_id='com.example.shop.service.OrderService' "
                             + "AND t.symbol_id='com.example.shop.repository.SecondaryOrderRepository' "
                             + "AND e.metadata LIKE '%\"via\":\"injection\"%'"));
-            assertEquals(1, scalar(st,
-                    "SELECT count(*) FROM edges e "
-                            + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
-                            + "WHERE e.relation='CALLS' "
-                            + "AND s.symbol_id='com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' "
-                            + "AND t.symbol_id='com.example.shop.repository.SecondaryOrderRepository#save(com.example.shop.domain.entity.Order)' "
-                            + "AND e.metadata LIKE '%\"via\":\"injected-call\"%'"));
+            assertEquals(0, scalar(st,
+                    "SELECT count(*) FROM edges WHERE relation='CALLS'"));
             assertEquals(2, scalar(st,
                     "SELECT count(*) FROM edges e "
                             + "JOIN nodes s ON s.id=e.source_id JOIN nodes t ON t.id=e.target_id "
@@ -678,6 +684,14 @@ class IncrementalIndexerIT {
                             + "|| e.is_external || '|' || COALESCE(e.metadata,'') "
                             + "FROM edges e JOIN nodes s ON s.id=e.source_id "
                             + "LEFT JOIN nodes t ON t.id=e.target_id ORDER BY 1");
+            appendRows(rows, st,
+                    "SELECT 'C|' || s.id || '|' || COALESCE(t.id,cst.external_target_fqn,'') || '|' "
+                            + "|| COALESCE(cs.dispatch_kind,'') || '|' || COALESCE(cst.confidence,'') || '|' "
+                            + "|| COALESCE(cs.context,'') || '|' || cso.source_file || '|' "
+                            + "|| COALESCE(cs.metadata,'') FROM call_sites cs "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                            + "JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "JOIN nodes s ON s.id=cso.caller_id LEFT JOIN nodes t ON t.id=cst.target_id ORDER BY 1");
             appendRows(rows, st,
                     "SELECT 'A|' || node_id || '|' || annotation_fqn || '|' || COALESCE(attributes,'') "
                             + "FROM annotations ORDER BY 1");

@@ -217,16 +217,16 @@ public final class StagedGraphStore implements AutoCloseable {
             attach(c);
             validateNodeOwnership(c);
             final int[] wired = {0};
-            final long[] callSiteProjectionNanos = {0L};
+            final long[] callSitePersistenceNanos = {0L};
             try {
                 target.inTransaction(ignored -> {
                     try (Statement statement = c.createStatement()) {
                         clearGraph(statement);
                         insertAllFromStage(statement);
                         wired[0] = DatabaseWiringResolver.rebuild(c);
-                        long projectionStarted = System.nanoTime();
-                        CallSiteProjection.rebuild(c);
-                        callSiteProjectionNanos[0] = System.nanoTime() - projectionStarted;
+                        long persistenceStarted = System.nanoTime();
+                        CallSitePersistence.rebuildFromStage(c, ALIAS);
+                        callSitePersistenceNanos[0] = System.nanoTime() - persistenceStarted;
                         IndexRevision.bump(c);
                     }
                 });
@@ -234,7 +234,7 @@ public final class StagedGraphStore implements AutoCloseable {
                 detach(c);
             }
             return new PromotionStats(reboundExternalTargets, droppedDanglingFacts, wired[0],
-                    callSiteProjectionNanos[0]);
+                    callSitePersistenceNanos[0]);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to promote full staged graph", e);
         }
@@ -265,19 +265,19 @@ public final class StagedGraphStore implements AutoCloseable {
                     ? scalarInt(c, "SELECT count(*) FROM edges WHERE " + generatedPredicate())
                     : 0;
             final int[] wired = {0};
-            final long[] callSiteProjectionNanos = {0L};
+            final long[] callSitePersistenceNanos = {0L};
             try {
                 target.inTransaction(ignored -> {
                     try {
-                        CallSiteProjection.AffectedScope affectedCallSites =
-                                CallSiteProjection.captureAffected(
+                        CallSitePersistence.AffectedScope affectedCallSites =
+                                CallSitePersistence.captureAffected(
                                         c, affectedFiles, rebuiltProjectProducers);
                         replaceAffectedGraph(c, affectedFiles, rebuiltProjectProducers,
                                 rebuildDerivedWiring);
                         if (rebuildDerivedWiring) wired[0] = DatabaseWiringResolver.rebuild(c);
-                        long projectionStarted = System.nanoTime();
-                        CallSiteProjection.refresh(c, affectedCallSites);
-                        callSiteProjectionNanos[0] = System.nanoTime() - projectionStarted;
+                        long persistenceStarted = System.nanoTime();
+                        CallSitePersistence.refreshFromStage(c, ALIAS, affectedCallSites);
+                        callSitePersistenceNanos[0] = System.nanoTime() - persistenceStarted;
                         IndexRevision.bump(c);
                     } catch (SQLException e) {
                         throw new RuntimeException(e);
@@ -289,7 +289,7 @@ public final class StagedGraphStore implements AutoCloseable {
             int newNodes = stagedCount("stage_nodes");
             int newEdges = stagedCount("stage_edges") + wired[0];
             return new IncrementalPromotionStats(oldNodeCount, oldEdgeCount + oldGenerated,
-                    newNodes, newEdges, wired[0], callSiteProjectionNanos[0]);
+                    newNodes, newEdges, wired[0], callSitePersistenceNanos[0]);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to promote incremental staged graph", e);
         }
@@ -654,6 +654,7 @@ public final class StagedGraphStore implements AutoCloseable {
         statement.executeUpdate("DELETE FROM annotations");
         statement.executeUpdate("DELETE FROM call_site_targets");
         statement.executeUpdate("DELETE FROM call_sites");
+        statement.executeUpdate("DELETE FROM call_site_owners");
         statement.executeUpdate("DELETE FROM edges");
         statement.executeUpdate("DELETE FROM nodes");
         statement.executeUpdate("DELETE FROM file_cache");
@@ -695,7 +696,8 @@ public final class StagedGraphStore implements AutoCloseable {
                 + "end_line,end_column,source_ordinal,syntax_target,receiver_static_type,metadata,producer_id) SELECT resolved_source,"
                 + "resolved_target,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,source_file,"
                 + "source_location,begin_line,begin_column,end_line,end_column,source_ordinal,syntax_target,"
-                + "receiver_static_type,metadata,producer_id FROM " + ALIAS + ".stage_edges ORDER BY seq");
+                + "receiver_static_type,metadata,producer_id FROM " + ALIAS
+                + ".stage_edges WHERE relation<>'" + GraphConstants.Relation.CALLS + "' ORDER BY seq");
         statement.executeUpdate("INSERT INTO annotations(node_id,annotation_fqn,attributes,source_file,producer_id) SELECT resolved_node,"
                 + "annotation_fqn,attributes,source_file,producer_id FROM " + ALIAS + ".stage_annotations ORDER BY seq");
         statement.executeUpdate("INSERT INTO semantic_annotations(node_id,doc_id,category,business_label,"
@@ -775,10 +777,10 @@ public final class StagedGraphStore implements AutoCloseable {
     }
 
     public record PromotionStats(int reboundExternalTargets, int droppedDanglingFacts, int wiredEdges,
-                                 long callSiteProjectionNanos) {}
+                                 long callSitePersistenceNanos) {}
     public record IncrementalPromotionStats(int deletedNodes, int deletedEdges,
                                             int writtenNodes, int writtenEdges, int wiredEdges,
-                                            long callSiteProjectionNanos) {}
+                                            long callSitePersistenceNanos) {}
 
     private static final String NODE_INSERT = "INSERT INTO stage_nodes(id,symbol_id,label,kind,qualified_name,"
             + "package,source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,arity_key,producer_id) VALUES "

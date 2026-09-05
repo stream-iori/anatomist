@@ -106,13 +106,8 @@ CREATE TABLE edges (
     )
 );
 
-CREATE INDEX idx_edges_source_id ON edges(source_id);
 CREATE INDEX idx_edges_source_file ON edges(source_file);
-CREATE INDEX idx_edges_target_id ON edges(target_id);
 CREATE INDEX idx_edges_external_target_fqn ON edges(external_target_fqn);
-CREATE INDEX idx_edges_relation ON edges(relation);
-CREATE INDEX idx_edges_call_kind ON edges(call_kind);
-CREATE INDEX idx_edges_source_relation ON edges(source_id, relation);
 CREATE INDEX idx_edges_target_relation ON edges(target_id, relation);
 CREATE INDEX idx_edges_relation_external_target ON edges(relation, is_external, target_id);
 CREATE INDEX idx_edges_relation_external_fqn ON edges(relation, is_external, external_target_fqn);
@@ -122,31 +117,37 @@ CREATE INDEX idx_edges_producer_file ON edges(producer_id, source_file);
 
 -- Canonical source call sites. Targets are separate because one syntax site may
 -- have several static resolution candidates.
+CREATE TABLE call_site_owners (
+    owner_pk INTEGER PRIMARY KEY,
+    caller_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    source_file TEXT NOT NULL,
+    UNIQUE (caller_id, source_file)
+);
+
+CREATE INDEX idx_call_site_owners_source ON call_site_owners(source_file, caller_id);
+
 CREATE TABLE call_sites (
     site_pk INTEGER PRIMARY KEY,
     stable_hash BLOB NOT NULL UNIQUE CHECK (length(stable_hash) = 32),
-    caller_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-    source_file TEXT NOT NULL,
+    owner_pk INTEGER NOT NULL REFERENCES call_site_owners(owner_pk) ON DELETE CASCADE,
     begin_line INTEGER NOT NULL,
     begin_column INTEGER NOT NULL,
     end_line INTEGER NOT NULL,
     end_column INTEGER NOT NULL,
     ordinal INTEGER NOT NULL DEFAULT 0,
+    context TEXT,
     syntax_target TEXT,
     receiver_static_type TEXT,
     dispatch_kind TEXT,
+    metadata TEXT,
     origin TEXT NOT NULL,
     resolution_status TEXT NOT NULL,
     producer_id TEXT NOT NULL
 );
 
 CREATE INDEX idx_call_sites_caller_order ON call_sites(
-    caller_id,source_file,begin_line,begin_column,ordinal
+    owner_pk,begin_line,begin_column,ordinal
 );
-CREATE INDEX idx_call_sites_source ON call_sites(
-    source_file,begin_line,begin_column,ordinal
-);
-
 CREATE TABLE call_site_targets (
     call_site_pk INTEGER NOT NULL REFERENCES call_sites(site_pk) ON DELETE CASCADE,
     target_id TEXT REFERENCES nodes(id) ON DELETE CASCADE,
@@ -157,8 +158,10 @@ CREATE TABLE call_site_targets (
     CHECK ((target_id IS NOT NULL) <> (external_target_fqn IS NOT NULL))
 );
 
-CREATE INDEX idx_call_site_targets_internal ON call_site_targets(target_id);
-CREATE INDEX idx_call_site_targets_external ON call_site_targets(external_target_fqn);
+CREATE INDEX idx_call_site_targets_internal ON call_site_targets(target_id)
+    WHERE target_id IS NOT NULL;
+CREATE INDEX idx_call_site_targets_external ON call_site_targets(external_target_fqn)
+    WHERE external_target_fqn IS NOT NULL;
 CREATE UNIQUE INDEX idx_call_site_targets_identity ON call_site_targets(
     call_site_pk,COALESCE(target_id,''),COALESCE(external_target_fqn,'')
 );

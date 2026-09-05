@@ -111,7 +111,7 @@ public class SqliteStore implements IndexWriter {
             DataWriter.insertAnnotations(c, result.annotations);
             DataWriter.insertSemanticAnnotations(c, result.semanticAnnotations);
             DataWriter.insertDeclarations(c, result.declarations);
-            CallSiteProjection.rebuild(c);
+            CallSitePersistence.rebuild(c);
             IndexRevision.bump(c);
         });
         writer.runAnalyze();

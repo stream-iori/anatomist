@@ -31,12 +31,18 @@ public class OverviewService {
     }
 
     public List<Map<String, Object>> packageDeps() {
-        String sql = "SELECT src.package AS source_package, tgt.package AS target_package,"
+        String sql = "WITH dependency_facts(source_id,target_id,relation,producer_id) AS ("
+                + "SELECT source_id,target_id,relation,producer_id FROM edges WHERE is_external=0 "
+                + "UNION ALL SELECT cso.caller_id,cst.target_id,'CALLS',cst.producer_id "
+                + "FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                + "WHERE cst.target_id IS NOT NULL) "
+                + "SELECT src.package AS source_package, tgt.package AS target_package,"
                 + "       e.relation, e.producer_id, COUNT(*) AS edge_count "
-                + " FROM edges e "
+                + " FROM dependency_facts e "
                 + " JOIN nodes src ON e.source_id = src.id "
                 + " JOIN nodes tgt ON e.target_id = tgt.id "
-                + " WHERE e.is_external = 0 "
+                + " WHERE 1=1 "
                 + resolver.selectorClause("src") + resolver.selectorClause("tgt")
                 + "   AND src.package IS NOT NULL AND tgt.package IS NOT NULL "
                 + "   AND src.package <> tgt.package "
@@ -78,7 +84,12 @@ public class OverviewService {
     }
 
     private void countEdgesByExternal(OverviewResult ov) {
-        queryList(conn, "SELECT e.relation, e.is_external, COUNT(*) FROM edges e "
+        queryList(conn, "WITH facts(source_id,relation,is_external,producer_id) AS ("
+                + "SELECT source_id,relation,is_external,producer_id FROM edges "
+                + "UNION ALL SELECT cso.caller_id,'CALLS',CASE WHEN cst.target_id IS NULL THEN 1 ELSE 0 END,"
+                + "cst.producer_id FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk) "
+                + "SELECT e.relation, e.is_external, COUNT(*) FROM facts e "
                 + "JOIN nodes src ON e.source_id=src.id WHERE 1=1 "
                 + "AND e.producer_id<>'java-semantics' "
                 + resolver.selectorClause("src")
@@ -111,6 +122,7 @@ public class OverviewService {
     private void countByProducer(OverviewResult ov) {
         String sql = "SELECT producer_id,COUNT(*) FROM ("
                 + "SELECT producer_id FROM nodes UNION ALL SELECT producer_id FROM edges WHERE producer_id<>'java-semantics' UNION ALL "
+                + "SELECT producer_id FROM call_site_targets UNION ALL "
                 + "SELECT producer_id FROM declarations UNION ALL SELECT producer_id FROM annotations UNION ALL "
                 + "SELECT producer_id FROM semantic_annotations) GROUP BY producer_id ORDER BY producer_id";
         queryList(conn, sql, rs -> {

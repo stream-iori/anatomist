@@ -44,7 +44,7 @@ class DeclarationsOfCommandIT {
                         "com.example.AuthenticationService#overload(int)"),
                 rows.stream().map(row -> String.valueOf(row.get("symbol_id"))).toList());
         assertTrue(run.stdout().contains("\"coverage\" : \"complete\""), run.stdout());
-        assertTrue(run.stdout().contains("\"negative_conclusion_safe\" : true"), run.stdout());
+        assertTrue(run.stdout().contains("\"contract\" : \"semantic-stream/v1\""), run.stdout());
     }
 
     @Test void classifiesConstructorsNestedTypesAndDirectOwnership() throws Exception {
@@ -58,7 +58,7 @@ class DeclarationsOfCommandIT {
         assertFalse((Boolean) nested.get("direct_member"));
         Map<?, ?> constructor = rows.stream().filter(row -> "constructor".equals(row.get("declaration_kind")))
                 .filter(row -> "com.example.AuthenticationService".equals(row.get("declaring_type"))).findFirst().orElseThrow();
-        assertEquals("CONSTRUCTOR", constructor.get("kind"));
+        assertEquals("CONSTRUCTOR", constructor.get("storage_kind"));
         assertEquals("public", constructor.get("visibility"));
         Map<?, ?> nestedMethod = rows.stream().filter(row -> "message".equals(row.get("label"))).findFirst().orElseThrow();
         assertEquals("com.example.AuthenticationService.AuthResult", nestedMethod.get("declaring_type"));
@@ -68,8 +68,8 @@ class DeclarationsOfCommandIT {
         assertTrue(rows.stream().noneMatch(row -> "valid".equals(row.get("label"))), "synthetic accessor is opt-in");
         assertTrue(rows.stream().anyMatch(row -> "internalOnly".equals(row.get("label"))
                 && "private".equals(row.get("visibility"))));
-        assertEquals("ANNOTATION", rows.stream().filter(row -> "TypeUse".equals(row.get("label")))
-                .findFirst().orElseThrow().get("kind"));
+        assertEquals("ANNOTATION", rows.stream().filter(row -> "TypeUse".equals(row.get("name")))
+                .findFirst().orElseThrow().get("storage_kind"));
 
         var synthetic = command("--file", AUTH, "--kind", "method", "--include-synthetic", "--format", "json");
         assertEquals(0, synthetic.exitCode(), synthetic.stderr());
@@ -81,14 +81,13 @@ class DeclarationsOfCommandIT {
         var run = command("--file", "src/main/java/com/example/Contract.java", "--kind", "method",
                 "--limit", "1", "--format", "json");
         assertEquals(0, run.exitCode(), run.stderr());
-        Map<?, ?> json = map(run.stdout());
-        Map<?, ?> first = (Map<?, ?>) ((List<?>) json.get("results")).getFirst();
+        Map<?, ?> first = rows(run.stdout()).getFirst();
         assertEquals("public", first.get("visibility"));
         assertTrue(((List<?>) first.get("implicit_modifiers")).contains("public"));
         assertTrue(((List<?>) first.get("implicit_modifiers")).contains("abstract"));
-        Map<?, ?> stats = (Map<?, ?>) json.get("stats");
-        assertEquals(true, stats.get("truncated"));
-        assertEquals(true, ((Map<?, ?>) json.get("budget")).get("truncated"));
+        Map<?, ?> evidence = records(run.stdout()).stream()
+                .filter(row -> "stream".equals(row.get("scope"))).findFirst().orElseThrow();
+        assertEquals(true, evidence.get("truncated"));
 
         var type = command("--file", "src/main/java/com/example/Contract.java", "--kind", "type", "--format", "json");
         assertEquals("package", rows(type.stdout()).getFirst().get("visibility"));
@@ -115,12 +114,11 @@ class DeclarationsOfCommandIT {
         Files.writeString(project.resolve(AUTH), Files.readString(project.resolve(AUTH)) + "\n// changed\n");
         var stale = command("--file", AUTH, "--format", "json");
         assertEquals(3, stale.exitCode());
-        assertTrue(stale.stdout().contains("INDEX_STALE"), stale.stdout());
-        assertTrue(stale.stdout().contains("\"negative_conclusion_safe\" : false"), stale.stdout());
+        assertTrue(stale.stderr().contains("INDEX_STALE"), stale.stderr());
 
         var missing = command("--file", "src/main/java/com/example/Missing.java", "--format", "json");
         assertEquals(3, missing.exitCode());
-        assertTrue(missing.stdout().contains("FILE_NOT_INDEXED"), missing.stdout());
+        assertTrue(missing.stderr().contains("FILE_NOT_INDEXED"), missing.stderr());
     }
 
     @Test void incompleteSourceLayoutFailsClosed() throws Exception {
@@ -133,8 +131,7 @@ class DeclarationsOfCommandIT {
         var run = command("--file", AUTH, "--format", "json");
 
         assertEquals(3, run.exitCode());
-        assertTrue(run.stdout().contains("SOURCE_PROFILE_INCOMPLETE"), run.stdout());
-        assertTrue(run.stdout().contains("\"negative_conclusion_safe\" : false"), run.stdout());
+        assertTrue(run.stderr().contains("SOURCE_PROFILE_INCOMPLETE"), run.stderr());
     }
 
     @Test void persistedParseFailureFailsClosed() throws Exception {
@@ -145,8 +142,7 @@ class DeclarationsOfCommandIT {
         }
         var run = command("--file", AUTH, "--format", "json");
         assertEquals(3, run.exitCode());
-        assertTrue(run.stdout().contains("FILE_PARSE_FAILED"), run.stdout());
-        assertTrue(run.stdout().contains("\"coverage\" : \"incomplete\""), run.stdout());
+        assertTrue(run.stderr().contains("FILE_PARSE_FAILED"), run.stderr());
     }
 
     private CliTestSupport.RunResult command(String... args) throws Exception {
@@ -155,10 +151,19 @@ class DeclarationsOfCommandIT {
         all[all.length - 1] = db.toString();
         return CliTestSupport.capture(() -> new CommandLine(new AnatomistCli()).execute(all));
     }
-    @SuppressWarnings("unchecked") private static List<Map<?, ?>> rows(String json) {
-        return (List<Map<?, ?>>) map(json).get("results");
+    private static List<Map<?, ?>> rows(String json) {
+        List<Map<?, ?>> result = new java.util.ArrayList<>();
+        records(json).stream().filter(row -> "entity".equals(row.get("record"))).forEach(row -> {
+            Map<Object,Object> flattened = new java.util.LinkedHashMap<>(); flattened.putAll(row);
+            flattened.put("label", row.get("name"));
+            if (row.get("facets") instanceof Map<?,?> facets) flattened.putAll(facets);
+            result.add(flattened);
+        });
+        return result;
     }
-    private static Map<?, ?> map(String json) { return (Map<?, ?>) Json.parseTree(json); }
+    @SuppressWarnings("unchecked") private static List<Map<?, ?>> records(String json) {
+        return (List<Map<?, ?>>) (List<?>) Json.parseTree(json);
+    }
     private static Map<?, ?> one(List<Map<?, ?>> rows, String symbol) {
         return rows.stream().filter(row -> symbol.equals(row.get("symbol_id"))).findFirst().orElseThrow();
     }

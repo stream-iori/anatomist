@@ -33,6 +33,9 @@ class SqliteStoreInitSchemaTest {
         assertTrue(tables.contains("edges"));
         assertTrue(tables.contains("annotations"));
         assertTrue(tables.contains("declarations"));
+        assertTrue(tables.contains("call_site_owners"));
+        assertTrue(tables.contains("call_sites"));
+        assertTrue(tables.contains("call_site_targets"));
         assertTrue(tables.contains("node_names"));
         for (String removed : List.of(
                 "flow_nodes", "flow_edges", "method_flow_summaries", "method_flow_coverage")) {
@@ -41,17 +44,27 @@ class SqliteStoreInitSchemaTest {
 
         Set<String> indexes = listObjects(store.connection(), "index");
         assertTrue(indexes.contains("idx_nodes_kind"), "missing idx_nodes_kind; got " + indexes);
-        assertTrue(indexes.contains("idx_edges_source_id"));
+        assertTrue(indexes.contains("idx_edges_source_relation_external"));
         assertTrue(indexes.contains("idx_annotations_fqn"));
         assertTrue(indexes.contains("idx_declarations_file"));
         assertTrue(indexes.contains("idx_call_sites_caller_order"));
+        assertTrue(indexes.contains("idx_call_site_owners_source"));
         assertTrue(indexes.contains("idx_call_site_targets_identity"));
+        assertFalse(indexes.contains("idx_call_sites_context"));
+        assertFalse(indexes.contains("idx_edges_call_kind"));
+        assertFalse(indexes.contains("idx_edges_source_id"));
+        assertFalse(indexes.contains("idx_edges_source_relation"));
+        assertFalse(indexes.contains("idx_edges_target_id"));
+        assertFalse(indexes.contains("idx_edges_relation"));
         assertFalse(indexes.contains("idx_call_site_targets_site"),
                 "site_pk prefix is already covered by the identity index");
 
         Set<String> callSiteColumns = tableColumns(store.connection(), "call_sites");
         assertTrue(callSiteColumns.contains("site_pk"));
         assertTrue(callSiteColumns.contains("stable_hash"));
+        assertTrue(callSiteColumns.contains("owner_pk"));
+        assertFalse(callSiteColumns.contains("caller_id"));
+        assertFalse(callSiteColumns.contains("source_file"));
         assertFalse(callSiteColumns.contains("id"));
     }
 

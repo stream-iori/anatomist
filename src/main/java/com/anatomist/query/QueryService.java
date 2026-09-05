@@ -10,6 +10,13 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Set;
 import com.anatomist.query.semantic.SemanticCursor;
 
 /**
@@ -257,6 +264,57 @@ public class QueryService implements AutoCloseable {
     public List<GenericSemanticRows.Site> resolvedCallPath(String startId, String endSelector,
                                                             int maxDepth) {
         return genericSemantics.resolvedCallPath(startId, endSelector, maxDepth);
+    }
+
+    public List<GenericSemanticRows.Site> semanticCallPath(String startId, String endSelector,
+                                                            int maxDepth, String dispatch) {
+        if ("resolved".equals(dispatch)) return resolvedCallPath(startId, endSelector, maxDepth);
+        String end = resolver.resolveMethod(endSelector).requireUnique().id;
+        Deque<String> frontier = new ArrayDeque<>(); frontier.add(startId);
+        Set<String> visited = new HashSet<>(); visited.add(startId);
+        Map<String, String> parents = new HashMap<>();
+        Map<String, GenericSemanticRows.Site> hops = new HashMap<>();
+        int depth = 0;
+        while (!frontier.isEmpty() && depth++ < maxDepth && !visited.contains(end)) {
+            int width = frontier.size();
+            while (width-- > 0 && !visited.contains(end)) {
+                String current = frontier.removeFirst();
+                for (CallSiteRow site : callSites.calls(current, "outgoing")) {
+                    Map<String, Object> raw = new LinkedHashMap<>();
+                    raw.put("id", site.id); raw.put("caller", site.callerId);
+                    raw.put("dispatch_kind", site.dispatchKind == null ? "unknown"
+                            : site.dispatchKind.toLowerCase(java.util.Locale.ROOT));
+                    raw.put("resolved_targets", site.targets.stream().map(target -> {
+                        Map<String, Object> value = new LinkedHashMap<>();
+                        value.put("id", target.id()); value.put("external", target.external());
+                        value.put("resolution_status", target.resolutionStatus());
+                        if (target.qualifiedName() != null) value.put("qualified_name", target.qualifiedName());
+                        return value;
+                    }).toList());
+                    for (JavaSemanticRows.DispatchTarget candidate : javaSemantics.dispatch(
+                            raw, "auto", "workspace-open", maxDepth, 10_000)) {
+                        String next = candidate.target();
+                        if (next == null || !visited.add(next)) continue;
+                        parents.put(next, current);
+                        hops.put(next, new GenericSemanticRows.Site(current, next, null, "CALLS",
+                                site.sourceFile, site.beginLine, site.beginColumn, site.endLine,
+                                site.endColumn, site.ordinal, site.context, site.producerId,
+                                candidate.resolutionStatus(), null));
+                        frontier.addLast(next);
+                        if (next.equals(end)) break;
+                    }
+                }
+            }
+        }
+        if (!visited.contains(end)) return List.of();
+        List<GenericSemanticRows.Site> result = new ArrayList<>();
+        for (String current = end; !current.equals(startId); current = parents.get(current)) {
+            GenericSemanticRows.Site hop = hops.get(current);
+            if (hop == null) return List.of();
+            result.add(hop);
+        }
+        java.util.Collections.reverse(result);
+        return List.copyOf(result);
     }
 
     public SemanticCursor<CallSiteRow> callSitesCursor(String methodRef, String direction) {

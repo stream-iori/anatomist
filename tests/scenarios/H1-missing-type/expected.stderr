@@ -1,0 +1,1 @@
+ERROR: SYMBOL_NOT_FOUND: no type matches selector 'com.example.shop.missing.DoesNotExist'

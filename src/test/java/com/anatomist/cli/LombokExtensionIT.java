@@ -7,6 +7,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -77,9 +80,8 @@ class LombokExtensionIT {
                     + "WHERE symbol_id='sample.User#isActive()' AND producer_id='lombok-ast'"));
             assertEquals(1, scalar(statement, "SELECT count(*) FROM nodes "
                     + "WHERE symbol_id='sample.LogService#log' AND producer_id='lombok-ast'"));
-            assertEquals(1, scalar(statement, "SELECT count(*) FROM edges "
-                    + "WHERE target_id IN (SELECT id FROM nodes WHERE symbol_id='sample.User#getName()') "
-                    + "AND relation='CALLS' AND is_external=0"));
+            assertEquals(1, scalar(statement, "SELECT count(*) FROM call_site_targets "
+                    + "WHERE target_id IN (SELECT id FROM nodes WHERE symbol_id='sample.User#getName()')"));
             assertTrue(scalar(statement, "SELECT count(*) FROM index_diagnostics "
                     + "WHERE code='LOMBOK_FEATURE_UNSUPPORTED' AND symbol='Builder'") >= 1);
             assertEquals(Path.of("src/main/java/sample/UnsupportedBuilder.java").toString(), scalarString(statement,
@@ -107,64 +109,62 @@ class LombokExtensionIT {
                     "SELECT json_extract(metadata,'$.lombok.coverage') FROM nodes "
                             + "WHERE symbol_id='sample.AccessorUser'"));
             assertEquals("mapped", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.mapping_status') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.mapping_status') FROM call_sites cs "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#accessor(sample.AccessorUser)') "
-                            + "AND relation='CALLS' AND external_target_fqn='sample.AccessorUser#name()'"));
+                            + "AND cst.external_target_fqn='sample.AccessorUser#name()'"));
             assertEquals("sample.AccessorUser#name", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.field_id') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.field_id') FROM call_sites cs "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#accessor(sample.AccessorUser)') "
-                            + "AND relation='CALLS' AND external_target_fqn='sample.AccessorUser#name()'"));
+                            + "AND cst.external_target_fqn='sample.AccessorUser#name()'"));
             assertEquals("builder", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.capability') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.capability') FROM call_sites cs "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#build()') "
-                            + "AND relation='CALLS' "
-                            + "AND external_target_fqn='sample.UnsupportedBuilder#builder()'"));
+                            + "AND cst.external_target_fqn='sample.UnsupportedBuilder#builder()'"));
             assertEquals("value", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.steps[0].field') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.steps[0].field') FROM call_sites cs "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#build()') "
-                            + "AND relation='CALLS' "
-                            + "AND external_target_fqn='sample.UnsupportedBuilder#builder()'"));
+                            + "AND cst.external_target_fqn='sample.UnsupportedBuilder#builder()'"));
             assertEquals(0, scalar(statement, "SELECT count(*) FROM nodes "
                     + "WHERE symbol_id LIKE 'sample.UnsupportedBuilder%Builder%'"));
             assertEquals("sample.CustomBuilder#label", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.steps[0].field_id') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.steps[0].field_id') FROM call_sites cs "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#customBuild()') "
-                            + "AND external_target_fqn='sample.CustomBuilder#newBuilder()'"));
+                            + "AND cst.external_target_fqn='sample.CustomBuilder#newBuilder()'"));
             assertEquals("create", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.steps[1].method') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.steps[1].method') FROM call_sites cs "
+                            + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#customBuild()') "
-                            + "AND external_target_fqn='sample.CustomBuilder#newBuilder()'"));
+                            + "AND cst.external_target_fqn='sample.CustomBuilder#newBuilder()'"));
             assertEquals("sample.PrefixAccessor#mName", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.field_id') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.field_id') FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#prefixed(sample.PrefixAccessor)') "
-                            + "AND external_target_fqn='sample.PrefixAccessor#getName()'"));
+                            + "AND cst.external_target_fqn='sample.PrefixAccessor#getName()'"));
             assertNull(scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage') FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#disabled(sample.DisabledAccessor)') "
-                            + "AND external_target_fqn='sample.DisabledAccessor#getSecret()'"));
+                            + "AND cst.external_target_fqn='sample.DisabledAccessor#getSecret()'"));
             assertEquals("sample.BaseModel#base", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.steps[0].field_id') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.steps[0].field_id') FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#inheritedBuild()') "
-                            + "AND external_target_fqn='sample.ChildModel#builder()'"));
+                            + "AND cst.external_target_fqn='sample.ChildModel#builder()'"));
             assertEquals("sample.ChildModel#child", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.steps[1].field_id') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.steps[1].field_id') FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#inheritedBuild()') "
-                            + "AND external_target_fqn='sample.ChildModel#builder()'"));
+                            + "AND cst.external_target_fqn='sample.ChildModel#builder()'"));
             assertEquals("toBuilder", scalarString(statement,
-                    "SELECT json_extract(metadata,'$.lombok_usage.root') FROM edges "
-                            + "WHERE source_id IN (SELECT id FROM nodes "
+                    "SELECT json_extract(cs.metadata,'$.lombok_usage.root') FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk JOIN call_site_targets cst ON cst.call_site_pk=cs.site_pk "
+                            + "WHERE cso.caller_id IN (SELECT id FROM nodes "
                             + "WHERE symbol_id='sample.LombokUsageService#copyBuild(sample.ChildModel)') "
-                            + "AND external_target_fqn='sample.ChildModel#toBuilder()'"));
+                            + "AND cst.external_target_fqn='sample.ChildModel#toBuilder()'"));
         }
 
         try (QueryService query = new QueryService(db)) {
@@ -185,22 +185,28 @@ class LombokExtensionIT {
                     .findFirst().orElseThrow();
             assertEquals(List.of("NonNull"), name.lombok.get("detected_annotations"));
 
-            var builderCall = query.calleesOf("sample.LombokUsageService#build()", 1).stream()
-                    .filter(edge -> "sample.UnsupportedBuilder#builder()"
-                            .equals(edge.externalTargetFqn))
+            var builderCall = query.callSites("sample.LombokUsageService#build()", "outgoing").stream()
+                    .filter(site -> site.targets.stream().anyMatch(target -> target.external()
+                            && "sample.UnsupportedBuilder#builder()".equals(target.id())))
                     .findFirst().orElseThrow();
             assertTrue(builderCall.metadata.contains("\"status\":\"usage-observed\""));
-            assertEquals("usage-observed", builderCall.lombokUsage.get("status"));
-            assertEquals("mapped", builderCall.lombokUsage.get("mapping_status"));
-            assertNull(builderCall.lombokUsage.get("builder_type"));
-            assertTrue(query.callersOf("sample.UnsupportedBuilder#builder()", 1).stream()
-                    .anyMatch(edge -> "sample.LombokUsageService#build()".equals(edge.sourceSymbolId)));
+            Map<?, ?> usage = (Map<?, ?>) ((Map<?, ?>) Json.parseTree(builderCall.metadata))
+                    .get("lombok_usage");
+            assertEquals("usage-observed", usage.get("status"));
+            assertEquals("mapped", usage.get("mapping_status"));
+            assertNull(usage.get("builder_type"));
 
-            var cliCall = runCli("callees-of", "sample.LombokUsageService#build()",
+            var resolved = runCli("resolve", "sample.LombokUsageService#build()",
+                    "--kind", "callable", "--exact", "--unique", "--index", db.toString());
+            assertEquals(0, resolved.exitCode(), resolved.stderr());
+            var cliCall = runCliWithInput(resolved.stdout(), "calls", "--direction", "outgoing",
                     "--index", db.toString());
             assertEquals(0, cliCall.exitCode(), cliCall.stderr());
-            Map<?, ?> cliEnvelope = (Map<?, ?>) Json.parseTree(cliCall.stdout());
-            Map<?, ?> cliEdge = (Map<?, ?>) ((List<?>) cliEnvelope.get("results")).getFirst();
+            Map<?, ?> cliEdge = cliCall.stdout().lines().filter(line -> !line.isBlank())
+                    .map(Json::parseTree).map(Map.class::cast)
+                    .filter(record -> "call_site".equals(record.get("record")))
+                    .filter(record -> record.get("lombok_usage") != null)
+                    .findFirst().orElseThrow();
             assertEquals("usage-observed",
                     ((Map<?, ?>) cliEdge.get("lombok_usage")).get("status"));
 
@@ -213,12 +219,12 @@ class LombokExtensionIT {
         var declarations = runCli("declarations-of", "--file", "src/main/java/sample/User.java",
                 "--format", "json", "--index", db.toString());
         assertEquals(0, declarations.exitCode(), declarations.stderr());
-        Map<?, ?> envelope = (Map<?, ?>) Json.parseTree(declarations.stdout());
         @SuppressWarnings("unchecked")
-        List<Map<?, ?>> rows = (List<Map<?, ?>>) envelope.get("results");
+        List<Map<?, ?>> rows = (List<Map<?, ?>>) (List<?>) Json.parseTree(declarations.stdout());
         Map<?, ?> type = rows.stream().filter(row -> "sample.User".equals(row.get("symbol_id")))
                 .findFirst().orElseThrow();
-        assertEquals("complete", ((Map<?, ?>) type.get("lombok")).get("coverage"));
+        assertEquals("complete", ((Map<?, ?>) ((Map<?, ?>) type.get("facets"))
+                .get("lombok")).get("coverage"));
     }
 
     @Test
@@ -288,8 +294,8 @@ class LombokExtensionIT {
             assertEquals(0, scalar(statement, "SELECT count(*) FROM index_diagnostics "
                     + "WHERE source_file='src/main/java/sample/UnsupportedBuilder.java' "
                     + "AND code='LOMBOK_FEATURE_UNSUPPORTED'"));
-            assertEquals(0, scalar(statement, "SELECT count(*) FROM edges "
-                    + "WHERE source_id IN (SELECT id FROM nodes "
+            assertEquals(0, scalar(statement, "SELECT count(*) FROM call_sites cs JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                    + "WHERE cso.caller_id IN (SELECT id FROM nodes "
                     + "WHERE symbol_id='sample.LombokUsageService#build()') "
                     + "AND json_extract(metadata,'$.lombok_usage') IS NOT NULL"));
         }
@@ -327,18 +333,27 @@ class LombokExtensionIT {
         return CliTestSupport.capture(() -> new CommandLine(new AnatomistCli()).execute(args));
     }
 
+    private static CliTestSupport.RunResult runCliWithInput(String stdin, String... args) throws Exception {
+        InputStream old = System.in;
+        try {
+            System.setIn(new ByteArrayInputStream(stdin.getBytes(StandardCharsets.UTF_8)));
+            return runCli(args);
+        } finally {
+            System.setIn(old);
+        }
+    }
+
     private static void assertCapabilityGolden(Map<String, Object> actual, Path db) throws Exception {
         var declarations = runCli("declarations-of", "--file",
                 "src/main/java/sample/UnsupportedBuilder.java", "--format", "json",
                 "--index", db.toString());
         assertEquals(0, declarations.exitCode(), declarations.stderr());
-        Map<?, ?> envelope = (Map<?, ?>) Json.parseTree(declarations.stdout());
         @SuppressWarnings("unchecked")
-        List<Map<?, ?>> rows = (List<Map<?, ?>>) envelope.get("results");
+        List<Map<?, ?>> rows = (List<Map<?, ?>>) (List<?>) Json.parseTree(declarations.stdout());
         Map<?, ?> type = rows.stream()
                 .filter(row -> "sample.UnsupportedBuilder".equals(row.get("symbol_id")))
                 .findFirst().orElseThrow();
-        actual.put("declarations_builder", type.get("lombok"));
+        actual.put("declarations_builder", ((Map<?, ?>) type.get("facets")).get("lombok"));
 
         Path expectedPath = Path.of(System.getProperty("user.dir"), "src", "test", "resources",
                 "golden", "lombok-capabilities.json");

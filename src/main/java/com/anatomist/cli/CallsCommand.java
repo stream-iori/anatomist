@@ -118,6 +118,7 @@ public final class CallsCommand extends SemanticCommand {
         out.put("id", site.id);
         out.put("language", "java");
         out.put("caller", site.callerId);
+        if (site.context != null) out.put("context", site.context);
         if (site.syntaxTarget != null) out.put("syntax_target", site.syntaxTarget);
         if (site.receiverStaticType != null) out.put("receiver_static_type", site.receiverStaticType);
         List<Map<String, Object>> targets = site.targets.stream().map(CallsCommand::target).toList();
@@ -125,6 +126,12 @@ public final class CallsCommand extends SemanticCommand {
         if (targets.size() == 1) out.put("resolved_target", targets.getFirst().get("id"));
         out.put("dispatch_kind", site.dispatchKind == null ? "unknown"
                 : site.dispatchKind.toLowerCase(java.util.Locale.ROOT));
+        if (site.metadata != null) {
+            Object metadata = com.anatomist.json.Json.parseTree(site.metadata);
+            if (metadata instanceof Map<?, ?> values && values.get("lombok_usage") != null) {
+                out.put("lombok_usage", values.get("lombok_usage"));
+            }
+        }
         Map<String, Object> source = new LinkedHashMap<>();
         source.put("file", site.sourceFile);
         source.put("start_line", site.beginLine);

@@ -15,7 +15,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
-        <revision>0.16.0</revision>
+        <revision>1.0.0</revision>
         <changelist>-SNAPSHOT</changelist>
 
         <javaparser.version>3.28.2</javaparser.version>

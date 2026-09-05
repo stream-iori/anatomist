@@ -1,1 +1,0 @@
-declarations-of --file service/src/main/java/com/example/shop/service/OrderService.java --visibility public,protected --kind type,method,constructor --top-level-types --direct-members --limit 100

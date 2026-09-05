@@ -352,11 +352,22 @@ smoke: index-fixture
         head -n "$lines" "$out"
     }
 
-    preview search 15 {{NATIVE_BIN}} search OrderService --index {{SMOKE_DB}}
-    preview callees-of 20 {{NATIVE_BIN}} callees-of com.example.shop.service.OrderService#createOrder --depth 2 --index {{SMOKE_DB}}
-    preview context 15 {{NATIVE_BIN}} context com.example.shop.service.OrderService --index {{SMOKE_DB}}
-    preview hierarchy 15 {{NATIVE_BIN}} hierarchy com.example.shop.service.OrderService --index {{SMOKE_DB}}
-    preview enrich 20 {{NATIVE_BIN}} context --enrich OrderService --index {{SMOKE_DB}}
+    preview search 15 {{NATIVE_BIN}} search OrderService --kind type --index {{SMOKE_DB}}
+    preview overview 15 {{NATIVE_BIN}} overview --index {{SMOKE_DB}}
+
+    {{NATIVE_BIN}} search OrderService --kind type --index {{SMOKE_DB}} >"$TMP/members-1"
+    {{NATIVE_BIN}} resolve --unique --index {{SMOKE_DB}} <"$TMP/members-1" >"$TMP/members-2"
+    {{NATIVE_BIN}} members --recursive --index {{SMOKE_DB}} <"$TMP/members-2" >"$TMP/members-3"
+    echo "=== search | resolve | members ==="
+    head -n 20 "$TMP/members-3"
+
+    METHOD='com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)'
+    {{NATIVE_BIN}} resolve "$METHOD" --kind callable --exact --unique --index {{SMOKE_DB}} >"$TMP/calls-1"
+    {{NATIVE_BIN}} calls --index {{SMOKE_DB}} <"$TMP/calls-1" >"$TMP/calls-2"
+    {{NATIVE_BIN}} dispatch --index {{SMOKE_DB}} <"$TMP/calls-2" >"$TMP/calls-3"
+    {{NATIVE_BIN}} source --limit 20 --index {{SMOKE_DB}} <"$TMP/calls-3" >"$TMP/calls-4"
+    echo "=== resolve | calls | dispatch | source ==="
+    head -n 20 "$TMP/calls-4"
 
 # Smoke the installed binary on $PATH (after `just install`).
 smoke-installed:
@@ -369,7 +380,7 @@ smoke-installed:
     anatomist search OrderService --index {{SMOKE_DB}} | head -10
 
 # Verify native binary produces identical JSON output to JVM jar.
-# Indexes fixture with both, runs 7 query commands, diffs output.
+# Indexes fixture with both, runs 1.0 terminal queries and real pipelines, diffs output.
 native-smoke: jar native
     #!/usr/bin/env bash
     export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
@@ -422,36 +433,47 @@ native-smoke: jar native
     }
     cat "$NATIVE_LOG"
 
-    CMDS=(
-        "search OrderService"
-        "callees-of com.example.shop.service.OrderService#createOrder --depth 2"
-        "context com.example.shop.service.OrderService"
-        "context com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest) --source --source-limit 5"
-        "deps-of com.example.shop.service.OrderService --limit 50"
-        "overview --deps-only"
-        "hierarchy com.example.shop.service.OrderService"
-    )
+    run_cli() {
+        local variant="$1"; shift
+        if [[ "$variant" == jvm ]]; then "${JVM[@]}" "$@"; else "$NATIVE" "$@"; fi
+    }
+    normalize() {
+        local db="$1"
+        sed -E \
+          -e 's/"index_revision_id"[[:space:]]*:[[:space:]]*"[^"]*"/"index_revision_id":"<REVISION>"/g' \
+          -e "s|$db|<INDEX>|g"
+    }
+    run_suite() {
+        local variant="$1" db="$2" prefix="$3"
+        local method='com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)'
+        run_cli "$variant" search OrderService --kind type --index "$db" >"$prefix-search"
+        run_cli "$variant" overview --deps-only --index "$db" >"$prefix-overview"
+        run_cli "$variant" declarations-of --file service/src/main/java/com/example/shop/service/OrderService.java --index "$db" >"$prefix-declarations"
+        run_cli "$variant" search OrderService --kind type --index "$db" |
+          run_cli "$variant" resolve --unique --index "$db" |
+          run_cli "$variant" members --recursive --index "$db" >"$prefix-members"
+        run_cli "$variant" resolve "$method" --kind callable --exact --unique --index "$db" |
+          run_cli "$variant" calls --index "$db" |
+          run_cli "$variant" dispatch --index "$db" |
+          run_cli "$variant" source --limit 20 --index "$db" >"$prefix-calls"
+        for case in search overview declarations members calls; do
+          normalize "$db" <"$prefix-$case" >"$prefix-$case.normalized"
+        done
+    }
 
+    run_suite jvm "$DB_JVM" "${OUT}-jvm"
+    run_suite native "$DB_NAT" "${OUT}-native"
     FAIL=0
-    for cmd in "${CMDS[@]}"; do
-        echo "--- $cmd ---"
-        read -r -a args <<< "$cmd"
-        "${JVM[@]}" "${args[@]}" --index "$DB_JVM" 2>/dev/null \
-            | sed -e 's/"query"[[:space:]]*:[[:space:]]*"[^"]*",*//' -e "s|$DB_JVM|<INDEX>|g" \
-            > "${OUT}-jvm.json"
-        "$NATIVE" "${args[@]}" --index "$DB_NAT" 2>/dev/null \
-            | sed -e 's/"query"[[:space:]]*:[[:space:]]*"[^"]*",*//' -e "s|$DB_NAT|<INDEX>|g" \
-            > "${OUT}-native.json"
-        if ! diff -q "${OUT}-jvm.json" "${OUT}-native.json" > /dev/null 2>&1; then
-            echo "FAIL: output differs for: $cmd"
-            diff "${OUT}-jvm.json" "${OUT}-native.json" | head -20
-            FAIL=1
+    for case in search overview declarations members calls; do
+        echo "--- $case ---"
+        if diff -u "${OUT}-jvm-$case.normalized" "${OUT}-native-$case.normalized"; then
+            echo PASS
         else
-            echo "PASS"
+            FAIL=1
         fi
     done
 
-    rm -f "$DB_JVM" "$DB_NAT" "${OUT}-jvm.json" "${OUT}-native.json"
+    rm -f "$DB_JVM" "$DB_NAT" "${OUT}"-jvm-* "${OUT}"-native-*
     if [[ $FAIL -ne 0 ]]; then
         echo "native-smoke FAILED: native binary output differs from JVM jar"
         exit 1

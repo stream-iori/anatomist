@@ -165,6 +165,7 @@ final class JavaSemanticService {
             out.put(targetId, resolved);
 
             if (external || "exact".equals(algorithm)) continue;
+            Set<String> configuredTypes = configuredTypes(caller, targetId);
             Map<String, List<CallableRelation>> proofs = new LinkedHashMap<>();
             proofs.put(targetId, List.of());
             Deque<String> frontier = new ArrayDeque<>();
@@ -187,12 +188,16 @@ final class JavaSemanticService {
                         frontier.add(candidateId);
                         NodeRow candidate = resolver.readNodeById(candidateId);
                         if (candidate == null || modifiers(candidate).contains("abstract")) continue;
+                        boolean configured = configuredTypes.contains(ownerType(candidateId));
+                        if (!configuredTypes.isEmpty() && !configured) continue;
                         Instantiability owner = ownerInstantiability(candidate);
                         if (!"yes".equals(owner.state())) continue;
                         out.put(candidateId, dispatchTarget(siteId, caller, candidateId,
                                 candidate.qualifiedName, "possible",
                                 mechanism(dispatchKind, false), true, owner.state(), "CHA", world,
-                                "heuristic", List.of("java.override", "java.runtime_type"),
+                                configured ? "exact" : "heuristic",
+                                configured ? List.of("java.override", "configuration.binding")
+                                        : List.of("java.override", "java.runtime_type"),
                                 candidateProof));
                         if (out.size() >= limit) break;
                     }
@@ -201,6 +206,32 @@ final class JavaSemanticService {
             }
         }
         return List.copyOf(out.values());
+    }
+
+    private Set<String> configuredTypes(String caller, String target) {
+        String callerType = ownerType(caller);
+        String declaredType = ownerType(target);
+        if (callerType == null || declaredType == null) return Set.of();
+        String sql = "SELECT DISTINCT w.target_id FROM edges i JOIN edges w "
+                + "ON w.source_id=i.source_id AND w.relation='WIRES' AND w.is_external=0 "
+                + "WHERE i.relation='INJECTS' AND i.is_external=0 "
+                + "AND i.source_id=? AND i.target_id=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, callerType); statement.setString(2, declaredType);
+            try (ResultSet rows = statement.executeQuery()) {
+                Set<String> out = new LinkedHashSet<>();
+                while (rows.next()) out.add(rows.getString(1));
+                return Set.copyOf(out);
+            }
+        } catch (SQLException failure) {
+            throw new RuntimeException("failed to query configured dispatch targets", failure);
+        }
+    }
+
+    private static String ownerType(String callable) {
+        if (callable == null) return null;
+        int hash = callable.indexOf('#');
+        return hash < 1 ? null : callable.substring(0, hash);
     }
 
     private List<TypeRelation> directTypeRelations(List<String> ids, String direction,

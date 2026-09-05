@@ -20,18 +20,7 @@ _COMMAND_KEYS = {"argv", "cmd", "command", "commands", "script"}
 _QUERY_COMMANDS = {
     "doctor",
     "search",
-    "context",
     "declarations-of",
-    "callees-of",
-    "callers-of",
-    "branches-of",
-    "bean-config",
-    "hierarchy",
-    "implementors-of",
-    "deps-of",
-    "used-by",
-    "field-access",
-    "call-path",
     "overview",
     "resolve",
     "describe",
@@ -215,29 +204,6 @@ def executed_anatomist_invocations(trace: object) -> list[dict[str, object]]:
         for invocation in anatomist_invocations(trace)
         if "--help" not in invocation["args"]
     ]
-
-
-def followed_next_query(invocations: list[dict[str, object]], target_pattern: str) -> bool:
-    """Whether a truncated context result's advertised source offset was followed."""
-    target = re.compile(target_pattern, re.IGNORECASE)
-    for index, invocation in enumerate(invocations):
-        command = str(invocation["command"])
-        output = str(invocation["output"])
-        if invocation["subcommand"] != "context" or target.search(command) is None:
-            continue
-        if re.search(r'"truncated"\s*:\s*true', output) is None:
-            continue
-        offsets = re.findall(r"--source-offset\s+(\d+)", output)
-        if not offsets:
-            continue
-        for later in invocations[index + 1 :]:
-            later_command = str(later["command"])
-            if later["subcommand"] != "context" or target.search(later_command) is None:
-                continue
-            if any(re.search(rf"--source-offset(?:=|\s+){offset}(?:\s|$)", later_command)
-                   for offset in offsets):
-                return True
-    return False
 
 
 def anatomist_subcommands(commands: list[str]) -> list[str]:
@@ -597,14 +563,6 @@ class _AnatomistCheckProvider:
                 )
             return {"target": target.pattern, "first": first_page["command"],
                     "continuation": continuation["command"]}
-        if check == "followed_next_query":
-            target = str(config.get("target", ""))
-            invocations = executions
-            if not followed_next_query(invocations, target):
-                raise RuntimeError(
-                    f"no advertised context continuation followed for target={target!r}"
-                )
-            return {"target": target, "followed": True}
         if check == "response_regex":
             response = context.result.final_response or ""
             required_patterns = [str(item) for item in config.get("all", [])]

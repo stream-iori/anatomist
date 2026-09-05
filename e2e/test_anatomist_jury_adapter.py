@@ -15,7 +15,6 @@ from anatomist_jury_adapter import (
     contains_contiguous_sequence,
     contains_sequence,
     executed_anatomist_invocations,
-    followed_next_query,
     semantic_pipelines,
     trace_commands,
 )
@@ -59,7 +58,7 @@ class TraceCommandTest(unittest.TestCase):
         trace = SimpleNamespace(
             tool_events=[
                 SimpleNamespace(
-                    name="`/tmp/bin/anatomist context 'sample.A#run()' --source`",
+                    name="`/tmp/bin/anatomist resolve 'sample.A#run()' --kind callable --exact`",
                     arguments={},
                     raw_input={},
                 )
@@ -68,61 +67,17 @@ class TraceCommandTest(unittest.TestCase):
 
         commands = trace_commands(trace)
 
-        self.assertEqual(["context"], anatomist_subcommands(commands))
+        self.assertEqual(["resolve"], anatomist_subcommands(commands))
         self.assertTrue(
             contains_sequence(
-                ["skill", "doctor", "index", "context"], ["doctor", "index", "context"]
+                ["skill", "doctor", "index", "resolve"], ["doctor", "index", "resolve"]
             )
         )
         self.assertFalse(
             contains_sequence(
-                ["index", "doctor", "context"], ["doctor", "index", "context"]
+                ["index", "doctor", "resolve"], ["doctor", "index", "resolve"]
             )
         )
-
-    def test_invocations_keep_duplicate_context_calls_and_outputs(self):
-        trace = SimpleNamespace(
-            tool_events=[
-                SimpleNamespace(
-                    name="command_execution",
-                    arguments={},
-                    raw_input={
-                        "command_actions": [{"command": "anatomist context A#run --source"}],
-                        "exit_code": 0,
-                    },
-                    raw_output='{"results":[{"source":{"truncated":true}}],'
-                    '"next_queries":["context A#run --source --source-offset 200"]}',
-                ),
-                SimpleNamespace(
-                    name="command_execution",
-                    arguments={"cmd": "anatomist context A#run --source --source-offset 200"},
-                    raw_input={"exit_code": 0},
-                    raw_output='{"results":[{"source":{"truncated":false}}]}',
-                ),
-            ]
-        )
-
-        invocations = anatomist_invocations(trace)
-
-        self.assertEqual(["context", "context"], [item["subcommand"] for item in invocations])
-        self.assertTrue(followed_next_query(invocations, r"A#run"))
-
-    def test_followed_next_query_rejects_unadvertised_offset(self):
-        invocations = [
-            {
-                "subcommand": "context",
-                "command": "anatomist context A#run --source",
-                "output": '{"truncated":true,"next_queries":['
-                '"context A#run --source --source-offset 200"]}',
-            },
-            {
-                "subcommand": "context",
-                "command": "anatomist context A#run --source --source-offset 100",
-                "output": "{}",
-            },
-        ]
-
-        self.assertFalse(followed_next_query(invocations, r"A#run"))
 
     def test_path_glob_helpers_distinguish_value_and_pattern_lists(self):
         changed = [

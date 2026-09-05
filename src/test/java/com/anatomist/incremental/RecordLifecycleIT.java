@@ -31,9 +31,9 @@ class RecordLifecycleIT {
                     "SELECT count(*) FROM nodes WHERE symbol_id='example.Account#id()' "
                             + "AND producer_id='java-core'"));
             assertEquals(1, scalar(statement,
-                    "SELECT count(*) FROM edges e JOIN nodes t ON t.id=e.target_id "
-                            + "WHERE e.relation='CALLS' AND t.symbol_id='example.Account#id()' "
-                            + "AND e.producer_id='java-core'"));
+                    "SELECT count(*) FROM call_site_targets cst JOIN nodes t ON t.id=cst.target_id "
+                            + "WHERE t.symbol_id='example.Account#id()' "
+                            + "AND cst.producer_id='java-core'"));
         }
 
         String readerIndexedAt;

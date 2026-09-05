@@ -38,7 +38,7 @@ public class SearchService {
     public List<NodeRow> search(String term, String kind, int limit, int offset) {
         String ftsExpr = term == null ? "" : term.trim();
         if (ftsExpr.isEmpty()) return Collections.emptyList();
-        if (!containsFtsSyntax(ftsExpr)) ftsExpr = ftsExpr + "*";
+        if (!containsFtsSyntax(ftsExpr)) ftsExpr = literalPrefix(ftsExpr);
 
         List<NodeRow> rows = new ArrayList<>(searchReal(ftsExpr, kind));
         if (allowsExternalTypes(kind) && !containsFtsSyntax(term == null ? "" : term.trim())) {
@@ -103,7 +103,7 @@ public class SearchService {
     private List<NodeRow> searchByNameReal(String glob, String kind) {
         if (GraphConstants.Kind.EXTERNAL_CLASS.equals(kind)) return Collections.emptyList();
         StringBuilder sql = new StringBuilder("SELECT ").append(RowMappers.NODE_COLS)
-                .append(" FROM nodes n WHERE n.label LIKE ? ");
+                .append(" FROM nodes n WHERE n.label LIKE ? ESCAPE '\\' ");
         List<Object> args = new ArrayList<>();
         args.add(globToLike(glob));
         sql.append(resolver.selectorClause("n")).append(' ');
@@ -123,7 +123,7 @@ public class SearchService {
     public int countSearch(String term, String kind) {
         String ftsExpr = term == null ? "" : term.trim();
         if (ftsExpr.isEmpty()) return 0;
-        if (!containsFtsSyntax(ftsExpr)) ftsExpr = ftsExpr + "*";
+        if (!containsFtsSyntax(ftsExpr)) ftsExpr = literalPrefix(ftsExpr);
         int count = searchReal(ftsExpr, kind).size();
         if (allowsExternalTypes(kind) && !containsFtsSyntax(term.trim())) {
             count += externalTypes("%" + escapeLike(term.trim().toLowerCase(Locale.ROOT)) + "%", false).size();
@@ -144,7 +144,18 @@ public class SearchService {
     }
 
     private static String globToLike(String glob) {
-        return glob == null ? "%" : glob.replace('*', '%').replace('?', '_');
+        if (glob == null) return "%";
+        StringBuilder out = new StringBuilder(glob.length() + 8);
+        for (int i = 0; i < glob.length(); i++) {
+            char value = glob.charAt(i);
+            switch (value) {
+                case '*' -> out.append('%');
+                case '?' -> out.append('_');
+                case '\\', '%', '_' -> out.append('\\').append(value);
+                default -> out.append(value);
+            }
+        }
+        return out.toString();
     }
 
     private boolean allowsExternalTypes(String kind) {
@@ -161,9 +172,7 @@ public class SearchService {
                 : "LOWER(" + type + ") LIKE ? ESCAPE '\\'";
         String sql = "SELECT " + type + " AS type_fqn,e.relation,"
                 + "COALESCE(e.resolution, ?) AS resolution,e.confidence,e.producer_id,COUNT(*) AS edge_count "
-                + "FROM edges e JOIN nodes src ON e.source_id=src.id "
-                + "WHERE e.is_external=1 AND " + match + " "
-                + resolver.selectorClause("src") + " "
+                + "FROM (" + externalFactsSql() + ") e WHERE " + match + " "
                 + "GROUP BY type_fqn,e.relation,COALESCE(e.resolution, ?),e.confidence,e.producer_id "
                 + "ORDER BY type_fqn";
         Map<String, NodeRow> rows = new LinkedHashMap<>();
@@ -240,6 +249,10 @@ public class SearchService {
         return false;
     }
 
+    private static String literalPrefix(String value) {
+        return "\"" + value.replace("\"", "\"\"") + "\"*";
+    }
+
     private static boolean isAsciiRegexWhitespace(char character) {
         return character == ' ' || character == '\t' || character == '\n'
                 || character == '\u000B' || character == '\f' || character == '\r';
@@ -256,13 +269,14 @@ public class SearchService {
         String order;
         if (mode == SemanticMode.FTS) {
             String expression = selector.trim();
-            if (!containsFtsSyntax(expression)) expression += "*";
+            if (!containsFtsSyntax(expression)) expression = literalPrefix(expression);
             from = " FROM node_names nn JOIN nodes n ON nn.rowid=n.rowid "
                     + "WHERE node_names MATCH ? " + resolver.selectorClause("n") + filter;
             baseArgs.add(expression);
             order = " ORDER BY rank";
         } else if (mode == SemanticMode.NAME) {
-            from = " FROM nodes n WHERE n.label LIKE ? " + resolver.selectorClause("n") + filter;
+            from = " FROM nodes n WHERE n.label LIKE ? ESCAPE '\\' "
+                    + resolver.selectorClause("n") + filter;
             baseArgs.add(globToLike(selector));
             order = " ORDER BY n.qualified_name";
         } else {
@@ -302,9 +316,8 @@ public class SearchService {
         String match = name
                 ? "(lower(" + type + ") LIKE ? ESCAPE '\\' OR lower(" + type + ")=?)"
                 : "lower(" + type + ") LIKE ? ESCAPE '\\'";
-        String sql = "SELECT " + type + " type_fqn,count(*) edge_count FROM edges e "
-                + "JOIN nodes src ON src.id=e.source_id WHERE e.is_external=1 AND " + match + " "
-                + resolver.selectorClause("src") + " GROUP BY type_fqn "
+        String sql = "SELECT " + type + " type_fqn,count(*) edge_count FROM ("
+                + externalFactsSql() + ") e WHERE " + match + " GROUP BY type_fqn "
                 + "ORDER BY edge_count DESC,type_fqn LIMIT ? OFFSET ?";
         List<Object> args = new ArrayList<>();
         args.add(name ? "%." + like : like);
@@ -328,6 +341,17 @@ public class SearchService {
         } catch (SQLException failure) {
             throw rethrow(failure);
         }
+    }
+
+    private String externalFactsSql() {
+        return "SELECT e.external_target_fqn,e.relation,e.resolution,e.confidence,e.producer_id "
+                + "FROM edges e JOIN nodes src ON src.id=e.source_id WHERE e.is_external=1 "
+                + resolver.selectorClause("src")
+                + " UNION ALL SELECT cst.external_target_fqn,'CALLS',NULL,cst.confidence,cst.producer_id "
+                + "FROM call_site_targets cst JOIN call_sites cs ON cs.site_pk=cst.call_site_pk "
+                + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk "
+                + "JOIN nodes src ON src.id=cso.caller_id WHERE cst.external_target_fqn IS NOT NULL "
+                + resolver.selectorClause("src");
     }
 
     private static List<Object> withPage(List<Object> args, int limit, int offset) {

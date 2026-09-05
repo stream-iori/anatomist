@@ -78,12 +78,20 @@ class QueryServiceOverviewTest {
     private static Edge internal(String src, String tgt, String rel) {
         Edge e = new Edge();
         e.sourceId = src; e.targetId = tgt; e.relation = rel; e.isExternal = false;
+        range(e, src);
         return e;
     }
 
     private static Edge external(String src, String fqn, String rel) {
         Edge e = new Edge();
         e.sourceId = src; e.externalTargetFqn = fqn; e.relation = rel; e.isExternal = true;
+        range(e, src);
         return e;
+    }
+
+    private static void range(Edge edge, String source) {
+        edge.sourceFile = source.startsWith("com.a") ? "com/a/X.java" : "com/b/X.java";
+        edge.beginLine = 1; edge.beginColumn = 1; edge.endLine = 1; edge.endColumn = 2;
+        edge.sourceOrdinal = 0; edge.callKind = "INSTANCE";
     }
 }

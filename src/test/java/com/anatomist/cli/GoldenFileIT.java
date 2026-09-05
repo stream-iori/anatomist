@@ -1,7 +1,6 @@
 package com.anatomist.cli;
 
 import com.anatomist.json.Json;
-import com.anatomist.query.JsonFormatter;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
@@ -9,6 +8,8 @@ import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.io.File;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -23,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * L3 golden-file driver: each subdir under {@code tests/scenarios/} contains
- * an {@code input.cmd} (one CLI command, args separated by whitespace) and an
+ * a {@code pipeline.json} (stages are argv arrays) and an
  * optional {@code expected.exit}, {@code expected.json}, and
  * {@code expected.stderr} files. We run the command against a freshly-built
  * index of {@code fixtures/mini-spring-shop} and compare both output streams.
@@ -84,7 +85,7 @@ class GoldenFileIT {
         List<Path> dirs = new ArrayList<>();
         try (var stream = Files.list(scenariosDir)) {
             stream.filter(Files::isDirectory)
-                  .filter(p -> Files.isRegularFile(p.resolve("input.cmd")))
+                  .filter(p -> Files.isRegularFile(p.resolve("pipeline.json")))
                   .forEach(dirs::add);
         }
         Collections.sort(dirs);
@@ -93,35 +94,38 @@ class GoldenFileIT {
     }
 
     private void runScenario(Path scenarioDir) throws Exception {
-        String inputCmd = Files.readString(scenarioDir.resolve("input.cmd"),
-                StandardCharsets.UTF_8).trim();
-        // Allow comments / blank lines
-        StringBuilder joined = new StringBuilder();
-        for (String line : inputCmd.split("\n")) {
-            String s = line.trim();
-            if (s.isEmpty() || s.startsWith("#")) continue;
-            if (joined.length() > 0) joined.append(' ');
-            joined.append(s);
-        }
-        String[] argv = tokenize(joined.toString());
-        // Auto-inject --index pointing at our built db.
-        List<String> args = new ArrayList<>();
-        Collections.addAll(args, argv);
-        if (!args.contains("--index")) {
-            args.add("--index");
-            args.add(dbPath.toString());
-        }
-
+        Object rawPipeline = Json.parseTree(Files.readString(
+                scenarioDir.resolve("pipeline.json"), StandardCharsets.UTF_8));
+        assertInstanceOf(java.util.Map.class, rawPipeline);
+        Object rawStages = ((java.util.Map<?, ?>) rawPipeline).get("stages");
+        assertInstanceOf(List.class, rawStages);
+        List<?> stages = (List<?>) rawStages;
+        assertFalse(stages.isEmpty(), "pipeline must contain at least one stage");
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        InputStream oldIn = System.in;
         PrintStream oldOut = System.out;
         PrintStream oldErr = System.err;
-        int rc;
+        int rc = 0;
+        byte[] input = new byte[0];
         try {
-            System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
             System.setErr(new PrintStream(stderr, true, StandardCharsets.UTF_8));
-            rc = new CommandLine(new AnatomistCli()).execute(args.toArray(new String[0]));
+            for (Object rawStage : stages) {
+                assertInstanceOf(List.class, rawStage);
+                List<String> args = ((List<?>) rawStage).stream().map(String::valueOf)
+                        .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+                if (!args.contains("--index")) {
+                    args.add("--index"); args.add(dbPath.toString());
+                }
+                stdout = new ByteArrayOutputStream();
+                System.setIn(new ByteArrayInputStream(input));
+                System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
+                rc = new CommandLine(new AnatomistCli()).execute(args.toArray(String[]::new));
+                input = stdout.toByteArray();
+                if (rc != 0) break;
+            }
         } finally {
+            System.setIn(oldIn);
             System.setOut(oldOut);
             System.setErr(oldErr);
         }
@@ -133,11 +137,11 @@ class GoldenFileIT {
             Files.writeString(expectedExitFile, rc + "\n", StandardCharsets.UTF_8);
             expectedExit = rc;
         }
-        assertEquals(expectedExit, rc, "unexpected exit: " + inputCmd
+        assertEquals(expectedExit, rc, "unexpected exit: " + stages
                 + "\nstdout:\n" + stdout.toString(StandardCharsets.UTF_8)
                 + "\nstderr:\n" + stderr.toString(StandardCharsets.UTF_8));
 
-        String rawStdout = stdout.toString(StandardCharsets.UTF_8);
+        String rawStdout = new String(input, StandardCharsets.UTF_8);
         Path expected = scenarioDir.resolve("expected.json");
         if (!rawStdout.isBlank() || Files.exists(expected)) {
             String actualJson = normalize(rawStdout);
@@ -173,7 +177,28 @@ class GoldenFileIT {
     /** Re-emit JSON with sorted map keys and project-root scrubbed. */
     private String normalize(String raw) {
         String scrubbed = normalizeText(raw);
-        return Json.writeCanonical(Json.parseTree(scrubbed));
+        String trimmed = scrubbed.trim();
+        Object parsed;
+        try {
+            parsed = Json.parseTree(trimmed);
+        } catch (IllegalArgumentException multipleRecords) {
+            List<Object> records = new ArrayList<>();
+            for (String line : trimmed.split("\\R")) {
+                if (!line.isBlank()) records.add(Json.parseTree(line));
+            }
+            parsed = records;
+        }
+        scrubVolatile(parsed);
+        return Json.writeCanonical(parsed);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void scrubVolatile(Object value) {
+        if (value instanceof java.util.Map<?, ?> raw) {
+            java.util.Map<String, Object> map = (java.util.Map<String, Object>) raw;
+            if (map.containsKey("index_revision_id")) map.put("index_revision_id", "${REVISION}");
+            map.values().forEach(GoldenFileIT::scrubVolatile);
+        } else if (value instanceof List<?> list) list.forEach(GoldenFileIT::scrubVolatile);
     }
 
     private String normalizeText(String raw) {
@@ -182,21 +207,4 @@ class GoldenFileIT {
                 .replace(dbPath.toString(), "${INDEX}");
     }
 
-    /** Minimal shell-like tokenizer — supports double-quoted segments. */
-    private static String[] tokenize(String s) {
-        List<String> out = new ArrayList<>();
-        StringBuilder cur = new StringBuilder();
-        boolean inQuote = false;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '"') { inQuote = !inQuote; continue; }
-            if (!inQuote && Character.isWhitespace(c)) {
-                if (cur.length() > 0) { out.add(cur.toString()); cur.setLength(0); }
-            } else {
-                cur.append(c);
-            }
-        }
-        if (cur.length() > 0) out.add(cur.toString());
-        return out.toArray(new String[0]);
-    }
 }
