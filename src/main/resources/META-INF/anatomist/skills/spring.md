@@ -1,11 +1,13 @@
 # Spring decision guide
 
-| Need | Pipeline |
+| Need | Stages |
 |---|---|
-| MVC handler annotations | `search | resolve | annotations` |
-| Injection/config bindings | `search | resolve | bindings` |
-| XML ordered/nested structure | `search --kind artifact | resolve --unique | members --recursive` |
-| Java impact from configured types | `resolve | references` plus `bindings` evidence |
+| MVC handler annotations | `search → resolve → annotations` |
+| Injection/config bindings | `search → resolve → bindings` |
+| XML ordered/nested structure | `search --kind artifact → resolve --unique → members --recursive` |
+| Java impact from configured types | `resolve → references` plus `bindings` evidence |
+
+Arrows are fused stages; run them with `pipeline -- ... --then ...`.
 
 Confirm the index profile includes classpath and `--spring-xml` when needed, then keep
 that profile through incremental indexing. Qualifiers, profiles, conditions, proxies,

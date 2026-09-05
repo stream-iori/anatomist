@@ -1,15 +1,16 @@
 # Explore decision guide
 
-| Need | Pipeline |
+| Need | Stages |
 |---|---|
-| Find candidates | `search --format ndjson | resolve --unique` |
-| Understand one type | `resolve --kind type --unique | describe`，成员另接 `members` |
-| Read one exact method | `resolve --kind callable --exact --unique | source` |
-| Map packages and dependencies | `overview`，再用 `members | references` 缩小范围 |
-| Apply project docs | `index-docs`，再用 `search | resolve | related-docs` |
+| Find candidates | `search → resolve --unique` |
+| Understand one type | `resolve --kind type --unique → describe`，成员另接 `members` |
+| Read one exact method | `resolve --kind callable --exact --unique → source` |
+| Map packages and dependencies | `overview`，再用 `members → references` 缩小范围 |
+| Apply project docs | `index-docs`，再用 `search → resolve → related-docs` |
 
-Read every selected command's `--help`. Execute multi-stage rows with
-`pipeline --index <db> -- <stage> --then <stage>` and require final stream evidence.
+Read every selected command's `--help`. Arrows above describe stages, not Shell syntax.
+Execute them as `pipeline --index <db> -- <stage> --then <stage>` and require final
+stream evidence.
 Routes, annotations, names, and documents are
 technical signals; verify source/configuration before calling them business rules.
 

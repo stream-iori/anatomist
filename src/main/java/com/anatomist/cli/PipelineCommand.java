@@ -17,8 +17,21 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 
 @Command(name = "pipeline", mixinStandardHelpOptions = true,
-        description = "Run a linear semantic-stream pipeline in one process and SQLite connection.",
-        footer = "%nInline:%n  anatomist pipeline --index index.db -- resolve 'p.Service#run()' --kind callable --exact --unique --then calls --then dispatch%n%nFile:%n  anatomist pipeline --index index.db --file pipeline.json")
+        description = {
+                "Run a linear semantic-stream pipeline in one process and SQLite connection.",
+                "Prefer this command when every stage uses the same index, module, scope and format.",
+                "Use a Shell pipeline for external tools, branching, or distinct global options."
+        },
+        footer = "%nRules:%n"
+                + "  Put --index/--module/--scope/--format before --; do not repeat them in stages.%n"
+                + "  Read each stage's --help for its Accepts/Emits contract.%n"
+                + "  Success ends with evidence(scope=stream); do not trust partial stdout without it.%n"
+                + "  Specification, composition, limit, or stage failures exit 5 with one-line JSON on stderr.%n"
+                + "%nInline:%n"
+                + "  anatomist pipeline --index index.db -- resolve 'p.Service#run()' --kind callable --exact --unique --then calls --then dispatch%n"
+                + "%nFile (recommended for automation):%n"
+                + "  anatomist pipeline --index index.db --file pipeline.json%n"
+                + "  {\"stages\":[[\"resolve\",\"p.Service#run()\",\"--kind\",\"callable\",\"--exact\",\"--unique\"],[\"calls\"],[\"dispatch\"]]}")
 public final class PipelineCommand implements Callable<Integer> {
     static final int MAX_STAGES = 16;
     static final int MAX_ARGS_PER_STAGE = 256;

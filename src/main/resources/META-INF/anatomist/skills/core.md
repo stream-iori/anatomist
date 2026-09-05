@@ -14,8 +14,10 @@ Use this guide for every independent static-analysis session.
    query command's `--help` before execution.
 6. For declaration seeds from known files, use `declarations-of`; do not infer
    Java declarations with source-text regular expressions.
-7. For multi-stage queries, prefer `pipeline --index <db> -- ... --then ...` so all
-   stages use one read-only snapshot. Use Unix pipes for external tools or distinct scopes.
+7. For multi-stage queries, read `pipeline --help`, then prefer
+   `pipeline --index <db> -- ... --then ...` so all stages use one read-only snapshot.
+   Put global options on `pipeline`, not its stages. Use Unix pipes only for external
+   tools, branching, or distinct index/module/scope values.
 
 For an unexpected missing symbol, inspect `doctor --format json --index <db>`
 for `config_source`, `config_path`, and `scan_policy_hash`. They describe the
@@ -32,6 +34,8 @@ Interpret evidence conservatively:
 - Static paths describe possible source relationships, not runtime execution.
 - Use logs, traces, metrics, configuration, or runtime responses when the question
   asks what happened online.
+- A fused result is complete only when its final `evidence(scope=stream)` is present.
+  Exit 5 reports a one-line pipeline error; discard any partial stdout as a final answer.
 
 Prefer incremental synchronization. For a 0.1x/schema/semantics mismatch, use explicit
 `index <project> --recreate`; 1.0 never silently deletes an incompatible index.

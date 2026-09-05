@@ -14,16 +14,18 @@ Config order: project, user, otherwise built-in defaults. Files do not merge;
 CLI flags override. Prefer `index --incremental`. After policy changes, re-index
 and inspect `doctor --format json` `config_source`.
 
-Use fused execution for multi-stage queries:
+For two or more linear stages, read `anatomist pipeline --help` and prefer fused
+execution. Use a Unix pipeline only for external tools, branching, or stages that
+need different index/module/scope values.
 
 ```text
-find        search --format ndjson | resolve --unique
-members     ... | members [--recursive]
-types       ... | type-relations
-runtime     ... | runtime-implementations
-calls       ... | calls | dispatch
-config      ... | bindings
-evidence    ... | source
+find        search → resolve --unique
+members     resolve → members [--recursive]
+types       resolve → type-relations
+runtime     resolve → runtime-implementations
+calls       resolve → calls → dispatch
+config      resolve → bindings
+evidence    resolve/site → source
 ```
 
 Example:
@@ -34,12 +36,20 @@ anatomist pipeline --index index.db -- \
   --then calls --then dispatch --then source
 ```
 
-The Unix pipeline remains valid when stages need different global scopes or external
-tools. Fused stages share one read-only snapshot and check seed/final evidence. Never conclude
-absence when `coverage` is not `complete`; `--accept-unframed` intentionally
-downgrades it. `calls` is source syntax plus static resolution. `dispatch` gives
-possible static candidates, not observed execution. Framework bindings come from
-artifact producers, not Java semantics.
+Put `--index`, `--module`, `--scope`, and `--format` on `pipeline`, before `--`;
+never repeat them inside stages. For automation, use
+`pipeline --index index.db --file pipeline.json` with
+`{"stages":[["resolve",...],["calls"],["dispatch"]]}`.
+
+Fused stages share one read-only snapshot. Treat output as successful only when it
+ends with `evidence(scope=stream)`. Exit 5 has one-line JSON on stderr; stdout may
+already contain partial seed frames, so never consume it as a completed answer.
+Never conclude absence unless coverage is complete and evidence marks the negative
+conclusion safe. `--accept-unframed` intentionally downgrades coverage.
+
+`calls` is source syntax plus static resolution. `dispatch` gives possible static
+candidates, not observed execution. Framework bindings come from artifact producers,
+not Java semantics.
 
 Use `declarations-of --file <relative.java>` for changed files. For one method,
 run an exact callable `resolve --then source`; page until evidence is complete.

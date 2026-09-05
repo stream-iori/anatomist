@@ -30,14 +30,19 @@ class SkillMdContractTest {
         assertTrue(frontmatter.get(1).startsWith("description: \""));
         assertTrue(frontmatter.get(1).endsWith("\""),
                 "description containing ':' must remain valid quoted YAML");
-        assertTrue(Files.size(skill) <= 2 * 1024, "SKILL.md exceeds the 2 KiB budget");
-        assertTrue(lines.size() <= 60, "SKILL.md exceeds the 60-line budget");
+        assertTrue(Files.size(skill) <= 3 * 1024, "SKILL.md exceeds the 3 KiB budget");
+        assertTrue(lines.size() <= 80, "SKILL.md exceeds the 80-line budget");
         assertTrue(text.contains("anatomist skill core"));
         assertTrue(text.contains("anatomist skill topics"));
         assertTrue(text.contains("incremental"));
         assertTrue(text.contains("otherwise built-in defaults"));
         assertTrue(text.contains("CLI flags override"));
         assertTrue(text.contains("config_source"));
+        assertTrue(text.contains("anatomist pipeline --help"));
+        assertTrue(text.contains("--then"));
+        assertTrue(text.contains("--file pipeline.json"));
+        assertTrue(text.contains("evidence(scope=stream)"));
+        assertTrue(text.contains("Exit 5"));
         assertFalse(text.toLowerCase().contains("watch"));
         assertFalse(text.contains("## Task details"));
     }
@@ -66,7 +71,7 @@ class SkillMdContractTest {
         String flow = Files.readString(sceneDir().resolve("flow.md"));
         for (String requirement : List.of(
                 "does not materialize a separate data-flow graph",
-                "resolve exact callable | source",
+                "resolve exact callable → source",
                 "trace --to",
                 "source --offset",
                 "not runtime values")) {

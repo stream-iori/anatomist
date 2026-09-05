@@ -25,10 +25,12 @@ import picocli.CommandLine.HelpCommand;
                 "  anatomist search OrderService             Find entity candidates",
                 "  anatomist pipeline --index index.db -- resolve 'Class#method()'",
                 "    --kind callable --exact --unique --then calls --then dispatch --then source",
+                "  anatomist pipeline --help                 Learn fused pipeline rules",
                 "  anatomist declarations-of --file src/main/java/com/example/MyClass.java",
                 "",
                 "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",
                 "@|bold Output:|@   Query commands emit semantic-stream/v1; NDJSON is the default.",
+                "@|bold Compose:|@  Prefer pipeline for linear multi-stage queries; use Shell for external tools or distinct scopes.",
                 ""
         },
         commandListHeading = "%n@|bold Commands:|@%n",
