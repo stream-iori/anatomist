@@ -1,1 +1,1 @@
-ERROR: provide a search term or --name
+{"contract":"anatomist-error/v1","code":"INVALID_ARGUMENT","category":"argument","exit":2,"message":"provide a search term or --name","operation":"search","inspect":[["anatomist","operations","search","--format","json"]]}

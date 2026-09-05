@@ -1,6 +1,26 @@
 # Anatomist 1.0 命令参考
 
-结论：查询接口只有 `semantic-stream/v1`。除 `index`、`doctor`、`annotate` 外，查询默认输出 NDJSON；精确参数以同版本二进制的 `anatomist <command> --help` 为准。
+结论：查询接口只有 `semantic-stream/v1`。先用 `operations` 获取机器可读能力和约束，再由 Agent 组合原子操作；没有公开 recipe API。
+
+```text
+doctor → operations → pipeline --explain → pipeline --check → execute
+```
+
+## 机器可读操作目录
+
+```bash
+anatomist operations
+anatomist operations calls --index <db>
+anatomist operations --language python
+```
+
+| 字段 | 含义 |
+|---|---|
+| `support` | 已安装 provider 是否实现 operation |
+| `availability` | 当前 index 是否具备所需事实；无 `--index` 时为 `unchecked` |
+| `coverage` | 不在目录中；只由实际查询 evidence 报告 |
+
+默认 JSON 契约为 `anatomist-operation-catalog/v1`。目录公开输入输出 record、参数、硬限制和语言边界，但不提供 recipe 或自动选路。
 
 ## 基本规则
 
@@ -31,6 +51,8 @@ anatomist pipeline --index <db> -- \
   --then dispatch
 
 anatomist pipeline --index <db> --file pipeline.json
+anatomist pipeline --explain -- resolve p.A --kind type --unique --then describe
+anatomist pipeline --check --index <db> -- resolve p.A --kind type --unique --then describe
 ```
 
 ```json
@@ -43,6 +65,8 @@ anatomist pipeline --index <db> --file pipeline.json
 | stage | 只允许 20 个只读 semantic-stream 查询命令 |
 | 资源上限 | 16 stages、每段 256 argv、spec 1 MiB；typed 中间流沿用协议上限 |
 | 执行 | 一个进程、一个只读 SQLite 连接；中间传 typed seed frame |
+| `--explain` | 只做静态参数和组合检查，不打开 DB、不读 stdin |
+| `--check` | 只读检查 index 和 operation availability，不执行 selector/query |
 | 成功 | stdout 与等价 Shell 管道原始字节一致 |
 | 失败 | exit 5；stderr 为一行结构化 JSON；不会写最终 stream evidence |
 
@@ -161,7 +185,9 @@ anatomist overview --deps-only --depth 2 --limit 50 --index <db>
 
 `index-docs` 建立可再生文档索引；`annotate` 写人工语义注记。旧库 `--recreate` 会丢弃它们，因此重建前必须按命令提示确认可再生性或备份来源。
 
-## 常用 recipe
+## 非规范组合示例
+
+以下只是示例，不属于 catalog，也不限制 Agent 选择其他合法组合。线性组合优先改写成单进程 `pipeline -- ... --then ...`。
 
 ```bash
 # 精确读方法

@@ -59,7 +59,13 @@ class CliContractIT {
             RunResult result = run(args);
             assertEquals(2, result.exitCode(), String.join(" ", args)
                     + "\n" + result.stdout() + result.stderr());
-            assertTrue(result.stderr().contains("ERROR:"), result.stderr());
+            if ("doctor".equals(args[0])) {
+                assertTrue(result.stderr().contains("ERROR:"), result.stderr());
+            } else {
+                Map<?, ?> error = asMap(result.stderr());
+                assertEquals("anatomist-error/v1", error.get("contract"));
+                assertEquals(2, ((Number) error.get("exit")).intValue());
+            }
             assertFalse(result.stderr().contains("Exception"), result.stderr());
             assertFalse(result.stderr().contains("\tat "), result.stderr());
         }

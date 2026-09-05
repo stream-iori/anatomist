@@ -20,13 +20,15 @@ import java.util.concurrent.Callable;
         description = {
                 "Run a linear semantic-stream pipeline in one process and SQLite connection.",
                 "Prefer this command when every stage uses the same index, module, scope and format.",
-                "Use a Shell pipeline for external tools, branching, or distinct global options."
+                "Use a Shell pipeline for external tools, branching, or distinct global options.",
+                "Use --explain for static composition and --check for read-only index preflight."
         },
         footer = "%nRules:%n"
                 + "  Put --index/--module/--scope/--format before --; do not repeat them in stages.%n"
                 + "  Read each stage's --help for its Accepts/Emits contract.%n"
                 + "  Success ends with evidence(scope=stream); do not trust partial stdout without it.%n"
                 + "  Specification, composition, limit, or stage failures exit 5 with one-line JSON on stderr.%n"
+                + "  --explain/--check emit anatomist-pipeline-plan/v1 JSON and never execute a query.%n"
                 + "%nInline:%n"
                 + "  anatomist pipeline --index index.db -- resolve 'p.Service#run()' --kind callable --exact --unique --then calls --then dispatch%n"
                 + "%nFile (recommended for automation):%n"
@@ -47,12 +49,20 @@ public final class PipelineCommand implements Callable<Integer> {
     String format;
     @Option(names = "--file", description = "JSON pipeline file using {\"stages\":[[...]]}.")
     Path file;
+    @Option(names = "--explain",
+            description = "Validate and describe composition without opening an index.")
+    boolean explain;
+    @Option(names = "--check",
+            description = "Read-only validation of composition, index, and operation availability.")
+    boolean check;
     @Parameters(arity = "0..*", paramLabel = "STAGE_ARGS",
             description = "Inline stages after --, separated by --then.")
     List<String> inline = new ArrayList<>();
 
     @Override public Integer call() {
         try {
+            if (explain && check) throw PipelineFailure.invalid("PIPELINE_INVALID_SPEC",
+                    "--explain and --check are mutually exclusive");
             scope = CliValidation.scope(scope, true);
             format = CliValidation.choice("--format", format, "ndjson", "json", "table");
             List<List<String>> spec = file == null ? inlineSpec() : fileSpec();
@@ -62,6 +72,10 @@ public final class PipelineCommand implements Callable<Integer> {
                         index, module, scope));
             }
             PipelineStageRegistry.validateComposition(stages);
+            if (explain) {
+                System.out.println(Json.writeCompact(plan("explain", "valid", stages, null)));
+                return 0;
+            }
             Path db;
             try {
                 db = IndexPath.resolve(index);
@@ -70,6 +84,18 @@ public final class PipelineCommand implements Callable<Integer> {
             }
             try (SemanticExecutionContext context =
                          SemanticExecutionContext.open(db, module, scope)) {
+                if (check) {
+                    for (PipelineStageRegistry.Stage stage : stages) {
+                        if (!context.capabilities().supports(stage.name())) {
+                            throw PipelineFailure.check(stage.position(), stage.name(),
+                                    "operation is unavailable in the selected index: "
+                                            + stage.name(), "UNSUPPORTED_CAPABILITY");
+                        }
+                    }
+                    System.out.println(Json.writeCompact(plan("check", "ready", stages,
+                            context)));
+                    return 0;
+                }
                 new SemanticPipelineExecutor(stages, context, System.out, format).execute(System.in);
             } catch (BrokenPipeException failure) {
                 throw failure;
@@ -91,6 +117,44 @@ public final class PipelineCommand implements Callable<Integer> {
             System.err.println(wrapped.json());
             return 5;
         }
+    }
+
+    private Map<String, Object> plan(String mode, String status,
+                                     List<PipelineStageRegistry.Stage> stages,
+                                     SemanticExecutionContext context) {
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("contract", "anatomist-pipeline-plan/v1");
+        out.put("mode", mode);
+        out.put("status", status);
+        out.put("query_contract", "semantic-stream/v1");
+        Map<String, Object> globals = new java.util.LinkedHashMap<>();
+        if (index != null) globals.put("index", index.toAbsolutePath().normalize().toString());
+        if (module != null) globals.put("module", module);
+        globals.put("scope", scope);
+        globals.put("format", format);
+        out.put("globals", globals);
+        List<Map<String, Object>> stagePlans = new ArrayList<>();
+        for (PipelineStageRegistry.Stage stage : stages) {
+            Map<String, Object> value = new java.util.LinkedHashMap<>();
+            value.put("position", stage.position());
+            value.put("operation", stage.name());
+            value.put("role", SemanticOperationRegistry.entry(stage.name()).role());
+            value.put("accepts", List.copyOf(stage.accepted()));
+            value.put("emits", List.copyOf(stage.emitted()));
+            value.put("availability", context == null ? "unchecked"
+                    : context.capabilities().supports(stage.name())
+                    ? "available" : "unavailable");
+            stagePlans.add(value);
+        }
+        out.put("stages", List.copyOf(stagePlans));
+        PipelineStageRegistry.Stage first = stages.getFirst();
+        if (!first.producerOnly()) {
+            out.put("deferred_checks", List.of("INPUT_RECORD_TYPE", "INPUT_LANGUAGE",
+                    "INPUT_ENTITY_KIND"));
+        } else {
+            out.put("deferred_checks", List.of("SELECTOR_RESOLUTION"));
+        }
+        return out;
     }
 
     private List<List<String>> inlineSpec() {

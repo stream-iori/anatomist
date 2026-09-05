@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://antcodes.dev/anatomist/schema/error-v1.schema.json",
+  "title": "Anatomist Agent-facing error v1",
+  "type": "object",
+  "required": ["contract", "code", "category", "exit", "message", "operation"],
+  "properties": {
+    "contract": { "const": "anatomist-error/v1" },
+    "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
+    "category": {
+      "enum": ["argument", "resolution", "input", "capability", "index", "stream", "pipeline", "internal"]
+    },
+    "exit": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "message": { "type": "string" },
+    "operation": { "type": "string" },
+    "stage": {
+      "type": "object",
+      "required": ["position", "operation"],
+      "properties": {
+        "position": { "type": "integer", "minimum": 1 },
+        "operation": { "type": "string" }
+      }
+    },
+    "details": { "type": "object" },
+    "inspect": {
+      "type": "array",
+      "items": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+    },
+    "cause": { "type": "object" }
+  },
+  "additionalProperties": true
+}

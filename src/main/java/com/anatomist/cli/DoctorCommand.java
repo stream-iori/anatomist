@@ -106,7 +106,7 @@ public class DoctorCommand implements Callable<Integer> {
                 "type-relations", "runtime-implementations", "callable-relations", "calls",
                 "dispatch", "bindings", "annotations", "related-docs", "references",
                 "accesses", "regions", "sites-in", "trace", "source",
-                "declarations-of", "overview", "pipeline",
+                "declarations-of", "overview", "operations", "pipeline",
                 "annotate", "doctor"));
         out.put("capabilities", List.of(
                 "semantic-stream-v1", "index-json-summary",
@@ -114,7 +114,8 @@ public class DoctorCommand implements Callable<Integer> {
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
                 "branch-context-slices", "source-snapshot-fingerprint",
                 "graph-semantics-version", "core-reflection",
-                "agent-preflight", "agent-skill-topics"));
+                "agent-preflight", "agent-skill-topics",
+                "anatomist-operation-catalog-v1", "anatomist-error-v1"));
         @SuppressWarnings("unchecked")
         List<String> capabilities = new java.util.ArrayList<>((List<String>) out.get("capabilities"));
         capabilities.add("file-resolution-coverage");
@@ -200,11 +201,11 @@ public class DoctorCommand implements Callable<Integer> {
                             .ifPresent(v -> out.put("source_snapshot_fingerprint", v));
                     com.anatomist.query.semantic.SemanticIdentity semanticIdentity =
                             com.anatomist.query.semantic.SemanticIdentity.read(store);
-                    for (String capability : new com.anatomist.query.semantic.SemanticCapabilityRegistry(
-                            store).supportedIds()) {
-                        if (!capabilities.contains(capability)) capabilities.add(capability);
-                    }
-                    out.put("capabilities", List.copyOf(capabilities));
+                    out.put("operation_availability",
+                            new com.anatomist.query.semantic.SemanticCapabilityRegistry(
+                                    store).supportedIds());
+                    out.put("installed_languages",
+                            com.anatomist.query.semantic.SemanticProviders.installedLanguages());
                     out.put("index_revision_id", semanticIdentity.indexRevisionId());
                     out.put("semantic_profile_id", semanticIdentity.semanticProfileId());
                     addSnapshotStatus(out, store);

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://antcodes.dev/anatomist/schema/operation-catalog-v1.schema.json",
+  "title": "Anatomist operation catalog v1",
+  "type": "object",
+  "required": ["contract", "query_contract", "languages", "operations", "pipeline_limits"],
+  "properties": {
+    "contract": { "const": "anatomist-operation-catalog/v1" },
+    "query_contract": { "const": "semantic-stream/v1" },
+    "languages": { "type": "array", "items": { "type": "object" } },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "input", "output", "arguments", "limits", "support"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "role": { "enum": ["producer", "transform", "hybrid"] },
+          "input": { "type": "object" },
+          "output": { "type": "object" },
+          "arguments": { "type": "array" },
+          "limits": { "type": "object" },
+          "support": { "type": "array", "items": { "$ref": "#/$defs/support" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "pipeline_limits": { "type": "object" }
+  },
+  "$defs": {
+    "support": {
+      "type": "object",
+      "required": ["language", "provider", "support", "availability"],
+      "properties": {
+        "support": { "enum": ["supported", "unsupported"] },
+        "availability": { "enum": ["unchecked", "available", "unavailable"] },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

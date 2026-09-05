@@ -161,15 +161,56 @@ class PipelineCommandIT {
     }
 
     @Test
+    void explainIsStaticAndCheckIsReadOnly(@TempDir Path tmp) throws Exception {
+        Path missing = tmp.resolve("missing.db");
+        RunResult explained = run(new byte[0], "pipeline", "--explain", "--index",
+                missing.toString(), "--", "resolve", "p.A", "--kind", "type",
+                "--exact", "--unique", "--then", "describe");
+        assertEquals(0, explained.exitCode, explained.stderr);
+        Map<?, ?> explain = (Map<?, ?>) Json.parseTree(
+                new String(explained.stdout, StandardCharsets.UTF_8));
+        assertEquals("anatomist-pipeline-plan/v1", explain.get("contract"));
+        assertEquals("valid", explain.get("status"));
+        assertFalse(Files.exists(missing));
+
+        byte[] before = Files.readAllBytes(db);
+        RunResult checked = run(new byte[0], "pipeline", "--check", "--index",
+                db.toString(), "--", "resolve", "p.A", "--kind", "type",
+                "--exact", "--unique", "--then", "describe");
+        assertEquals(0, checked.exitCode, checked.stderr);
+        Map<?, ?> check = (Map<?, ?>) Json.parseTree(
+                new String(checked.stdout, StandardCharsets.UTF_8));
+        assertEquals("ready", check.get("status"));
+        assertArrayEquals(before, Files.readAllBytes(db), "--check must not mutate the index");
+    }
+
+    @Test
     void stageFailureIsOneLineJsonWithCause() throws Exception {
         RunResult result = run(new byte[0], "pipeline", "--index", db.toString(), "--",
                 "resolve", "p.A", "--kind", "type", "--exact", "--unique",
                 "--then", "calls");
         assertPipelineError(result, "PIPELINE_STAGE_FAILED", 2, "calls");
         Map<?, ?> json = (Map<?, ?>) Json.parseTree(result.stderr.trim());
-        assertEquals(2L, ((Number) json.get("cause_exit")).longValue());
-        assertNotNull(json.get("cause_code"));
+        Map<?, ?> cause = (Map<?, ?>) json.get("cause");
+        assertEquals(2L, ((Number) cause.get("exit")).longValue());
+        assertNotNull(cause.get("code"));
+        assertEquals("anatomist-error/v1", json.get("contract"));
         assertEquals(1, result.stderr.lines().count(), result.stderr);
+    }
+
+    @Test
+    void rejectsAnUninstalledInputLanguageBeforeQuerying() throws Exception {
+        RunResult resolved = run(new byte[0], "resolve", "p.A", "--kind", "type",
+                "--exact", "--unique", "--index", db.toString());
+        String foreign = new String(resolved.stdout, StandardCharsets.UTF_8)
+                .replace("\"language\":\"java\"", "\"language\":\"python\"");
+        RunResult result = run(foreign.getBytes(StandardCharsets.UTF_8), "describe",
+                "--index", db.toString());
+        assertEquals(3, result.exitCode, result.stderr);
+        Map<?, ?> error = (Map<?, ?>) Json.parseTree(result.stderr.trim());
+        assertEquals("UNSUPPORTED_CAPABILITY", error.get("code"));
+        assertEquals("python", ((Map<?, ?>) error.get("details")).get("language"));
+        assertEquals(0, result.stdout.length);
     }
 
     @Test
@@ -200,8 +241,9 @@ class PipelineCommandIT {
         Map<?, ?> json = (Map<?, ?>) Json.parseTree(result.stderr.trim());
         assertEquals(code, json.get("code"));
         if (stage != null) assertEquals(stage.longValue(),
-                ((Number) json.get("stage")).longValue());
-        if (command != null) assertEquals(command, json.get("command"));
+                ((Number) ((Map<?, ?>) json.get("stage")).get("position")).longValue());
+        if (command != null) assertEquals(command,
+                ((Map<?, ?>) json.get("stage")).get("operation"));
         assertEquals(1, result.stderr.lines().count(), result.stderr);
     }
 

@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Command(name = "type-relations", mixinStandardHelpOptions = true,
         description = "Return Java type facts without mixing subtype and conformance closure.",
-        footer = "%nAccepts: entity(type)%nEmits: type_relation + evidence%nCapability: java-type-semantics%n%nExample:%n  anatomist resolve p.Api --kind type --exact --unique | anatomist type-relations --direction incoming")
+        footer = "%nAccepts: entity(type)%nEmits: type_relation + evidence%nOperation: type-relations; inspect with: anatomist operations type-relations%n%nExample:%n  anatomist resolve p.Api --kind type --exact --unique | anatomist type-relations --direction incoming")
 public final class TypeRelationsCommand extends SemanticCommand {
     @Option(names="--direction", defaultValue="outgoing") String direction;
     @Option(names="--semantic", defaultValue="any") String semantic;
@@ -21,9 +21,6 @@ public final class TypeRelationsCommand extends SemanticCommand {
     @Option(names="--max-depth", defaultValue="20") int maxDepth;
     @Option(names="--limit", defaultValue="50") int limit;
 
-    @Override protected SemanticCapabilityRegistry.Capability requiredCapability() {
-        return SemanticCapabilityRegistry.Capability.TYPE_SEMANTICS;
-    }
     @Override protected Set<String> acceptedInputRecords() { return Set.of("entity"); }
 
     @Override protected Result execute(QueryService query, SemanticIdentity identity,

@@ -4,7 +4,6 @@ import com.anatomist.query.QueryService;
 import com.anatomist.query.SourceContext;
 import com.anatomist.query.SourceRequest;
 import com.anatomist.query.semantic.SemanticIdentity;
-import com.anatomist.query.semantic.SemanticCapabilityRegistry;
 import com.anatomist.query.semantic.SemanticRecord;
 import com.anatomist.query.semantic.SemanticRecords;
 import com.anatomist.query.semantic.SemanticStreamReader;
@@ -20,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Command(name = "source", mixinStandardHelpOptions = true,
         description = "Project snapshot-verified source for an entity or source-backed site.",
-        footer = "%nAccepts: entity | call_site | reference_site | access_site | control_region | dispatch_target%nEmits: source_slice + evidence%nCapability: semantic-stream-v1, source-snapshot%nDefault limits: 200 source lines; max 1000%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist source")
+        footer = "%nAccepts: entity | call_site | reference_site | access_site | control_region | dispatch_target%nEmits: source_slice + evidence%nOperation: source; inspect with: anatomist operations source%nDefault limits: 200 source lines; max 1000%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist source")
 public final class SourceCommand extends SemanticCommand {
     @Option(names = "--limit", defaultValue = "200",
             description = "Source lines per subject (default 200, max 1000).")
@@ -29,10 +28,6 @@ public final class SourceCommand extends SemanticCommand {
     @Option(names = "--offset", defaultValue = "0",
             description = "Declaration-relative source line offset.")
     int offset;
-
-    @Override protected SemanticCapabilityRegistry.Capability requiredCapability() {
-        return SemanticCapabilityRegistry.Capability.SOURCE_SNAPSHOT;
-    }
 
     @Override protected Set<String> acceptedInputRecords() {
         return Set.of("entity", "declaration", "call_site", "reference_site", "access_site", "control_region", "dispatch_target");

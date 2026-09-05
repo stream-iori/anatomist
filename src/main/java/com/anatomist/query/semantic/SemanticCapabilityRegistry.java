@@ -4,24 +4,16 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.List;
 import com.anatomist.store.SqliteStore;
 
-/** Single source of truth for semantic operation capabilities exposed by an index. */
+/** Read-only availability probes keyed by public, language-neutral operation IDs. */
 public final class SemanticCapabilityRegistry {
-    public enum Capability {
-        STREAM("semantic-stream-v1"),
-        ENTITY_LOOKUP("java-entity-lookup"),
-        CALL_SITES("java-call-sites"),
-        TYPE_SEMANTICS("java-type-semantics"),
-        DISPATCH("java-dispatch"),
-        SOURCE_SNAPSHOT("source-snapshot");
-
-        private final String id;
-        Capability(String id) { this.id = id; }
-        public String id() { return id; }
-    }
+    private static final List<String> OPERATIONS = List.of(
+            "search", "resolve", "describe", "members", "type-relations",
+            "runtime-implementations", "callable-relations", "calls", "dispatch",
+            "bindings", "annotations", "related-docs", "references", "accesses",
+            "regions", "sites-in", "trace", "source", "declarations-of", "overview");
 
     private final Connection connection;
 
@@ -37,31 +29,36 @@ public final class SemanticCapabilityRegistry {
         }
     }
 
-    public boolean supports(Capability capability) {
-        return switch (capability) {
-            case STREAM -> true;
-            case ENTITY_LOOKUP -> tableExists("nodes");
-            case CALL_SITES -> tableExists("call_site_owners")
-                    && tableExists("call_sites") && tableExists("call_site_targets");
-            case TYPE_SEMANTICS -> tableExists("nodes") && tableExists("edges")
-                    && tableExists("declarations");
-            case DISPATCH -> tableExists("call_site_owners")
-                    && tableExists("call_sites") && tableExists("call_site_targets")
-                    && tableExists("edges") && tableExists("declarations");
-            case SOURCE_SNAPSHOT -> metadata("source_root") && metadata("source_snapshot_fingerprint");
+    public boolean supports(String operation) {
+        return switch (operation) {
+            case "search", "resolve", "describe" -> tableExists("nodes");
+            case "declarations-of" -> tables("nodes", "declarations");
+            case "calls" -> tables("nodes", "call_site_owners", "call_sites",
+                    "call_site_targets");
+            case "dispatch" -> tables("nodes", "edges", "declarations",
+                    "call_site_owners", "call_sites", "call_site_targets");
+            case "annotations" -> tables("nodes", "annotations");
+            case "related-docs" -> tables("nodes", "documents", "semantic_annotations");
+            case "source" -> tableExists("nodes") && metadata("source_root")
+                    && metadata("source_snapshot_fingerprint");
+            case "members", "type-relations", "runtime-implementations",
+                 "callable-relations", "bindings", "references", "accesses",
+                 "regions", "sites-in", "trace", "overview" -> tables("nodes", "edges");
+            default -> false;
         };
     }
 
     public List<String> supportedIds() {
-        List<String> result = new ArrayList<>();
-        for (Capability capability : Capability.values()) {
-            if (supports(capability)) result.add(capability.id());
-        }
-        return List.copyOf(result);
+        return OPERATIONS.stream().filter(this::supports).toList();
     }
 
-    public void require(Capability capability) {
-        if (!supports(capability)) throw new UnsupportedCapabilityException(capability.id());
+    public void require(String operation) {
+        if (!supports(operation)) throw new UnsupportedCapabilityException(operation, "java");
+    }
+
+    private boolean tables(String... names) {
+        for (String name : names) if (!tableExists(name)) return false;
+        return true;
     }
 
     private boolean tableExists(String table) {
@@ -85,13 +82,18 @@ public final class SemanticCapabilityRegistry {
     }
 
     public static final class UnsupportedCapabilityException extends IllegalStateException {
-        private final String capability;
+        private final String operation;
+        private final String language;
 
-        public UnsupportedCapabilityException(String capability) {
-            super("UNSUPPORTED_CAPABILITY: " + capability);
-            this.capability = capability;
+        public UnsupportedCapabilityException(String operation, String language) {
+            super("UNSUPPORTED_CAPABILITY: operation " + operation + " is unavailable for "
+                    + language);
+            this.operation = operation;
+            this.language = language;
         }
 
-        public String capability() { return capability; }
+        public String operation() { return operation; }
+        public String capability() { return operation; }
+        public String language() { return language; }
     }
 }

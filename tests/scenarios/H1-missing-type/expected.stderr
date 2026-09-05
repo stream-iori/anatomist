@@ -1,1 +1,1 @@
-ERROR: SYMBOL_NOT_FOUND: no type matches selector 'com.example.shop.missing.DoesNotExist'
+{"contract":"anatomist-error/v1","code":"SYMBOL_NOT_FOUND","category":"resolution","exit":2,"message":"no type matches selector 'com.example.shop.missing.DoesNotExist'","operation":"resolve","details":{"selector":"com.example.shop.missing.DoesNotExist","selector_kind":"type","candidate_ids":[]},"inspect":[["anatomist","operations","resolve","--format","json"]]}

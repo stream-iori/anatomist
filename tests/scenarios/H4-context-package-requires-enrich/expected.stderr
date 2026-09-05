@@ -1,1 +1,1 @@
-ERROR: MISSING_STREAM_EVIDENCE: input ended without final stream evidence
+{"contract":"anatomist-error/v1","code":"MISSING_STREAM_EVIDENCE","category":"stream","exit":4,"message":"input ended without final stream evidence","operation":"members","inspect":[["anatomist","operations","members","--format","json"]]}

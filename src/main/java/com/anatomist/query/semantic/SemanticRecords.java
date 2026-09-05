@@ -39,7 +39,10 @@ public final class SemanticRecords {
         Map<String, Object> out = common(record, seed, null, identity);
         out.put("id", node.id);
         out.put("domain", domain(node.kind));
-        if ("language".equals(out.get("domain"))) out.put("language", "java");
+        if ("language".equals(out.get("domain"))) {
+            String language = SemanticProviders.languageForProducer(node.producerId);
+            if (language != null) out.put("language", language);
+        }
         out.put("kind", kind(node.kind));
         out.put("name", node.label);
         out.put("qualified_name", node.qualifiedName);
@@ -121,7 +124,7 @@ public final class SemanticRecords {
     }
 
     public static Map<String, Object> unsupportedEvidence(String seed, String parentSeed,
-                                                           String capability,
+                                                           String operation,
                                                            SemanticIdentity identity) {
         Map<String, Object> out = common("evidence", seed, parentSeed, identity);
         out.put("scope", "seed");
@@ -131,7 +134,10 @@ public final class SemanticRecords {
         out.put("emitted", 0);
         out.put("truncated", false);
         out.put("code", "UNSUPPORTED_CAPABILITY");
-        out.put("capability", capability);
+        out.put("operation", operation);
+        out.put("provider", "java-core");
+        out.put("language", "java");
+        out.put("limitations", List.of(Map.of("code", "OPERATION_UNAVAILABLE")));
         return out;
     }
 

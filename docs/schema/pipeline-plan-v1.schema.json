@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://antcodes.dev/anatomist/schema/pipeline-plan-v1.schema.json",
+  "title": "Anatomist pipeline plan v1",
+  "type": "object",
+  "required": ["contract", "mode", "status", "query_contract", "globals", "stages", "deferred_checks"],
+  "properties": {
+    "contract": { "const": "anatomist-pipeline-plan/v1" },
+    "mode": { "enum": ["explain", "check"] },
+    "status": { "enum": ["valid", "ready"] },
+    "query_contract": { "const": "semantic-stream/v1" },
+    "globals": { "type": "object" },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["position", "operation", "role", "accepts", "emits", "availability"],
+        "properties": {
+          "position": { "type": "integer", "minimum": 1 },
+          "availability": { "enum": ["unchecked", "available", "unavailable"] }
+        },
+        "additionalProperties": true
+      }
+    },
+    "deferred_checks": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

@@ -1,1 +1,1 @@
-ERROR: --scope must be MAIN, TEST, GENERATED, or ALL; got TYPO
+{"contract":"anatomist-error/v1","code":"INVALID_ARGUMENT","category":"argument","exit":2,"message":"--scope must be MAIN, TEST, GENERATED, or ALL; got TYPO","operation":"resolve","inspect":[["anatomist","operations","resolve","--format","json"]]}

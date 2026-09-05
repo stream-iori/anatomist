@@ -12,7 +12,7 @@ import java.util.concurrent.Callable;
 
 /** Emits small, task-oriented decision guides for Agent callers. */
 @Command(name = "skill", mixinStandardHelpOptions = true,
-        description = "Show Agent decision guidance for one Java-analysis scene.")
+        description = "Show Agent decision guidance for one structural-analysis scene.")
 public final class SkillCommand implements Callable<Integer> {
 
     static final List<String> SCENES = List.of(

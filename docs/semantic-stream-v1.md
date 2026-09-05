@@ -49,10 +49,10 @@ data(child B) → evidence(child B) → evidence(parent A)
 
 ### Fused pipeline 错误
 
-`anatomist pipeline` 把任意规格、组合或 stage 失败统一映射为 exit 5，stderr 只写一行 JSON：
+所有只读查询错误使用 `anatomist-error/v1`。`message` 只供人读，Agent 依据稳定的 `code/category/details` 决策。`anatomist pipeline` 把任意规格、组合或 stage 失败映射为 exit 5：
 
 ```json
-{"code":"PIPELINE_STAGE_FAILED","stage":2,"command":"calls","cause_exit":2,"cause_code":"INPUT_TYPE_MISMATCH","message":"..."}
+{"contract":"anatomist-error/v1","code":"PIPELINE_STAGE_FAILED","category":"pipeline","exit":5,"message":"...","operation":"pipeline","stage":{"position":2,"operation":"calls"},"cause":{"contract":"anatomist-error/v1","code":"INPUT_TYPE_MISMATCH","category":"argument","exit":2,"message":"...","operation":"calls"}}
 ```
 
 | code | 含义 |
@@ -63,6 +63,16 @@ data(child B) → evidence(child B) → evidence(parent A)
 | `PIPELINE_LIMIT_EXCEEDED` | stage、argv、spec 或 typed stream 超限 |
 
 失败前 stdout 可能已有完整 seed，但一定没有最终 `evidence(scope=stream)`。
+
+## Operation support、availability 与 coverage
+
+| 层次 | 状态 | 来源 |
+|---|---|---|
+| provider support | `supported/unsupported` | `operations` 静态目录 |
+| index availability | `unchecked/available/unavailable` | `operations --index` / `pipeline --check` |
+| query coverage | `complete/partial/unknown/unsupported` | seed/stream evidence |
+
+Operation ID 与语言正交，例如 `calls` + `language=java`，不再公开 `java-call-sites` 形式的复合 ID。
 
 ## 1.0 Java 能力
 
@@ -88,4 +98,4 @@ Spring XML 创建 artifact 根和有序配置实体。抽象、parent、factory 
 
 1.0 使用 schema 21 / graph semantics 4。旧索引只能通过显式 `index --recreate` 重建。
 
-机器可读 schema：[semantic stream](schema/semantic-stream-v1.schema.json) 和 [artifact IR](schema/artifact-ir-v1.schema.json)。对象允许增加字段；未知 record type 或不兼容 major contract 会失败。
+机器可读 schema：[semantic stream](schema/semantic-stream-v1.schema.json)、[artifact IR](schema/artifact-ir-v1.schema.json)、[operation catalog](schema/operation-catalog-v1.schema.json)、[pipeline plan](schema/pipeline-plan-v1.schema.json) 和 [error](schema/error-v1.schema.json)。对象允许增加字段；未知 record type 或不兼容 major contract 会失败。

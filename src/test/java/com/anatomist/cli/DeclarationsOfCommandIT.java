@@ -140,7 +140,8 @@ class DeclarationsOfCommandIT {
                 new CommandLine(new AnatomistCli()).execute(
                         "declarations-of", "--file", AUTH, "--index", missing.toString()));
         assertEquals(3, run.exitCode());
-        assertTrue(run.stderr().contains("ERROR[INDEX_MISSING]"), run.stderr());
+        assertTrue(run.stderr().contains("\"code\":\"INDEX_MISSING\""), run.stderr());
+        assertTrue(run.stderr().contains("\"contract\":\"anatomist-error/v1\""), run.stderr());
         assertFalse(run.stderr().contains("\tat "), run.stderr());
     }
 

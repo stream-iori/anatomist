@@ -8,7 +8,7 @@ import picocli.CommandLine.HelpCommand;
         name = "anatomist",
         mixinStandardHelpOptions = true,
         versionProvider = BuildVersionProvider.class,
-        description = "Java code intelligence tool with a semantic-stream/v1 query contract.",
+        description = "Provider-aware code intelligence with a semantic-stream/v1 query contract.",
         header = {
                 "",
                 "@|bold anatomist|@ — Java code intelligence for Agent LLMs",
@@ -20,16 +20,19 @@ import picocli.CommandLine.HelpCommand;
                 "  anatomist index /path/to/project          Index a Java project",
                 "  anatomist skill topics                   Choose Agent task guidance",
                 "  anatomist doctor --format json            Check CLI/schema/index",
+                "  anatomist operations --index index.db     Inspect operations and constraints",
                 "  anatomist index . --format json           Build index JSON summary",
                 "  anatomist overview                       Structural baseline",
                 "  anatomist search OrderService             Find entity candidates",
                 "  anatomist pipeline --index index.db -- resolve 'Class#method()'",
                 "    --kind callable --exact --unique --then calls --then dispatch --then source",
                 "  anatomist pipeline --help                 Learn fused pipeline rules",
+                "  anatomist pipeline --check --index index.db -- resolve ... --then source",
                 "  anatomist declarations-of --file src/main/java/com/example/MyClass.java",
                 "",
                 "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",
                 "@|bold Output:|@   Query commands emit semantic-stream/v1; NDJSON is the default.",
+                "@|bold Decide:|@   doctor → operations → pipeline --explain/--check → execute.",
                 "@|bold Compose:|@  Prefer pipeline for linear multi-stage queries; use Shell for external tools or distinct scopes.",
                 ""
         },
@@ -59,6 +62,7 @@ import picocli.CommandLine.HelpCommand;
                 SourceCommand.class,
                 DeclarationsOfCommand.class,
                 OverviewCommand.class,
+                OperationsCommand.class,
                 PipelineCommand.class,
                 AnnotateCommand.class,
                 DoctorCommand.class
@@ -83,45 +87,49 @@ public class AnatomistCli implements Runnable {
      * up front costs measurable native-image RSS, so reserve the complete model for root
      * help, {@code help <command>}, and unknown-command diagnostics.
      */
-    private static CommandLine commandLine(String[] args) {
+    static CommandLine commandLine(String[] args) {
         if (args.length == 1 && ("-V".equals(args[0]) || "--version".equals(args[0]))) {
             return new CommandLine(new RuntimeRoot());
         }
         if (args.length > 0) {
             Object command = directCommand(args[0]);
             if (command != null) {
-                return new CommandLine(new RuntimeRoot()).addSubcommand(args[0], command);
+                CommandLine line = new CommandLine(new RuntimeRoot())
+                        .addSubcommand(args[0], command);
+                if (command instanceof SemanticCommand
+                        || command instanceof PipelineCommand
+                        || command instanceof OperationsCommand) {
+                    line.setParameterExceptionHandler((failure, parsed) -> {
+                        String operation = failure.getCommandLine().getCommandName();
+                        if (command instanceof PipelineCommand) {
+                            var error = CliError.base("PIPELINE_INVALID_SPEC", "pipeline", 5,
+                                    failure.getMessage(), "pipeline");
+                            CliError.emit(failure.getCommandLine().getErr(), error);
+                            return 5;
+                        }
+                        var error = CliError.base("INVALID_ARGUMENT", "argument", 2,
+                                failure.getMessage(), operation);
+                        error.put("details", java.util.Map.of(
+                                "arguments", java.util.List.of(parsed)));
+                        CliError.emit(failure.getCommandLine().getErr(), error);
+                        return 2;
+                    });
+                }
+                return line;
             }
         }
         return new CommandLine(new AnatomistCli());
     }
 
     static Object directCommand(String name) {
+        SemanticCommand semantic = SemanticOperationRegistry.create(name);
+        if (semantic != null) return semantic;
         return switch (name) {
             case "skill" -> new SkillCommand();
             case "index" -> new IndexCommand();
             case "index-docs" -> new IndexDocsCommand();
-            case "search" -> new SearchCommand();
-            case "resolve" -> new ResolveCommand();
-            case "calls" -> new CallsCommand();
-            case "type-relations" -> new TypeRelationsCommand();
-            case "runtime-implementations" -> new RuntimeImplementationsCommand();
-            case "callable-relations" -> new CallableRelationsCommand();
-            case "dispatch" -> new DispatchCommand();
-            case "describe" -> new DescribeCommand();
-            case "members" -> new MembersCommand();
-            case "bindings" -> new BindingsCommand();
-            case "annotations" -> new AnnotationsCommand();
-            case "related-docs" -> new RelatedDocsCommand();
-            case "references" -> new ReferencesCommand();
-            case "accesses" -> new AccessesCommand();
-            case "regions" -> new RegionsCommand();
-            case "sites-in" -> new SitesInCommand();
-            case "trace" -> new TraceCommand();
-            case "source" -> new SourceCommand();
-            case "declarations-of" -> new DeclarationsOfCommand();
-            case "overview" -> new OverviewCommand();
             case "pipeline" -> new PipelineCommand();
+            case "operations" -> new OperationsCommand();
             case "annotate" -> new AnnotateCommand();
             case "doctor" -> new DoctorCommand();
             default -> null;
@@ -130,7 +138,7 @@ public class AnatomistCli implements Runnable {
 
     @Command(name = "anatomist", mixinStandardHelpOptions = true,
             versionProvider = BuildVersionProvider.class,
-            description = "Java code intelligence tool with a semantic-stream/v1 query contract.")
+            description = "Provider-aware code intelligence with a semantic-stream/v1 query contract.")
     private static final class RuntimeRoot implements Runnable {
         @Override public void run() { }
     }

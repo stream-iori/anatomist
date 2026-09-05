@@ -4,7 +4,6 @@ import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryService;
 import com.anatomist.query.SymbolResolution;
 import com.anatomist.query.semantic.SemanticIdentity;
-import com.anatomist.query.semantic.SemanticCapabilityRegistry;
 import com.anatomist.query.semantic.SemanticRecord;
 import com.anatomist.query.semantic.SemanticRecords;
 import com.anatomist.query.semantic.SemanticStreamReader;
@@ -21,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Command(name = "resolve", mixinStandardHelpOptions = true,
         description = "Resolve exact selectors or entity candidates without fuzzy recall.",
-        footer = "%nAccepts: entity_candidate | entity, or one CLI selector%nEmits: entity + evidence%nCapability: semantic-stream-v1, java-entity-lookup%nHard input limits: 1 MiB/line, 1000000 records/stream, 100000 records/seed, 100000 seeds%n%nExample:%n  anatomist search PaymentGateway --kind type --format ndjson | anatomist resolve --unique")
+        footer = "%nAccepts: entity_candidate | entity, or one CLI selector%nEmits: entity + evidence%nOperation: resolve; inspect with: anatomist operations resolve%nHard input limits: 1 MiB/line, 1000000 records/stream, 100000 records/seed, 100000 seeds%n%nExample:%n  anatomist search PaymentGateway --kind type --format ndjson | anatomist resolve --unique")
 public final class ResolveCommand extends SemanticCommand {
     @Parameters(index = "0", arity = "0..1", description = "Exact ID, FQN, or callable signature.")
     String selector;
@@ -35,10 +34,6 @@ public final class ResolveCommand extends SemanticCommand {
 
     @Option(names = "--unique", description = "Fail unless each seed resolves to one entity.")
     boolean unique;
-
-    @Override protected SemanticCapabilityRegistry.Capability requiredCapability() {
-        return SemanticCapabilityRegistry.Capability.ENTITY_LOOKUP;
-    }
 
     @Override protected Set<String> acceptedInputRecords() {
         return Set.of("entity_candidate", "entity");

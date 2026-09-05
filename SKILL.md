@@ -1,6 +1,6 @@
 ---
 name: anatomist
-description: "Source-backed Java analysis through semantic-stream/v1 pipelines."
+description: "Source-backed structural analysis through semantic-stream/v1 pipelines."
 ---
 
 # anatomist
@@ -9,14 +9,18 @@ description: "Source-backed Java analysis through semantic-stream/v1 pipelines."
 2. Run `anatomist skill core`; obey its index/health gate.
 3. Run `anatomist skill topics`, then load only the relevant scene.
 4. Read `anatomist <command> --help`; installed help is authoritative.
+5. Read `anatomist operations [operation] --index <db>` for machine-readable
+   input/output types, arguments, limits, language support, and index availability.
 
 Config order: project, user, otherwise built-in defaults. Files do not merge;
 CLI flags override. Prefer `index --incremental`. After policy changes, re-index
 and inspect `doctor --format json` `config_source`.
 
-For two or more linear stages, read `anatomist pipeline --help` and prefer fused
-execution. Use a Unix pipeline only for external tools, branching, or stages that
-need different index/module/scope values.
+`support` means an installed provider implements an operation; `availability`
+means this index has its facts; only runtime evidence reports `coverage`.
+
+For two or more linear stages, read `anatomist pipeline --help` and prefer fused execution. Use a Unix pipeline only
+for external tools, branching, or distinct index/module/scope values.
 
 ```text
 find        search → resolve --unique
@@ -36,14 +40,19 @@ anatomist pipeline --index index.db -- \
   --then calls --then dispatch --then source
 ```
 
+Before execution, use `pipeline --explain -- ...` for static composition and
+`pipeline --check --index index.db -- ...` for read-only availability checks.
+They never execute selectors or consume stdin; inspect `deferred_checks`.
+
 Put `--index`, `--module`, `--scope`, and `--format` on `pipeline`, before `--`;
 never repeat them inside stages. For automation, use
 `pipeline --index index.db --file pipeline.json` with
 `{"stages":[["resolve",...],["calls"],["dispatch"]]}`.
 
 Fused stages share one read-only snapshot. Treat output as successful only when it
-ends with `evidence(scope=stream)`. Exit 5 has one-line JSON on stderr; stdout may
-already contain partial seed frames, so never consume it as a completed answer.
+ends with `evidence(scope=stream)`. Query errors use `anatomist-error/v1`; decide
+from `code`, `category`, and structured details, not message text. Exit 5 may leave
+partial seed frames on stdout, so never consume them as a completed answer.
 Never conclude absence unless coverage is complete and evidence marks the negative
 conclusion safe. `--accept-unframed` intentionally downgrades coverage.
 

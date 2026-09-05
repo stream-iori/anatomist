@@ -4,7 +4,6 @@ import com.anatomist.query.NodeRow;
 import com.anatomist.query.QueryService;
 import com.anatomist.query.SearchService;
 import com.anatomist.query.semantic.SemanticCursor;
-import com.anatomist.query.semantic.SemanticCapabilityRegistry;
 import com.anatomist.query.semantic.SemanticIdentity;
 import com.anatomist.query.semantic.SemanticRecords;
 import com.anatomist.query.semantic.SemanticStreamWriter;
@@ -18,7 +17,7 @@ import java.util.Locale;
 @Command(name = "search",
         mixinStandardHelpOptions = true,
         description = "Find indexed entities using the semantic-stream/v1 contract.",
-        footer = "%nAccepts: CLI selector%nEmits: entity_candidate | result_count + evidence%nCapability: semantic-stream/v1, java-entity-lookup%n%nExamples:%n  search OrderService%n  search PaymentGateway --kind type --format ndjson%n  search --name '*Plugin' --kind type%n  search Facade --count%n  search @Deprecated --by-annotation")
+        footer = "%nAccepts: CLI selector%nEmits: entity_candidate | result_count + evidence%nOperation: search; inspect with: anatomist operations search%n%nExamples:%n  search OrderService%n  search PaymentGateway --kind type --format ndjson%n  search --name '*Plugin' --kind type%n  search Facade --count%n  search @Deprecated --by-annotation")
 public class SearchCommand extends SemanticCommand {
 
     @Parameters(index = "0", arity = "0..1", description = "Search term (e.g. OrderService, @Deprecated). Omit when using --name.")
@@ -88,10 +87,6 @@ public class SearchCommand extends SemanticCommand {
         writer.write(SemanticRecords.seedEvidence(seed, null, emitted, complete,
                 complete ? null : "RESULT_LIMIT", !complete, identity));
         return new Result(1, emitted, complete, !complete);
-    }
-
-    @Override protected SemanticCapabilityRegistry.Capability requiredCapability() {
-        return SemanticCapabilityRegistry.Capability.ENTITY_LOOKUP;
     }
 
     private void validateSemanticOptions() {

@@ -5,9 +5,9 @@ import com.anatomist.query.QueryCoverageService;
 import com.anatomist.query.QueryEvidence;
 import com.anatomist.query.QueryService;
 import com.anatomist.query.semantic.SemanticIdentity;
-import com.anatomist.query.semantic.SemanticCapabilityRegistry;
 import com.anatomist.query.semantic.SemanticRecord;
 import com.anatomist.query.semantic.SemanticRecords;
+import com.anatomist.query.semantic.SemanticProviders;
 import com.anatomist.query.semantic.SemanticStreamReader;
 import com.anatomist.query.semantic.SemanticStreamWriter;
 import com.anatomist.query.semantic.SemanticCursor;
@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Command(name = "calls", mixinStandardHelpOptions = true,
         description = "Return direct source call sites; dispatch/override expansion is not included.",
-        footer = "%nAccepts: callable entity%nEmits: call_site + evidence%nCapability: semantic-stream-v1, java-call-sites%nDefault limits: 50 sites/entity; hard max 100000%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist calls --direction outgoing")
+        footer = "%nAccepts: callable entity%nEmits: call_site + evidence%nOperation: calls; inspect with: anatomist operations calls%nDefault limits: 50 sites/entity; hard max 100000%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist calls --direction outgoing")
 public final class CallsCommand extends SemanticCommand {
     @Option(names = "--direction", defaultValue = "outgoing",
             description = "Direction: outgoing | incoming (default outgoing).")
@@ -33,10 +33,6 @@ public final class CallsCommand extends SemanticCommand {
     @Option(names = "--limit", defaultValue = "50",
             description = "Maximum call sites per entity (default 50, max 100000).")
     int limit;
-
-    @Override protected SemanticCapabilityRegistry.Capability requiredCapability() {
-        return SemanticCapabilityRegistry.Capability.CALL_SITES;
-    }
 
     @Override protected Set<String> acceptedInputRecords() { return Set.of("entity"); }
 
@@ -118,7 +114,8 @@ public final class CallsCommand extends SemanticCommand {
                                                  SemanticIdentity identity) {
         Map<String, Object> out = SemanticRecords.common("call_site", seed, parent, identity);
         out.put("id", site.id);
-        out.put("language", "java");
+        String language = SemanticProviders.languageForProducer(site.producerId);
+        if (language != null) out.put("language", language);
         out.put("caller", site.callerId);
         if (site.context != null) out.put("context", site.context);
         if (site.syntaxTarget != null) out.put("syntax_target", site.syntaxTarget);

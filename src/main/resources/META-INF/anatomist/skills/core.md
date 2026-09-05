@@ -10,14 +10,18 @@ Use this guide for every independent static-analysis session.
    first and preserve the existing source, classpath, Spring, and scan profile.
 4. Stop when the gate fails. Do not query an older committed snapshot as if it
    described current source.
-5. Load exactly one relevant scene from `skill topics`, then read each selected
-   query command's `--help` before execution.
+5. Load exactly one relevant scene from `skill topics`. Read each selected
+   command's `--help`, then inspect `operations [operation] --index <db>` for its
+   machine-readable records, constraints, language support, and availability.
 6. For declaration seeds from known files, use `declarations-of`; do not infer
    Java declarations with source-text regular expressions.
 7. For multi-stage queries, read `pipeline --help`, then prefer
    `pipeline --index <db> -- ... --then ...` so all stages use one read-only snapshot.
    Put global options on `pipeline`, not its stages. Use Unix pipes only for external
    tools, branching, or distinct index/module/scope values.
+8. Before executing a generated pipeline, use `pipeline --explain` for static
+   composition and `pipeline --check` for read-only index availability. Inspect
+   deferred checks; neither mode resolves selectors or consumes stdin.
 
 For an unexpected missing symbol, inspect `doctor --format json --index <db>`
 for `config_source`, `config_path`, and `scan_policy_hash`. They describe the
@@ -35,7 +39,8 @@ Interpret evidence conservatively:
 - Use logs, traces, metrics, configuration, or runtime responses when the question
   asks what happened online.
 - A fused result is complete only when its final `evidence(scope=stream)` is present.
-  Exit 5 reports a one-line pipeline error; discard any partial stdout as a final answer.
+  Errors use `anatomist-error/v1`; branch on code/category/details, not message text.
+  Exit 5 can leave partial stdout; discard it as a final answer.
 
 Prefer incremental synchronization. For a 0.1x/schema/semantics mismatch, use explicit
 `index <project> --recreate`; 1.0 never silently deletes an incompatible index.

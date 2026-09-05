@@ -15,12 +15,12 @@ class SemanticCapabilityRegistryTest {
         try (SqliteStore store = new SqliteStore(tmp.resolve("index.db"))) {
             store.initSchema();
             SemanticCapabilityRegistry registry = new SemanticCapabilityRegistry(store);
-            assertTrue(registry.supports(SemanticCapabilityRegistry.Capability.STREAM));
-            assertTrue(registry.supports(SemanticCapabilityRegistry.Capability.ENTITY_LOOKUP));
-            assertTrue(registry.supports(SemanticCapabilityRegistry.Capability.CALL_SITES));
-            assertFalse(registry.supports(SemanticCapabilityRegistry.Capability.SOURCE_SNAPSHOT));
+            assertTrue(registry.supports("resolve"));
+            assertTrue(registry.supports("calls"));
+            assertTrue(registry.supports("type-relations"));
+            assertFalse(registry.supports("source"));
             assertThrows(SemanticCapabilityRegistry.UnsupportedCapabilityException.class,
-                    () -> registry.require(SemanticCapabilityRegistry.Capability.SOURCE_SNAPSHOT));
+                    () -> registry.require("source"));
 
             try (PreparedStatement statement = store.connection().prepareStatement(
                     "INSERT OR REPLACE INTO project_meta(key,value) VALUES(?,?)")) {
@@ -29,7 +29,7 @@ class SemanticCapabilityRegistryTest {
                 statement.setString(1, "source_snapshot_fingerprint");
                 statement.setString(2, "sha256:test"); statement.executeUpdate();
             }
-            assertTrue(registry.supports(SemanticCapabilityRegistry.Capability.SOURCE_SNAPSHOT));
+            assertTrue(registry.supports("source"));
         }
     }
 }

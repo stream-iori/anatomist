@@ -33,12 +33,27 @@ class AgentContractIT {
     }
 
     @Test
+    void optimizedCliParsingUsesStructuredErrorsForAgentCommands() throws Exception {
+        String[] semantic = {"calls", "--unknown-option"};
+        CliTestSupport.RunResult direct = CliTestSupport.capture(() ->
+                AnatomistCli.commandLine(semantic).execute(semantic));
+        assertEquals(2, direct.exitCode());
+        assertEquals("anatomist-error/v1", asObject(direct.stderr()).get("contract"));
+
+        String[] pipeline = {"pipeline", "--unknown-option"};
+        CliTestSupport.RunResult fused = CliTestSupport.capture(() ->
+                AnatomistCli.commandLine(pipeline).execute(pipeline));
+        assertEquals(5, fused.exitCode());
+        assertEquals("PIPELINE_INVALID_SPEC", asObject(fused.stderr()).get("code"));
+    }
+
+    @Test
     void semanticHelpDeclaresTypedContract() {
         for (String command : List.of("resolve", "calls", "source")) {
             RunResult help = runCli(command, "--help");
             assertTrue(help.stdout.contains("Accepts:"), help.stdout);
             assertTrue(help.stdout.contains("Emits:"), help.stdout);
-            assertTrue(help.stdout.contains("Capability:"), help.stdout);
+            assertTrue(help.stdout.contains("Operation:"), help.stdout);
             assertTrue(help.stdout.contains("Example:"), help.stdout);
         }
         for (String command : List.of("type-relations", "runtime-implementations",
@@ -59,6 +74,8 @@ class AgentContractIT {
         assertTrue(rootHelp.contains("Prefer pipeline for linear multi-stage queries"),
                 root.stdout);
         assertTrue(rootHelp.contains("pipeline --help"), root.stdout);
+        assertTrue(rootHelp.contains("doctor → operations → pipeline --explain/--check"),
+                root.stdout);
 
         RunResult pipeline = runCli("pipeline", "--help");
         assertEquals(0, pipeline.exitCode, pipeline.stderr);
@@ -70,6 +87,7 @@ class AgentContractIT {
                 "evidence(scope=stream)",
                 "exit 5",
                 "one-line JSON",
+                "--explain/--check",
                 "--then",
                 "--file")) {
             assertTrue(pipelineHelp.contains(requirement),
@@ -127,6 +145,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("commands")).contains("skill"));
         assertTrue(((List<?>) json.get("commands")).contains("overview"));
         assertTrue(((List<?>) json.get("commands")).contains("pipeline"));
+        assertTrue(((List<?>) json.get("commands")).contains("operations"));
         assertFalse(((List<?>) json.get("commands")).contains("branches-of"));
         assertFalse(((List<?>) json.get("commands")).contains("flow-materialize"));
         assertFalse(((List<?>) json.get("commands")).contains("bean-config"));
@@ -145,6 +164,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("capabilities")).contains("file-resolution-coverage"));
         assertTrue(((List<?>) json.get("capabilities")).contains("agent-skill-topics"));
         assertTrue(((List<?>) json.get("capabilities")).contains("fused-semantic-pipeline"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("anatomist-operation-catalog-v1"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
         assertEquals(fixture().toRealPath().toString(), json.get("source_root"));

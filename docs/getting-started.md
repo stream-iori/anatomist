@@ -1,5 +1,19 @@
 # Getting Started
 
+Agent 查询顺序：
+
+```text
+doctor --agent-preflight
+        ↓
+operations [operation] --index <db>
+        ↓
+pipeline --explain / --check
+        ↓
+execute + verify evidence(scope=stream)
+```
+
+`operations` 是能力和约束的机器可读事实源；它不返回 recipe，pipeline 由 Agent 自行组合。
+
 ## 安装
 
 macOS Apple Silicon 一键安装：

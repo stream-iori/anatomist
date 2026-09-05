@@ -12,13 +12,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Command(name="runtime-implementations", mixinStandardHelpOptions=true,
         description="Derive instantiable Java implementations with an explicit proof and world assumption.",
-        footer="%nAccepts: entity(type)%nEmits: entity + evidence%nCapability: java-type-semantics%n%nExample:%n  anatomist resolve p.Api --kind type --exact --unique | anatomist runtime-implementations --instantiability yes")
+        footer="%nAccepts: entity(type)%nEmits: entity + evidence%nOperation: runtime-implementations; inspect with: anatomist operations runtime-implementations%n%nExample:%n  anatomist resolve p.Api --kind type --exact --unique | anatomist runtime-implementations --instantiability yes")
 public final class RuntimeImplementationsCommand extends SemanticCommand {
     @Option(names="--instantiability", defaultValue="yes") String instantiability;
     @Option(names="--world", defaultValue="workspace-open") String world;
     @Option(names="--max-depth", defaultValue="20") int maxDepth;
     @Option(names="--limit", defaultValue="50") int limit;
-    @Override protected SemanticCapabilityRegistry.Capability requiredCapability() { return SemanticCapabilityRegistry.Capability.TYPE_SEMANTICS; }
     @Override protected Set<String> acceptedInputRecords() { return Set.of("entity"); }
 
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer) {

@@ -39,52 +39,70 @@ final class PipelineFailure extends RuntimeException {
                 2, "INVALID_ARGUMENT", null);
     }
 
+    static PipelineFailure check(int stage, String command, String message,
+                                 String causeCode) {
+        return new PipelineFailure("PIPELINE_CHECK_FAILED", message, stage, command,
+                3, causeCode, null);
+    }
+
     static PipelineFailure stage(int stage, String command, RuntimeException cause) {
-        int exit = 1;
-        String causeCode = "RUNTIME_FAILURE";
+        int exit = CliError.exit(cause);
+        String causeCode = CliError.code(cause);
         String pipelineCode = "PIPELINE_STAGE_FAILED";
         if (cause instanceof SemanticStreamException semantic) {
-            causeCode = semantic.code();
             if (semantic.code().contains("LIMIT")) {
                 pipelineCode = "PIPELINE_LIMIT_EXCEEDED";
             }
-            exit = semantic.code().contains("EVIDENCE")
-                    || semantic.code().contains("PIPELINE")
-                    || semantic.code().contains("PROFILE")
-                    || semantic.code().contains("SNAPSHOT") ? 4 : 2;
-        } else if (cause instanceof SymbolResolutionException resolution) {
-            causeCode = resolution.code();
-            exit = 2;
-        } else if (cause instanceof UnsupportedCapabilityException) {
-            causeCode = "UNSUPPORTED_CAPABILITY";
-            exit = 3;
-        } else if (cause instanceof IllegalStateException) {
-            causeCode = stateCode(cause.getMessage());
-            exit = 3;
-        } else if (cause instanceof IllegalArgumentException) {
-            causeCode = "INVALID_ARGUMENT";
-            exit = 2;
         }
         return new PipelineFailure(pipelineCode, safeMessage(cause), stage,
                 command, exit, causeCode, cause);
     }
 
     String json() {
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("code", code);
-        if (stage != null) out.put("stage", stage);
-        if (command != null) out.put("command", command);
-        if (causeExit != null) out.put("cause_exit", causeExit);
-        if (causeCode != null) out.put("cause_code", causeCode);
-        out.put("message", getMessage());
-        return Json.writeCompact(out);
+        return Json.writeCompact(error());
     }
 
-    private static String stateCode(String message) {
-        if (message == null) return "INDEX_QUERY_FAILED";
-        int colon = message.indexOf(':');
-        String prefix = colon < 0 ? message : message.substring(0, colon);
-        return prefix.matches("[A-Z][A-Z0-9_]+") ? prefix : "INDEX_QUERY_FAILED";
+    Map<String, Object> error() {
+        Map<String, Object> out = CliError.base(code, "pipeline", 5,
+                getMessage(), "pipeline");
+        out.put("inspect", java.util.List.of(
+                java.util.List.of("anatomist", "pipeline", "--help")));
+        if (stage != null) {
+            Map<String, Object> stageValue = new LinkedHashMap<>();
+            stageValue.put("position", stage);
+            if (command != null) stageValue.put("operation", command);
+            out.put("stage", stageValue);
+        }
+        if (causeExit != null || causeCode != null) {
+            Map<String, Object> nested = CliError.base(
+                    causeCode == null ? "RUNTIME_FAILURE" : causeCode,
+                    causeCategory(causeExit, causeCode), causeExit == null ? 1 : causeExit,
+                    getMessage(), command);
+            if (command != null) nested.put("inspect", java.util.List.of(
+                    java.util.List.of("anatomist", "operations", command,
+                            "--format", "json")));
+            out.put("cause", nested);
+        }
+        return out;
+    }
+
+    private static String causeCategory(Integer exit, String code) {
+        if (code != null && code.startsWith("SYMBOL_")) return "resolution";
+        if (code != null && (code.startsWith("INPUT_") || code.startsWith("MALFORMED_")
+                || code.startsWith("UNSUPPORTED_RECORD") || code.startsWith("UNKNOWN_RECORD"))) {
+            return "input";
+        }
+        if ("UNSUPPORTED_CAPABILITY".equals(code)) return "capability";
+        if (code != null && (code.contains("INDEX") || code.contains("SCHEMA")
+                || code.contains("SEMANTICS") || code.contains("SOURCE_PROFILE"))) {
+            return "index";
+        }
+        return switch (exit == null ? 1 : exit) {
+            case 2 -> "argument";
+            case 3 -> "index";
+            case 4 -> "stream";
+            default -> "internal";
+        };
     }
 
     private static String safeMessage(Throwable failure) {

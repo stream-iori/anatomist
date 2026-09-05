@@ -5,6 +5,7 @@ import com.anatomist.query.DeclarationRow;
 import com.anatomist.query.QueryService;
 import com.anatomist.query.semantic.SemanticIdentity;
 import com.anatomist.query.semantic.SemanticRecords;
+import com.anatomist.query.semantic.SemanticProviders;
 import com.anatomist.query.semantic.SemanticStreamWriter;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -74,7 +75,9 @@ public final class DeclarationsOfCommand extends SemanticCommand {
         var out = SemanticRecords.common("entity", seed, parent, identity);
         out.put("id", row.nodeId);
         out.put("symbol_id", row.symbolId);
-        out.put("domain", "language"); out.put("language", "java");
+        out.put("domain", "language");
+        String language = SemanticProviders.languageForProducer(row.producerId);
+        if (language != null) out.put("language", language);
         out.put("kind", "type".equals(row.declarationKind) ? "type" : "callable");
         out.put("name", row.label); out.put("qualified_name", row.qualifiedName);
         out.put("module", row.module); out.put("scope", row.scope);

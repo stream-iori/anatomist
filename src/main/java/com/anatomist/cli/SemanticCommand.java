@@ -35,8 +35,8 @@ abstract class SemanticCommand implements Callable<Integer> {
     private SemanticFrameSource frameSource;
 
     @Override public Integer call() {
-        Path db = IndexPath.resolve(index);
         try {
+            Path db = IndexPath.resolve(index);
             scope = CliValidation.scope(scope, true);
             try (SemanticExecutionContext context = SemanticExecutionContext.open(db, module, scope);
                  SemanticStreamWriter writer = new SemanticStreamWriter(System.out, format)) {
@@ -48,21 +48,11 @@ abstract class SemanticCommand implements Callable<Integer> {
             return 0;
         } catch (BrokenPipeException ignored) {
             return 0;
-        } catch (SemanticStreamException failure) {
-            System.err.println("ERROR: " + failure.code() + ": " + failure.getMessage());
-            return streamConflict(failure.code()) ? 4 : 2;
-        } catch (SymbolResolutionException failure) {
-            System.err.println("ERROR: " + failure.code() + ": " + failure.getMessage());
-            return 2;
-        } catch (IllegalArgumentException failure) {
-            return emitIllegalArgument(failure);
-        } catch (UnsupportedCapabilityException failure) {
-            System.err.println("ERROR: " + failure.getMessage());
-            return 3;
-        } catch (IllegalStateException failure) {
-            return emitIllegalState(failure);
         } catch (RuntimeException failure) {
-            return emitRuntimeFailure(failure);
+            int exit = CliError.exit(failure);
+            CliError.emit(CliError.of(SemanticOperationRegistry.entry(this).id(),
+                    failure, exit));
+            return exit;
         }
     }
 
@@ -72,11 +62,12 @@ abstract class SemanticCommand implements Callable<Integer> {
                 "fail", "continue");
         frameSource = input;
         try {
-            if (!context.capabilities().supports(requiredCapability())) {
+            String operation = SemanticOperationRegistry.entry(this).id();
+            if (!context.capabilities().supports(operation)) {
                 if ("fail".equals(onUnsupported)) {
-                    throw new UnsupportedCapabilityException(requiredCapability().id());
+                    throw new UnsupportedCapabilityException(operation, "java");
                 }
-                return emitUnsupported(context.identity(), writer);
+                return emitUnsupported(operation, context.identity(), writer);
             }
             return execute(context.query(), context.identity(), writer);
         } finally {
@@ -84,35 +75,32 @@ abstract class SemanticCommand implements Callable<Integer> {
         }
     }
 
-    private static boolean streamConflict(String code) {
-        return code.contains("EVIDENCE") || code.contains("PIPELINE")
-                || code.contains("PROFILE") || code.contains("SNAPSHOT")
-                || code.equals("RECORD_AFTER_STREAM_EVIDENCE");
-    }
-
     protected abstract Result execute(QueryService query, SemanticIdentity identity,
                                       SemanticStreamWriter writer);
-
-    protected SemanticCapabilityRegistry.Capability requiredCapability() {
-        return SemanticCapabilityRegistry.Capability.STREAM;
-    }
 
     protected Set<String> acceptedInputRecords() { return Set.of(); }
 
     protected String directSeed() { return null; }
 
     protected int emitIllegalArgument(IllegalArgumentException failure) {
-        return CliValidation.emit(failure);
+        int exit = 2;
+        CliError.emit(CliError.of(SemanticOperationRegistry.entry(this).id(),
+                failure, exit));
+        return exit;
     }
 
     protected int emitIllegalState(IllegalStateException failure) {
-        System.err.println("ERROR: " + failure.getMessage());
-        return 3;
+        int exit = 3;
+        CliError.emit(CliError.of(SemanticOperationRegistry.entry(this).id(),
+                failure, exit));
+        return exit;
     }
 
     protected int emitRuntimeFailure(RuntimeException failure) {
-        System.err.println("ERROR: " + failure.getMessage());
-        return 1;
+        int exit = 1;
+        CliError.emit(CliError.of(SemanticOperationRegistry.entry(this).id(),
+                failure, exit));
+        return exit;
     }
 
     protected final SemanticStreamReader.Summary readFrames(
@@ -120,21 +108,32 @@ abstract class SemanticCommand implements Callable<Integer> {
             Consumer<SemanticStreamReader.SeedFrame> consumer) {
         SemanticFrameSource source = frameSource == null
                 ? SemanticFrameSource.ndjson(System.in) : frameSource;
-        return source.readFrames(acceptedRecords, unframed, identity, consumer);
+        String operation = SemanticOperationRegistry.entry(this).id();
+        return source.readFrames(acceptedRecords, unframed, identity, frame -> {
+            for (var record : frame.records()) {
+                Object language = record.raw().get("language");
+                if (language != null && !"java".equals(String.valueOf(language))) {
+                    throw new UnsupportedCapabilityException(operation,
+                            String.valueOf(language));
+                }
+            }
+            consumer.accept(frame);
+        });
     }
 
-    private Result emitUnsupported(SemanticIdentity identity, SemanticStreamWriter writer) {
+    private Result emitUnsupported(String operation, SemanticIdentity identity,
+                                   SemanticStreamWriter writer) {
         String direct = directSeed();
         if (direct != null) {
             writer.write(SemanticRecords.unsupportedEvidence(direct, null,
-                    requiredCapability().id(), identity));
+                    operation, identity));
             return new Result(1, 0, false, false);
         }
         java.util.concurrent.atomic.AtomicInteger seeds = new java.util.concurrent.atomic.AtomicInteger();
         readFrames(acceptedInputRecords(), acceptUnframed, identity,
                 frame -> {
                     writer.write(SemanticRecords.unsupportedEvidence(frame.seedId(), null,
-                            requiredCapability().id(), identity));
+                            operation, identity));
                     seeds.incrementAndGet();
                 });
         if (seeds.get() == 0) throw new IllegalArgumentException(

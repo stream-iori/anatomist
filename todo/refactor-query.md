@@ -27,6 +27,50 @@
 | P4 | ✅ | `calls/dispatch/trace/regions/sites-in` 使用新事实；DI 边界锁定 |
 | P5 | ✅ | 文档、pipeline golden、shell/native E2E、旧版 benchmark 和最终全量验收 |
 
+### Agent 自主决策契约
+
+结论：不增加公开 recipe、planner 或第二套 DSL。Agent 从机器可读的原子能力、约束和错误自行组合 pipeline。
+
+```text
+doctor → operations → pipeline --explain → pipeline --check → execute
+```
+
+| 契约 | 用途 |
+|---|---|
+| `anatomist-operation-catalog/v1` | operation 输入/输出、参数、限制、provider support 和 index availability |
+| `anatomist-pipeline-plan/v1` | 静态组合解释与只读 index 预检 |
+| `anatomist-error/v1` | 稳定 code/category/details、pipeline stage 和嵌套 cause |
+
+约束：operation ID 与语言正交；`support`、`availability`、runtime `coverage` 不得混用。当前只交付 Java provider，Python/TypeScript/Rust 只做契约 fixture。数据库 schema 和 graph semantics 不变。
+
+| 阶段 | 状态 | 交付 |
+|---|:---:|---|
+| A0 | ✅ | 三个公开 JSON 合同与 schema |
+| A1 | ✅ | 20 个 operation 单一注册表；pipeline 删除具体命令 `instanceof` 级联 |
+| A2 | ✅ | 通用 operation availability；语言从 producer/provider 派生 |
+| A3 | ✅ | `operations [operation] [--language] [--index]` |
+| A4 | ✅ | `pipeline --explain/--check` |
+| A5 | ✅ | 只读查询和 pipeline 统一输出 `anatomist-error/v1`，保留 stage/cause/inspect |
+| A6 | ✅ | CLI help、内置 skill、SKILL.md、E2E/native/benchmark 验收通过 |
+
+| Agent 契约最终门禁 | 结果 | 证据 |
+|---|:---:|---|
+| 完整测试 | ✅ | `mvn -q test`：740 tests，0 failure/error |
+| JVM/native | ✅ | `just native-smoke`：search/overview/declarations/members/calls/fused 原始输出一致 |
+| 机器合同 | ✅ | catalog、plan、error 三个 JSON schema；native 手工验收通过 |
+| `pipeline --check` 只读 | ✅ | 检查前后 SQLite SHA-256 一致 |
+| 性能/语义 | ✅ | 相对实施前 `43777fc`：全部输出字节一致，所有 p50/p95 门禁通过 |
+
+| Agent 契约 benchmark（30 runs） | Shell baseline p50 | 当前 fused p50 | 变化 | p95 变化 |
+|---|---:|---:|---:|---:|
+| `resolve_one` | 174.19 ms | 166.35 ms | -4.5% | +2.9% |
+| `type_pipeline` | 276.96 ms | 169.09 ms | **-39.0%** | -34.4% |
+| `calls_pipeline` | 380.36 ms | 181.22 ms | **-52.4%** | -44.7% |
+| `calls_high_fanout` | 399.61 ms | 202.93 ms | **-49.2%** | -40.5% |
+
+专项报告：`target/benchmarks/semantic-pipeline/report.md`。固定 DB 为 38,834,176 B，
+查询前后 SHA-256 一致；candidate 新增 catalog/plan/error 契约后没有引入可见性能回退。
+
 ### F0–F7：单进程管道融合
 
 | 阶段 | 状态 | 实施结果 |

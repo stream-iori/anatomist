@@ -27,15 +27,25 @@ final class IndexPath {
     static Path resolve(Path explicit, Path projectRoot) {
         if (explicit != null) {
             if (!Files.isRegularFile(explicit)) {
-                throw new IllegalArgumentException("index db not found: " + explicit);
+                throw new IndexMissingException(explicit,
+                        "index db not found: " + explicit);
             }
             return explicit;
         }
         Path root = projectRoot.toAbsolutePath().normalize();
         Path def = DefaultIndexPath.forQueryRead(root);
         if (Files.isRegularFile(def)) return def;
-        throw new IllegalArgumentException(
+        throw new IndexMissingException(def,
                 "no index db found at " + def + " — pass --index <path> "
               + "or run `anatomist index " + root + "` first");
+    }
+
+    static final class IndexMissingException extends IllegalStateException {
+        private final Path path;
+        IndexMissingException(Path path, String message) {
+            super(message);
+            this.path = path;
+        }
+        Path path() { return path; }
     }
 }

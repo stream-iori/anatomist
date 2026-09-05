@@ -157,6 +157,8 @@ sdk env
 | `just agent-e2e-complex` | 6 条复杂多模块真实 Agent 用例 | 覆盖业务链路、分页 flow、影响分析、改码闭环和两条新 NDJSON 管道。 |
 | `just agent-e2e-smoke` | 全部 9 条真实 Agent E2E | 全部使用新 NDJSON 原子管道；预计约 20 分钟，产物写入忽略的 `e2e/jury-runs/`。 |
 
+Operation 决策合同由 `OperationsCommandIT`、`PipelineCommandIT` 和 `AgentContractIT` 联合锁定：20 个原子 operation 完整枚举；`--explain` 不开库；`--check` 和 `operations --index` 不修改数据库；只读查询错误是一行 `anatomist-error/v1`。`SKILL.md` 继续执行 3 KiB 门禁。
+
 `external-cli` 会重建临时 DB，并固定验证 Facade API、Handler 入口、DAO 正反查、字段访问和调用链，不进入默认 CI。
 
 ### Agent E2E 边界

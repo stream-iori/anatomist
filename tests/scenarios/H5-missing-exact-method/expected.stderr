@@ -1,1 +1,1 @@
-ERROR: SYMBOL_NOT_FOUND: no method matches selector 'com.example.shop.service.OrderService#missing(java.lang.String)'
+{"contract":"anatomist-error/v1","code":"SYMBOL_NOT_FOUND","category":"resolution","exit":2,"message":"no method matches selector 'com.example.shop.service.OrderService#missing(java.lang.String)'","operation":"resolve","details":{"selector":"com.example.shop.service.OrderService#missing(java.lang.String)","selector_kind":"method","candidate_ids":[]},"inspect":[["anatomist","operations","resolve","--format","json"]]}

@@ -12,13 +12,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Command(name="callable-relations", mixinStandardHelpOptions=true,
         description="Return override and interface-contract callable facts.",
-        footer="%nAccepts: entity(callable)%nEmits: callable_relation + evidence%nCapability: java-type-semantics")
+        footer="%nAccepts: entity(callable)%nEmits: callable_relation + evidence%nOperation: callable-relations; inspect with: anatomist operations callable-relations")
 public final class CallableRelationsCommand extends SemanticCommand {
     @Option(names="--direction", defaultValue="outgoing") String direction;
     @Option(names="--transitive") boolean transitive;
     @Option(names="--max-depth", defaultValue="20") int maxDepth;
     @Option(names="--limit", defaultValue="50") int limit;
-    @Override protected SemanticCapabilityRegistry.Capability requiredCapability() { return SemanticCapabilityRegistry.Capability.TYPE_SEMANTICS; }
     @Override protected Set<String> acceptedInputRecords() { return Set.of("entity"); }
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer) {
         direction = CliValidation.choice("--direction", direction, "outgoing", "incoming");
