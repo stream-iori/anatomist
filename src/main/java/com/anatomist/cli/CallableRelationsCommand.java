@@ -24,7 +24,7 @@ public final class CallableRelationsCommand extends SemanticCommand {
         direction = CliValidation.choice("--direction", direction, "outgoing", "incoming");
         CliValidation.positive("--max-depth", maxDepth); CliValidation.positive("--limit", limit);
         AtomicInteger seeds = new AtomicInteger(), emitted = new AtomicInteger(); AtomicBoolean complete = new AtomicBoolean(true);
-        SemanticStreamReader.Summary input = SemanticStreamReader.readFrames(System.in, Set.of("entity"), acceptUnframed, identity, frame -> {
+        SemanticStreamReader.Summary input = readFrames(Set.of("entity"), acceptUnframed, identity, frame -> {
             seeds.incrementAndGet(); int count=0; boolean frameComplete=frame.evidence().complete();
             for (SemanticRecord record: frame.records()) {
                 SemanticRecord.Entity entity=(SemanticRecord.Entity) record;

@@ -9,12 +9,14 @@ import com.anatomist.query.semantic.SemanticRecords;
 import com.anatomist.query.semantic.SemanticStreamReader.SemanticStreamException;
 import com.anatomist.query.semantic.SemanticStreamReader;
 import com.anatomist.query.semantic.SemanticStreamWriter;
+import com.anatomist.query.semantic.SemanticFrameSource;
 import com.anatomist.query.semantic.SemanticStreamWriter.BrokenPipeException;
 import picocli.CommandLine.Option;
 
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /** Common lifecycle and error contract for semantic-stream operations. */
 abstract class SemanticCommand implements Callable<Integer> {
@@ -30,31 +32,17 @@ abstract class SemanticCommand implements Callable<Integer> {
     @Option(names = "--on-unsupported", defaultValue = "fail",
             description = "Unsupported capability policy: fail | continue (default fail).")
     String onUnsupported;
+    private SemanticFrameSource frameSource;
 
-    @Override public final Integer call() {
+    @Override public Integer call() {
         Path db = IndexPath.resolve(index);
         try {
             scope = CliValidation.scope(scope, true);
-            onUnsupported = CliValidation.choice("--on-unsupported", onUnsupported,
-                    "fail", "continue");
-            try (QueryService query = new QueryService(db);
+            try (SemanticExecutionContext context = SemanticExecutionContext.open(db, module, scope);
                  SemanticStreamWriter writer = new SemanticStreamWriter(System.out, format)) {
-                query.selectNodes(module, scope);
-                SemanticIdentity identity = SemanticIdentity.read(query.connection());
-                SemanticCapabilityRegistry capabilities =
-                        new SemanticCapabilityRegistry(query.connection());
-                if (!capabilities.supports(requiredCapability())) {
-                    if ("fail".equals(onUnsupported)) {
-                        throw new UnsupportedCapabilityException(requiredCapability().id());
-                    }
-                    Result result = emitUnsupported(identity, writer);
-                    writer.write(SemanticRecords.streamEvidence(result.seeds(), 0,
-                            false, false, identity));
-                    return 0;
-                }
-                Result result = execute(query, identity, writer);
+                Result result = executeStage(context, SemanticFrameSource.ndjson(System.in), writer);
                 writer.write(SemanticRecords.streamEvidence(result.seeds(), result.emitted(),
-                        result.complete(), result.truncated(), identity));
+                        result.complete(), result.truncated(), context.identity()));
             }
             // PrintStream intentionally absorbs EPIPE: an early-closing Unix consumer is success.
             return 0;
@@ -67,16 +55,32 @@ abstract class SemanticCommand implements Callable<Integer> {
             System.err.println("ERROR: " + failure.code() + ": " + failure.getMessage());
             return 2;
         } catch (IllegalArgumentException failure) {
-            return CliValidation.emit(failure);
+            return emitIllegalArgument(failure);
         } catch (UnsupportedCapabilityException failure) {
             System.err.println("ERROR: " + failure.getMessage());
             return 3;
         } catch (IllegalStateException failure) {
-            System.err.println("ERROR: " + failure.getMessage());
-            return 3;
+            return emitIllegalState(failure);
         } catch (RuntimeException failure) {
-            System.err.println("ERROR: " + failure.getMessage());
-            return 1;
+            return emitRuntimeFailure(failure);
+        }
+    }
+
+    final Result executeStage(SemanticExecutionContext context, SemanticFrameSource input,
+                              SemanticStreamWriter writer) {
+        onUnsupported = CliValidation.choice("--on-unsupported", onUnsupported,
+                "fail", "continue");
+        frameSource = input;
+        try {
+            if (!context.capabilities().supports(requiredCapability())) {
+                if ("fail".equals(onUnsupported)) {
+                    throw new UnsupportedCapabilityException(requiredCapability().id());
+                }
+                return emitUnsupported(context.identity(), writer);
+            }
+            return execute(context.query(), context.identity(), writer);
+        } finally {
+            frameSource = null;
         }
     }
 
@@ -97,6 +101,28 @@ abstract class SemanticCommand implements Callable<Integer> {
 
     protected String directSeed() { return null; }
 
+    protected int emitIllegalArgument(IllegalArgumentException failure) {
+        return CliValidation.emit(failure);
+    }
+
+    protected int emitIllegalState(IllegalStateException failure) {
+        System.err.println("ERROR: " + failure.getMessage());
+        return 3;
+    }
+
+    protected int emitRuntimeFailure(RuntimeException failure) {
+        System.err.println("ERROR: " + failure.getMessage());
+        return 1;
+    }
+
+    protected final SemanticStreamReader.Summary readFrames(
+            Set<String> acceptedRecords, boolean unframed, SemanticIdentity identity,
+            Consumer<SemanticStreamReader.SeedFrame> consumer) {
+        SemanticFrameSource source = frameSource == null
+                ? SemanticFrameSource.ndjson(System.in) : frameSource;
+        return source.readFrames(acceptedRecords, unframed, identity, consumer);
+    }
+
     private Result emitUnsupported(SemanticIdentity identity, SemanticStreamWriter writer) {
         String direct = directSeed();
         if (direct != null) {
@@ -105,7 +131,7 @@ abstract class SemanticCommand implements Callable<Integer> {
             return new Result(1, 0, false, false);
         }
         java.util.concurrent.atomic.AtomicInteger seeds = new java.util.concurrent.atomic.AtomicInteger();
-        SemanticStreamReader.readFrames(System.in, acceptedInputRecords(), acceptUnframed, identity,
+        readFrames(acceptedInputRecords(), acceptUnframed, identity,
                 frame -> {
                     writer.write(SemanticRecords.unsupportedEvidence(frame.seedId(), null,
                             requiredCapability().id(), identity));
@@ -116,5 +142,10 @@ abstract class SemanticCommand implements Callable<Integer> {
         return new Result(seeds.get(), 0, false, false);
     }
 
-    protected record Result(int seeds, int emitted, boolean complete, boolean truncated) {}
+    protected record Result(int seeds, int emitted, boolean complete, boolean truncated) {
+        Result merge(Result other) {
+            return new Result(seeds + other.seeds, emitted + other.emitted,
+                    complete && other.complete, truncated || other.truncated);
+        }
+    }
 }

@@ -14,7 +14,7 @@ Config order: project, user, otherwise built-in defaults. Files do not merge;
 CLI flags override. Prefer `index --incremental`. After policy changes, re-index
 and inspect `doctor --format json` `config_source`.
 
-Use the canonical NDJSON pipeline:
+Use fused execution for multi-stage queries:
 
 ```text
 find        search --format ndjson | resolve --unique
@@ -29,22 +29,20 @@ evidence    ... | source
 Example:
 
 ```bash
-anatomist resolve 'OrderService#run()' --kind callable --exact --unique |
-  anatomist calls | anatomist dispatch | anatomist source
-
-anatomist search applicationContext --kind artifact --format ndjson |
-  anatomist resolve --unique | anatomist members --recursive
+anatomist pipeline --index index.db -- \
+  resolve 'OrderService#run()' --kind callable --exact --unique \
+  --then calls --then dispatch --then source
 ```
 
-Stages check revision/profile and seed/final evidence. Never conclude
+The Unix pipeline remains valid when stages need different global scopes or external
+tools. Fused stages share one read-only snapshot and check seed/final evidence. Never conclude
 absence when `coverage` is not `complete`; `--accept-unframed` intentionally
 downgrades it. `calls` is source syntax plus static resolution. `dispatch` gives
 possible static candidates, not observed execution. Framework bindings come from
 artifact producers, not Java semantics.
 
 Use `declarations-of --file <relative.java>` for changed files. For one method,
-use `resolve '<exact-signature>' --kind callable --exact --unique | source` and
-follow source pagination until evidence is complete.
+run an exact callable `resolve --then source`; page until evidence is complete.
 
 1.0 cannot read 0.1x indexes. Run `index <project> --recreate`; there is no alias
 or silent rebuild.

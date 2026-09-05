@@ -19,23 +19,24 @@ java -jar target/anatomist.jar index fixtures/mini-spring-shop \
   --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
   --no-classpath --output /tmp/shop.db
 
-java -jar target/anatomist.jar search OrderService --kind type --index /tmp/shop.db |
-  java -jar target/anatomist.jar resolve --unique --index /tmp/shop.db |
-  java -jar target/anatomist.jar members --recursive --index /tmp/shop.db
+java -jar target/anatomist.jar pipeline --index /tmp/shop.db -- \
+  search OrderService --kind type \
+  --then resolve --unique \
+  --then members --recursive
 ```
 
 调用与源码证据：
 
 ```bash
-java -jar target/anatomist.jar \
+java -jar target/anatomist.jar pipeline --index /tmp/shop.db -- \
   resolve 'com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' \
-  --kind callable --exact --unique --index /tmp/shop.db |
-java -jar target/anatomist.jar calls --index /tmp/shop.db |
-java -jar target/anatomist.jar dispatch --index /tmp/shop.db |
-java -jar target/anatomist.jar source --index /tmp/shop.db
+    --kind callable --exact --unique \
+  --then calls \
+  --then dispatch \
+  --then source
 ```
 
-每一段都校验 `index_revision_id`、源码快照和语义配置。最终 `evidence` 不是 `complete` 时，不能据此断言“没有结果”。
+`pipeline` 在一个进程、一条只读 SQLite 连接中执行所有段。原 Shell 管道仍可用；两种方式输出相同的 `semantic-stream/v1` 字节。最终 `evidence` 不是 `complete` 时，不能据此断言“没有结果”。
 
 ## 1.0 查询模型
 

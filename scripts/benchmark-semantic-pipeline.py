@@ -8,10 +8,13 @@ import hashlib
 import json
 import math
 import platform
+import re
+import shlex
 import shutil
 import sqlite3
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -61,7 +64,7 @@ def checked(command: list[str], cwd: Path) -> None:
     subprocess.run(command, cwd=cwd, check=True, stdout=subprocess.DEVNULL)
 
 
-def pipeline(binary: Path, db: Path, workload: Workload) -> bytes:
+def shell_pipeline(binary: Path, db: Path, workload: Workload) -> bytes:
     processes: list[subprocess.Popen[bytes]] = []
     previous = None
     for stage in workload.stages:
@@ -93,23 +96,54 @@ def pipeline(binary: Path, db: Path, workload: Workload) -> bytes:
     return output
 
 
+def fused_pipeline(binary: Path, db: Path, workload: Workload) -> bytes:
+    command = [str(binary), "pipeline", "--index", str(db), "--"]
+    for index, stage in enumerate(workload.stages):
+        if index:
+            command.append("--then")
+        command.extend(stage)
+    return run(command)
+
+
+def peak_rss(command: list[str]) -> int | None:
+    """Measure one command with the host time(1); return bytes when supported."""
+    time_binary = Path("/usr/bin/time")
+    if not time_binary.is_file():
+        return None
+    flag = "-l" if sys.platform == "darwin" else "-v"
+    result = subprocess.run(
+        [str(time_binary), flag, *command],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        return None
+    report = result.stderr.decode(errors="replace")
+    if sys.platform == "darwin":
+        match = re.search(r"(\d+)\s+maximum resident set size", report)
+        return int(match.group(1)) if match else None
+    match = re.search(r"Maximum resident set size \(kbytes\):\s*(\d+)", report)
+    return int(match.group(1)) * 1024 if match else None
+
+
+def shell_command(binary: Path, db: Path, workload: Workload) -> list[str]:
+    stages = [shlex.join([str(binary), *stage, "--index", str(db)])
+              for stage in workload.stages]
+    return ["sh", "-c", " | ".join(stages)]
+
+
+def fused_command(binary: Path, db: Path, workload: Workload) -> list[str]:
+    command = [str(binary), "pipeline", "--index", str(db), "--"]
+    for index, stage in enumerate(workload.stages):
+        if index:
+            command.append("--then")
+        command.extend(stage)
+    return command
+
+
 def timed(operation: Callable[[], bytes]) -> float:
     started = time.perf_counter_ns()
     operation()
     return (time.perf_counter_ns() - started) / 1_000_000
-
-
-def alternate(runs: int, baseline: Callable[[], float],
-              candidate: Callable[[], float]) -> tuple[list[float], list[float]]:
-    old: list[float] = []
-    new: list[float] = []
-    for iteration in range(runs):
-        order = ((old, baseline), (new, candidate)) if iteration % 2 == 0 else (
-            (new, candidate), (old, baseline)
-        )
-        for samples, operation in order:
-            samples.append(operation())
-    return old, new
 
 
 def percentile(values: list[float], fraction: float) -> float:
@@ -192,14 +226,17 @@ def workloads(high_fanout_selector: str) -> list[Workload]:
 def markdown(report: dict) -> str:
     result = "PASS" if report["passed"] else "FAIL"
     rows = [
-        "| Workload | Stages | Baseline p50 | Candidate p50 | Delta | p95 Delta | Output |",
-        "|---|---:|---:|---:|---:|---:|:---:|",
+        "| Workload | Stages | Baseline p50 | Fused p50 | Delta | p95 Delta | RSS old/new | Output |",
+        "|---|---:|---:|---:|---:|---:|---:|:---:|",
     ]
     for name, value in report["benchmarks"].items():
+        old_rss = value["baseline_peak_rss_bytes"]
+        new_rss = value["candidate_peak_rss_bytes"]
+        rss = "n/a" if old_rss is None or new_rss is None else f"{old_rss}/{new_rss} B"
         rows.append(
             f"| {name} | {value['stages']} | {value['baseline']['p50_ms']:.2f} ms | "
             f"{value['candidate']['p50_ms']:.2f} ms | {value['p50_delta_pct']:+.1f}% | "
-            f"{value['p95_delta_pct']:+.1f}% | "
+            f"{value['p95_delta_pct']:+.1f}% | {rss} | "
             f"{'same' if value['output_equal'] else 'DIFF'} |"
         )
     environment = report["environment"]
@@ -212,7 +249,8 @@ def markdown(report: dict) -> str:
         f"索引 SHA-256：`{report['index']['sha256_before']}`（查询前后不变）。",
         f"Baseline: `{environment['baseline_version']}` / `{environment['baseline_sha256']}`。",
         f"Candidate: `{environment['candidate_version']}` / `{environment['candidate_sha256']}`。",
-        "Baseline 与 candidate 查询同一个只读索引；输出按原始 NDJSON 字节比较。", "",
+        "Baseline 使用 Shell 多进程管道，candidate 使用单进程 fused pipeline；"
+        "二者查询同一个只读索引，输出按原始 NDJSON 字节比较。", "",
     ])
 
 
@@ -259,26 +297,45 @@ def main() -> int:
         fallback = "com.anatomist.query.QueryService#search(java.lang.String,java.lang.String,int)"
         high_fanout_selector, high_fanout_sites = highest_fanout(db, fallback)
 
-        benchmark_results: dict[str, dict] = {}
-        gates: list[dict] = []
-        for workload in workloads(high_fanout_selector):
-            baseline_operation = lambda workload=workload: pipeline(
+        selected_workloads = workloads(high_fanout_selector)
+        operations: dict[str, tuple[Callable[[], bytes], Callable[[], bytes]]] = {}
+        outputs: dict[str, tuple[bool, bool]] = {}
+        samples: dict[str, tuple[list[float], list[float]]] = {}
+        for workload in selected_workloads:
+            baseline_operation = lambda workload=workload: shell_pipeline(
                 baseline_bin, db, workload)
-            candidate_operation = lambda workload=workload: pipeline(
+            candidate_operation = lambda workload=workload: fused_pipeline(
                 candidate_bin, db, workload)
+            operations[workload.name] = (baseline_operation, candidate_operation)
             old_output = baseline_operation()
             new_output = candidate_operation()
-            output_equal = old_output == new_output
-            stream_valid = validate_stream(new_output, workload.required_records)
-
+            outputs[workload.name] = (
+                old_output == new_output,
+                validate_stream(new_output, workload.required_records),
+            )
             for _ in range(args.warmups):
                 baseline_operation()
                 candidate_operation()
-            old_samples, new_samples = alternate(
-                args.runs,
-                lambda: timed(baseline_operation),
-                lambda: timed(candidate_operation),
-            )
+            samples[workload.name] = ([], [])
+
+        # Round-robin prevents a short host-load or thermal event from being isolated
+        # inside one workload. AB/BA order still alternates within every pair.
+        for iteration in range(args.runs):
+            for workload_index, workload in enumerate(selected_workloads):
+                baseline_operation, candidate_operation = operations[workload.name]
+                old_samples, new_samples = samples[workload.name]
+                if (iteration + workload_index) % 2 == 0:
+                    old_samples.append(timed(baseline_operation))
+                    new_samples.append(timed(candidate_operation))
+                else:
+                    new_samples.append(timed(candidate_operation))
+                    old_samples.append(timed(baseline_operation))
+
+        benchmark_results: dict[str, dict] = {}
+        gates: list[dict] = []
+        for workload in selected_workloads:
+            old_samples, new_samples = samples[workload.name]
+            output_equal, stream_valid = outputs[workload.name]
             old_stats = stats(old_samples)
             new_stats = stats(new_samples)
             p50_delta = delta(float(new_stats["p50_ms"]), float(old_stats["p50_ms"]))
@@ -287,6 +344,12 @@ def main() -> int:
                 "stages": len(workload.stages),
                 "baseline": old_stats,
                 "candidate": new_stats,
+                "baseline_samples_ms": [round(value, 3) for value in old_samples],
+                "candidate_samples_ms": [round(value, 3) for value in new_samples],
+                "baseline_peak_rss_bytes": peak_rss(
+                    shell_command(baseline_bin, db, workload)),
+                "candidate_peak_rss_bytes": peak_rss(
+                    fused_command(candidate_bin, db, workload)),
                 "p50_delta_pct": round(p50_delta, 2),
                 "p95_delta_pct": round(p95_delta, 2),
                 "output_equal": output_equal,
@@ -323,10 +386,13 @@ def main() -> int:
                 "baseline_sha256": sha256(baseline_bin),
                 "candidate_version": version(candidate_bin),
                 "candidate_sha256": sha256(candidate_bin),
+                "baseline_execution": "shell-pipeline",
+                "candidate_execution": "fused-pipeline",
             },
             "settings": {
                 "runs": args.runs,
                 "warmups": args.warmups,
+                "sampling_order": "round-robin AB/BA",
                 "max_p50_regression_pct": args.max_p50_regression_pct,
                 "max_p95_regression_pct": args.max_p95_regression_pct,
                 "required_calls_improvement_pct": args.required_calls_improvement_pct,

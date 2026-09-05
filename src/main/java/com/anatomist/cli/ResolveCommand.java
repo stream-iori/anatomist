@@ -63,7 +63,7 @@ public final class ResolveCommand extends SemanticCommand {
 
         AtomicInteger seeds = new AtomicInteger();
         AtomicInteger emitted = new AtomicInteger();
-        SemanticStreamReader.Summary input = SemanticStreamReader.readFrames(System.in,
+        SemanticStreamReader.Summary input = readFrames(
                 Set.of("entity_candidate", "entity"), acceptUnframed, identity, frame -> {
             seeds.incrementAndGet();
             if (frame.records().isEmpty()) {

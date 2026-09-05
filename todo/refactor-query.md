@@ -27,6 +27,49 @@
 | P4 | ✅ | `calls/dispatch/trace/regions/sites-in` 使用新事实；DI 边界锁定 |
 | P5 | ✅ | 文档、pipeline golden、shell/native E2E、旧版 benchmark 和最终全量验收 |
 
+### F0–F7：单进程管道融合
+
+| 阶段 | 状态 | 实施结果 |
+|---|:---:|---|
+| F0 基线 | ✅ | `02f0eb9` 冻结可复现 benchmark；融合前基线为 `f5a9ef2` |
+| F1 共享上下文 | ✅ | 一条 pipeline 共用一个 `SemanticExecutionContext`、读锁、`QueryService` 和 SQLite 连接 |
+| F2 Stage 协议 | ✅ | 20 个只读命令统一接入 typed `SemanticFrameSource` / `SemanticStreamWriter` adapter |
+| F3 CLI | ✅ | 支持 `pipeline -- ... --then ...` 和 `pipeline --file pipeline.json`；全局参数、白名单、类型和资源上限执行前校验 |
+| F4 参考执行器 | ⏭️ | 直接落地 F7 typed executor；未引入最终必删的 NDJSON spool 和临时文件分支 |
+| F5 正确性 | ✅ | 733 tests 全过；19 个 Golden 中 14 个成功场景执行 Shell/fused 原始字节对拍，5 个失败场景验证原命令；fused 错误、stdin、limit、Broken Pipe 有独立测试 |
+| F6 性能 | ✅ | 30 轮 round-robin AB/BA；同一只读 DB；保留原始样本并记录 p50/p95、RSS、binary/DB SHA；全部 gate 通过 |
+| F7 typed 有界流 | ✅ | 中间只传 `SemanticRecord` / `SeedFrame`；按 seed 有界；无中间 JSON、无 spool；末段才写 stream evidence |
+
+```text
+CLI / pipeline.json
+        │
+        ▼
+参数解析 + record 类型预检
+        │
+        ▼
+一个进程 / 一个 QueryService / 一个只读 SQLite snapshot
+        │
+        ▼
+Stage ── typed SeedFrame ──> Stage ── typed SeedFrame ──> Final Writer
+```
+
+| Pipeline benchmark（30 runs） | Shell p50 | Fused p50 | 变化 | 输出 |
+|---|---:|---:|---:|:---:|
+| `resolve_one` | 185.47 ms | 183.64 ms | -1.0% | same |
+| `type_pipeline` | 291.06 ms | 191.48 ms | **-34.2%** | same |
+| `calls_pipeline` | 400.16 ms | 200.70 ms | **-49.9%** | same |
+| `calls_high_fanout` | 421.94 ms | 225.64 ms | **-46.5%** | same |
+
+专项报告：`target/benchmarks/semantic-pipeline/report.md`。固定 DB 为 38,125,568 B，
+查询前后 SHA-256 一致；两组 calls p50 均超过 25% 改善门禁。Shell 原子管道继续兼容，
+多段日常查询优先使用：
+
+```bash
+anatomist pipeline --index index.db -- \
+  resolve 'p.Service#run()' --kind callable --exact --unique \
+  --then calls --then dispatch
+```
+
 ### 1.0 最终验收
 
 | 门禁 | 要求 |
@@ -42,9 +85,9 @@
 
 | 项目 | 结果 | 证据 |
 |---|:---:|---|
-| JUnit / IT | ✅ | `mvn -q clean test`：721 tests，0 failure/error/skip |
-| Golden | ✅ | 19 个 scenario 全部使用真实 `pipeline.json`，无 `input.cmd` |
-| JVM / native | ✅ | `just smoke`、`just native-smoke`、extension JVM/native 全通过 |
+| JUnit / IT | ✅ | `mvn -q test`：733 tests，0 failure/error/skip |
+| Golden | ✅ | 19 个 scenario 全部使用真实 `pipeline.json`；14 个成功场景做 Shell/fused 原始字节对拍 |
+| JVM / native | ✅ | `just native-smoke` 覆盖 Shell/fused/JVM/native 对拍；`just extension-e2e-native` 通过 |
 | Agent contract | ✅ | adapter 9/9；Jury smoke 9、complex 6；fixture contract 通过 |
 | Benchmark | ✅ | `dd2e575` 对比报告所有 gate 通过 |
 
@@ -63,8 +106,10 @@
 | calls workflow p50 | 160.46 ms | 379.72 ms | +136.6% |
 
 schema 21 通过 owner 字典、部分索引和重叠索引裁剪，使 DB 降幅超过 30% 硬门禁。
-多进程 type/calls 管道仍是 1.0 的明确性能债；当前功能、体积和既定性能预算均通过，
-不阻塞 1.0。原始数据见 `target/benchmarks/query-refactor/results.json` 和 `report.md`。
+原产品 benchmark 中的多进程 type/calls 性能债已由上面的 fused pipeline 解决；
+Shell 管道保留为兼容/跨 scope/外部工具入口。产品回归原始数据见
+`target/benchmarks/query-refactor/results.json`，融合专项见
+`target/benchmarks/semantic-pipeline/results.json`。
 
 ### 后续 benchmark 基础设施
 

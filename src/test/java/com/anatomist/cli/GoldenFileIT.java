@@ -141,6 +141,13 @@ class GoldenFileIT {
                 + "\nstdout:\n" + stdout.toString(StandardCharsets.UTF_8)
                 + "\nstderr:\n" + stderr.toString(StandardCharsets.UTF_8));
 
+        if (rc == 0) {
+            byte[] fused = runFused(scenarioDir.resolve("pipeline.json"));
+            assertArrayEquals(input, fused,
+                    "fused pipeline stdout must be byte-identical: "
+                            + scenarioDir.getFileName());
+        }
+
         String rawStdout = new String(input, StandardCharsets.UTF_8);
         Path expected = scenarioDir.resolve("expected.json");
         if (!rawStdout.isBlank() || Files.exists(expected)) {
@@ -172,6 +179,33 @@ class GoldenFileIT {
                     + "\n--- expected ---\n" + wantedStderr
                     + "\n--- actual ---\n" + actualStderr);
         }
+    }
+
+    private byte[] runFused(Path spec) {
+        List<String> args = List.of("pipeline", "--index", dbPath.toString(),
+                "--file", spec.toString());
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        InputStream oldIn = System.in;
+        PrintStream oldOut = System.out;
+        PrintStream oldErr = System.err;
+        int exit;
+        try {
+            System.setIn(new ByteArrayInputStream(new byte[0]));
+            System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
+            System.setErr(new PrintStream(stderr, true, StandardCharsets.UTF_8));
+            exit = new CommandLine(new AnatomistCli()).execute(args.toArray(String[]::new));
+        } finally {
+            System.setIn(oldIn);
+            System.setOut(oldOut);
+            System.setErr(oldErr);
+        }
+        assertEquals(0, exit, "fused pipeline failed: " + args
+                + "\nstdout:\n" + stdout.toString(StandardCharsets.UTF_8)
+                + "\nstderr:\n" + stderr.toString(StandardCharsets.UTF_8));
+        assertEquals("", stderr.toString(StandardCharsets.UTF_8),
+                "successful fused pipeline must not write stderr");
+        return stdout.toByteArray();
     }
 
     /** Re-emit JSON with sorted map keys and project-root scrubbed. */

@@ -15,22 +15,17 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.Callable;
 
 @Command(name = "declarations-of", mixinStandardHelpOptions = true,
         description = "Enumerate declarations in one indexed source file.",
         footer = "%nAccepts: CLI file selector%nEmits: entity + evidence%n%nExample:%n  anatomist declarations-of --file src/main/java/com/example/AuthenticationService.java --visibility public,protected --kind type,method --format ndjson")
-public final class DeclarationsOfCommand implements Callable<Integer> {
+public final class DeclarationsOfCommand extends SemanticCommand {
     private static final Set<String> VISIBILITIES = Set.of("public", "protected", "private", "package");
     private static final Set<String> KINDS = Set.of("type", "method", "constructor");
 
     @Option(names = "--file", required = true,
             description = "Normalized project-relative .java path (forward slashes).")
     String file;
-    @Option(names = "--index", description = "SQLite index path.") Path index;
-    @Option(names = "--module", description = "Restrict to one indexed module.") String module;
-    @Option(names = "--scope", defaultValue = "MAIN",
-            description = "Source scope: MAIN | TEST | GENERATED | ALL (default MAIN).") String scope;
     @Option(names = "--visibility", description = "Comma-separated: public,protected,private,package.") String visibility;
     @Option(names = "--kind", description = "Comma-separated: type,method,constructor.") String kind;
     @Option(names = "--top-level-types", description = "Exclude nested type declarations; callable filtering is unchanged.")
@@ -41,53 +36,37 @@ public final class DeclarationsOfCommand implements Callable<Integer> {
     boolean includeSynthetic;
     @Option(names = "--limit", defaultValue = "100", description = "Page size, 1..1000 (default 100).") int limit;
     @Option(names = "--offset", defaultValue = "0", description = "Rows to skip (default 0).") int offset;
-    @Option(names = "--format", defaultValue = "ndjson", description = "Semantic projection: ndjson | json | table.") String format;
 
     @Override public Integer call() {
-        Path db = index == null ? null : index.toAbsolutePath().normalize();
         try {
-            validate();
-            db = IndexPath.resolve(index);
-            try (QueryService service = new QueryService(db);
-                 SemanticStreamWriter writer = new SemanticStreamWriter(System.out, format)) {
-                SemanticIdentity identity = SemanticIdentity.read(service.connection());
-                DeclarationQueryService declarations = new DeclarationQueryService(service.connection());
-                declarations.verifyFile(db, file, module, scope);
-                Set<String> visibilities = csv(visibility, VISIBILITIES, "--visibility");
-                Set<String> kinds = csv(kind, KINDS, "--kind");
-                int total = declarations.count(file, module, scope, visibilities, kinds,
-                        topLevelTypes, directMembers, includeSynthetic);
-                List<DeclarationRow> results = declarations.find(file, module, scope, visibilities, kinds,
-                        topLevelTypes, directMembers, includeSynthetic, limit, offset);
-                String root = SemanticRecords.rootSeed("declarations-of", file);
-                for (DeclarationRow row : results) {
-                    String seed = SemanticRecords.childSeed(root, "declaration", row.nodeId);
-                    writer.write(entity(row, seed, root, identity));
-                    writer.write(SemanticRecords.seedEvidence(seed, root, 1, true, null, identity));
-                }
-                boolean complete = offset + results.size() >= total;
-                writer.write(SemanticRecords.seedEvidence(root, null, results.size(), complete,
-                        complete ? null : "RESULT_LIMIT", !complete, identity));
-                writer.write(SemanticRecords.streamEvidence(1, results.size(), complete,
-                        !complete, identity));
-                return 0;
-            }
-        } catch (DeclarationQueryService.DeclarationQueryException failure) {
-            System.err.println("ERROR[" + failure.code() + "]: " + failure.getMessage());
-            return 3;
-        } catch (IllegalStateException failure) {
-            String message = failure.getMessage() == null ? "index query failed" : failure.getMessage();
-            String code = message.startsWith("SCHEMA_MISMATCH") ? "SCHEMA_MISMATCH" : "GRAPH_INTEGRITY_FAILED";
-            System.err.println("ERROR[" + code + "]: " + message);
-            return 3;
+            return super.call();
         } catch (IllegalArgumentException failure) {
-            if (failure.getMessage() != null && (failure.getMessage().contains("index db not found")
-                    || failure.getMessage().contains("no index db found"))) {
-                System.err.println("ERROR[INDEX_MISSING]: " + failure.getMessage());
-                return 3;
-            }
-            return CliValidation.emit(failure);
+            return emitIllegalArgument(failure);
         }
+    }
+
+    @Override protected Result execute(QueryService service, SemanticIdentity identity,
+                                       SemanticStreamWriter writer) {
+        validate();
+        Path db = IndexPath.resolve(index);
+        DeclarationQueryService declarations = new DeclarationQueryService(service.connection());
+        declarations.verifyFile(db, file, module, scope);
+        Set<String> visibilities = csv(visibility, VISIBILITIES, "--visibility");
+        Set<String> kinds = csv(kind, KINDS, "--kind");
+        int total = declarations.count(file, module, scope, visibilities, kinds,
+                topLevelTypes, directMembers, includeSynthetic);
+        List<DeclarationRow> results = declarations.find(file, module, scope, visibilities, kinds,
+                topLevelTypes, directMembers, includeSynthetic, limit, offset);
+        String root = SemanticRecords.rootSeed("declarations-of", file);
+        for (DeclarationRow row : results) {
+            String seed = SemanticRecords.childSeed(root, "declaration", row.nodeId);
+            writer.write(entity(row, seed, root, identity));
+            writer.write(SemanticRecords.seedEvidence(seed, root, 1, true, null, identity));
+        }
+        boolean complete = offset + results.size() >= total;
+        writer.write(SemanticRecords.seedEvidence(root, null, results.size(), complete,
+                complete ? null : "RESULT_LIMIT", !complete, identity));
+        return new Result(1, results.size(), complete, !complete);
     }
 
     private static java.util.Map<String, Object> entity(DeclarationRow row, String seed,
@@ -150,6 +129,31 @@ public final class DeclarationsOfCommand implements Callable<Integer> {
             values.add(value);
         });
         return Set.copyOf(values);
+    }
+
+    @Override protected int emitIllegalArgument(IllegalArgumentException failure) {
+        if (failure.getMessage() != null && (failure.getMessage().contains("index db not found")
+                || failure.getMessage().contains("no index db found"))) {
+            System.err.println("ERROR[INDEX_MISSING]: " + failure.getMessage());
+            return 3;
+        }
+        return super.emitIllegalArgument(failure);
+    }
+
+    @Override protected int emitIllegalState(IllegalStateException failure) {
+        String message = failure.getMessage() == null ? "index query failed" : failure.getMessage();
+        String code = message.startsWith("SCHEMA_MISMATCH")
+                ? "SCHEMA_MISMATCH" : "GRAPH_INTEGRITY_FAILED";
+        System.err.println("ERROR[" + code + "]: " + message);
+        return 3;
+    }
+
+    @Override protected int emitRuntimeFailure(RuntimeException failure) {
+        if (failure instanceof DeclarationQueryService.DeclarationQueryException declaration) {
+            System.err.println("ERROR[" + declaration.code() + "]: " + declaration.getMessage());
+            return 3;
+        }
+        return super.emitRuntimeFailure(failure);
     }
 
     private String query() { return queryWithOffset(offset); }

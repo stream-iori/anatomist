@@ -26,7 +26,7 @@ public final class RuntimeImplementationsCommand extends SemanticCommand {
         world = CliValidation.choice("--world", world, "workspace-open", "workspace-closed", "classpath-open");
         CliValidation.positive("--max-depth", maxDepth); CliValidation.positive("--limit", limit);
         AtomicInteger seeds = new AtomicInteger(), emitted = new AtomicInteger();
-        SemanticStreamReader.Summary input = SemanticStreamReader.readFrames(System.in, Set.of("entity"), acceptUnframed, identity, frame -> {
+        SemanticStreamReader.Summary input = readFrames(Set.of("entity"), acceptUnframed, identity, frame -> {
             seeds.incrementAndGet(); int count = 0;
             for (SemanticRecord record : frame.records()) {
                 SemanticRecord.Entity entity = (SemanticRecord.Entity) record;

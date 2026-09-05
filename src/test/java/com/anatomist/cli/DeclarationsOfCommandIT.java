@@ -134,6 +134,16 @@ class DeclarationsOfCommandIT {
         assertTrue(run.stderr().contains("SOURCE_PROFILE_INCOMPLETE"), run.stderr());
     }
 
+    @Test void missingIndexKeepsStructuredStandaloneError() throws Exception {
+        Path missing = tmp.resolve("missing.db");
+        CliTestSupport.RunResult run = CliTestSupport.capture(() ->
+                new CommandLine(new AnatomistCli()).execute(
+                        "declarations-of", "--file", AUTH, "--index", missing.toString()));
+        assertEquals(3, run.exitCode());
+        assertTrue(run.stderr().contains("ERROR[INDEX_MISSING]"), run.stderr());
+        assertFalse(run.stderr().contains("\tat "), run.stderr());
+    }
+
     @Test void persistedParseFailureFailsClosed() throws Exception {
         try (SqliteStore store = new SqliteStore(db)) {
             store.replaceIndexDiagnostics(List.of(new IndexDiagnostic(

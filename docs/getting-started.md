@@ -67,32 +67,35 @@ anatomist doctor --agent-preflight --format json --index /tmp/project.db
 
 ## 第一条查询管道
 
-把同一个 `--index` 传给每段：
+多段查询优先用单进程入口，公共参数只写一次：
 
 ```bash
-set -o pipefail
-anatomist search OrderService --kind type --index /tmp/shop.db |
-  anatomist resolve --unique --index /tmp/shop.db |
-  anatomist members --recursive --index /tmp/shop.db
+anatomist pipeline --index /tmp/shop.db -- \
+  search OrderService --kind type \
+  --then resolve --unique \
+  --then members --recursive
 ```
 
 精确方法源码：
 
 ```bash
-anatomist resolve \
-  'com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' \
-  --kind callable --exact --unique --index /tmp/shop.db |
-  anatomist source --limit 200 --index /tmp/shop.db
+anatomist pipeline --index /tmp/shop.db -- \
+  resolve 'com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' \
+    --kind callable --exact --unique \
+  --then source --limit 200
 ```
 
 调用点、静态派发候选和源码：
 
 ```bash
-anatomist resolve 'p.A#run()' --kind callable --exact --unique --index /tmp/project.db |
-  anatomist calls --direction outgoing --index /tmp/project.db |
-  anatomist dispatch --algorithm auto --index /tmp/project.db |
-  anatomist source --index /tmp/project.db
+anatomist pipeline --index /tmp/project.db -- \
+  resolve 'p.A#run()' --kind callable --exact --unique \
+  --then calls --direction outgoing \
+  --then dispatch --algorithm auto \
+  --then source
 ```
+
+原 Unix 管道继续支持。需要连接外部程序或让不同段使用不同 scope/module 时，使用 `set -o pipefail` 并给每段传同一个索引。
 
 ## 如何读输出
 

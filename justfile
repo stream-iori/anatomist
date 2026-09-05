@@ -379,6 +379,10 @@ smoke: index-fixture
     {{NATIVE_BIN}} calls --index {{SMOKE_DB}} <"$TMP/calls-1" >"$TMP/calls-2"
     {{NATIVE_BIN}} dispatch --index {{SMOKE_DB}} <"$TMP/calls-2" >"$TMP/calls-3"
     {{NATIVE_BIN}} source --limit 20 --index {{SMOKE_DB}} <"$TMP/calls-3" >"$TMP/calls-4"
+    {{NATIVE_BIN}} pipeline --index {{SMOKE_DB}} -- \
+      resolve "$METHOD" --kind callable --exact --unique \
+      --then calls --then dispatch --then source --limit 20 >"$TMP/calls-fused"
+    cmp "$TMP/calls-4" "$TMP/calls-fused"
     echo "=== resolve | calls | dispatch | source ==="
     head -n 20 "$TMP/calls-4"
 
@@ -469,7 +473,11 @@ native-smoke: jar native
           run_cli "$variant" calls --index "$db" |
           run_cli "$variant" dispatch --index "$db" |
           run_cli "$variant" source --limit 20 --index "$db" >"$prefix-calls"
-        for case in search overview declarations members calls; do
+        run_cli "$variant" pipeline --index "$db" -- \
+          resolve "$method" --kind callable --exact --unique \
+          --then calls --then dispatch --then source --limit 20 >"$prefix-calls-fused"
+        cmp "$prefix-calls" "$prefix-calls-fused"
+        for case in search overview declarations members calls calls-fused; do
           normalize "$db" <"$prefix-$case" >"$prefix-$case.normalized"
         done
     }
@@ -477,7 +485,7 @@ native-smoke: jar native
     run_suite jvm "$DB_JVM" "${OUT}-jvm"
     run_suite native "$DB_NAT" "${OUT}-native"
     FAIL=0
-    for case in search overview declarations members calls; do
+    for case in search overview declarations members calls calls-fused; do
         echo "--- $case ---"
         if diff -u "${OUT}-jvm-$case.normalized" "${OUT}-native-$case.normalized"; then
             echo PASS

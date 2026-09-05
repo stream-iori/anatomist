@@ -35,7 +35,7 @@ public final class TypeRelationsCommand extends SemanticCommand {
         if (limit > SemanticRecords.MAX_LIMIT) throw new IllegalArgumentException("--limit must be <= " + SemanticRecords.MAX_LIMIT);
         AtomicInteger seeds = new AtomicInteger(), emitted = new AtomicInteger();
         AtomicBoolean complete = new AtomicBoolean(true), truncated = new AtomicBoolean(false);
-        SemanticStreamReader.Summary input = SemanticStreamReader.readFrames(System.in, Set.of("entity"),
+        SemanticStreamReader.Summary input = readFrames(Set.of("entity"),
                 acceptUnframed, identity, frame -> {
             seeds.incrementAndGet();
             int count = 0;

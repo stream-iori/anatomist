@@ -44,7 +44,7 @@ anatomist doctor --agent-preflight --format json --index /path/to/index.db
 | `next_queries` 字符串 | 用 `limit/offset` 明确续页，并检查 `truncated`/coverage |
 | 调用边与调用点重复存储 | 字典化的 `call_site_owners` + `call_sites` + targets |
 
-`json` 和 `table` 仍可用于终端展示，但不能作为中间管道。脚本应使用 `set -o pipefail`，并把同一个 `--index` 传给每段。
+`json` 和 `table` 仍可用于终端展示，但不能作为中间管道。新脚本优先用 `anatomist pipeline --index <db> -- ... --then ...`；原 Unix 管道继续支持，使用时应启用 `set -o pipefail` 并把同一个 `--index` 传给每段。
 
 ## 兼容性验收
 

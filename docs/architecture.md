@@ -14,6 +14,27 @@
 - `query/semantic/` — `semantic-stream/v1` records、NDJSON framing、三类身份和有界 cursor。
 - `cli/` — picocli adapters; `IndexOutput` owns the full/incremental text and JSON contract instead of mixing rendering into `IndexCommand`.
 
+## Query pipeline
+
+```text
+pipeline argv / JSON spec
+        │ parse + record-type preflight
+        ▼
+SemanticExecutionContext
+  └─ one IndexLock + QueryService + SQLite connection + SemanticIdentity
+        │
+        ▼
+SemanticCommand ── Map record ──> SemanticFrameAssembler
+        │                            │ bounded SeedFrame
+        └────────────────────────────▼
+                              next SemanticCommand ──> final writer
+```
+
+Standalone commands use the same `SemanticCommand` adapter with NDJSON stdin/stdout.
+Fused execution replaces only the intermediate transport: it does not change query services,
+record order, evidence, SQLite schema, or Shell-pipeline compatibility. A cursor is closed
+before its completed frame is sent downstream, so the shared connection never nests live results.
+
 ## Indexing pipeline
 
 ```
@@ -115,7 +136,7 @@ may reference nodes owned by another producer.
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Schema v20 has no migration path. It stores call-site joins with an internal integer
+Schema v21 has no migration path. It stores call-site joins with an internal integer
 primary key and keeps the public stable ID as a 32-byte SHA-256 digest. Separate
 `call_site_targets` let one syntax site retain several static candidates without
 repeating a long text key.

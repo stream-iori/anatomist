@@ -100,6 +100,7 @@ class AgentContractIT {
         assertTrue(((List<?>) json.get("commands")).contains("search"));
         assertTrue(((List<?>) json.get("commands")).contains("skill"));
         assertTrue(((List<?>) json.get("commands")).contains("overview"));
+        assertTrue(((List<?>) json.get("commands")).contains("pipeline"));
         assertFalse(((List<?>) json.get("commands")).contains("branches-of"));
         assertFalse(((List<?>) json.get("commands")).contains("flow-materialize"));
         assertFalse(((List<?>) json.get("commands")).contains("bean-config"));
@@ -117,6 +118,7 @@ class AgentContractIT {
         assertFalse(((List<?>) json.get("capabilities")).contains("progressive-dataflow"));
         assertTrue(((List<?>) json.get("capabilities")).contains("file-resolution-coverage"));
         assertTrue(((List<?>) json.get("capabilities")).contains("agent-skill-topics"));
+        assertTrue(((List<?>) json.get("capabilities")).contains("fused-semantic-pipeline"));
         assertNotNull(json.get("schema_version"));
         assertNotNull(json.get("default_index_path"));
         assertEquals(fixture().toRealPath().toString(), json.get("source_root"));

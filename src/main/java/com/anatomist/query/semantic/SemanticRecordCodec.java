@@ -5,10 +5,10 @@ import java.util.Map;
 import static com.anatomist.query.semantic.SemanticStreamReader.SemanticStreamException;
 
 /** Hand-written record-dispatched decoder for semantic-stream/v1. */
-final class SemanticRecordCodec {
+public final class SemanticRecordCodec {
     private SemanticRecordCodec() {}
 
-    static SemanticRecord decode(Map<String, Object> raw) {
+    public static SemanticRecord decode(Map<String, Object> raw) {
         String type = requiredString(raw, "record");
         SemanticRecord.Header header = new SemanticRecord.Header(type,
                 string(raw, "seed_id"), string(raw, "parent_seed_id"),

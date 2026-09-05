@@ -14,6 +14,8 @@ Use this guide for every independent static-analysis session.
    query command's `--help` before execution.
 6. For declaration seeds from known files, use `declarations-of`; do not infer
    Java declarations with source-text regular expressions.
+7. For multi-stage queries, prefer `pipeline --index <db> -- ... --then ...` so all
+   stages use one read-only snapshot. Use Unix pipes for external tools or distinct scopes.
 
 For an unexpected missing symbol, inspect `doctor --format json --index <db>`
 for `config_source`, `config_path`, and `scan_policy_hash`. They describe the

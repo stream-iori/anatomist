@@ -22,6 +22,32 @@ search ───────> resolve ─┬─ members ────────
 | `--on-unsupported fail` | 缺能力默认退出 3；`continue` 会保留不完整 evidence |
 | final evidence 不 complete | 继续分页/补证，不得把空结果当成不存在 |
 
+## 单进程 `pipeline`
+
+```bash
+anatomist pipeline --index <db> -- \
+  resolve 'p.A#run()' --kind callable --exact --unique \
+  --then calls --direction outgoing \
+  --then dispatch
+
+anatomist pipeline --index <db> --file pipeline.json
+```
+
+```json
+{"stages":[["resolve","p.A#run()","--kind","callable","--exact","--unique"],["calls"],["dispatch"]]}
+```
+
+| 规则 | 结果 |
+|---|---|
+| `--index/--module/--scope/--format` | 只放在 `pipeline` 全局，stage 内会拒绝 |
+| stage | 只允许 20 个只读 semantic-stream 查询命令 |
+| 资源上限 | 16 stages、每段 256 argv、spec 1 MiB；typed 中间流沿用协议上限 |
+| 执行 | 一个进程、一个只读 SQLite 连接；中间传 typed seed frame |
+| 成功 | stdout 与等价 Shell 管道原始字节一致 |
+| 失败 | exit 5；stderr 为一行结构化 JSON；不会写最终 stream evidence |
+
+Shell 的 `resolve | calls | dispatch` 仍兼容。需要跨 module/scope、外部程序或分支编排时继续使用 Shell。
+
 ## 索引和诊断
 
 ### `index`
@@ -103,12 +129,12 @@ anatomist resolve 'p.A#run(java.lang.String)' --kind callable --exact --unique -
 | `callable-relations` | callable entity | callable_relation | override/contract，不是调用 |
 | `calls` | callable entity | call_site | `--direction outgoing\|incoming --limit`；直接源码调用点 |
 | `dispatch` | call_site | dispatch_target | `--algorithm --world`；静态候选，不是运行观察 |
-| `references` | entity | reference_relation | `--direction incoming\|outgoing --limit` |
+| `references` | entity | reference_site | `--direction incoming\|outgoing --limit` |
 | `accesses` | value/entity | access_site | `--mode reads\|writes\|all --limit` |
 | `bindings` | entity | binding_relation | `--direction --semantic`；Spring/配置跨域关系 |
 | `regions` | callable entity | control_region | `--kind branch --limit` |
 | `sites-in` | control_region | site records | `--record all\|... --limit` |
-| `trace` | entity | trace_step | `--to --max-depth --dispatch resolved\|possible` |
+| `trace` | entity | trace | `--to --max-depth --dispatch resolved\|possible` |
 | `source` | entity/site/dispatch | source_slice | `--limit 1..1000 --offset`，校验源码快照 |
 
 ## 独立查询

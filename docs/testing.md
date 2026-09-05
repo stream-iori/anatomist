@@ -121,7 +121,7 @@ tests/scenarios/<scenario-id>/
 └── expected.stderr         # 可选；stderr 文本精确对比
 ```
 
-**Driver**：`src/test/java/com/anatomist/cli/GoldenFileIT` — `@TestFactory` 自动遍历 `tests/scenarios/*/pipeline.json`，在同一 JVM 中把每段 stdout 接到下一段 stdin，真实验证 framing、identity 和 evidence。规范化策略：
+**Driver**：`src/test/java/com/anatomist/cli/GoldenFileIT` — `@TestFactory` 自动遍历 `tests/scenarios/*/pipeline.json`。成功场景先执行逐段 stdin/stdout Shell 模型，再把同一文件交给 `pipeline --file`，比较原始字节后才与 expected 对拍。规范化策略：
 
 - 内置 JSON codec 递归排序 map key，让输出顺序稳定（不依赖 JsonUnit / AssertJ JSON 这种额外依赖，保持 4 dep 预算）
 - 项目根绝对路径替换为 `${PROJECT}`，跨机器/CI 稳定
@@ -143,8 +143,8 @@ sdk env
 
 | 命令 | 验证什么 | 说明 |
 |------|----------|------|
-| `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | 运行真实 `search\|resolve\|members`、`resolve\|calls\|dispatch\|source` 管道。 |
-| `just native-smoke` | JVM jar 与 native binary 输出一致性 | 对 1.0 终端查询和多段 NDJSON pipeline 归一化 revision 后逐字对拍。 |
+| `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | Shell 与 fused `resolve\|calls\|dispatch\|source` 原始字节对拍。 |
+| `just native-smoke` | JVM jar 与 native binary 输出一致性 | 同时对拍 Shell/fused 和 JVM/native。 |
 | `just stream-stress` | 10 万 seed 的有界流 | 在 `-Xmx128m` 子 JVM 中验证逐 seed 交付；默认测试排除。 |
 | `just bench-query-refactor` | 0.14 → 1.0 产品回归 | 默认冻结并使用 `~/.local/bin/anatomist`；可用 `ANATOMIST_BASELINE_BIN` 覆盖。 |
 | `just bench-query-refactor-git [BASELINE_REF]` | 可复现的 0.14 → 1.0 回归 | detached worktree 构建旧版本；报告写入 `target/benchmarks/query-refactor/`。 |
@@ -223,9 +223,11 @@ just bench-query-refactor-git dd2e575
 
 pipeline 执行引擎优化使用独立的同契约 benchmark，避免把 0.14 聚合命令的语义差异
 混入优化收益。基线可使用冻结 binary，默认 recipe 则从融合前提交 `f5a9ef2` 构建。
-脚本只用基线 binary 创建一次索引，两个查询实现交替读取同一个 DB；覆盖单段 resolve、
+脚本只用基线 binary 创建一次索引；baseline 执行 Shell 多进程管道，candidate 执行
+单进程 `pipeline`，四组 workload 按 round-robin AB/BA 交替读取同一个 DB，避免短时
+系统负载只污染一组；原始样本写入 `results.json`。覆盖单段 resolve、
 两段 type pipeline、三段 calls pipeline 和自动选出的最高扇出 callable。每个 workload
-必须保持原始 NDJSON 字节一致、包含最终 stream evidence，且 p50/p95 不得超过回归预算：
+必须保持原始 NDJSON 字节一致、包含最终 stream evidence，并记录 p50/p95 与峰值 RSS：
 
 ```bash
 just bench-semantic-pipeline f5a9ef2

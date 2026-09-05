@@ -22,7 +22,7 @@ public final class BindingsCommand extends SemanticCommand {
         direction=CliValidation.choice("--direction", direction, "outgoing", "incoming");
         semantic=CliValidation.choice("--semantic", semantic, "any", "realizes", "wires", "parent", "factory");
         CliValidation.positive("--limit", limit); AtomicInteger seeds=new AtomicInteger(), emitted=new AtomicInteger();
-        SemanticStreamReader.Summary input=SemanticStreamReader.readFrames(System.in, Set.of("entity"), acceptUnframed, identity, frame->{
+        SemanticStreamReader.Summary input=readFrames(Set.of("entity"), acceptUnframed, identity, frame->{
             seeds.incrementAndGet(); int count=0;
             for(SemanticRecord record:frame.records()){
                 SemanticRecord.Entity entity=(SemanticRecord.Entity)record;

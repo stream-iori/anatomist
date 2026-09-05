@@ -14,6 +14,7 @@ import com.anatomist.query.semantic.SemanticCursor;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,7 +51,7 @@ public final class CallsCommand extends SemanticCommand {
         AtomicInteger emitted = new AtomicInteger();
         AtomicBoolean complete = new AtomicBoolean(true);
         AtomicBoolean truncated = new AtomicBoolean(false);
-        SemanticStreamReader.Summary input = SemanticStreamReader.readFrames(System.in,
+        SemanticStreamReader.Summary input = readFrames(
                 Set.of("entity"), acceptUnframed, identity, frame -> {
             seeds.incrementAndGet();
             if (frame.records().isEmpty()) {
@@ -72,22 +73,23 @@ public final class CallsCommand extends SemanticCommand {
                                 + entity.kind());
                     }
                     String id = entity.id();
-                    int entityCount = 0;
+                    List<CallSiteRow> buffered = new ArrayList<>();
                     try (SemanticCursor<CallSiteRow> cursor = query.callSitesCursor(id, direction)) {
                         while (cursor.hasNext()) {
-                            CallSiteRow site = cursor.next();
-                            if (entityCount >= limit) {
-                                limited = true;
-                                break;
-                            }
-                            entityCount++;
-                            count++;
-                            String child = SemanticRecords.childSeed(parent, "calls", site.id);
-                            writer.write(callSite(site, child, parent, entity.raw(), identity));
-                            writer.write(SemanticRecords.seedEvidence(child, parent, 1, true,
-                                    null, identity));
-                            emitted.incrementAndGet();
+                            buffered.add(cursor.next());
+                            if (buffered.size() > limit) break;
                         }
+                    }
+                    int entityCount = Math.min(buffered.size(), limit);
+                    limited |= buffered.size() > limit;
+                    for (int item = 0; item < entityCount; item++) {
+                        CallSiteRow site = buffered.get(item);
+                        count++;
+                        String child = SemanticRecords.childSeed(parent, "calls", site.id);
+                        writer.write(callSite(site, child, parent, entity.raw(), identity));
+                        writer.write(SemanticRecords.seedEvidence(child, parent, 1, true,
+                                null, identity));
+                        emitted.incrementAndGet();
                     }
                     QueryEvidence coverage = new QueryCoverageService(query.connection()).assess(
                             "outgoing".equals(direction)

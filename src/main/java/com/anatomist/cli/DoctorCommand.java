@@ -106,10 +106,11 @@ public class DoctorCommand implements Callable<Integer> {
                 "type-relations", "runtime-implementations", "callable-relations", "calls",
                 "dispatch", "bindings", "annotations", "related-docs", "references",
                 "accesses", "regions", "sites-in", "trace", "source",
-                "declarations-of", "overview",
+                "declarations-of", "overview", "pipeline",
                 "annotate", "doctor"));
         out.put("capabilities", List.of(
                 "semantic-stream-v1", "index-json-summary",
+                "fused-semantic-pipeline",
                 "spring-beans", "spring-mvc-routes", "spring-xml", "spring-xml-config-tree",
                 "branch-context-slices", "source-snapshot-fingerprint",
                 "graph-semantics-version", "core-reflection",

@@ -46,7 +46,7 @@ public final class SourceCommand extends SemanticCommand {
         AtomicInteger emitted = new AtomicInteger();
         AtomicBoolean complete = new AtomicBoolean(true);
         AtomicBoolean truncated = new AtomicBoolean(false);
-        SemanticStreamReader.Summary input = SemanticStreamReader.readFrames(System.in,
+        SemanticStreamReader.Summary input = readFrames(
                 acceptedInputRecords(), acceptUnframed, identity,
                 frame -> {
             seeds.incrementAndGet();

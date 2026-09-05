@@ -8,8 +8,9 @@
 | Map packages and dependencies | `overview`，再用 `members | references` 缩小范围 |
 | Apply project docs | `index-docs`，再用 `search | resolve | related-docs` |
 
-Read every selected command's `--help`. Pass the same index to each stage and
-require final stream evidence. Routes, annotations, names, and documents are
+Read every selected command's `--help`. Execute multi-stage rows with
+`pipeline --index <db> -- <stage> --then <stage>` and require final stream evidence.
+Routes, annotations, names, and documents are
 technical signals; verify source/configuration before calling them business rules.
 
 Use `source --limit/--offset` until the required declaration range is covered.

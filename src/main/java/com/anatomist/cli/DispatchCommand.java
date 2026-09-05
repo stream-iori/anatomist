@@ -25,7 +25,7 @@ public final class DispatchCommand extends SemanticCommand {
         world=CliValidation.choice("--world", world, "workspace-open", "workspace-closed", "classpath-open");
         CliValidation.positive("--max-depth", maxDepth); CliValidation.positive("--limit", limit);
         AtomicInteger seeds=new AtomicInteger(), emitted=new AtomicInteger(); AtomicBoolean complete=new AtomicBoolean(true), truncated=new AtomicBoolean(false);
-        SemanticStreamReader.Summary input=SemanticStreamReader.readFrames(System.in, Set.of("call_site"), acceptUnframed, identity, frame->{
+        SemanticStreamReader.Summary input=readFrames(Set.of("call_site"), acceptUnframed, identity, frame->{
             seeds.incrementAndGet(); int count=0; boolean frameComplete=frame.evidence().complete();
             for(SemanticRecord record:frame.records()){
                 SemanticRecord.CallSite site=(SemanticRecord.CallSite)record;

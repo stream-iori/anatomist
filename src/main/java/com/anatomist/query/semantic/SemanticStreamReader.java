@@ -167,6 +167,16 @@ public final class SemanticStreamReader {
         }
     }
 
+    static void validateTypedRecord(SemanticRecord record, Set<String> acceptedRecords,
+                                    SemanticIdentity expected) {
+        validateIdentity(record.header(), expected);
+        if (!(record instanceof SemanticRecord.Evidence)
+                && !acceptedRecords.contains(record.type())) {
+            throw new SemanticStreamException("INPUT_TYPE_MISMATCH",
+                    "operation does not accept record " + record.type());
+        }
+    }
+
     private static void requireEqual(String actual, String expected, String field, String code) {
         if (!expected.equals(actual)) throw new SemanticStreamException(code,
                 field + " does not match the current index");

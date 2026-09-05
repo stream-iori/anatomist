@@ -23,8 +23,8 @@ import picocli.CommandLine.HelpCommand;
                 "  anatomist index . --format json           Build index JSON summary",
                 "  anatomist overview                       Structural baseline",
                 "  anatomist search OrderService             Find entity candidates",
-                "  anatomist resolve 'Class#method()' --kind callable --exact --unique |",
-                "    anatomist calls | anatomist dispatch | anatomist source",
+                "  anatomist pipeline --index index.db -- resolve 'Class#method()'",
+                "    --kind callable --exact --unique --then calls --then dispatch --then source",
                 "  anatomist declarations-of --file src/main/java/com/example/MyClass.java",
                 "",
                 "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",
@@ -57,6 +57,7 @@ import picocli.CommandLine.HelpCommand;
                 SourceCommand.class,
                 DeclarationsOfCommand.class,
                 OverviewCommand.class,
+                PipelineCommand.class,
                 AnnotateCommand.class,
                 DoctorCommand.class
         }
@@ -93,7 +94,7 @@ public class AnatomistCli implements Runnable {
         return new CommandLine(new AnatomistCli());
     }
 
-    private static Object directCommand(String name) {
+    static Object directCommand(String name) {
         return switch (name) {
             case "skill" -> new SkillCommand();
             case "index" -> new IndexCommand();
@@ -118,6 +119,7 @@ public class AnatomistCli implements Runnable {
             case "source" -> new SourceCommand();
             case "declarations-of" -> new DeclarationsOfCommand();
             case "overview" -> new OverviewCommand();
+            case "pipeline" -> new PipelineCommand();
             case "annotate" -> new AnnotateCommand();
             case "doctor" -> new DoctorCommand();
             default -> null;

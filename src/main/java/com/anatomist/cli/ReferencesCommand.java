@@ -19,7 +19,7 @@ public final class ReferencesCommand extends SemanticCommand {
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer){
         direction=CliValidation.choice("--direction",direction,"outgoing","incoming"); CliValidation.positive("--limit",limit);
         AtomicInteger seeds=new AtomicInteger(),emitted=new AtomicInteger(); boolean[] complete={true},truncated={false};
-        SemanticStreamReader.Summary input=SemanticStreamReader.readFrames(System.in,Set.of("entity"),acceptUnframed,identity,frame->{
+        SemanticStreamReader.Summary input=readFrames(Set.of("entity"),acceptUnframed,identity,frame->{
             seeds.incrementAndGet();int count=0;boolean frameComplete=frame.evidence().complete();boolean frameTruncated=false;
             for(SemanticRecord record:frame.records()){
                 SemanticRecord.Entity entity=(SemanticRecord.Entity)record;

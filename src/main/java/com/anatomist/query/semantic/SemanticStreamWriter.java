@@ -6,6 +6,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /** Writes semantic records as NDJSON, a terminal JSON array, or a compact table. */
 public final class SemanticStreamWriter implements AutoCloseable {
@@ -14,6 +15,7 @@ public final class SemanticStreamWriter implements AutoCloseable {
     private final PrintStream out;
     private final Format format;
     private final List<Map<String, Object>> buffered;
+    private final Consumer<Map<String, Object>> sink;
     private boolean tableHeader;
 
     public SemanticStreamWriter(PrintStream out, String requestedFormat) {
@@ -26,9 +28,22 @@ public final class SemanticStreamWriter implements AutoCloseable {
                     "--format must be ndjson, json, or table; got " + requestedFormat);
         };
         this.buffered = format == Format.JSON ? new ArrayList<>() : null;
+        this.sink = null;
+    }
+
+    /** Typed in-process transport used by the fused pipeline executor. */
+    public SemanticStreamWriter(Consumer<Map<String, Object>> sink) {
+        this.out = null;
+        this.format = Format.NDJSON;
+        this.buffered = null;
+        this.sink = sink;
     }
 
     public void write(Map<String, Object> record) {
+        if (sink != null) {
+            sink.accept(record);
+            return;
+        }
         switch (format) {
             case NDJSON -> {
                 out.println(Json.writeCompact(record));
@@ -55,6 +70,7 @@ public final class SemanticStreamWriter implements AutoCloseable {
     }
 
     @Override public void close() {
+        if (sink != null) return;
         if (format == Format.JSON) out.println(Json.writePretty(buffered));
         out.flush();
         ensureWritable();

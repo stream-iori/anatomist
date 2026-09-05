@@ -47,6 +47,23 @@ data(child B) → evidence(child B) → evidence(parent A)
 
 能力默认 `--on-unsupported=fail`；`continue` 会发 `UNSUPPORTED_CAPABILITY` evidence，并保持流不完整。
 
+### Fused pipeline 错误
+
+`anatomist pipeline` 把任意规格、组合或 stage 失败统一映射为 exit 5，stderr 只写一行 JSON：
+
+```json
+{"code":"PIPELINE_STAGE_FAILED","stage":2,"command":"calls","cause_exit":2,"cause_code":"INPUT_TYPE_MISMATCH","message":"..."}
+```
+
+| code | 含义 |
+|---|---|
+| `PIPELINE_INVALID_SPEC` | JSON/argv/命令不合法 |
+| `PIPELINE_INCOMPATIBLE_STAGES` | 前段输出 record 不能被后段消费 |
+| `PIPELINE_STAGE_FAILED` | 某段查询失败；`cause_*` 保留单命令类别 |
+| `PIPELINE_LIMIT_EXCEEDED` | stage、argv、spec 或 typed stream 超限 |
+
+失败前 stdout 可能已有完整 seed，但一定没有最终 `evidence(scope=stream)`。
+
 ## 1.0 Java 能力
 
 | 操作 | 输入 | 输出 | 边界 |
