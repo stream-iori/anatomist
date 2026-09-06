@@ -17,6 +17,11 @@ final class SymbolGraphDelta {
     private SymbolGraphDelta() {}
 
     static Impact analyze(Map<String, Node> oldNodes, List<Node> newNodes) {
+        return analyze(oldNodes, newNodes, Set.of());
+    }
+
+    static Impact analyze(Map<String, Node> oldNodes, List<Node> newNodes,
+                          Set<String> contractChangedFiles) {
         Map<String, Node> prior = oldNodes == null ? Map.of() : oldNodes;
         Map<String, Node> next = new HashMap<>();
         if (newNodes != null) {
@@ -32,7 +37,15 @@ final class SymbolGraphDelta {
             Node after = next.get(id);
             if (after != null && !sameContract(prior.get(id), after)) contractChanged.add(id);
         }
-
+        // A source contract can change only in normalized facts (for example a
+        // meta-annotation) while the node projection remains byte-for-byte stable.
+        // Fall back to the stable declarations only when no symbol-level delta
+        // exists; additions/removals already provide a more precise impact set.
+        if (removed.isEmpty() && added.isEmpty() && contractChanged.isEmpty()
+                && contractChangedFiles != null && !contractChangedFiles.isEmpty()) {
+            prior.values().stream().filter(node -> contractChangedFiles.contains(node.sourceFile))
+                    .map(node -> node.id).forEach(contractChanged::add);
+        }
         Set<String> exactTargets = new LinkedHashSet<>(removed);
         exactTargets.addAll(contractChanged);
         Set<String> ownerTargets = new LinkedHashSet<>();

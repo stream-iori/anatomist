@@ -185,6 +185,7 @@ public class IndexOrchestrator {
         stopTiming(timings, "full_metadata", phaseStarted);
         phaseStarted = startTiming(timings);
         store.refreshFileDependencies();
+        store.refreshSymbolDependencies();
         stopTiming(timings, "full_file_dependencies", phaseStarted);
 
         phaseStarted = startTiming(timings);

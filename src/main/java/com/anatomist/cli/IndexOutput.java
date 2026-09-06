@@ -202,6 +202,17 @@ final class IndexOutput {
         stats.put("new_files", summary.newFiles);
         stats.put("deleted_files", summary.deletedFiles);
         stats.put("realigned_dependents", summary.realignedDependents);
+        stats.put("primary_files", summary.primaryFiles);
+        stats.put("staged_nodes", summary.stagedNodes);
+        stats.put("staged_edges", summary.stagedEdges);
+        stats.put("inserted_nodes", summary.insertedNodes);
+        stats.put("inserted_edges", summary.insertedEdges);
+        stats.put("updated_nodes", summary.updatedNodes);
+        stats.put("updated_edges", summary.updatedEdges);
+        stats.put("unchanged_nodes", summary.unchangedNodes);
+        stats.put("unchanged_edges", summary.unchangedEdges);
+        stats.put("publish_retries", summary.publishRetries);
+        stats.put("metadata_only", summary.metadataOnly);
         stats.put("deleted_nodes", summary.deletedNodes);
         stats.put("deleted_edges", summary.deletedEdges);
         stats.put("written_nodes", summary.writtenNodes);

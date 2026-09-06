@@ -93,11 +93,23 @@ class IndexCommandIT {
         assertEquals(0, full.exitCode(), full.stderr());
         Map<?, ?> first = (Map<?, ?>) ((Map<?, ?>) Json.parseTree(full.stdout())).get("index_identity");
         assertEquals("anatomist-index-identity/v1", first.get("contract"));
+        String indexedAt;
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            indexedAt = scalarString(statement,
+                    "SELECT value FROM project_meta WHERE key='indexed_at'");
+        }
 
         RunResult noop = CliTestSupport.runIndex(project, "--no-classpath", "--incremental",
                 "--output", db.toString(), "--format", "json");
         Map<?, ?> second = (Map<?, ?>) ((Map<?, ?>) Json.parseTree(noop.stdout())).get("index_identity");
         assertEquals(first, second);
+        assertTrue(noop.stdout().contains("\"metadata_only\" : false"), noop.stdout());
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement()) {
+            assertEquals(indexedAt, scalarString(statement,
+                    "SELECT value FROM project_meta WHERE key='indexed_at'"));
+        }
 
         Files.writeString(project.resolve("src/main/java/p/A.java"),
                 "package p; class A { void changed() {} }\n");

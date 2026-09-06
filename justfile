@@ -255,6 +255,12 @@ bench-storage-p1 BASELINE_REF="a2c5ce7cbc7fe84e25ff7ca8907c365fbf2f21d7": native
         --baseline-ref "{{BASELINE_REF}}" \
         --candidate-bin "{{NATIVE_BIN}}"
 
+# Incremental P0/P1: lock/publish, fact diff, storage, query and real workload gates
+bench-incremental-p01 BASELINE_REF="10c873cf96efef476bbfc60c106d8ff9a2b6b383": native
+    python3 scripts/benchmark-incremental-p01.py \
+        --baseline-ref "{{BASELINE_REF}}" \
+        --candidate-bin "{{NATIVE_BIN}}"
+
 # Integration tests (anything ending in *IT)
 it:
     #!/usr/bin/env bash
@@ -279,6 +285,14 @@ extension-e2e-jvm: jar
 # Run the same lifecycle through the native binary and diff its query JSON against the JVM jar.
 extension-e2e-native: jar native
     bash scripts/extension-e2e.sh native {{NATIVE_BIN}}
+
+incremental-e2e-jvm: jar
+    bash scripts/incremental-e2e.sh jvm
+
+incremental-e2e-native: jar native
+    bash scripts/incremental-e2e.sh native {{NATIVE_BIN}}
+
+verify-incremental-p01: test incremental-e2e-jvm incremental-e2e-native smoke native-smoke agent-e2e-contract agent-e2e-fixture agent-e2e-smoke
 
 # One specific test class or method
 test-one PATTERN:

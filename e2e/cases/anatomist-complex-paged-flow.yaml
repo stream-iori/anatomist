@@ -23,7 +23,7 @@ checks:
     type: extension
     provider: anatomist
     severity: hard
-    config: {check: command_sequence, commands: [skill, doctor, index, resolve]}
+    config: {check: command_sequence, commands: [skill, resolve]}
     covers: [anatomist-routing]
   - id: paged-source-pipeline
     type: extension

@@ -37,6 +37,7 @@ class SqliteStoreInitSchemaTest {
         assertTrue(tables.contains("call_site_owners"));
         assertTrue(tables.contains("call_sites"));
         assertTrue(tables.contains("call_site_targets"));
+        assertTrue(tables.contains("symbol_dependencies"));
         assertTrue(tables.contains("node_names"));
         for (String removed : List.of(
                 "flow_nodes", "flow_edges", "method_flow_summaries", "method_flow_coverage")) {
@@ -59,7 +60,8 @@ class SqliteStoreInitSchemaTest {
         assertTrue(indexes.contains("idx_call_sites_caller_order"));
         assertTrue(indexes.contains("idx_call_site_owners_source"));
         assertTrue(indexes.contains("idx_call_site_targets_site"));
-        assertFalse(indexes.contains("idx_call_site_targets_identity"));
+        assertFalse(indexes.contains("idx_edges_fact_identity"));
+        assertFalse(indexes.contains("idx_annotations_fact_identity"));
         assertFalse(indexes.contains("idx_call_sites_provider"));
         assertFalse(indexes.contains("idx_call_sites_context"));
         assertFalse(indexes.contains("idx_edges_call_kind"));
@@ -103,6 +105,22 @@ class SqliteStoreInitSchemaTest {
             assertTrue(rs.next());
             assertTrue(rs.getInt(1) >= 1, "FTS5 trigger did not sync new row");
         }
+
+        long before;
+        try (Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery("SELECT total_changes()")) {
+            assertTrue(rs.next());
+            before = rs.getLong(1);
+        }
+        try (Statement st = c.createStatement()) {
+            st.executeUpdate("UPDATE nodes SET metadata='{}' WHERE id='.::MAIN::com.x.A'");
+        }
+        try (Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery("SELECT total_changes()")) {
+            assertTrue(rs.next());
+            assertEquals(1, rs.getLong(1) - before,
+                    "metadata-only node update must not rewrite FTS content");
+        }
     }
 
     @Test
@@ -113,7 +131,7 @@ class SqliteStoreInitSchemaTest {
         try (Statement st = store.connection().createStatement();
              ResultSet rs = st.executeQuery("PRAGMA user_version")) {
             assertTrue(rs.next());
-            assertEquals(25, rs.getInt(1));
+            assertEquals(26, rs.getInt(1));
         }
     }
 

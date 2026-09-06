@@ -127,6 +127,28 @@ public class DataReader {
         return out;
     }
 
+    /** Resolve only the storage ids needed by one extraction batch. */
+    public Set<String> nodeIdsForSymbols(Set<String> symbols) {
+        Set<String> out = new LinkedHashSet<>();
+        if (symbols == null || symbols.isEmpty()) return out;
+        List<String> values = new ArrayList<>(symbols);
+        for (int offset = 0; offset < values.size(); offset += 400) {
+            List<String> batch = values.subList(offset, Math.min(offset + 400, values.size()));
+            String wanted = String.join(",", java.util.Collections.nCopies(batch.size(), "(?)"));
+            String sql = "WITH wanted(value) AS (VALUES " + wanted + ") "
+                    + "SELECT n.id FROM nodes n JOIN wanted w ON n.id=w.value OR n.symbol_id=w.value";
+            try (PreparedStatement statement = conn().prepareStatement(sql)) {
+                for (int i = 0; i < batch.size(); i++) statement.setString(i + 1, batch.get(i));
+                try (ResultSet rows = statement.executeQuery()) {
+                    while (rows.next()) out.add(rows.getString(1));
+                }
+            } catch (SQLException failure) {
+                throw new RuntimeException("Failed to resolve batch node ids", failure);
+            }
+        }
+        return out;
+    }
+
     public Map<String, Node> readNodesBySourceFiles(List<String> sourceFiles) {
         Map<String, Node> out = new LinkedHashMap<>();
         if (sourceFiles == null || sourceFiles.isEmpty()) return out;
@@ -165,13 +187,9 @@ public class DataReader {
         Set<String> out = new LinkedHashSet<>();
         if (nodeIds == null || nodeIds.isEmpty()) return out;
         try (PreparedStatement ps = conn().prepareStatement(
-                "SELECT source_file FROM edges WHERE target_id=? AND source_file IS NOT NULL UNION "
-                        + "SELECT cso.source_file FROM call_site_targets cst "
-                        + "JOIN call_sites cs ON cs.site_pk=cst.call_site_pk "
-                        + "JOIN call_site_owners cso ON cso.owner_pk=cs.owner_pk WHERE cst.target_id=?")) {
+                "SELECT source_file FROM symbol_dependencies WHERE target_key=?")) {
             for (String nodeId : nodeIds) {
-                ps.setString(1, nodeId);
-                ps.setString(2, nodeId);
+                ps.setBytes(1, StableHash.text(nodeId));
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) out.add(rs.getString(1));
                 }

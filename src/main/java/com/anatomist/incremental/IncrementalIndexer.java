@@ -133,6 +133,17 @@ public class IncrementalIndexer {
         public int writtenEdges;
         public int realignedDependents;
         public int reparsedFiles;
+        public int primaryFiles;
+        public int stagedNodes;
+        public int stagedEdges;
+        public int insertedNodes;
+        public int insertedEdges;
+        public int updatedNodes;
+        public int updatedEdges;
+        public int unchangedNodes;
+        public int unchangedEdges;
+        public int publishRetries;
+        public boolean metadataOnly;
         public long unresolvedSymbols;
         public int droppedDanglingFacts;
         public final Map<String, Long> extensionCounters = new LinkedHashMap<>();
@@ -140,19 +151,35 @@ public class IncrementalIndexer {
         public String degradationReason;
     }
 
+    @FunctionalInterface
+    public interface PublicationMetadata {
+        void write(SqliteStore store, Map<String, FileCacheEntry> effectiveCache);
+    }
+
     public Summary indexIncremental(List<String> changedFiles,
                                     List<String> newFiles,
                                     List<String> deletedFiles,
                                     Map<String, String> diskHashes) {
+        return indexIncremental(changedFiles, newFiles, deletedFiles, diskHashes, null);
+    }
+
+    public Summary indexIncremental(List<String> changedFiles,
+                                    List<String> newFiles,
+                                    List<String> deletedFiles,
+                                    Map<String, String> diskHashes,
+                                    PublicationMetadata publicationMetadata) {
         long incrementalStarted = System.nanoTime();
         Summary s = new Summary();
         s.changedFiles = changedFiles.size();
         s.newFiles = newFiles.size();
         s.deletedFiles = deletedFiles.size();
+        String expectedRevision = store.readProjectMeta(
+                com.anatomist.store.IndexRevision.META_KEY).orElse(null);
 
         Set<String> primaryFiles = new LinkedHashSet<>();
         primaryFiles.addAll(changedFiles);
         primaryFiles.addAll(newFiles);
+        s.primaryFiles = primaryFiles.size();
         Set<String> toDelete = new LinkedHashSet<>();
         toDelete.addAll(changedFiles);
         toDelete.addAll(deletedFiles);
@@ -175,10 +202,8 @@ public class IncrementalIndexer {
         Set<String> processedJava = new LinkedHashSet<>();
         Set<String> pendingJava = javaFiles(primaryFiles, diskHashes);
         Set<String> realignTargets = new LinkedHashSet<>();
-        long knownIdsStarted = startTiming();
-        Set<String> knownIds = new HashSet<>(store.allNodeIds());
-        knownIds.removeAll(deletedNodeSnapshot.keySet());
-        stopTiming("known_ids", knownIdsStarted);
+        Set<String> knownIds = new HashSet<>();
+        Set<String> removedNodeIds = new HashSet<>(deletedNodeSnapshot.keySet());
         Map<String, FileCacheEntry> priorFileCache = store.readFileCache();
         Map<String, String> contractHashes = new LinkedHashMap<>();
         List<com.anatomist.core.IndexDiagnostic> resolutionDiagnostics = new ArrayList<>();
@@ -186,19 +211,6 @@ public class IncrementalIndexer {
         SourceIdentityResolver identities = sourceRoots.isEmpty()
                 ? new SourceIdentityResolver(projectRoot, sourcePaths)
                 : SourceIdentityResolver.fromRoots(projectRoot, sourceRoots);
-
-        Set<String> dependencyCandidates = transitiveDependents(toDelete, diskHashes);
-        dependencyCandidates.removeAll(primaryFiles);
-        dependencyCandidates.removeAll(deletedFiles);
-        realignTargets.addAll(dependencyCandidates);
-        pendingJava.addAll(dependencyCandidates);
-        PerformanceHistory.Decision dependencyDecision = costModel.decide(
-                primaryFiles.size() + realignTargets.size(), 0,
-                elapsedMillis(incrementalStarted));
-        if (!dependencyDecision.incremental()) {
-            degrade(s, dependencyDecision);
-            return s;
-        }
 
         long stagingStarted = startTiming();
         StagedGraphStore stagingStore = new StagedGraphStore(store.dbPath(), identities);
@@ -248,13 +260,19 @@ public class IncrementalIndexer {
                 throw new IncrementalParseException(new ArrayList<>(missing), diagnostics);
             }
             contractHashes.putAll(batch.contractHashes());
-            javaContractChanged |= batch.contractChanged();
+            javaContractChanged |= !batch.contractChangedFiles().isEmpty();
 
+            long knownIdsStarted = startTiming();
+            knownIds.addAll(store.nodeIdsForSymbols(referencedSymbols(batch.result())));
+            knownIds.removeAll(removedNodeIds);
+            stopTiming("known_ids", knownIdsStarted);
             Set<String> survivingIds = new HashSet<>(knownIds);
             survivingIds.removeAll(oldNodes.keySet());
             GraphIdentityRewriter.rewrite(batch.result(), identities, survivingIds);
             Set<String> batchNodeIds = new HashSet<>();
             for (Node node : batch.result().nodes) batchNodeIds.add(node.id);
+            removedNodeIds.addAll(oldNodes.keySet());
+            removedNodeIds.removeAll(batchNodeIds);
             Set<String> postProcessIds = new HashSet<>(survivingIds);
             postProcessIds.addAll(batchNodeIds);
             GraphPostProcessor.Summary post = new GraphPostProcessor()
@@ -268,7 +286,8 @@ public class IncrementalIndexer {
             stopTiming("parse_extract", parseStarted);
 
             long deltaStarted = startTiming();
-            SymbolGraphDelta.Impact impact = SymbolGraphDelta.analyze(oldNodes, batch.result().nodes);
+            SymbolGraphDelta.Impact impact = SymbolGraphDelta.analyze(
+                    oldNodes, batch.result().nodes, batch.contractChangedFiles());
             stopTiming("symbol_delta", deltaStarted);
             long impactStarted = startTiming();
             Set<String> candidates = impactedSourceFiles(impact);
@@ -336,8 +355,13 @@ public class IncrementalIndexer {
                     .map(com.anatomist.framework.ProjectResourceAnalyzer::producerId)
                     .forEach(rebuiltProjectProducers::add);
             if (!resources.isEmpty()) {
-                Set<String> extractionIds = new HashSet<>(knownIds);
-                knownIds.stream().map(NodeKeyFactory::symbolId).forEach(extractionIds::add);
+                Set<String> projectKnownIds = new HashSet<>(store.allNodeIds());
+                projectKnownIds.removeAll(removedNodeIds);
+                staging.symbolFacts().stream().map(com.anatomist.model.SymbolFact::id)
+                        .forEach(projectKnownIds::add);
+                Set<String> extractionIds = new HashSet<>(projectKnownIds);
+                extractionIds.addAll(extractionIds.stream().filter(NodeKeyFactory::isKey)
+                        .map(NodeKeyFactory::symbolId).toList());
                 extractionIds.addAll(staging.allSymbolIds());
                 Map<String, com.anatomist.model.BeanRefTarget> beanTargets =
                         new LinkedHashMap<>(com.anatomist.framework.spring.SpringXmlAnalyzer
@@ -349,8 +373,8 @@ public class IncrementalIndexer {
                                 mergedSymbolFacts(store.readSymbolFacts(), staging.symbolFacts()),
                                 mergedTypeRelations(store.readTypeRelations(), staging.typeRelations())),
                         beanResult, projectReport);
-                GraphIdentityRewriter.rewrite(beanResult, identities, knownIds);
-                new GraphPostProcessor().process(beanResult, knownIds);
+                GraphIdentityRewriter.rewrite(beanResult, identities, projectKnownIds);
+                new GraphPostProcessor().process(beanResult, projectKnownIds);
                 staging.writeNormalizedBatch(beanResult);
                 beanResult.clearFacts();
             }
@@ -358,13 +382,49 @@ public class IncrementalIndexer {
             stopTiming("spring_graph", springStarted);
         }
 
+        Map<String, FileCacheService.SourceFileStats> perFile = staging.sourceFileStats();
+        String now = Instant.now().toString();
+        LinkedHashSet<String> cacheTargets = new LinkedHashSet<>(toReparse);
+        for (Path xml : rebuiltXml) cacheTargets.add(relativePath(xml));
+        List<FileCacheEntry> entries = FileCacheService.buildEntries(
+                projectRoot, new ArrayList<>(cacheTargets), diskHashes, perFile, now, contractHashes);
+        Map<String, FileCacheEntry> effectiveCache = new LinkedHashMap<>(priorFileCache);
+        replaceFiles.forEach(effectiveCache::remove);
+        rebuiltXml.stream().map(this::relativePath).forEach(effectiveCache::remove);
+        entries.forEach(entry -> effectiveCache.put(entry.sourceFile(), entry));
+        Set<String> dependencyFiles = new LinkedHashSet<>(replaceFiles);
+        for (Path xml : rebuiltXml) dependencyFiles.add(relativePath(xml));
+        List<String> dependencyFileList = new ArrayList<>(dependencyFiles);
+        ExtractionContext fingerprintCtx = new ExtractionContext(
+                projectRoot, sourcePaths, new NodeIdGenerator(), null, "MAIN", projectConfig);
+        PreparedExtensions fingerprintExtensions = BuiltInExtensions.prepare(new AnalysisContext(
+                projectRoot, sourcePaths, fingerprintCtx, projectConfig, springXml));
+
         long graphStarted = startTiming();
         StagedGraphStore.IncrementalPromotionStats promoted =
                 staging.promoteIncremental(store, affectedFiles, rebuiltProjectProducers,
-                        rebuildDerivedWiring);
+                        rebuildDerivedWiring, expectedRevision, () -> {
+                            if (!entries.isEmpty()) store.updateFileCache(entries);
+                            long dependenciesStarted = startTiming();
+                            store.refreshFileDependencies(dependencyFileList);
+                            store.refreshSymbolDependencies(dependencyFileList);
+                            stopTiming("file_dependencies", dependenciesStarted);
+                            store.replaceIndexDiagnosticsForFiles(affectedFiles, resolutionDiagnostics);
+                            store.upsertProjectMeta(Map.of(PreparedExtensions.META_KEY,
+                                    fingerprintExtensions.fingerprint()));
+                            store.upsertProjectMeta(
+                                    com.anatomist.framework.lombok.LombokIndexMetadata.snapshot(
+                                            projectConfig, fingerprintExtensions, store,
+                                            resolutionDiagnostics));
+                            if (publicationMetadata != null) {
+                                publicationMetadata.write(store, Map.copyOf(effectiveCache));
+                            }
+                        });
         stopTiming("stage_promote", graphStarted);
         if (timings != null) {
             timings.addNanos("call_site_persistence", promoted.callSitePersistenceNanos());
+            timings.addNanos("publish_lock_wait", promoted.lockWaitNanos());
+            timings.addNanos("publish_transaction", promoted.publishNanos());
         }
         stopTiming("graph_replace", graphStarted);
         stopTiming("graph_write", graphStarted);
@@ -372,27 +432,13 @@ public class IncrementalIndexer {
         s.deletedEdges += promoted.deletedEdges();
         s.writtenNodes = promoted.writtenNodes();
         s.writtenEdges = promoted.writtenEdges();
-        Map<String, FileCacheService.SourceFileStats> perFile = staging.sourceFileStats();
-        String now = Instant.now().toString();
-        LinkedHashSet<String> cacheTargets = new LinkedHashSet<>(toReparse);
-        for (Path xml : rebuiltXml) cacheTargets.add(relativePath(xml));
-        List<FileCacheEntry> entries = FileCacheService.buildEntries(
-                projectRoot, new ArrayList<>(cacheTargets), diskHashes, perFile, now, contractHashes);
-        if (!entries.isEmpty()) store.updateFileCache(entries);
-
-        long dependenciesStarted = startTiming();
-        Set<String> dependencyFiles = new LinkedHashSet<>(replaceFiles);
-        for (Path xml : rebuiltXml) dependencyFiles.add(relativePath(xml));
-        store.refreshFileDependencies(new ArrayList<>(dependencyFiles));
-        stopTiming("file_dependencies", dependenciesStarted);
-        store.replaceIndexDiagnosticsForFiles(affectedFiles, resolutionDiagnostics);
-        ExtractionContext fingerprintCtx = new ExtractionContext(
-                projectRoot, sourcePaths, new NodeIdGenerator(), null, "MAIN", projectConfig);
-        PreparedExtensions fingerprintExtensions = BuiltInExtensions.prepare(new AnalysisContext(
-                projectRoot, sourcePaths, fingerprintCtx, projectConfig, springXml));
-        store.upsertProjectMeta(Map.of(PreparedExtensions.META_KEY, fingerprintExtensions.fingerprint()));
-        store.upsertProjectMeta(com.anatomist.framework.lombok.LombokIndexMetadata.snapshot(
-                projectConfig, fingerprintExtensions, store, resolutionDiagnostics));
+        s.stagedNodes = promoted.writtenNodes();
+        s.stagedEdges = promoted.writtenEdges();
+        s.insertedNodes = promoted.insertedNodes();
+        s.updatedNodes = promoted.updatedNodes();
+        s.unchangedNodes = promoted.unchangedNodes();
+        s.insertedEdges = promoted.insertedEdges();
+        s.unchangedEdges = promoted.unchangedEdges();
         return s;
         }
     }
@@ -435,12 +481,12 @@ public class IncrementalIndexer {
         missing.removeAll(parsed);
         if (!missing.isEmpty()) {
             return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
-                    Map.of(), false, List.of(), extensionReport.diagnostics(),
+                    Map.of(), Set.of(), List.of(), extensionReport.diagnostics(),
                     extensionReport.counters());
         }
 
         Map<String, String> batchContractHashes = new LinkedHashMap<>();
-        boolean contractChanged = false;
+        Set<String> changedContractFiles = new LinkedHashSet<>();
         for (var cu : parsedBatch.compilationUnits()) {
             Path abs = cu.getStorage().map(storage -> storage.getPath().toAbsolutePath().normalize())
                     .orElse(null);
@@ -451,7 +497,7 @@ public class IncrementalIndexer {
             FileCacheEntry prior = priorFileCache.get(relative);
             if (prior == null || prior.contractHash() == null
                     || !contractHash.equals(prior.contractHash())) {
-                contractChanged = true;
+                changedContractFiles.add(relative);
             }
         }
         parsed.clear();
@@ -467,7 +513,7 @@ public class IncrementalIndexer {
         }
         boolean noClasspath = "none".equals(store.readProjectMeta("classpath_mode").orElse(""));
         return new BatchExtraction(result, parsed, ctx.unresolvedCount(), parseProblems,
-                Map.copyOf(batchContractHashes), contractChanged,
+                Map.copyOf(batchContractHashes), Set.copyOf(changedContractFiles),
                 ctx.resolutionSummary(noClasspath).diagnostics(), extensionReport.diagnostics(),
                 extensionReport.counters());
     }
@@ -486,28 +532,25 @@ public class IncrementalIndexer {
         return out;
     }
 
-    private Set<String> transitiveDependents(Set<String> seeds,
-                                             Map<String, String> diskHashes) {
-        Set<String> discovered = new LinkedHashSet<>();
-        Set<String> frontier = new LinkedHashSet<>(seeds);
-        while (!frontier.isEmpty()) {
-            Set<String> next = new LinkedHashSet<>(store.dependentsOf(new ArrayList<>(frontier)));
-            next.removeAll(seeds);
-            next.removeAll(discovered);
-            next.removeIf(file -> !file.endsWith(".java") || !diskHashes.containsKey(file));
-            if (next.isEmpty()) break;
-            discovered.addAll(next);
-            frontier = next;
-        }
-        return discovered;
-    }
-
     private static Set<String> javaFiles(Set<String> files, Map<String, String> diskHashes) {
         Set<String> out = new LinkedHashSet<>();
         for (String file : files) {
             if (file.endsWith(".java") && diskHashes.containsKey(file)) out.add(file);
         }
         return out;
+    }
+
+    private static Set<String> referencedSymbols(ExtractionResult result) {
+        Set<String> symbols = new LinkedHashSet<>();
+        for (var edge : result.edges) {
+            if (edge.sourceId != null) symbols.add(edge.sourceId);
+            if (edge.targetId != null) symbols.add(edge.targetId);
+            if (edge.externalTargetFqn != null) symbols.add(edge.externalTargetFqn);
+        }
+        for (var annotation : result.annotations) {
+            if (annotation.nodeId != null) symbols.add(annotation.nodeId);
+        }
+        return symbols;
     }
 
     private String relativePath(Path path) {
@@ -524,7 +567,7 @@ public class IncrementalIndexer {
                                    long unresolvedSymbols,
                                    Map<String, List<String>> parseProblems,
                                    Map<String, String> contractHashes,
-                                   boolean contractChanged,
+                                   Set<String> contractChangedFiles,
                                    List<com.anatomist.core.IndexDiagnostic> resolutionDiagnostics,
                                    List<com.anatomist.core.IndexDiagnostic> extensionDiagnostics,
                                    Map<String, Long> extensionCounters) {}

@@ -32,12 +32,12 @@ setup:
       cwd: .
       timeout_sec: 60
 checks:
-  - id: freshness-gate
+  - id: evidence-route
     type: extension
     provider: anatomist
     severity: hard
-    description: Agent 必须先检查并同步索引门禁。
-    config: {check: command_sequence, commands: [skill, doctor, index]}
+    description: 已由 setup 建好新鲜索引；Agent 应直接进入声明和精确调用证据。
+    config: {check: command_sequence, commands: [skill, declarations-of, resolve]}
     covers: [anatomist-routing]
   - id: lombok-queries
     type: extension

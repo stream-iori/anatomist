@@ -16,6 +16,49 @@ import static org.junit.jupiter.api.Assertions.*;
 class IndexLockIT {
 
     @Test
+    void operationPreparationDoesNotBlockQueries(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("prepare.db");
+        try (IndexLock wl = IndexLock.forWrite(db); SqliteStore store = new SqliteStore(db)) {
+            store.initSchema();
+        }
+        CountDownLatch preparationStarted = new CountDownLatch(1);
+        CountDownLatch queryFinished = new CountDownLatch(1);
+        CountDownLatch allowPublish = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        Thread writer = new Thread(() -> {
+            try (IndexOperationLock ignored = IndexOperationLock.forWrite(db)) {
+                preparationStarted.countDown();
+                if (!allowPublish.await(2, TimeUnit.SECONDS)) throw new AssertionError("query blocked");
+                try (IndexLock wl = IndexLock.forWrite(db); SqliteStore store = new SqliteStore(db)) {
+                    store.upsertProjectMeta("published", "true");
+                }
+            } catch (Throwable problem) {
+                failure.set(problem);
+            }
+        });
+        Thread reader = new Thread(() -> {
+            try {
+                assertTrue(preparationStarted.await(2, TimeUnit.SECONDS));
+                try (QueryService q = new QueryService(db)) {
+                    q.search("anything", null, 10);
+                }
+            } catch (Throwable problem) {
+                failure.set(problem);
+            } finally {
+                queryFinished.countDown();
+                allowPublish.countDown();
+            }
+        });
+        writer.start();
+        reader.start();
+        assertTrue(queryFinished.await(2, TimeUnit.SECONDS), "query should finish during preparation");
+        writer.join(3000);
+        reader.join(3000);
+        assertNull(failure.get(), () -> String.valueOf(failure.get()));
+    }
+
+    @Test
     void queryWaitsForIndexToComplete(@TempDir Path tmp) throws Exception {
         Path db = tmp.resolve("it.db");
 

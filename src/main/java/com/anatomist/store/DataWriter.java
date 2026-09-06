@@ -139,18 +139,18 @@ public class DataWriter {
         boolean priorAutoCommit;
         try {
             priorAutoCommit = c.getAutoCommit();
-            c.setAutoCommit(false);
+            if (priorAutoCommit) c.setAutoCommit(false);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to begin transaction", e);
         }
         try {
             work.run(c);
-            c.commit();
+            if (priorAutoCommit) c.commit();
         } catch (RuntimeException | SQLException e) {
-            try { c.rollback(); } catch (SQLException ignore) {}
+            if (priorAutoCommit) try { c.rollback(); } catch (SQLException ignore) {}
             throw new RuntimeException("Transaction failed: " + e.getMessage(), e);
         } finally {
-            try { c.setAutoCommit(priorAutoCommit); } catch (SQLException ignore) {}
+            if (priorAutoCommit) try { c.setAutoCommit(true); } catch (SQLException ignore) {}
         }
     }
 
@@ -649,6 +649,97 @@ public class DataWriter {
             derive.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("Failed to refresh incremental file_dependencies", e);
+        }
+    }
+
+    /** Rebuild all compact symbol-level reverse dependencies. */
+    public void refreshSymbolDependencies() {
+        refreshSymbolDependencies(null);
+    }
+
+    /** Refresh reverse dependencies owned by the supplied source files. */
+    public void refreshSymbolDependencies(List<String> affectedFiles) {
+        boolean all = affectedFiles == null;
+        if (!all && affectedFiles.isEmpty()) return;
+        Connection c;
+        try {
+            c = connSupplier.get();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to acquire SQLite connection", e);
+        }
+        String placeholders = all ? "" : String.join(",",
+                Collections.nCopies(affectedFiles.size(), "?"));
+        String deleteSql = all ? "DELETE FROM symbol_dependencies"
+                : "DELETE FROM symbol_dependencies WHERE source_file IN (" + placeholders + ")";
+        String sourceFilter = all ? "" : " WHERE source_file IN (" + placeholders + ")";
+        String factsSql = """
+                SELECT source_provider_id,source_file,target_value,dependency_kind FROM (
+                  SELECT sn.provider_id source_provider_id,sn.source_file,e.target_id target_value,
+                         'internal' dependency_kind
+                  FROM edges e JOIN nodes sn ON sn.id=e.source_id
+                  WHERE e.target_id IS NOT NULL AND sn.source_file IS NOT NULL
+                  UNION
+                  SELECT caller.provider_id,owner.source_file,target.target_id,'internal'
+                  FROM call_site_targets target
+                  JOIN call_sites site ON site.site_pk=target.call_site_pk
+                  JOIN call_site_owners owner ON owner.owner_pk=site.owner_pk
+                  JOIN nodes caller ON caller.id=owner.caller_id
+                  WHERE target.target_id IS NOT NULL
+                  UNION
+                  SELECT annotation.provider_id,annotation.source_file,target.id,'annotation'
+                  FROM annotations annotation JOIN nodes target
+                    ON target.provider_id=annotation.provider_id
+                   AND target.qualified_name=annotation.annotation_fqn
+                  WHERE annotation.source_file IS NOT NULL
+                  UNION
+                  SELECT relation.provider_id,relation.source_file,target.id,'annotation-meta'
+                  FROM annotation_meta_relations relation JOIN nodes target
+                    ON target.provider_id=relation.provider_id
+                   AND target.qualified_name=relation.meta_annotation_fqn
+                  WHERE relation.source_file IS NOT NULL
+                  UNION
+                  SELECT sn.provider_id,sn.source_file,e.external_target_fqn,'external'
+                  FROM edges e JOIN nodes sn ON sn.id=e.source_id
+                  WHERE e.external_target_fqn IS NOT NULL AND sn.source_file IS NOT NULL
+                  UNION
+                  SELECT caller.provider_id,owner.source_file,target.external_target_fqn,'external'
+                  FROM call_site_targets target
+                  JOIN call_sites site ON site.site_pk=target.call_site_pk
+                  JOIN call_site_owners owner ON owner.owner_pk=site.owner_pk
+                  JOIN nodes caller ON caller.id=owner.caller_id
+                  WHERE target.external_target_fqn IS NOT NULL
+                )
+                """ + sourceFilter;
+        String insertSql = "INSERT OR IGNORE INTO symbol_dependencies"
+                + "(target_key,source_file) VALUES(?,?)";
+        try {
+            boolean previous = c.getAutoCommit();
+            if (previous) c.setAutoCommit(false);
+            try (PreparedStatement delete = c.prepareStatement(deleteSql);
+                 PreparedStatement facts = c.prepareStatement(factsSql);
+                 PreparedStatement insert = c.prepareStatement(insertSql)) {
+                if (!all) {
+                    bindRepeated(delete, affectedFiles, 1);
+                    bindRepeated(facts, affectedFiles, 1);
+                }
+                delete.executeUpdate();
+                try (var rows = facts.executeQuery()) {
+                    while (rows.next()) {
+                        insert.setBytes(1, StableHash.text(rows.getString(3)));
+                        insert.setString(2, rows.getString(2));
+                        insert.addBatch();
+                    }
+                }
+                insert.executeBatch();
+                if (previous) c.commit();
+            } catch (SQLException failure) {
+                if (previous) c.rollback();
+                throw failure;
+            } finally {
+                if (previous) c.setAutoCommit(true);
+            }
+        } catch (SQLException failure) {
+            throw new RuntimeException("Failed to refresh symbol_dependencies", failure);
         }
     }
 

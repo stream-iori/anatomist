@@ -43,6 +43,7 @@ CREATE TABLE nodes (
     direct_member INTEGER,
     synthetic INTEGER,
     binding_resolved INTEGER,
+    fact_hash BLOB CHECK (fact_hash IS NULL OR length(fact_hash) = 16),
     CHECK (
         (begin_line IS NULL AND begin_column IS NULL AND end_line IS NULL AND end_column IS NULL)
         OR
@@ -117,6 +118,8 @@ CREATE TABLE edges (
     receiver_static_type TEXT,
     metadata TEXT,
     producer_id TEXT NOT NULL DEFAULT 'java-core',
+    fact_hash BLOB CHECK (fact_hash IS NULL OR length(fact_hash) = 16),
+    fact_ordinal INTEGER NOT NULL DEFAULT 0,
     CHECK (
         (is_external = 0 AND target_id IS NOT NULL AND external_target_fqn IS NULL)
         OR
@@ -132,7 +135,6 @@ CREATE INDEX idx_edges_relation_external_fqn ON edges(relation, is_external, ext
 CREATE INDEX idx_edges_external_resolution ON edges(is_external, resolution);
 CREATE INDEX idx_edges_source_relation_external ON edges(source_id, relation, is_external);
 CREATE INDEX idx_edges_producer_file ON edges(producer_id, source_file);
-
 -- Canonical source call sites. Targets are separate because one syntax site may
 -- have several static resolution candidates.
 CREATE TABLE call_site_owners (
@@ -186,7 +188,6 @@ CREATE INDEX idx_call_site_targets_internal ON call_site_targets(target_id)
 CREATE INDEX idx_call_site_targets_external ON call_site_targets(external_target_fqn)
     WHERE external_target_fqn IS NOT NULL;
 CREATE INDEX idx_call_site_targets_site ON call_site_targets(call_site_pk);
-
 CREATE TABLE annotations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
@@ -205,13 +206,14 @@ CREATE TABLE annotations (
     begin_column INTEGER,
     end_line INTEGER,
     end_column INTEGER,
-    producer_id TEXT NOT NULL DEFAULT 'java-core'
+    producer_id TEXT NOT NULL DEFAULT 'java-core',
+    fact_hash BLOB CHECK (fact_hash IS NULL OR length(fact_hash) = 16),
+    fact_ordinal INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX idx_annotations_node_id ON annotations(node_id);
 CREATE INDEX idx_annotations_fqn ON annotations(annotation_fqn);
 CREATE INDEX idx_annotations_producer_file ON annotations(producer_id, source_file);
-
 CREATE TABLE annotation_meta_relations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     annotation_fqn TEXT NOT NULL,
@@ -252,7 +254,11 @@ CREATE TRIGGER nodes_ad AFTER DELETE ON nodes BEGIN
     VALUES ('delete', old.rowid, old.qualified_name, old.label, old.javadoc);
 END;
 
-CREATE TRIGGER nodes_au AFTER UPDATE ON nodes BEGIN
+CREATE TRIGGER nodes_au AFTER UPDATE OF qualified_name,label,javadoc ON nodes
+WHEN old.qualified_name IS NOT new.qualified_name
+  OR old.label IS NOT new.label
+  OR old.javadoc IS NOT new.javadoc
+BEGIN
     INSERT INTO node_names(node_names, rowid, qualified_name, label, javadoc)
     VALUES ('delete', old.rowid, old.qualified_name, old.label, old.javadoc);
     INSERT INTO node_names(rowid, qualified_name, label, javadoc)
@@ -405,3 +411,11 @@ CREATE TABLE file_dependencies (
 );
 
 CREATE INDEX idx_file_deps_target ON file_dependencies(depends_on_file);
+
+-- Compact symbol-level reverse dependencies used by incremental invalidation.
+-- target_key is a 64-bit SHA-256 prefix. Collisions only over-invalidate.
+CREATE TABLE symbol_dependencies (
+    target_key BLOB NOT NULL CHECK (length(target_key) = 8),
+    source_file TEXT NOT NULL,
+    PRIMARY KEY (target_key, source_file)
+) WITHOUT ROWID;

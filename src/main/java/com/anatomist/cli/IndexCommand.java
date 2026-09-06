@@ -301,7 +301,8 @@ public class IndexCommand implements Callable<Integer> {
 
         if (useIncremental) {
             boolean schemaIncompatible;
-            try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
+            try (com.anatomist.store.IndexLock readLock =
+                         com.anatomist.store.IndexLock.forRead(dbPath);
                  SqliteStore store = new SqliteStore(dbPath)) {
                 schemaIncompatible = store.schemaExists() && !store.schemaCompatible();
             }
@@ -314,8 +315,7 @@ public class IndexCommand implements Callable<Integer> {
                         phaseTimings, totalStarted);
             }
 
-            try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(dbPath);
-                 SqliteStore store = new SqliteStore(dbPath)) {
+            try (SqliteStore store = new SqliteStore(dbPath)) {
                 java.util.Map<String, FileCacheEntry> cache;
                 try {
                     cache = store.readFileCache();
@@ -435,6 +435,7 @@ public class IndexCommand implements Callable<Integer> {
                 phaseTimings.stop("change_detection", phaseStarted);
                 if (ch.isEmpty()) {
                     IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
+                    summary.metadataOnly = !scan.statRefreshes().isEmpty();
                     for (com.anatomist.core.IndexDiagnostic diagnostic : store.readIndexDiagnostics()) {
                         if ("UNRESOLVED_SYMBOLS".equals(diagnostic.code())) {
                             summary.unresolvedSymbols += diagnostic.count();
@@ -476,8 +477,22 @@ public class IndexCommand implements Callable<Integer> {
                         projectRoot, sourcePaths, runtime.factory(), store, runtime.javaVersion(),
                         maxRealignFiles, springXml, config, resolvedSourceRoots,
                         phaseTimings);
+                java.util.concurrent.atomic.AtomicReference<
+                        com.anatomist.application.ProjectMetadata.WriteResult> metadataResultRef =
+                        new java.util.concurrent.atomic.AtomicReference<>();
                 IncrementalIndexer.Summary summary = ii.indexIncremental(
-                        ch.changed, ch.added, ch.deleted, diskHashes);
+                        ch.changed, ch.added, ch.deleted, diskHashes, (target, effectiveCache) -> {
+                            long metadataStarted = phaseTimings.start();
+                            metadataResultRef.set(
+                                    com.anatomist.application.ProjectMetadata.writeIncremental(
+                                            target, projectRoot, sourcePaths, resolvedSourceRoots,
+                                            runtime.javaVersion(), runtime.classpathMode(),
+                                            runtime.classpathEntries(), classpath, springXml,
+                                            effectiveCache, phaseTimings, gitTask, loadedConfig,
+                                            scanPolicy, effectiveScanScopes, providerId));
+                            persistClasspathDetection(target, cd, projectRoot);
+                            phaseTimings.stop("metadata", metadataStarted);
+                        });
 
                 if (summary.degradedToFull) {
                     System.err.println("INFO: incremental degraded to full ("
@@ -489,16 +504,7 @@ public class IndexCommand implements Callable<Integer> {
                 }
 
                 java.util.Map<String, FileCacheEntry> after = store.readFileCache();
-                phaseStarted = phaseTimings.start();
-                com.anatomist.application.ProjectMetadata.WriteResult metadataResult =
-                        com.anatomist.application.ProjectMetadata.writeIncremental(
-                        store, projectRoot, sourcePaths, resolvedSourceRoots,
-                        runtime.javaVersion(), runtime.classpathMode(), runtime.classpathEntries(),
-                        classpath, springXml, after, phaseTimings, gitTask,
-                        loadedConfig, scanPolicy, effectiveScanScopes, providerId);
-                phaseTimings.stop("metadata", phaseStarted);
-                maybeAdviseGitCache(projectRoot, metadataResult);
-                persistClasspathDetection(store, cd, projectRoot);
+                maybeAdviseGitCache(projectRoot, metadataResultRef.get());
                 phaseTimings.stop("total", totalStarted);
                 long variableMs = phaseTimings.millis().getOrDefault("parse_extract", 0L)
                         + phaseTimings.millis().getOrDefault("stage_write", 0L)

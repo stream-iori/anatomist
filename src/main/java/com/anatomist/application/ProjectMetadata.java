@@ -130,6 +130,9 @@ public final class ProjectMetadata {
                 classpathEntries, classpathOverride, springXml, fingerprint,
                 loadedConfig, scanPolicy, scanScopes,
                 prior.get(SEMANTIC_PROFILE_INPUTS_KEY));
+        // Incremental observations do not redefine when the graph snapshot was built.
+        // Keeping indexed_at stable also makes a true no-op free of SQLite page writes.
+        if (prior.containsKey("indexed_at")) values.put("indexed_at", prior.get("indexed_at"));
         values.put("provider_id", providerId);
         // One-time compatibility initialization. Normal no-op incrementals preserve
         // an existing revision; fact-changing promotions bump it atomically.
@@ -140,7 +143,6 @@ public final class ProjectMetadata {
 
         phaseStarted = System.nanoTime();
         store.upsertProjectMeta(values);
-        com.anatomist.provider.ProviderIndexMetadata.replaceProvider(store, providerId);
         addTiming(timings, "metadata_write", phaseStarted);
         return new WriteResult(git == null ? 0L : git.statusNanos() / 1_000_000L);
     }

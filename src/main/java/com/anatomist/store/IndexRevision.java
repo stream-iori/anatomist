@@ -2,6 +2,7 @@ package com.anatomist.store;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.UUID;
 
@@ -26,5 +27,15 @@ public final class IndexRevision {
             statement.executeUpdate();
         }
         return revision;
+    }
+
+    public static String read(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT value FROM project_meta WHERE key=?")) {
+            statement.setString(1, META_KEY);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getString(1) : null;
+            }
+        }
     }
 }

@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Set;
@@ -29,6 +30,99 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StagedGraphStoreTest {
+
+    @Test
+    void incrementalPublicationRollsBackDerivedStateAndChecksRevision(@TempDir Path tmp)
+            throws Exception {
+        Path db = tmp.resolve("index.db");
+        String file = "m1/src/main/java/A.java";
+        try (SqliteStore target = new SqliteStore(db)) {
+            try (StagedGraphStore initial = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = new ExtractionResult();
+                facts.nodes.add(node("com.x.A", file));
+                initial.writeRawBatch(facts);
+                initial.promoteFull(target);
+            }
+            String revision = target.readProjectMeta(IndexRevision.META_KEY).orElseThrow();
+            try (StagedGraphStore update = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = new ExtractionResult();
+                Node changed = node("com.x.A", file);
+                changed.label = "changed";
+                facts.nodes.add(changed);
+                update.writeRawBatch(facts);
+                assertThrows(RuntimeException.class, () -> update.promoteIncremental(
+                        target, List.of(file), Set.of(), false, revision, () -> {
+                            target.upsertProjectMeta("publication_probe", "should-rollback");
+                            throw new SQLException("injected publication failure");
+                        }));
+            }
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(1, scalar(statement,
+                        "SELECT count(*) FROM nodes WHERE symbol_id='com.x.A' AND label='A'"));
+                assertEquals(0, scalar(statement,
+                        "SELECT count(*) FROM project_meta WHERE key='publication_probe'"));
+                assertEquals(revision, target.readProjectMeta(IndexRevision.META_KEY).orElseThrow());
+            }
+
+            target.inTransaction(IndexRevision::bump);
+            try (StagedGraphStore stale = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = new ExtractionResult();
+                facts.nodes.add(node("com.x.A", file));
+                stale.writeRawBatch(facts);
+                RuntimeException conflict = assertThrows(RuntimeException.class,
+                        () -> stale.promoteIncremental(
+                                target, List.of(file), Set.of(), false, revision));
+                assertTrue(rootMessage(conflict).contains("revision changed"));
+            }
+        }
+    }
+
+    @Test
+    void unchangedFactsAreNotRewrittenAndDuplicateMultiplicityIsPreserved(
+            @TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("index.db");
+        String file = "m1/src/main/java/A.java";
+        try (SqliteStore target = new SqliteStore(db)) {
+            try (StagedGraphStore initial = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = graphWithDuplicateEdges(file, 2);
+                initial.writeRawBatch(facts);
+                initial.finalizeRawFacts();
+                initial.promoteFull(target);
+            }
+            try (Statement statement = target.connection().createStatement()) {
+                statement.execute("CREATE TABLE fact_audit(kind TEXT)");
+                statement.execute("CREATE TRIGGER audit_node_update AFTER UPDATE ON nodes "
+                        + "BEGIN INSERT INTO fact_audit VALUES('node-update'); END");
+                statement.execute("CREATE TRIGGER audit_edge_delete AFTER DELETE ON edges "
+                        + "BEGIN INSERT INTO fact_audit VALUES('edge-delete'); END");
+            }
+
+            StagedGraphStore.IncrementalPromotionStats unchanged;
+            try (StagedGraphStore update = new StagedGraphStore(db, identities(tmp))) {
+                update.writeRawBatch(graphWithDuplicateEdges(file, 2));
+                update.finalizeRawFacts();
+                unchanged = update.promoteIncremental(target, List.of(file), false, false);
+            }
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(0, scalar(statement, "SELECT count(*) FROM fact_audit"));
+                assertEquals(2, scalar(statement, "SELECT count(*) FROM edges"));
+                assertEquals(2, unchanged.unchangedEdges());
+                assertEquals(0, unchanged.insertedEdges());
+                statement.executeUpdate("DELETE FROM fact_audit");
+            }
+
+            try (StagedGraphStore update = new StagedGraphStore(db, identities(tmp))) {
+                update.writeRawBatch(graphWithDuplicateEdges(file, 1));
+                update.finalizeRawFacts();
+                update.promoteIncremental(target, List.of(file), false, false);
+            }
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(1, scalar(statement, "SELECT count(*) FROM edges"));
+                assertEquals(1, scalar(statement,
+                        "SELECT count(*) FROM fact_audit WHERE kind='edge-delete'"));
+            }
+        }
+    }
 
     @Test
     void fullAndIncrementalPromotionEmbedAndClearDeclarationFacet(@TempDir Path tmp) throws Exception {
@@ -295,6 +389,16 @@ class StagedGraphStoreTest {
         edge.confidence = GraphConstants.Confidence.EXTRACTED;
         edge.sourceFile = sourceFile;
         return edge;
+    }
+
+    private static ExtractionResult graphWithDuplicateEdges(String sourceFile, int duplicates) {
+        ExtractionResult facts = new ExtractionResult();
+        facts.nodes.add(node("com.x.A", sourceFile));
+        facts.nodes.add(node("com.x.B", "m1/src/main/java/B.java"));
+        for (int i = 0; i < duplicates; i++) {
+            facts.edges.add(edge("com.x.A", "com.x.B", sourceFile));
+        }
+        return facts;
     }
 
     private static int scalar(Statement statement, String sql) throws Exception {

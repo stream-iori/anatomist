@@ -25,6 +25,21 @@ def run(argv: list[str], cwd: Path, *, expect: int = 0) -> subprocess.CompletedP
     return result
 
 
+def parse_semantic_stream(stdout: str) -> list[dict[str, object]]:
+    records = [json.loads(line) for line in stdout.splitlines() if line.strip()]
+    if not records:
+        raise RuntimeError("semantic pipeline returned no records")
+    header = records[0]
+    if (header.get("record") != "stream_header"
+            or header.get("contract") != "semantic-stream/v1"):
+        raise RuntimeError(f"invalid semantic-stream/v1 header: {header}")
+    for value in records[1:]:
+        contract = value.get("contract")
+        if contract is not None and contract != "semantic-stream/v1":
+            raise RuntimeError(f"record overrides semantic stream contract: {value}")
+    return records
+
+
 def pipeline(binary: Path, project: Path, db: Path, *stages: list[str]) -> list[dict[str, object]]:
     """Run the public NDJSON pipeline exactly as an Agent does, without a shell."""
     if len(stages) < 2:
@@ -60,12 +75,7 @@ def pipeline(binary: Path, project: Path, db: Path, *stages: list[str]) -> list[
             if process.poll() is None:
                 process.kill()
                 process.wait()
-    records = []
-    for line in stdout.splitlines():
-        value = json.loads(line)
-        if value.get("contract") != "semantic-stream/v1":
-            raise RuntimeError(f"not a semantic-stream/v1 record: {value}")
-        records.append(value)
+    records = parse_semantic_stream(stdout)
     if not any(item.get("record") == "evidence" and item.get("scope") == "stream"
                for item in records):
         raise RuntimeError("pipeline did not return final stream evidence")

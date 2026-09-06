@@ -111,7 +111,9 @@ public class AnnotateCommand implements Callable<Integer> {
             }
         }
 
-        try (com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(db);
+        try (com.anatomist.store.IndexOperationLock operation =
+                     com.anatomist.store.IndexOperationLock.forWrite(db);
+             com.anatomist.store.IndexLock wLock = com.anatomist.store.IndexLock.forWrite(db);
              SqliteStore store = new SqliteStore(db)) {
             String resolutionError = resolveStorageIds(store, batch, module, scope);
             if (resolutionError != null) {

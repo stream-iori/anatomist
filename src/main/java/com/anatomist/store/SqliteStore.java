@@ -153,6 +153,10 @@ public class SqliteStore implements IndexWriter {
     public void refreshFileDependencies(List<String> affectedFiles) {
         writer.refreshFileDependencies(affectedFiles);
     }
+    public void refreshSymbolDependencies() { writer.refreshSymbolDependencies(); }
+    public void refreshSymbolDependencies(List<String> affectedFiles) {
+        writer.refreshSymbolDependencies(affectedFiles);
+    }
     public void replaceIndexDiagnostics(List<IndexDiagnostic> diagnostics) { writer.replaceIndexDiagnostics(diagnostics); }
     public void replaceAnalysisCoverage(List<IndexDiagnostic> diagnostics) {
         writer.replaceAnalysisCoverage(diagnostics);
@@ -185,6 +189,9 @@ public class SqliteStore implements IndexWriter {
     }
     public Set<String> dependentsOf(List<String> seed) { return reader.dependentsOf(seed); }
     public Set<String> allNodeIds() { return reader.allNodeIds(); }
+    public Set<String> nodeIdsForSymbols(Set<String> symbols) {
+        return reader.nodeIdsForSymbols(symbols);
+    }
     public Map<String, Node> readNodesBySourceFiles(List<String> sourceFiles) {
         return reader.readNodesBySourceFiles(sourceFiles);
     }

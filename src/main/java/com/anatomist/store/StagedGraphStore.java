@@ -219,6 +219,7 @@ public final class StagedGraphStore implements AutoCloseable {
     }
 
     public PromotionStats promoteFull(SqliteStore target) {
+        prepareFactIdentities();
         closeConnection();
         try {
             if (!target.schemaExists()) target.initSchema();
@@ -263,46 +264,94 @@ public final class StagedGraphStore implements AutoCloseable {
                                                          List<String> affectedFiles,
                                                          Set<String> rebuiltProjectProducers,
                                                          boolean rebuildDerivedWiring) {
+        return promoteIncremental(target, affectedFiles, rebuiltProjectProducers,
+                rebuildDerivedWiring, null);
+    }
+
+    public IncrementalPromotionStats promoteIncremental(SqliteStore target,
+                                                         List<String> affectedFiles,
+                                                         Set<String> rebuiltProjectProducers,
+                                                         boolean rebuildDerivedWiring,
+                                                         String expectedRevision) {
+        return promoteIncremental(target, affectedFiles, rebuiltProjectProducers,
+                rebuildDerivedWiring, expectedRevision, null);
+    }
+
+    public IncrementalPromotionStats promoteIncremental(SqliteStore target,
+                                                         List<String> affectedFiles,
+                                                         Set<String> rebuiltProjectProducers,
+                                                         boolean rebuildDerivedWiring,
+                                                         String expectedRevision,
+                                                         IncrementalCommitWork commitWork) {
+        prepareFactIdentities();
+        int newNodes = stagedCount("stage_nodes");
+        int stagedEdges = stagedCount("stage_edges");
         closeConnection();
-        try {
-            Connection c = target.connection();
-            attach(c);
-            validateNodeOwnership(c);
-            validateDeclarationNodes(c);
-            int oldNodeCount = countObsoleteNodes(c, affectedFiles);
-            oldNodeCount += countObsoleteProjectNodes(c, rebuiltProjectProducers);
-            int oldEdgeCount = countAffectedEdges(c, affectedFiles);
-            int oldGenerated = rebuildDerivedWiring
-                    ? scalarInt(c, "SELECT count(*) FROM edges WHERE " + generatedPredicate())
-                    : 0;
-            final int[] wired = {0};
-            final long[] callSitePersistenceNanos = {0L};
+        long lockStarted = System.nanoTime();
+        try (IndexLock ignored = IndexLock.forWrite(target.dbPath())) {
+            long lockWaitNanos = System.nanoTime() - lockStarted;
+            long publishStarted = System.nanoTime();
             try {
-                target.inTransaction(ignored -> {
-                    try {
-                        CallSitePersistence.AffectedScope affectedCallSites =
-                                CallSitePersistence.captureAffected(
-                                        c, affectedFiles, rebuiltProjectProducers);
-                        replaceAffectedGraph(c, affectedFiles, rebuiltProjectProducers,
-                                rebuildDerivedWiring);
-                        if (rebuildDerivedWiring) wired[0] = DatabaseWiringResolver.rebuild(c);
-                        long persistenceStarted = System.nanoTime();
-                        CallSitePersistence.refreshFromStage(c, ALIAS, affectedCallSites);
-                        callSitePersistenceNanos[0] = System.nanoTime() - persistenceStarted;
-                        IndexRevision.bump(c);
-                    } catch (SQLException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
-            } finally {
-                detach(c);
+                Connection c = target.connection();
+                attach(c);
+                validateNodeOwnership(c);
+                validateDeclarationNodes(c);
+                prepareCurrentFactIdentities(c, affectedFiles,
+                        rebuiltProjectProducers, rebuildDerivedWiring);
+                int oldNodeCount = countObsoleteNodes(c, affectedFiles);
+                oldNodeCount += countObsoleteProjectNodes(c, rebuiltProjectProducers);
+                int oldEdgeCount = countAffectedEdges(c, affectedFiles);
+                int oldGenerated = rebuildDerivedWiring
+                        ? scalarInt(c, "SELECT count(*) FROM edges WHERE " + generatedPredicate())
+                        : 0;
+                int existingNodes = scalarInt(c, "SELECT count(*) FROM " + ALIAS
+                        + ".stage_nodes s JOIN nodes n ON n.id=s.id");
+                int unchangedNodes = scalarInt(c, "SELECT count(*) FROM " + ALIAS
+                        + ".stage_nodes s JOIN nodes n ON n.id=s.id AND n.fact_hash=s.fact_hash");
+                int stagedGraphEdges = scalarInt(c, "SELECT count(*) FROM " + ALIAS
+                        + ".stage_edges WHERE relation<>'" + GraphConstants.Relation.CALLS + "'");
+                int unchangedEdges = scalarInt(c, "SELECT count(*) FROM " + ALIAS
+                        + ".stage_edges s JOIN temp.incremental_edge_facts e "
+                        + "ON e.fact_hash=s.fact_hash AND e.fact_ordinal=s.fact_ordinal "
+                        + "WHERE s.relation<>'"
+                        + GraphConstants.Relation.CALLS + "'");
+                final int[] wired = {0};
+                final long[] callSitePersistenceNanos = {0L};
+                try {
+                    target.inTransaction(unused -> {
+                        try {
+                            String actualRevision = IndexRevision.read(c);
+                            if (expectedRevision != null
+                                    && !java.util.Objects.equals(expectedRevision, actualRevision)) {
+                                throw new RevisionConflictException(expectedRevision, actualRevision);
+                            }
+                            CallSitePersistence.AffectedScope affectedCallSites =
+                                    CallSitePersistence.captureAffected(
+                                            c, affectedFiles, rebuiltProjectProducers);
+                            replaceAffectedGraph(c, affectedFiles, rebuiltProjectProducers,
+                                    rebuildDerivedWiring);
+                            if (rebuildDerivedWiring) wired[0] = DatabaseWiringResolver.rebuild(c);
+                            long persistenceStarted = System.nanoTime();
+                            CallSitePersistence.refreshFromStage(c, ALIAS, affectedCallSites);
+                            callSitePersistenceNanos[0] = System.nanoTime() - persistenceStarted;
+                            if (commitWork != null) commitWork.run();
+                            IndexRevision.bump(c);
+                        } catch (SQLException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                } finally {
+                    detach(c);
+                }
+                int newEdges = stagedEdges + wired[0];
+                return new IncrementalPromotionStats(oldNodeCount, oldEdgeCount + oldGenerated,
+                        newNodes, newEdges, wired[0], callSitePersistenceNanos[0],
+                        lockWaitNanos, System.nanoTime() - publishStarted,
+                        newNodes - existingNodes, existingNodes - unchangedNodes, unchangedNodes,
+                        stagedGraphEdges - unchangedEdges, unchangedEdges);
+            } catch (SQLException e) {
+                throw new RuntimeException("Failed to promote incremental staged graph", e);
             }
-            int newNodes = stagedCount("stage_nodes");
-            int newEdges = stagedCount("stage_edges") + wired[0];
-            return new IncrementalPromotionStats(oldNodeCount, oldEdgeCount + oldGenerated,
-                    newNodes, newEdges, wired[0], callSitePersistenceNanos[0]);
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to promote incremental staged graph", e);
         }
     }
 
@@ -441,38 +490,24 @@ public final class StagedGraphStore implements AutoCloseable {
             String producers = quoted(new ArrayList<>(projectProducers));
             try (Statement statement = c.createStatement()) {
                 statement.executeUpdate("DELETE FROM semantic_annotations WHERE producer_id IN (" + producers + ")");
-                statement.executeUpdate("DELETE FROM annotations WHERE producer_id IN (" + producers + ")");
                 statement.executeUpdate("DELETE FROM annotation_meta_relations WHERE producer_id IN (" + producers + ")");
-                statement.executeUpdate("DELETE FROM edges WHERE producer_id IN (" + producers + ")");
             }
         }
         if (!files.isEmpty()) {
             try (PreparedStatement semantic = c.prepareStatement(
                         "DELETE FROM semantic_annotations WHERE node_id IN "
                                 + "(SELECT id FROM nodes WHERE source_file IN (" + placeholders + "))");
-                 PreparedStatement annotations = c.prepareStatement(
-                        "DELETE FROM annotations WHERE node_id IN "
-                                + "(SELECT id FROM nodes WHERE source_file IN (" + placeholders + "))");
                  PreparedStatement annotationMeta = c.prepareStatement(
                         "DELETE FROM annotation_meta_relations WHERE source_file IN (" + placeholders + ")");
-                 PreparedStatement edges = c.prepareStatement(
-                        "DELETE FROM edges WHERE (source_file IN (" + placeholders + ")"
-                                + (rebuildDerivedWiring ? "" : " AND (metadata IS NULL OR NOT ("
-                                + generatedPredicate() + "))")
-                                + ") OR "
-                                + "(source_file IS NULL AND source_id IN "
-                                + "(SELECT id FROM nodes WHERE source_file IN (" + placeholders + ")))");
                  PreparedStatement cache = c.prepareStatement(
                         "DELETE FROM file_cache WHERE source_file IN (" + placeholders + ")")) {
                 bindFiles(semantic, files, 1);
-                bindFiles(annotations, files, 1);
                 bindFiles(annotationMeta, files, 1);
-                bindFiles(edges, files, 2);
                 bindFiles(cache, files, 1);
-                semantic.executeUpdate(); annotations.executeUpdate(); annotationMeta.executeUpdate();
-                edges.executeUpdate(); cache.executeUpdate();
+                semantic.executeUpdate(); annotationMeta.executeUpdate(); cache.executeUpdate();
             }
         }
+        deleteStaleFacts(c, files, projectProducers, rebuildDerivedWiring);
         try (Statement statement = c.createStatement()) {
             insertNodesFromStage(statement);
             if (!files.isEmpty()) {
@@ -485,7 +520,86 @@ public final class StagedGraphStore implements AutoCloseable {
                         + "AND NOT EXISTS (SELECT 1 FROM " + ALIAS + ".stage_nodes s "
                         + "WHERE s.id=n.id AND s.producer_id=n.producer_id)");
             }
-            insertFactsFromStage(statement);
+            insertFactsFromStage(statement, true);
+        }
+    }
+
+    private static void deleteStaleFacts(Connection c, List<String> files,
+                                         Set<String> projectProducers,
+                                         boolean rebuildDerivedWiring) throws SQLException {
+        List<String> edgeScope = new ArrayList<>();
+        List<String> annotationScope = new ArrayList<>();
+        if (!files.isEmpty()) {
+            String values = quoted(files);
+            edgeScope.add("(e.source_file IN (" + values + ") OR (e.source_file IS NULL AND "
+                    + "e.source_id IN (SELECT id FROM nodes WHERE source_file IN (" + values + "))))");
+            annotationScope.add("(a.source_file IN (" + values + ") OR a.node_id IN "
+                    + "(SELECT id FROM nodes WHERE source_file IN (" + values + ")))");
+        }
+        if (!projectProducers.isEmpty()) {
+            String producers = quoted(new ArrayList<>(projectProducers));
+            edgeScope.add("e.producer_id IN (" + producers + ")");
+            annotationScope.add("a.producer_id IN (" + producers + ")");
+        }
+        try (Statement statement = c.createStatement()) {
+            if (!edgeScope.isEmpty()) {
+                String preserveDerived = rebuildDerivedWiring ? "" : " AND e.producer_id<>'"
+                        + ProducerIds.DERIVED_WIRING + "'";
+                statement.executeUpdate("DELETE FROM edges AS e WHERE ("
+                        + String.join(" OR ", edgeScope) + ")" + preserveDerived
+                        + " AND NOT EXISTS (SELECT 1 FROM " + ALIAS + ".stage_edges s "
+                        + "WHERE s.relation<>'" + GraphConstants.Relation.CALLS + "' "
+                        + "AND s.fact_hash=e.fact_hash AND s.fact_ordinal=e.fact_ordinal)");
+            }
+            if (!annotationScope.isEmpty()) {
+                statement.executeUpdate("DELETE FROM annotations AS a WHERE ("
+                        + String.join(" OR ", annotationScope) + ") AND NOT EXISTS (SELECT 1 FROM "
+                        + ALIAS + ".stage_annotations s WHERE s.fact_hash=a.fact_hash "
+                        + "AND s.fact_ordinal=a.fact_ordinal)");
+            }
+        }
+    }
+
+    private static void prepareCurrentFactIdentities(Connection c, List<String> files,
+                                                     Set<String> projectProducers,
+                                                     boolean rebuildDerivedWiring)
+            throws SQLException {
+        List<String> edgeScope = new ArrayList<>();
+        List<String> annotationScope = new ArrayList<>();
+        if (!files.isEmpty()) {
+            String values = quoted(files);
+            edgeScope.add("(e.source_file IN (" + values + ") OR (e.source_file IS NULL AND "
+                    + "e.source_id IN (SELECT id FROM nodes WHERE source_file IN (" + values + "))))");
+            annotationScope.add("(a.source_file IN (" + values + ") OR a.node_id IN "
+                    + "(SELECT id FROM nodes WHERE source_file IN (" + values + ")))");
+        }
+        if (!projectProducers.isEmpty()) {
+            String producers = quoted(new ArrayList<>(projectProducers));
+            edgeScope.add("e.producer_id IN (" + producers + ")");
+            annotationScope.add("a.producer_id IN (" + producers + ")");
+        }
+        try (Statement statement = c.createStatement()) {
+            statement.executeUpdate("DROP TABLE IF EXISTS temp.incremental_edge_facts");
+            statement.executeUpdate("DROP TABLE IF EXISTS temp.incremental_annotation_facts");
+            statement.executeUpdate("CREATE TEMP TABLE incremental_edge_facts("
+                    + "fact_hash BLOB NOT NULL,fact_ordinal INTEGER NOT NULL,"
+                    + "PRIMARY KEY(fact_hash,fact_ordinal)) WITHOUT ROWID");
+            statement.executeUpdate("CREATE TEMP TABLE incremental_annotation_facts("
+                    + "fact_hash BLOB NOT NULL,fact_ordinal INTEGER NOT NULL,"
+                    + "PRIMARY KEY(fact_hash,fact_ordinal)) WITHOUT ROWID");
+            if (!edgeScope.isEmpty()) {
+                String preserveDerived = rebuildDerivedWiring ? "" : " AND e.producer_id<>'"
+                        + ProducerIds.DERIVED_WIRING + "'";
+                statement.executeUpdate("INSERT OR IGNORE INTO temp.incremental_edge_facts "
+                        + "SELECT e.fact_hash,e.fact_ordinal FROM edges e WHERE e.fact_hash IS NOT NULL AND ("
+                        + String.join(" OR ", edgeScope) + ")" + preserveDerived);
+            }
+            if (!annotationScope.isEmpty()) {
+                statement.executeUpdate("INSERT OR IGNORE INTO temp.incremental_annotation_facts "
+                        + "SELECT a.fact_hash,a.fact_ordinal FROM annotations a "
+                        + "WHERE a.fact_hash IS NOT NULL AND ("
+                        + String.join(" OR ", annotationScope) + ")");
+            }
         }
     }
 
@@ -762,6 +876,80 @@ public final class StagedGraphStore implements AutoCloseable {
         }
     }
 
+    private void prepareFactIdentities() {
+        try {
+            Connection c = connection();
+            hashRows(c, "stage_nodes", """
+                    SELECT n.seq,n.id,n.symbol_id,n.domain,n.language,n.provider_id,n.entity_kind,
+                           n.language_kind,n.label,n.kind,n.qualified_name,n.package,n.namespace,
+                           n.source_file,n.source_location,n.begin_line,n.begin_column,n.end_line,
+                           n.end_column,n.source_ordinal,n.module,n.scope,n.javadoc,n.metadata,n.producer_id,
+                           d.declaration_kind,d.type_kind,d.visibility,d.modifiers,d.declared_modifiers,
+                           d.implicit_modifiers,d.declaring_type,d.namespace,d.source_location,d.begin_line,
+                           d.begin_column,d.end_line,d.end_column,d.nesting_depth,d.direct_member,d.synthetic,
+                           d.binding_resolved
+                    FROM stage_nodes n LEFT JOIN stage_declarations d
+                      ON d.provider_id=n.provider_id AND d.symbol_id=n.symbol_id
+                     AND d.module=n.module AND d.scope=n.scope AND d.source_file=n.source_file
+                     AND d.producer_id=n.producer_id ORDER BY n.seq
+                    """);
+            hashRows(c, "stage_edges", """
+                    SELECT seq,resolved_source,resolved_target,external_target_fqn,external_target_symbol,
+                           external_target_language,external_target_provider_id,relation,semantic,mechanism,
+                           language,provider_id,call_kind,confidence,resolution,context,is_external,source_file,
+                           source_location,begin_line,begin_column,end_line,end_column,source_ordinal,
+                           syntax_target,receiver_static_type,metadata,producer_id
+                    FROM stage_edges ORDER BY seq
+                    """);
+            hashRows(c, "stage_annotations", """
+                    SELECT seq,resolved_node,annotation_fqn,raw_name,attributes,target_kind,target_path,
+                           language,provider_id,mechanism,resolution_status,source_file,source_location,
+                           begin_line,begin_column,end_line,end_column,producer_id
+                    FROM stage_annotations ORDER BY seq
+                    """);
+            assignFactOrdinals(c, "stage_edges");
+            assignFactOrdinals(c, "stage_annotations");
+            try (Statement statement = c.createStatement()) {
+                statement.executeUpdate("CREATE INDEX IF NOT EXISTS stage_edges_fact "
+                        + "ON stage_edges(fact_hash,fact_ordinal)");
+                statement.executeUpdate("CREATE INDEX IF NOT EXISTS stage_annotations_fact "
+                        + "ON stage_annotations(fact_hash,fact_ordinal)");
+            }
+        } catch (SQLException failure) {
+            throw new RuntimeException("Failed to prepare staged fact identities", failure);
+        }
+    }
+
+    private static void hashRows(Connection c, String table, String sql) throws SQLException {
+        Map<Long, byte[]> hashes = new LinkedHashMap<>();
+        try (Statement statement = c.createStatement(); ResultSet rows = statement.executeQuery(sql)) {
+            int columns = rows.getMetaData().getColumnCount();
+            while (rows.next()) {
+                Object[] values = new Object[columns - 1];
+                for (int i = 2; i <= columns; i++) values[i - 2] = rows.getObject(i);
+                hashes.put(rows.getLong(1), StableHash.values(values));
+            }
+        }
+        try (PreparedStatement update = c.prepareStatement(
+                "UPDATE " + table + " SET fact_hash=? WHERE seq=?")) {
+            for (Map.Entry<Long, byte[]> entry : hashes.entrySet()) {
+                update.setBytes(1, entry.getValue());
+                update.setLong(2, entry.getKey());
+                update.addBatch();
+            }
+            update.executeBatch();
+        }
+    }
+
+    private static void assignFactOrdinals(Connection c, String table) throws SQLException {
+        try (Statement statement = c.createStatement()) {
+            statement.executeUpdate("WITH ranked AS (SELECT seq,row_number() OVER (PARTITION BY "
+                    + "producer_id,coalesce(source_file,''),fact_hash ORDER BY seq)-1 AS ordinal FROM "
+                    + table + ") UPDATE " + table + " SET fact_ordinal=(SELECT ordinal FROM ranked "
+                    + "WHERE ranked.seq=" + table + ".seq)");
+        }
+    }
+
     private void attach(Connection c) throws SQLException {
         try (Statement statement = c.createStatement()) {
             statement.execute("ATTACH DATABASE '" + path.toString().replace("'", "''") + "' AS " + ALIAS);
@@ -783,6 +971,7 @@ public final class StagedGraphStore implements AutoCloseable {
         statement.executeUpdate("DELETE FROM nodes");
         statement.executeUpdate("DELETE FROM file_cache");
         statement.executeUpdate("DELETE FROM file_dependencies");
+        statement.executeUpdate("DELETE FROM symbol_dependencies");
         statement.executeUpdate("DELETE FROM index_diagnostics");
         statement.executeUpdate("DELETE FROM index_providers");
         statement.executeUpdate("DELETE FROM project_meta");
@@ -798,11 +987,11 @@ public final class StagedGraphStore implements AutoCloseable {
                 + "source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,producer_id,"
                 + "declaration_kind,type_kind,visibility,modifiers,declared_modifiers,implicit_modifiers,declaring_type,declaration_namespace,"
                 + "declaration_source_location,declaration_begin_line,declaration_begin_column,declaration_end_line,declaration_end_column,"
-                + "nesting_depth,direct_member,synthetic,binding_resolved) "
+                + "nesting_depth,direct_member,synthetic,binding_resolved,fact_hash) "
                 + "SELECT n.id,n.symbol_id,n.domain,n.language,n.provider_id,n.entity_kind,n.language_kind,n.label,n.kind,n.qualified_name,"
                 + "n.package,n.namespace,n.source_file,n.source_location,n.begin_line,n.begin_column,n.end_line,n.end_column,n.source_ordinal,n.module,n.scope,n.javadoc,n.metadata,n.producer_id,"
                 + "d.declaration_kind,d.type_kind,d.visibility,d.modifiers,d.declared_modifiers,d.implicit_modifiers,d.declaring_type,d.namespace,"
-                + "d.source_location,d.begin_line,d.begin_column,d.end_line,d.end_column,d.nesting_depth,d.direct_member,d.synthetic,d.binding_resolved "
+                + "d.source_location,d.begin_line,d.begin_column,d.end_line,d.end_column,d.nesting_depth,d.direct_member,d.synthetic,d.binding_resolved,n.fact_hash "
                 + "FROM " + ALIAS + ".stage_nodes n LEFT JOIN " + ALIAS + ".stage_declarations d ON d.provider_id=n.provider_id "
                 + "AND d.symbol_id=n.symbol_id AND d.module=n.module AND d.scope=n.scope AND d.source_file=n.source_file "
                 + "AND d.producer_id=n.producer_id ORDER BY n.seq ON CONFLICT(id) DO UPDATE SET symbol_id=excluded.symbol_id,"
@@ -820,23 +1009,37 @@ public final class StagedGraphStore implements AutoCloseable {
                 + "declaration_begin_line=excluded.declaration_begin_line,declaration_begin_column=excluded.declaration_begin_column,"
                 + "declaration_end_line=excluded.declaration_end_line,declaration_end_column=excluded.declaration_end_column,"
                 + "nesting_depth=excluded.nesting_depth,direct_member=excluded.direct_member,synthetic=excluded.synthetic,"
-                + "binding_resolved=excluded.binding_resolved");
+                + "binding_resolved=excluded.binding_resolved,fact_hash=excluded.fact_hash "
+                + "WHERE nodes.fact_hash IS NOT excluded.fact_hash");
     }
 
     private static void insertFactsFromStage(Statement statement) throws SQLException {
+        insertFactsFromStage(statement, false);
+    }
+
+    private static void insertFactsFromStage(Statement statement, boolean incremental)
+            throws SQLException {
+        String existingEdges = incremental ? "temp.incremental_edge_facts" : "edges";
+        String existingAnnotations = incremental
+                ? "temp.incremental_annotation_facts" : "annotations";
         statement.executeUpdate("INSERT INTO edges(source_id,target_id,external_target_fqn,external_target_symbol,external_target_language,external_target_provider_id,relation,semantic,mechanism,language,provider_id,call_kind,"
                 + "confidence,resolution,context,is_external,source_file,source_location,begin_line,begin_column,"
-                + "end_line,end_column,source_ordinal,syntax_target,receiver_static_type,metadata,producer_id) SELECT resolved_source,"
+                + "end_line,end_column,source_ordinal,syntax_target,receiver_static_type,metadata,producer_id,fact_hash,fact_ordinal) SELECT resolved_source,"
                 + "resolved_target,external_target_fqn,external_target_symbol,external_target_language,external_target_provider_id,relation,semantic,mechanism,language,provider_id,call_kind,confidence,resolution,context,is_external,source_file,"
                 + "source_location,begin_line,begin_column,end_line,end_column,source_ordinal,syntax_target,"
-                + "receiver_static_type,metadata,producer_id FROM " + ALIAS
-                + ".stage_edges WHERE relation<>'" + GraphConstants.Relation.CALLS + "' ORDER BY seq");
+                + "receiver_static_type,metadata,producer_id,fact_hash,fact_ordinal FROM " + ALIAS
+                + ".stage_edges s WHERE relation<>'" + GraphConstants.Relation.CALLS + "' "
+                + "AND NOT EXISTS (SELECT 1 FROM " + existingEdges
+                + " e WHERE e.fact_hash=s.fact_hash "
+                + "AND e.fact_ordinal=s.fact_ordinal) ORDER BY seq");
         statement.executeUpdate("INSERT INTO annotations(node_id,annotation_fqn,raw_name,attributes,target_kind,"
                 + "target_path,language,provider_id,mechanism,resolution_status,source_file,source_location,begin_line,"
-                + "begin_column,end_line,end_column,producer_id) SELECT resolved_node,annotation_fqn,raw_name,"
+                + "begin_column,end_line,end_column,producer_id,fact_hash,fact_ordinal) SELECT resolved_node,annotation_fqn,raw_name,"
                 + "attributes,target_kind,target_path,language,provider_id,mechanism,resolution_status,source_file,"
-                + "source_location,begin_line,begin_column,end_line,end_column,producer_id FROM " + ALIAS
-                + ".stage_annotations ORDER BY seq");
+                + "source_location,begin_line,begin_column,end_line,end_column,producer_id,fact_hash,fact_ordinal FROM " + ALIAS
+                + ".stage_annotations s WHERE NOT EXISTS (SELECT 1 FROM "
+                + existingAnnotations + " a "
+                + "WHERE a.fact_hash=s.fact_hash AND a.fact_ordinal=s.fact_ordinal) ORDER BY seq");
         statement.executeUpdate("INSERT OR IGNORE INTO annotation_meta_relations(annotation_fqn,"
                 + "meta_annotation_fqn,raw_name,language,provider_id,mechanism,resolution_status,source_file,"
                 + "source_location,producer_id) SELECT annotation_fqn,meta_annotation_fqn,raw_name,language,provider_id,"
@@ -935,9 +1138,27 @@ public final class StagedGraphStore implements AutoCloseable {
 
     public record PromotionStats(int reboundExternalTargets, int droppedDanglingFacts, int wiredEdges,
                                  long callSitePersistenceNanos) {}
+
+    @FunctionalInterface
+    public interface IncrementalCommitWork {
+        void run() throws SQLException;
+    }
+
+    public static final class RevisionConflictException extends RuntimeException {
+        RevisionConflictException(String expected, String actual) {
+            super("incremental publish revision changed: expected " + expected + ", actual " + actual);
+        }
+    }
     public record IncrementalPromotionStats(int deletedNodes, int deletedEdges,
                                             int writtenNodes, int writtenEdges, int wiredEdges,
-                                            long callSitePersistenceNanos) {}
+                                            long callSitePersistenceNanos,
+                                            long lockWaitNanos,
+                                            long publishNanos,
+                                            int insertedNodes,
+                                            int updatedNodes,
+                                            int unchangedNodes,
+                                            int insertedEdges,
+                                            int unchangedEdges) {}
 
     private static final String NODE_INSERT = "INSERT INTO stage_nodes(id,symbol_id,domain,language,provider_id,entity_kind,language_kind,label,kind,qualified_name,"
             + "package,namespace,source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,arity_key,producer_id) VALUES "
@@ -972,7 +1193,7 @@ public final class StagedGraphStore implements AutoCloseable {
             "CREATE TABLE stage_nodes(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,symbol_id TEXT,domain TEXT,language TEXT,provider_id TEXT,entity_kind TEXT,language_kind TEXT,"
                     + "label TEXT,kind TEXT,qualified_name TEXT,package TEXT,namespace TEXT,source_file TEXT,source_location TEXT,"
                     + "begin_line INTEGER,begin_column INTEGER,end_line INTEGER,end_column INTEGER,source_ordinal INTEGER,"
-                    + "module TEXT,scope TEXT,javadoc TEXT,metadata TEXT,arity_key TEXT,producer_id TEXT NOT NULL)",
+                    + "module TEXT,scope TEXT,javadoc TEXT,metadata TEXT,arity_key TEXT,producer_id TEXT NOT NULL,fact_hash BLOB)",
             "CREATE TRIGGER stage_node_owner_conflict BEFORE UPDATE ON stage_nodes "
                     + "WHEN old.producer_id<>new.producer_id BEGIN SELECT RAISE(ABORT,'EXTENSION_NODE_OWNERSHIP_CONFLICT'); END",
             "CREATE INDEX stage_nodes_symbol ON stage_nodes(symbol_id)",
@@ -992,13 +1213,13 @@ public final class StagedGraphStore implements AutoCloseable {
                     + "end_line INTEGER,end_column INTEGER,source_ordinal INTEGER,syntax_target TEXT,receiver_static_type TEXT,"
                     + "metadata TEXT,source_module TEXT,"
                     + "source_scope TEXT,source_is_key INTEGER,target_is_key INTEGER,resolved_source TEXT,"
-                    + "resolved_target TEXT,target_arity_key TEXT,producer_id TEXT NOT NULL)",
+                    + "resolved_target TEXT,target_arity_key TEXT,producer_id TEXT NOT NULL,fact_hash BLOB,fact_ordinal INTEGER NOT NULL DEFAULT 0)",
             "CREATE INDEX stage_edges_refs ON stage_edges(source_ref,target_ref,external_target_fqn)",
             "CREATE TABLE stage_annotations(seq INTEGER PRIMARY KEY AUTOINCREMENT,node_ref TEXT,annotation_fqn TEXT,"
                     + "raw_name TEXT NOT NULL,attributes TEXT,target_kind TEXT NOT NULL,target_path TEXT,language TEXT NOT NULL,provider_id TEXT NOT NULL,"
                     + "mechanism TEXT NOT NULL,resolution_status TEXT NOT NULL,source_file TEXT,source_location TEXT,"
                     + "begin_line INTEGER,begin_column INTEGER,end_line INTEGER,end_column INTEGER,source_module TEXT,"
-                    + "source_scope TEXT,node_is_key INTEGER,resolved_node TEXT,producer_id TEXT NOT NULL)",
+                    + "source_scope TEXT,node_is_key INTEGER,resolved_node TEXT,producer_id TEXT NOT NULL,fact_hash BLOB,fact_ordinal INTEGER NOT NULL DEFAULT 0)",
             "CREATE INDEX stage_annotations_ref ON stage_annotations(node_ref)",
             "CREATE TABLE stage_annotation_meta(seq INTEGER PRIMARY KEY AUTOINCREMENT,annotation_fqn TEXT NOT NULL,"
                     + "meta_annotation_fqn TEXT,raw_name TEXT NOT NULL,language TEXT NOT NULL,provider_id TEXT NOT NULL,mechanism TEXT NOT NULL,"

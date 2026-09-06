@@ -167,6 +167,34 @@ def _anatomist_segment(segment: str) -> tuple[str, list[str]] | None:
     return None
 
 
+def _fused_pipeline_segments(command: str) -> list[dict[str, object]]:
+    parsed = _anatomist_segment(command)
+    if parsed is None or parsed[0] != "pipeline":
+        return []
+    args = parsed[1]
+    try:
+        separator = args.index("--")
+    except ValueError:
+        return []
+    global_args = args[1:separator]
+    stages: list[list[str]] = [[]]
+    for token in args[separator + 1:]:
+        if token == "--then":
+            stages.append([])
+        else:
+            stages[-1].append(token)
+    if len(stages) < 2 or any(not stage for stage in stages):
+        return []
+    return [
+        {
+            "command": shlex.join(stage),
+            "subcommand": stage[0],
+            "args": (global_args if index == 0 else []) + stage[1:],
+        }
+        for index, stage in enumerate(stages)
+    ]
+
+
 def anatomist_invocations(trace: object) -> list[dict[str, object]]:
     """Return ordered Anatomist invocations with the output visible to the Agent."""
     invocations: list[dict[str, object]] = []
@@ -199,11 +227,14 @@ def anatomist_invocations(trace: object) -> list[dict[str, object]]:
 
 def executed_anatomist_invocations(trace: object) -> list[dict[str, object]]:
     """Return real command executions, excluding syntax-only ``--help`` reads."""
-    return [
-        invocation
-        for invocation in anatomist_invocations(trace)
-        if "--help" not in invocation["args"]
-    ]
+    result: list[dict[str, object]] = []
+    for invocation in anatomist_invocations(trace):
+        if "--help" in invocation["args"]:
+            continue
+        result.append(invocation)
+        for segment in _fused_pipeline_segments(str(invocation["command"])):
+            result.append({**invocation, **segment})
+    return result
 
 
 def anatomist_subcommands(commands: list[str]) -> list[str]:
@@ -244,6 +275,18 @@ def semantic_pipelines(trace: object) -> list[dict[str, object]]:
         for command in _event_commands(event):
             for chain in re.split(r"&&|\|\||[;\n]", command):
                 parts = [part.strip() for part in re.split(r"(?<!\|)\|(?!\|)", chain) if part.strip()]
+                if len(parts) == 1:
+                    segments = _fused_pipeline_segments(parts[0])
+                    if segments and all(item["subcommand"] in _SEMANTIC_PIPELINE_COMMANDS
+                                        for item in segments):
+                        pipelines.append({
+                            "event_index": event_index,
+                            "command": chain.strip(),
+                            "segments": segments,
+                            "output": output,
+                            "exit_code": exit_code,
+                        })
+                    continue
                 if len(parts) < 2:
                     continue
                 parsed = [_anatomist_segment(part) for part in parts]
@@ -302,14 +345,36 @@ def _pipeline_is_ndjson(pipeline: dict[str, object]) -> bool:
 
 def _semantic_records(output: str) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
+    semantic_stream = False
     for line in output.splitlines():
         try:
             value = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(value, dict) and value.get("contract") == "semantic-stream/v1":
+        if not isinstance(value, dict):
+            continue
+        contract = value.get("contract")
+        if contract == "semantic-stream/v1":
+            semantic_stream = True
+        elif contract is not None:
+            continue
+        if semantic_stream:
             records.append(value)
     return records
+
+
+def _record_types(value: object) -> set[str]:
+    found: set[str] = set()
+    if isinstance(value, dict):
+        record = value.get("record")
+        if isinstance(record, str):
+            found.add(record)
+        for child in value.values():
+            found.update(_record_types(child))
+    elif isinstance(value, list):
+        for child in value:
+            found.update(_record_types(child))
+    return found
 
 
 def contains_sequence(observed: list[str], required: list[str]) -> bool:
@@ -510,7 +575,7 @@ class _AnatomistCheckProvider:
             pipeline = candidates[-1]
             required_records = {str(item) for item in config.get("records", [])}
             decoded = _semantic_records(str(pipeline["output"]))
-            found = {str(item.get("record")) for item in decoded}
+            found = _record_types(decoded)
             missing = sorted(required_records - found)
             final = next((item for item in reversed(decoded)
                           if item.get("record") == "evidence"

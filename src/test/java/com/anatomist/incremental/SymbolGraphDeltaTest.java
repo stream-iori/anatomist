@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -21,6 +22,29 @@ class SymbolGraphDeltaTest {
         assertTrue(impact.exactTargetIds().isEmpty());
         assertTrue(impact.ownerTargetIds().isEmpty());
         assertTrue(impact.externalPrefixes().isEmpty());
+    }
+
+    @Test
+    void factOnlyContractChangeFallsBackToStableSymbols() {
+        Node before = method("p.B#foo()", "p.B#foo", "{\"returnType\":\"void\"}");
+        Node after = method("p.B#foo()", "p.B#foo", "{\"returnType\":\"void\"}");
+
+        SymbolGraphDelta.Impact impact = SymbolGraphDelta.analyze(
+                map(before), List.of(after), Set.of(before.sourceFile));
+
+        assertEquals(Set.of(before.id), impact.exactTargetIds());
+    }
+
+    @Test
+    void addedMemberSuppressesBroadFileFallback() {
+        Node owner = type("p.B", "CLASS");
+        Node added = method("p.B#added()", "p.B#added", "{\"returnType\":\"void\"}");
+
+        SymbolGraphDelta.Impact impact = SymbolGraphDelta.analyze(
+                map(owner), List.of(owner, added), Set.of(owner.sourceFile));
+
+        assertFalse(impact.exactTargetIds().contains(owner.id));
+        assertEquals(Set.of(added.id), impact.addedIds());
     }
 
     @Test

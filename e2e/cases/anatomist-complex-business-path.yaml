@@ -23,7 +23,7 @@ checks:
     type: extension
     provider: anatomist
     severity: hard
-    config: {check: command_sequence, commands: [skill, doctor, index, search, resolve]}
+    config: {check: command_sequence, commands: [skill, search, resolve]}
     covers: [anatomist-routing]
   - id: http-route-pipeline
     type: extension

@@ -18,9 +18,20 @@ from anatomist_jury_adapter import (
     semantic_pipelines,
     trace_commands,
 )
+from validate_complex_fixture import parse_semantic_stream
 
 
 class TraceCommandTest(unittest.TestCase):
+    def test_semantic_stream_contract_is_declared_by_header(self):
+        records = parse_semantic_stream(
+            '{"record":"stream_header","contract":"semantic-stream/v1"}\n'
+            '{"record":"entity","id":"sample.A"}\n'
+            '{"record":"evidence","scope":"stream"}\n'
+        )
+
+        self.assertEqual(["stream_header", "entity", "evidence"],
+                         [record["record"] for record in records])
+
     def test_extracts_codex_sdk_command_execution(self):
         trace = SimpleNamespace(
             tool_events=[
@@ -159,10 +170,35 @@ class TraceCommandTest(unittest.TestCase):
             ["resolve", "runtime-implementations", "source"],
         ))
 
+    def test_fused_pipeline_exposes_logical_stages_and_inherited_contract(self):
+        trace = SimpleNamespace(tool_events=[
+            SimpleNamespace(
+                name="command_execution",
+                arguments={"cmd": (
+                    "anatomist pipeline --format ndjson --index index.db -- "
+                    "resolve sample.A --exact --unique --then source"
+                )},
+                raw_input={},
+                raw_output=(
+                    '{"record":"stream_header","contract":"semantic-stream/v1"}\n'
+                    '{"record":"source_slice","id":"source:1"}\n'
+                    '{"record":"evidence","scope":"stream","coverage":"complete"}'
+                ),
+            )
+        ])
+
+        pipeline = semantic_pipelines(trace)[0]
+
+        self.assertEqual(["resolve", "source"],
+                         [part["subcommand"] for part in pipeline["segments"]])
+        self.assertEqual(["pipeline", "resolve", "source"],
+                         [item["subcommand"] for item in executed_anatomist_invocations(trace)])
+
     def test_semantic_pipeline_check_rejects_separate_modern_commands(self):
         provider = AnatomistJuryAdapter().extension_check_providers()["anatomist"]
         output = (
-            '{"record":"source_slice","contract":"semantic-stream/v1"}\n'
+            '{"record":"source_slice","contract":"semantic-stream/v1",'
+            '"subject":{"record":"dispatch_target","id":"dispatch:1"}}\n'
             '{"record":"evidence","contract":"semantic-stream/v1","scope":"stream",'
             '"coverage":"complete","negative_conclusion_safe":false}'
         )
@@ -175,7 +211,7 @@ class TraceCommandTest(unittest.TestCase):
             ])
         )
         config = {"check": "semantic_pipeline", "commands": ["resolve", "source"],
-                  "records": ["source_slice", "evidence"]}
+                  "records": ["source_slice", "dispatch_target", "evidence"]}
 
         with self.assertRaisesRegex(RuntimeError, "one NDJSON pipe chain"):
             provider._execute(config, separate, {})

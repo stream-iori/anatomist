@@ -8,7 +8,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,7 +36,6 @@ final class CallSitePersistence {
             statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_owners_source");
             statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_targets_internal");
             statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_targets_external");
-            statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_targets_identity");
             statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_targets_site");
             statement.executeUpdate("DELETE FROM call_site_targets");
             statement.executeUpdate("DELETE FROM call_sites");
@@ -130,7 +128,6 @@ final class CallSitePersistence {
                 .map(entry -> new SiteInsert(0, entry.getKey(), entry.getValue(),
                         stableHash(entry.getKey(), digest)))
                 .toList();
-        validateStableHashes(connection, pending);
         long nextSitePk = nextSitePk(connection);
         List<SiteInsert> inserts = new ArrayList<>(pending.size());
         for (SiteInsert insert : pending) {
@@ -183,20 +180,6 @@ final class CallSitePersistence {
                 }
             }
             targetInsert.executeBatch();
-        }
-    }
-
-    private static void validateStableHashes(Connection connection, List<SiteInsert> inserts)
-            throws SQLException {
-        Set<String> hashes = new java.util.HashSet<>();
-        try (Statement statement = connection.createStatement();
-             ResultSet rows = statement.executeQuery("SELECT stable_hash FROM call_sites")) {
-            while (rows.next()) hashes.add(HexFormat.of().formatHex(rows.getBytes(1)));
-        }
-        for (SiteInsert site : inserts) {
-            if (!hashes.add(HexFormat.of().formatHex(site.stableHash()))) {
-                throw new SQLException("duplicate call-site stable hash");
-            }
         }
     }
 

@@ -31,12 +31,12 @@ setup:
       cwd: .
       timeout_sec: 60
 checks:
-  - id: freshness-before-source
+  - id: evidence-before-source
     type: extension
     provider: anatomist
     severity: hard
-    description: Agent 必须经过 freshness 门禁再读取精确方法源码。
-    config: {check: command_sequence, commands: [skill, doctor, index, resolve]}
+    description: 已由 setup 建好新鲜索引；Agent 应读取精确方法证据。
+    config: {check: command_sequence, commands: [skill, resolve]}
     covers: [anatomist-routing]
   - id: guarded-call-pipeline
     type: extension

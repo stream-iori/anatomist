@@ -44,7 +44,7 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v25)
+## Node identity, declarations, and ownership (schema v26)
 
 Schema v25 embeds declaration facets in `nodes` and removes the duplicate final
 `declarations` table. Extraction still stages declarations separately, then promotion
@@ -454,3 +454,12 @@ If an edge lacks `source_file`, query code falls back to the source node's
 `--include-meta` 才做深度 16、环安全闭包。结构范围覆盖类型、方法、构造器、
 字段、参数、enum constant 和 record component；不覆盖 type-use、局部变量、
 package/module 与 annotation member。
+Schema v26 adds 128-bit SHA-256 fact identities for nodes, edges, and annotations.
+Incremental publication keeps unchanged rows in place;
+`fact_ordinal` preserves the multiplicity of otherwise identical facts.
+
+`symbol_dependencies` is a `WITHOUT ROWID` reverse index from a 64-bit target
+fingerprint to the source files that consume it. A collision can only add a
+redundant reparse; it cannot omit a dependency. Body-only edits do not traverse
+this index; contract changes query it in batches and retain `file_dependencies`
+as a coarse compatibility fallback.
