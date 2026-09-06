@@ -60,13 +60,19 @@ public final class DeclarationsOfCommand extends SemanticCommand {
                 topLevelTypes, directMembers, includeSynthetic, limit, offset);
         String root = SemanticRecords.rootSeed("declarations-of", file);
         for (DeclarationRow row : results) {
-            String seed = SemanticRecords.childSeed(root, "declaration", row.nodeId);
-            writer.write(entity(row, seed, root, identity));
-            writer.write(SemanticRecords.seedEvidence(seed, root, 1, true, null, identity));
+            writer.write(entity(row, root, null, identity));
         }
         boolean complete = offset + results.size() >= total;
-        writer.write(SemanticRecords.seedEvidence(root, null, results.size(), complete,
-                complete ? null : "RESULT_LIMIT", !complete, identity));
+        var evidence = SemanticRecords.seedEvidence(root, null, results.size(), complete,
+                complete ? null : "RESULT_LIMIT", !complete, identity);
+        var page = new java.util.LinkedHashMap<String, Object>();
+        page.put("offset", offset);
+        page.put("limit", limit);
+        page.put("returned", results.size());
+        page.put("total", total);
+        if (!complete) page.put("next_offset", offset + results.size());
+        evidence.put("page", page);
+        writer.write(evidence);
         return new Result(1, results.size(), complete, !complete);
     }
 

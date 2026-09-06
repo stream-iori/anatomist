@@ -31,8 +31,9 @@ class ProviderCapabilityIT {
                         "--language", "python", "--on-unsupported", "continue",
                         "--index", db.toString(), "--format", "json"));
         assertEquals(0, continued.exitCode(), continued.stderr());
-        List<?> records = (List<?>) Json.parseTree(continued.stdout());
-        Map<?, ?> evidence = (Map<?, ?>) records.getFirst();
+        Map<?, ?> envelope = (Map<?, ?>) Json.parseTree(continued.stdout());
+        Map<?, ?> evidenceBlock = (Map<?, ?>) envelope.get("evidence");
+        Map<?, ?> evidence = (Map<?, ?>) ((List<?>) evidenceBlock.get("seeds")).getFirst();
         assertEquals("unsupported", evidence.get("status"));
         assertEquals("python", evidence.get("language"));
         assertEquals("search", evidence.get("operation"));

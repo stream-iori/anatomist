@@ -1,7 +1,14 @@
 [ {
+  "contract" : "semantic-stream/v1",
+  "identity" : {
+    "index_revision_id" : "${REVISION}",
+    "semantic_profile_id" : "sha256:b06fa251f36630d18774a149d9670bb693b4a0296919b3e7bf69a6b7a02456a6",
+    "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+  },
+  "record" : "stream_header"
+}, {
   "caller" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
   "context" : "if-then@L19",
-  "contract" : "semantic-stream/v1",
   "derived_from" : [ {
     "id" : "region:sha256:99f7698f2e08fe7e80b7e562d65c19ce4d70d595d46402a5a1f596968bf74b29",
     "record" : "control_region"
@@ -9,22 +16,18 @@
   "dispatch_kind" : "unknown",
   "external_target" : false,
   "id" : "call_site:sha256:278e6d78eeb5f0e8aacea1b47d1fb12670928d95b76f3b71d0d1f6dc380dbb34",
-  "index_revision_id" : "${REVISION}",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:c6f832fde57907419d4e0051",
   "producer_id" : "java-core",
   "record" : "call_site",
   "relationship_id" : "rel:sha256:6159fa63285d13f1535f1500cc06601e9b8e63b3fb42f486062e72699c21b855",
   "resolution_status" : "exact",
-  "resolved_target" : "java-core::domain::MAIN::com.example.shop.domain.entity.Order#setId(java.lang.String)",
   "resolved_targets" : [ {
     "external" : false,
     "id" : "java-core::domain::MAIN::com.example.shop.domain.entity.Order#setId(java.lang.String)",
     "resolution_status" : "exact"
   } ],
-  "seed_id" : "seed:8d6b0ff65c67edfd84437289",
+  "seed_id" : "seed:69bb46ddbf9abe9f1cd0c8cd",
   "semantic" : "CALLS",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "end_column" : 55,
     "end_line" : 20,
@@ -33,26 +36,10 @@
     "start_column" : 13,
     "start_line" : 20
   },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target" : "java-core::domain::MAIN::com.example.shop.domain.entity.Order#setId(java.lang.String)"
-}, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:c6f832fde57907419d4e0051",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:8d6b0ff65c67edfd84437289",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
 }, {
   "caller" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
   "context" : "if-then@L19",
-  "contract" : "semantic-stream/v1",
   "derived_from" : [ {
     "id" : "region:sha256:99f7698f2e08fe7e80b7e562d65c19ce4d70d595d46402a5a1f596968bf74b29",
     "record" : "control_region"
@@ -60,22 +47,18 @@
   "dispatch_kind" : "unknown",
   "external_target" : true,
   "id" : "call_site:sha256:13ae869b500d9bf1469a9882d10451d82522a91b98ed1429d23935ff07cb1da8",
-  "index_revision_id" : "${REVISION}",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:c6f832fde57907419d4e0051",
   "producer_id" : "java-core",
   "record" : "call_site",
   "relationship_id" : "rel:sha256:835de52c912573149ca73592a0bf60a802d35d1411e2b430cc367283777acef5",
   "resolution_status" : "heuristic",
-  "resolved_target" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()",
   "resolved_targets" : [ {
     "external" : true,
     "id" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()",
     "resolution_status" : "heuristic"
   } ],
-  "seed_id" : "seed:8d6b0ff65c67edfd84437289",
+  "seed_id" : "seed:69bb46ddbf9abe9f1cd0c8cd",
   "semantic" : "CALLS",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "end_column" : 54,
     "end_line" : 20,
@@ -84,61 +67,25 @@
     "start_column" : 34,
     "start_line" : 20
   },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target" : "java.util.concurrent.atomic.AtomicLong#incrementAndGet()"
 }, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:c6f832fde57907419d4e0051",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:8d6b0ff65c67edfd84437289",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
-  "contract" : "semantic-stream/v1",
   "coverage" : "complete",
   "emitted" : 2,
-  "index_revision_id" : "${REVISION}",
   "negative_conclusion_safe" : false,
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:c6f832fde57907419d4e0051",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 0,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : true,
   "record" : "evidence",
   "scope" : "seed",
   "seed_id" : "seed:69bb46ddbf9abe9f1cd0c8cd",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "empty",
+  "status" : "positive",
   "truncated" : false
 }, {
-  "contract" : "semantic-stream/v1",
   "coverage" : "complete",
   "emitted" : 2,
-  "index_revision_id" : "${REVISION}",
   "negative_conclusion_safe" : false,
   "record" : "evidence",
   "scope" : "stream",
   "seeds" : {
-    "total" : 2
+    "total" : 1
   },
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
 } ]

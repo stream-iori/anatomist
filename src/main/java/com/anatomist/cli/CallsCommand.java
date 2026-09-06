@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name = "calls", mixinStandardHelpOptions = true,
         description = "Return direct source call sites; dispatch/override expansion is not included.",
         footer = "%nAccepts: callable entity%nEmits: call_site + evidence%nOperation: calls; inspect with: anatomist operations calls%nDefault limits: 50 sites/entity; hard max 100000%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist calls --direction outgoing")
-public final class CallsCommand extends SemanticCommand {
+public final class CallsCommand extends TransformSemanticCommand {
     @Option(names = "--direction", defaultValue = "outgoing",
             description = "Direction: outgoing | incoming (default outgoing).")
     String direction;
@@ -123,7 +123,6 @@ public final class CallsCommand extends SemanticCommand {
         if (site.receiverStaticType != null) out.put("receiver_static_type", site.receiverStaticType);
         List<Map<String, Object>> targets = site.targets.stream().map(CallsCommand::target).toList();
         out.put("resolved_targets", targets);
-        if (targets.size() == 1) out.put("resolved_target", targets.getFirst().get("id"));
         out.put("dispatch_kind", site.dispatchKind == null ? "unknown"
                 : site.dispatchKind.toLowerCase(java.util.Locale.ROOT));
         String provider = SemanticProviders.providerForProducer(site.producerId);

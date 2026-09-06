@@ -1,8 +1,14 @@
 [ {
   "contract" : "semantic-stream/v1",
+  "identity" : {
+    "index_revision_id" : "${REVISION}",
+    "semantic_profile_id" : "sha256:b06fa251f36630d18774a149d9670bb693b4a0296919b3e7bf69a6b7a02456a6",
+    "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+  },
+  "record" : "stream_header"
+}, {
   "derived_from" : [ {
     "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
     "record" : "entity"
   } ],
   "domain" : "language",
@@ -11,45 +17,25 @@
     "storage_kind" : "FIELD"
   },
   "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository#store",
-  "index_revision_id" : "${REVISION}",
   "kind" : "value",
   "language" : "java",
   "module" : "service",
   "name" : "store",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
   "producer_id" : "java-core",
   "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#store",
   "record" : "entity",
   "resolution_status" : "exact",
   "scope" : "MAIN",
-  "seed_id" : "seed:eb61de28d84a202a430819e9",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
+  "seed_id" : "seed:dec7642a16d4d5f755b75266",
   "source" : {
     "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
     "start_line" : 14
-  },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+  }
 }, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:eb61de28d84a202a430819e9",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
-  "contract" : "semantic-stream/v1",
   "derived_from" : [ {
     "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
     "record" : "entity"
   } ],
   "domain" : "language",
@@ -58,45 +44,25 @@
     "storage_kind" : "FIELD"
   },
   "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository#seq",
-  "index_revision_id" : "${REVISION}",
   "kind" : "value",
   "language" : "java",
   "module" : "service",
   "name" : "seq",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
   "producer_id" : "java-core",
   "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#seq",
   "record" : "entity",
   "resolution_status" : "exact",
   "scope" : "MAIN",
-  "seed_id" : "seed:bf437511ea6d3d5698da113d",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
+  "seed_id" : "seed:dec7642a16d4d5f755b75266",
   "source" : {
     "file" : "service/src/main/java/com/example/shop/repository/InMemoryOrderRepository.java",
     "start_line" : 15
-  },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+  }
 }, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:bf437511ea6d3d5698da113d",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
-  "contract" : "semantic-stream/v1",
   "derived_from" : [ {
     "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
     "record" : "entity"
   } ],
   "domain" : "language",
@@ -105,21 +71,18 @@
     "storage_kind" : "METHOD"
   },
   "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository#save(com.example.shop.domain.entity.Order)",
-  "index_revision_id" : "${REVISION}",
   "kind" : "callable",
   "language" : "java",
   "module" : "service",
   "name" : "save",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
   "producer_id" : "java-core",
   "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#save",
   "record" : "entity",
   "resolution_status" : "exact",
   "scope" : "MAIN",
-  "seed_id" : "seed:785f1b289e6fa908022ce5cd",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
+  "seed_id" : "seed:dec7642a16d4d5f755b75266",
   "source" : {
     "end_column" : 5,
     "end_line" : 24,
@@ -127,27 +90,10 @@
     "ordinal" : 0,
     "start_column" : 5,
     "start_line" : 17
-  },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+  }
 }, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:785f1b289e6fa908022ce5cd",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
-  "contract" : "semantic-stream/v1",
   "derived_from" : [ {
     "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
     "record" : "entity"
   } ],
   "domain" : "language",
@@ -156,21 +102,18 @@
     "storage_kind" : "METHOD"
   },
   "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository#findById(java.lang.String)",
-  "index_revision_id" : "${REVISION}",
   "kind" : "callable",
   "language" : "java",
   "module" : "service",
   "name" : "findById",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
   "producer_id" : "java-core",
   "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#findById",
   "record" : "entity",
   "resolution_status" : "exact",
   "scope" : "MAIN",
-  "seed_id" : "seed:6c0e46983c6d8b29ae62efd2",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
+  "seed_id" : "seed:dec7642a16d4d5f755b75266",
   "source" : {
     "end_column" : 5,
     "end_line" : 29,
@@ -178,27 +121,10 @@
     "ordinal" : 0,
     "start_column" : 5,
     "start_line" : 26
-  },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+  }
 }, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:6c0e46983c6d8b29ae62efd2",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
-  "contract" : "semantic-stream/v1",
   "derived_from" : [ {
     "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository",
-    "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository",
     "record" : "entity"
   } ],
   "domain" : "language",
@@ -207,21 +133,18 @@
     "storage_kind" : "METHOD"
   },
   "id" : "java-core::service::MAIN::com.example.shop.repository.InMemoryOrderRepository#deleteAll()",
-  "index_revision_id" : "${REVISION}",
   "kind" : "callable",
   "language" : "java",
   "module" : "service",
   "name" : "deleteAll",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
   "producer_id" : "java-core",
   "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.repository.InMemoryOrderRepository#deleteAll",
   "record" : "entity",
   "resolution_status" : "exact",
   "scope" : "MAIN",
-  "seed_id" : "seed:63aa5335a8c68ca6b89fe69b",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
+  "seed_id" : "seed:dec7642a16d4d5f755b75266",
   "source" : {
     "end_column" : 5,
     "end_line" : 34,
@@ -229,48 +152,25 @@
     "ordinal" : 0,
     "start_column" : 5,
     "start_line" : 31
-  },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+  }
 }, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:dec7642a16d4d5f755b75266",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:63aa5335a8c68ca6b89fe69b",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
-  "contract" : "semantic-stream/v1",
   "coverage" : "complete",
   "emitted" : 5,
-  "index_revision_id" : "${REVISION}",
   "negative_conclusion_safe" : false,
   "record" : "evidence",
   "scope" : "seed",
   "seed_id" : "seed:dec7642a16d4d5f755b75266",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
 }, {
-  "contract" : "semantic-stream/v1",
   "coverage" : "complete",
   "emitted" : 5,
-  "index_revision_id" : "${REVISION}",
   "negative_conclusion_safe" : false,
   "record" : "evidence",
   "scope" : "stream",
   "seeds" : {
     "total" : 1
   },
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
 } ]

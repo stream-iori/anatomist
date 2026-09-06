@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="annotations", mixinStandardHelpOptions=true,
         description="Return direct source annotations; optionally expand bounded meta-annotations.",
         footer="%nAccepts: entity%nEmits: annotation + evidence%nOperation: annotations; inspect with: anatomist operations annotations%n%nExample:%n  anatomist search Checkout --kind type --format ndjson | anatomist resolve --unique | anatomist annotations --include-meta")
-public final class AnnotationsCommand extends SemanticCommand {
+public final class AnnotationsCommand extends TransformSemanticCommand {
     @Option(names="--include-meta", description="Include cycle-safe meta-annotation closure (max depth 16); direct annotations remain marked direct=true.")
     boolean includeMeta;
 

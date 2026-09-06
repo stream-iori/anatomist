@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -146,6 +147,12 @@ class GoldenFileIT {
             assertArrayEquals(input, fused,
                     "fused pipeline stdout must be byte-identical: "
                             + scenarioDir.getFileName());
+            assertCanonicalFraming(input, scenarioDir.getFileName().toString());
+            if ("B2-declarations-of".equals(scenarioDir.getFileName().toString())) {
+                assertTrue(input.length <= 6_203,
+                        "declarations output exceeds 1.6x the 0.14 3,877-byte baseline: "
+                                + input.length);
+            }
         }
 
         String rawStdout = new String(input, StandardCharsets.UTF_8);
@@ -179,6 +186,39 @@ class GoldenFileIT {
                     + "\n--- expected ---\n" + wantedStderr
                     + "\n--- actual ---\n" + actualStderr);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertCanonicalFraming(byte[] output, String scenario) {
+        List<java.util.Map<String, Object>> records = new ArrayList<>();
+        for (String line : new String(output, StandardCharsets.UTF_8).lines().toList()) {
+            if (!line.isBlank()) records.add((java.util.Map<String, Object>) Json.parseTree(line));
+        }
+        assertEquals(1, records.stream()
+                .filter(row -> "stream_header".equals(row.get("record"))).count(), scenario);
+        assertEquals("stream_header", records.getFirst().get("record"), scenario);
+        assertEquals("stream", records.getLast().get("scope"), scenario);
+        Set<String> dataSeeds = records.stream()
+                .filter(row -> !List.of("stream_header", "evidence").contains(row.get("record")))
+                .map(row -> String.valueOf(row.get("seed_id")))
+                .collect(java.util.stream.Collectors.toSet());
+        Set<String> evidenceSeeds = records.stream()
+                .filter(row -> "evidence".equals(row.get("record")))
+                .filter(row -> "seed".equals(row.get("scope")))
+                .map(row -> String.valueOf(row.get("seed_id")))
+                .collect(java.util.stream.Collectors.toSet());
+        assertTrue(evidenceSeeds.containsAll(dataSeeds), scenario + " seed evidence mismatch");
+        long seedEvidenceCount = records.stream()
+                .filter(row -> "evidence".equals(row.get("record")))
+                .filter(row -> "seed".equals(row.get("scope")))
+                .count();
+        assertEquals(seedEvidenceCount, evidenceSeeds.size(),
+                scenario + " contains duplicate seed evidence");
+        records.subList(1, records.size()).forEach(row -> {
+            assertFalse(row.containsKey("contract"), scenario);
+            assertFalse(row.containsKey("index_revision_id"), scenario);
+            assertFalse(row.containsKey("parent_seed_id"), scenario);
+        });
     }
 
     private byte[] runFused(Path spec) {

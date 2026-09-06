@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="sites-in", mixinStandardHelpOptions=true,
         description="Enumerate indexed call/access sites inside one control region.",
         footer="%nAccepts: control_region%nEmits: call_site | access_site + evidence%n%nExample:%n  anatomist resolve 'p.Type#run()' --kind callable --unique | anatomist regions | anatomist sites-in --record call_site")
-public final class SitesInCommand extends SemanticCommand {
+public final class SitesInCommand extends TransformSemanticCommand {
     @Option(names="--record", defaultValue="all") String recordType;
     @Option(names="--limit", defaultValue="50") int limit;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("control_region");}

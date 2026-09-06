@@ -1,61 +1,49 @@
 ---
 name: anatomist
-description: "Source-backed analysis through semantic-stream/v1 pipelines."
+description: "Source-backed code analysis through semantic-stream/v1 pipelines."
 ---
 
 # anatomist
 
-1. Work from the exact checkout being analysed.
-2. Run `anatomist skill core`; obey its index/health gate.
-3. Run `anatomist skill topics`, then load only the relevant scene.
-4. Read `anatomist <command> --help`; installed help is authoritative.
-5. Read `anatomist operations [operation] --index <db>` for machine-readable
-   input/output types, arguments, limits, language support, and index availability.
+Work from the exact checkout being analysed. Load `anatomist skill core`, then
+use `anatomist skill topics` to select only the relevant scene.
 
-Config order: project, user, otherwise built-in defaults. Files do not merge;
-CLI flags override. Prefer `index --incremental`. After policy changes, re-index
-and inspect `doctor --format json` `config_source`.
+Prefer `index --incremental`. After extractor or policy changes, recreate the
+index. Use `doctor --format json` only when index health or freshness is in
+doubt. Read command help or `operations <operation>` only when an option or
+capability is unclear.
 
-For two or more linear stages, read `anatomist pipeline --help` and prefer fused execution. Use a Unix pipeline only
-for external tools, branching, or distinct index/module/scope values.
+Configuration uses project config, then user config, then built-ins; files do
+not merge and CLI flags override. Inspect `doctor` `config_source` when needed.
 
 ```text
 find        search → resolve --unique
 members     resolve → members [--recursive]
 types       resolve → type-relations
 runtime     resolve → runtime-implementations
-calls       resolve → calls → dispatch
+calls       resolve → calls [→ source]
+dispatch    resolve → calls → dispatch [→ source]
 annotations resolve → annotations [--include-meta]
 config      resolve → bindings [--semantic member]
-evidence    resolve/site → source
 ```
 
-Before execution, use `pipeline --explain -- ...` for static composition and
-`pipeline --check --index index.db -- ...` for read-only availability checks.
-They never execute selectors or consume stdin; inspect `deferred_checks`.
+For two or more linear stages, prefer fused `pipeline -- ... --then ...`.
+Use `pipeline --explain` or `--check` only for unfamiliar or failing pipelines.
+Put index/module/scope/format on `pipeline`, not inside stages.
+Pipeline failures exit 5 and do not emit final stream evidence.
 
-Put `--index`, `--module`, `--scope`, and `--format` on `pipeline`, before `--`;
-never repeat them inside stages. For automation, use
-`pipeline --index index.db --file pipeline.json` with
-`{"stages":[["resolve",...],["calls"],["dispatch"]]}`.
+NDJSON begins with `stream_header`, groups all results for one input seed, and
+ends with `evidence(scope=stream)`. Missing final evidence means failure. Never
+conclude absence unless coverage is complete and `negative_conclusion_safe` is
+true. Query errors use `anatomist-error/v1`; decide from `code`, not message.
 
-Fused stages share one read-only snapshot. Treat output as successful only when it
-ends with `evidence(scope=stream)`. Query errors use `anatomist-error/v1`; decide
-from `code`, `category`, and structured details, not message text. Exit 5 may leave
-partial seed frames on stdout, so never consume them as a completed answer.
-Never conclude absence unless coverage is complete and evidence marks the negative
-conclusion safe. `--accept-unframed` intentionally downgrades coverage.
-
-`calls` is source syntax plus static resolution. `dispatch` gives possible static
-candidates, not observed execution. Framework bindings come from artifact producers,
-not Java semantics.
-
-Annotations are direct unless `--include-meta`. Inspect ambiguous members;
-unresolved SymbolRef is not proof of absence.
+`calls` proves source call syntax and static targets. `dispatch` expands possible
+virtual targets; it does not prove runtime execution. Framework bindings do not
+manufacture calls.
 
 Use `declarations-of --file <relative.java>` for changed files. For one method,
-run an exact callable `resolve --then source`; page until evidence is complete.
+resolve the exact callable and pipe to `source`; follow source pagination when a
+conclusion must cover the full declaration.
 
-For 0.1x indexes run `index <project> --recreate`; no alias or silent rebuild.
-
-Lombok is off. Modeled AST facts are evidence; partial capability needs proof.
+For 0.1x indexes use `index <project> --recreate`. Lombok is off by default;
+partial modeled coverage requires additional evidence.

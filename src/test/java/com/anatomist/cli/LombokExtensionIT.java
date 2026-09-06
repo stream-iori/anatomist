@@ -219,8 +219,7 @@ class LombokExtensionIT {
         var declarations = runCli("declarations-of", "--file", "src/main/java/sample/User.java",
                 "--format", "json", "--index", db.toString());
         assertEquals(0, declarations.exitCode(), declarations.stderr());
-        @SuppressWarnings("unchecked")
-        List<Map<?, ?>> rows = (List<Map<?, ?>>) (List<?>) Json.parseTree(declarations.stdout());
+        List<Map<?, ?>> rows = jsonResults(declarations.stdout());
         Map<?, ?> type = rows.stream().filter(row -> "sample.User".equals(row.get("symbol_id")))
                 .findFirst().orElseThrow();
         assertEquals("complete", ((Map<?, ?>) ((Map<?, ?>) type.get("facets"))
@@ -348,8 +347,7 @@ class LombokExtensionIT {
                 "src/main/java/sample/UnsupportedBuilder.java", "--format", "json",
                 "--index", db.toString());
         assertEquals(0, declarations.exitCode(), declarations.stderr());
-        @SuppressWarnings("unchecked")
-        List<Map<?, ?>> rows = (List<Map<?, ?>>) (List<?>) Json.parseTree(declarations.stdout());
+        List<Map<?, ?>> rows = jsonResults(declarations.stdout());
         Map<?, ?> type = rows.stream()
                 .filter(row -> "sample.UnsupportedBuilder".equals(row.get("symbol_id")))
                 .findFirst().orElseThrow();
@@ -359,6 +357,12 @@ class LombokExtensionIT {
                 "golden", "lombok-capabilities.json");
         String expected = Json.writeCanonical(Json.parseTree(Files.readString(expectedPath)));
         assertEquals(expected, Json.writeCanonical(actual));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<?, ?>> jsonResults(String json) {
+        Map<?, ?> envelope = (Map<?, ?>) Json.parseTree(json);
+        return (List<Map<?, ?>>) envelope.get("results");
     }
 
     private static int scalar(Statement statement, String sql) throws Exception {

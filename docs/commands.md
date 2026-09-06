@@ -1,17 +1,16 @@
 # Anatomist 1.0 命令参考
 
-结论：查询接口只有 `semantic-stream/v1`。先用 `operations` 获取机器可读能力和约束，再由 Agent 组合原子操作；没有公开 recipe API。
+结论：查询接口只有 `semantic-stream/v1`。Agent 按需查看单个 operation，直接组合原子操作。
 
 ```text
-doctor → operations → pipeline --explain → pipeline --check → execute
+execute ──异常/不确定──> help | operations <operation> | doctor | explain/check
 ```
 
 ## 机器可读操作目录
 
 ```bash
-anatomist operations
 anatomist operations calls --index <db>
-anatomist operations --language python
+anatomist operations calls --language python
 ```
 
 | 字段 | 含义 |
@@ -27,7 +26,8 @@ anatomist operations --language python
 ```text
 生产 seed       扩展/变换 seed                 取证
 search ───────> resolve ─┬─ members ─────────> source
-                         ├─ calls ─ dispatch ─> source
+                         ├─ calls ────────────> source
+                         └─ calls ─ dispatch ─> source  (显式虚分派)
                          ├─ references
                          ├─ regions ─ sites-in
                          └─ type-relations / runtime-implementations
@@ -38,7 +38,7 @@ search ───────> resolve ─┬─ members ────────
 | 所有管道段使用同一个 `--index` | 防止读错数据库；流还会校验 revision/snapshot/profile |
 | 默认 `--scope MAIN` | 测试或生成源码必须显式选 `TEST`、`GENERATED` 或 `ALL` |
 | `--format ndjson` | 可流式组合；`json`/`table` 是终端展示 |
-| `--accept-unframed` | 仅接收外部 data-only 输入，强制降低 coverage，不能做否定结论 |
+| `--accept-unframed` | transform 接收有 header、无 evidence 的数据，强制降低 coverage |
 | `--on-unsupported fail` | 缺能力默认退出 3；`continue` 会保留不完整 evidence |
 | final evidence 不 complete | 继续分页/补证，不得把空结果当成不存在 |
 
@@ -48,7 +48,7 @@ search ───────> resolve ─┬─ members ────────
 anatomist pipeline --index <db> -- \
   resolve 'p.A#run()' --kind callable --exact --unique \
   --then calls --direction outgoing \
-  --then dispatch
+  --then source
 
 anatomist pipeline --index <db> --file pipeline.json
 anatomist pipeline --explain -- resolve p.A --kind type --unique --then describe
@@ -56,7 +56,7 @@ anatomist pipeline --check --index <db> -- resolve p.A --kind type --unique --th
 ```
 
 ```json
-{"stages":[["resolve","p.A#run()","--kind","callable","--exact","--unique"],["calls"],["dispatch"]]}
+{"stages":[["resolve","p.A#run()","--kind","callable","--exact","--unique"],["calls"],["source"]]}
 ```
 
 | 规则 | 结果 |
@@ -70,7 +70,7 @@ anatomist pipeline --check --index <db> -- resolve p.A --kind type --unique --th
 | 成功 | stdout 与等价 Shell 管道原始字节一致 |
 | 失败 | exit 5；stderr 为一行结构化 JSON；不会写最终 stream evidence |
 
-Shell 的 `resolve | calls | dispatch` 仍兼容。需要跨 module/scope、外部程序或分支编排时继续使用 Shell。
+需要虚调用候选时显式追加 `dispatch`。跨 module/scope、外部程序或分支编排时使用 Shell。
 
 ## 索引和诊断
 
@@ -99,7 +99,7 @@ anatomist index <project> --recreate --output <db>
 | `--timings` | 输出各阶段耗时 |
 | `--format json` | 机器可读构建结果 |
 
-当前 schema 23 / graph semantics 6 不兼容旧索引。已有数据库不兼容时命令会失败并报告将丢弃的数据量；只有显式 `--recreate` 才会删除并重建，不会静默覆盖。
+当前 schema 24 / graph semantics 6 不兼容旧索引。已有数据库不兼容时命令会失败并报告将丢弃的数据量；只有显式 `--recreate` 才会删除并重建，不会静默覆盖。
 
 ### `doctor`
 

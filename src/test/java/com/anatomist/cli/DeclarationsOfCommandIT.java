@@ -86,8 +86,12 @@ class DeclarationsOfCommandIT {
         assertTrue(((List<?>) first.get("implicit_modifiers")).contains("public"));
         assertTrue(((List<?>) first.get("implicit_modifiers")).contains("abstract"));
         Map<?, ?> evidence = records(run.stdout()).stream()
-                .filter(row -> "stream".equals(row.get("scope"))).findFirst().orElseThrow();
+                .filter(row -> "seed".equals(row.get("scope"))).findFirst().orElseThrow();
         assertEquals(true, evidence.get("truncated"));
+        Map<?, ?> page = (Map<?, ?>) evidence.get("page");
+        assertEquals(0, ((Number) page.get("offset")).intValue());
+        assertEquals(1, ((Number) page.get("returned")).intValue());
+        assertEquals(1, ((Number) page.get("next_offset")).intValue());
 
         var type = command("--file", "src/main/java/com/example/Contract.java", "--kind", "type", "--format", "json");
         assertEquals("package", rows(type.stdout()).getFirst().get("visibility"));
@@ -173,7 +177,12 @@ class DeclarationsOfCommandIT {
         return result;
     }
     @SuppressWarnings("unchecked") private static List<Map<?, ?>> records(String json) {
-        return (List<Map<?, ?>>) (List<?>) Json.parseTree(json);
+        Map<?, ?> envelope = (Map<?, ?>) Json.parseTree(json);
+        List<Map<?, ?>> records = new java.util.ArrayList<>((List<Map<?, ?>>) envelope.get("results"));
+        Map<?, ?> evidence = (Map<?, ?>) envelope.get("evidence");
+        records.addAll((List<Map<?, ?>>) evidence.get("seeds"));
+        records.add((Map<?, ?>) evidence.get("stream"));
+        return records;
     }
     private static Map<?, ?> one(List<Map<?, ?>> rows, String symbol) {
         return rows.stream().filter(row -> symbol.equals(row.get("symbol_id"))).findFirst().orElseThrow();

@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name = "type-relations", mixinStandardHelpOptions = true,
         description = "Return Java type facts without mixing subtype and conformance closure.",
         footer = "%nAccepts: entity(type)%nEmits: type_relation + evidence%nOperation: type-relations; inspect with: anatomist operations type-relations%n%nExample:%n  anatomist resolve p.Api --kind type --exact --unique | anatomist type-relations --direction incoming")
-public final class TypeRelationsCommand extends SemanticCommand {
+public final class TypeRelationsCommand extends TransformSemanticCommand {
     @Option(names="--direction", defaultValue="outgoing") String direction;
     @Option(names="--semantic", defaultValue="any") String semantic;
     @Option(names="--transitive") boolean transitive;

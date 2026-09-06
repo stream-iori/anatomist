@@ -30,9 +30,6 @@ abstract class SemanticCommand implements Callable<Integer> {
     String provider;
     @Option(names = "--format", defaultValue = "ndjson",
             description = "Output: ndjson | json | table (default ndjson).") String format;
-    @Option(names = "--accept-unframed",
-            description = "Accept data-only semantic input; resulting coverage is unknown.")
-    boolean acceptUnframed;
     @Option(names = "--on-unsupported", defaultValue = "fail",
             description = "Unsupported capability policy: fail | continue (default fail).")
     String onUnsupported;
@@ -89,6 +86,8 @@ abstract class SemanticCommand implements Callable<Integer> {
                                       SemanticStreamWriter writer);
 
     protected Set<String> acceptedInputRecords() { return Set.of(); }
+
+    protected boolean acceptUnframed() { return false; }
 
     protected String directSeed() { return null; }
 
@@ -148,7 +147,7 @@ abstract class SemanticCommand implements Callable<Integer> {
             return new Result(1, 0, false, false);
         }
         java.util.concurrent.atomic.AtomicInteger seeds = new java.util.concurrent.atomic.AtomicInteger();
-        readFrames(acceptedInputRecords(), acceptUnframed, identity,
+        readFrames(acceptedInputRecords(), acceptUnframed(), identity,
                 frame -> {
                     writer.write(SemanticRecords.unsupportedEvidence(frame.seedId(), null,
                             operation, language, providerId, identity));

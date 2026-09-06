@@ -118,6 +118,7 @@ final class CliError {
 
     private static boolean streamConflict(String code) {
         return code.contains("EVIDENCE") || code.contains("PIPELINE")
+                || code.contains("HEADER")
                 || code.contains("PROFILE") || code.contains("SNAPSHOT")
                 || code.equals("RECORD_AFTER_STREAM_EVIDENCE");
     }

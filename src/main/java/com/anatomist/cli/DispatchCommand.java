@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="dispatch", mixinStandardHelpOptions=true,
         description="Expand static call targets into possible Java dispatch candidates.",
         footer="%nAccepts: call_site%nEmits: dispatch_target + evidence%nOperation: dispatch; inspect with: anatomist operations dispatch%nNote: candidates are static possibilities, not observed runtime calls.%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist calls | anatomist dispatch")
-public final class DispatchCommand extends SemanticCommand {
+public final class DispatchCommand extends TransformSemanticCommand {
     @Option(names="--algorithm", defaultValue="auto") String algorithm;
     @Option(names="--world", defaultValue="workspace-open") String world;
     @Option(names="--max-depth", defaultValue="20") int maxDepth;

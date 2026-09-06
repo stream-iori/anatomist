@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="trace", mixinStandardHelpOptions=true,
         description="Find one bounded call path from an input callable to an explicit end selector.",
         footer="%nAccepts: entity(callable)%nEmits: trace + evidence%n%nExample:%n  anatomist resolve 'p.A#start()' --kind callable --unique | anatomist trace --to 'p.B#end()'")
-public final class TraceCommand extends SemanticCommand {
+public final class TraceCommand extends TransformSemanticCommand {
     @Option(names="--to", required=true) String to;
     @Option(names="--max-depth", defaultValue="10") int maxDepth;
     @Option(names="--dispatch", defaultValue="resolved") String dispatch;

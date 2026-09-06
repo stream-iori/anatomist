@@ -1,1 +1,1 @@
-{"contract":"anatomist-error/v1","code":"MISSING_STREAM_EVIDENCE","category":"stream","exit":4,"message":"input ended without final stream evidence","operation":"members","inspect":[["anatomist","operations","members","--format","json"]]}
+{"contract":"anatomist-error/v1","code":"MISSING_STREAM_HEADER","category":"stream","exit":4,"message":"input must begin with stream_header","operation":"members","inspect":[["anatomist","operations","members","--format","json"]]}

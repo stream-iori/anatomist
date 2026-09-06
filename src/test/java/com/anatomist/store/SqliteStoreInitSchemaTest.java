@@ -45,21 +45,26 @@ class SqliteStoreInitSchemaTest {
 
         Set<String> indexes = listObjects(store.connection(), "index");
         assertTrue(indexes.contains("idx_nodes_kind"), "missing idx_nodes_kind; got " + indexes);
+        assertTrue(indexes.contains("idx_nodes_symbol_identity"));
+        assertFalse(indexes.contains("idx_nodes_symbol_id"),
+                "left-prefix duplicate wastes space");
+        assertFalse(indexes.contains("idx_nodes_provider_symbol"));
+        assertFalse(indexes.contains("idx_nodes_language_kind"));
         assertTrue(indexes.contains("idx_edges_source_relation_external"));
         assertTrue(indexes.contains("idx_annotations_fqn"));
         assertTrue(indexes.contains("idx_annotation_meta_source"));
         assertTrue(indexes.contains("idx_declarations_file"));
         assertTrue(indexes.contains("idx_call_sites_caller_order"));
         assertTrue(indexes.contains("idx_call_site_owners_source"));
-        assertTrue(indexes.contains("idx_call_site_targets_identity"));
+        assertTrue(indexes.contains("idx_call_site_targets_site"));
+        assertFalse(indexes.contains("idx_call_site_targets_identity"));
+        assertFalse(indexes.contains("idx_call_sites_provider"));
         assertFalse(indexes.contains("idx_call_sites_context"));
         assertFalse(indexes.contains("idx_edges_call_kind"));
         assertFalse(indexes.contains("idx_edges_source_id"));
         assertFalse(indexes.contains("idx_edges_source_relation"));
         assertFalse(indexes.contains("idx_edges_target_id"));
         assertFalse(indexes.contains("idx_edges_relation"));
-        assertFalse(indexes.contains("idx_call_site_targets_site"),
-                "site_pk prefix is already covered by the identity index");
 
         Set<String> callSiteColumns = tableColumns(store.connection(), "call_sites");
         assertTrue(callSiteColumns.contains("site_pk"));

@@ -18,7 +18,7 @@ class SmokeRecipeContractTest {
         assertTrue(smoke.contains("set -euo pipefail"),
                 "smoke recipe must fail fast and propagate command failures");
         assertTrue(smoke.contains("search | resolve | members"));
-        assertTrue(smoke.contains("resolve | calls | dispatch | source"));
+        assertTrue(smoke.contains("resolve | calls | source"));
         assertFalse(smoke.contains("callees-of"));
         assertFalse(smoke.contains("context --enrich"));
     }

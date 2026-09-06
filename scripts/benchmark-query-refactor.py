@@ -182,7 +182,7 @@ def table_exists(connection: sqlite3.Connection, name: str) -> bool:
     ).fetchone())
 
 
-def db_facts(path: Path) -> dict[str, int]:
+def db_facts(path: Path) -> dict[str, object]:
     with sqlite3.connect(path) as connection:
         facts = {
             "bytes": path.stat().st_size,
@@ -204,6 +204,15 @@ def db_facts(path: Path) -> dict[str, int]:
             facts["call_site_targets"] = connection.execute(
                 "SELECT count(*) FROM call_site_targets"
             ).fetchone()[0]
+        try:
+            facts["objects"] = {
+                str(name): int(size)
+                for name, size in connection.execute(
+                    "SELECT name,sum(pgsize) FROM dbstat GROUP BY name ORDER BY sum(pgsize) DESC"
+                )
+            }
+        except sqlite3.OperationalError:
+            facts["objects"] = {}
         return facts
 
 
@@ -336,7 +345,6 @@ def main() -> int:
                 [str(candidate_bin), "resolve", callable_selector, "--kind", "callable",
                  "--exact", "--unique", "--index", str(new_db)],
                 [str(candidate_bin), "calls", "--index", str(new_db)],
-                [str(candidate_bin), "dispatch", "--index", str(new_db)],
             ]),
             "type_workflow_fused": lambda: run_command([
                 str(candidate_bin), "pipeline", "--index", str(new_db), "--",
@@ -346,7 +354,7 @@ def main() -> int:
             "calls_workflow_fused": lambda: run_command([
                 str(candidate_bin), "pipeline", "--index", str(new_db), "--",
                 "resolve", callable_selector, "--kind", "callable", "--exact", "--unique",
-                "--then", "calls", "--then", "dispatch",
+                "--then", "calls",
             ]),
         }
 
@@ -373,7 +381,7 @@ def main() -> int:
         functional = {
             "search_stream": semantic_check(new_commands["search"](), {"entity_candidate", "evidence"}, "QueryService"),
             "type_stream": semantic_check(new_commands["type_workflow_fused"](), {"declaration", "evidence"}, selector),
-            "calls_stream": semantic_check(new_commands["calls_workflow_fused"](), {"dispatch_target", "evidence"}, "search"),
+            "calls_stream": semantic_check(new_commands["calls_workflow_fused"](), {"call_site", "evidence"}, "search"),
             "type_shell_fused_same": new_commands["type_workflow"]()
                 == new_commands["type_workflow_fused"](),
             "calls_shell_fused_same": new_commands["calls_workflow"]()
@@ -394,6 +402,10 @@ def main() -> int:
         artifacts = {
             "database": {"old": db_facts(old_db), "new": db_facts(new_db)},
             "binary_bytes": {"old": baseline_bin.stat().st_size, "new": candidate_bin.stat().st_size},
+            "output_bytes": {
+                "calls_old": len(old_commands["calls_workflow"]()),
+                "calls_new": len(new_commands["calls_workflow_fused"]()),
+            },
             "peak_rss_bytes": {
                 "old": int(statistics.median(rss[0])),
                 "new": int(statistics.median(rss[1])),
@@ -427,6 +439,8 @@ def main() -> int:
                         benchmarks[name]["new"]["p95_ms"], p95_limit)
         add_numeric("database.bytes", artifacts["database"]["old"]["bytes"],
                     artifacts["database"]["new"]["bytes"], -30.0)
+        add_numeric("calls.output_bytes", artifacts["output_bytes"]["calls_old"],
+                    artifacts["output_bytes"]["calls_new"], 100.0)
         add_numeric("binary.bytes", artifacts["binary_bytes"]["old"],
                     artifacts["binary_bytes"]["new"], 10.0)
         add_numeric("peak_rss.bytes", artifacts["peak_rss_bytes"]["old"],
@@ -460,7 +474,7 @@ def main() -> int:
             },
             "execution": {
                 "type_workflow": "0.14 context vs 1.0 Shell resolve|describe",
-                "calls_workflow": "0.14 callees-of vs 1.0 Shell resolve|calls|dispatch",
+                "calls_workflow": "0.14 callees-of vs 1.0 Shell resolve|calls",
                 "type_workflow_fused": "0.14 context vs 1.0 fused pipeline",
                 "calls_workflow_fused": "0.14 callees-of vs 1.0 fused pipeline",
                 "sampling_order": "round-robin AB/BA",

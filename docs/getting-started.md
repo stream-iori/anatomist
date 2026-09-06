@@ -1,18 +1,14 @@
 # Getting Started
 
-Agent 查询顺序：
+Agent 查询方式：
 
 ```text
-doctor --agent-preflight
-        ↓
-operations [operation] --index <db>
-        ↓
-pipeline --explain / --check
-        ↓
 execute + verify evidence(scope=stream)
+        │
+        └─ 异常或不确定时：doctor / operations <operation> / explain / check
 ```
 
-`operations` 是能力和约束的机器可读事实源；它不返回 recipe，pipeline 由 Agent 自行组合。
+`operations <operation>` 是按需能力事实源；pipeline 由 Agent 自行组合。
 
 ## 安装
 
@@ -146,6 +142,6 @@ anatomist index /path/to/project --recreate --output /path/to/index.db
 |---|---|
 | [commands.md](commands.md) | 完整命令和 recipe |
 | [semantic-stream-v1.md](semantic-stream-v1.md) | framing、evidence、退出码 |
-| [data-model.md](data-model.md) | schema 23 存储模型 |
+| [data-model.md](data-model.md) | schema 24 存储模型 |
 | [testing.md](testing.md) | 测试与性能门禁 |
 | [troubleshooting.md](troubleshooting.md) | 索引和环境排查 |

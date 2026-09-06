@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name = "resolve", mixinStandardHelpOptions = true,
         description = "Resolve exact selectors or entity candidates without fuzzy recall.",
         footer = "%nAccepts: entity_candidate | entity, or one CLI selector%nEmits: entity + evidence%nOperation: resolve; inspect with: anatomist operations resolve%nHard input limits: 1 MiB/line, 1000000 records/stream, 100000 records/seed, 100000 seeds%n%nExample:%n  anatomist search PaymentGateway --kind type --format ndjson | anatomist resolve --unique")
-public final class ResolveCommand extends SemanticCommand {
+public final class ResolveCommand extends TransformSemanticCommand {
     @Parameters(index = "0", arity = "0..1", description = "Exact ID, FQN, or callable signature.")
     String selector;
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two semantic-stream/v1 implementations on one immutable index."""
+"""Compare two semantic-stream/v1 implementations on independent indexes."""
 
 from __future__ import annotations
 
@@ -187,6 +187,22 @@ def validate_stream(output: bytes, required: frozenset[str]) -> bool:
     return required <= kinds and final is not None
 
 
+def semantic_digest(output: bytes) -> str:
+    """Compare facts, not framing or intentionally removed redundant fields."""
+    ignored = {
+        "contract", "identity", "index_revision_id", "source_snapshot_id",
+        "semantic_profile_id", "seed_id", "parent_seed_id", "derived_from",
+        "resolved_target",
+    }
+    facts = []
+    for record in (json.loads(line) for line in output.decode().splitlines() if line.strip()):
+        if record.get("record") in {"stream_header", "evidence"}:
+            continue
+        facts.append({key: value for key, value in record.items() if key not in ignored})
+    canonical = json.dumps(facts, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def highest_fanout(db: Path, fallback: str) -> tuple[str, int]:
     with sqlite3.connect(db) as connection:
         row = connection.execute(
@@ -214,43 +230,46 @@ def workloads(high_fanout_selector: str) -> list[Workload]:
             ("describe",),
         ), frozenset({"declaration", "evidence"})),
         Workload("calls_pipeline", (
+            resolve_callable, ("calls",),
+        ), frozenset({"call_site", "evidence"})),
+        Workload("dispatch_pipeline", (
             resolve_callable, ("calls",), ("dispatch",),
         ), frozenset({"dispatch_target", "evidence"})),
         Workload("calls_high_fanout", (
             resolve_high_fanout, ("calls", "--limit", "100000"),
-            ("dispatch", "--limit", "100000"),
-        ), frozenset({"dispatch_target", "evidence"})),
+        ), frozenset({"call_site", "evidence"})),
     ]
 
 
 def markdown(report: dict) -> str:
     result = "PASS" if report["passed"] else "FAIL"
     rows = [
-        "| Workload | Stages | Baseline p50 | Fused p50 | Delta | p95 Delta | RSS old/new | Output |",
+        "| Workload | Stages | Baseline p50 | Fused p50 | Delta | p95 Delta | Output old/new | Semantic |",
         "|---|---:|---:|---:|---:|---:|---:|:---:|",
     ]
     for name, value in report["benchmarks"].items():
         old_rss = value["baseline_peak_rss_bytes"]
         new_rss = value["candidate_peak_rss_bytes"]
-        rss = "n/a" if old_rss is None or new_rss is None else f"{old_rss}/{new_rss} B"
         rows.append(
             f"| {name} | {value['stages']} | {value['baseline']['p50_ms']:.2f} ms | "
             f"{value['candidate']['p50_ms']:.2f} ms | {value['p50_delta_pct']:+.1f}% | "
-            f"{value['p95_delta_pct']:+.1f}% | {rss} | "
-            f"{'same' if value['output_equal'] else 'DIFF'} |"
+            f"{value['p95_delta_pct']:+.1f}% | {value['baseline_output_bytes']}/"
+            f"{value['candidate_output_bytes']} B | "
+            f"{'same' if value['semantic_equal'] else 'DIFF'} |"
         )
     environment = report["environment"]
     return "\n".join([
         "# Semantic pipeline benchmark", "",
         f"结论：**{result}**", "",
         *rows, "",
-        f"固定索引：`{report['index']['bytes']}` bytes；最高扇出 selector："
+        f"独立索引：baseline `{report['index']['baseline_bytes']}` B，candidate "
+        f"`{report['index']['candidate_bytes']}` B；最高扇出 selector："
         f"`{report['index']['high_fanout_selector']}`（{report['index']['high_fanout_sites']} sites）。",
-        f"索引 SHA-256：`{report['index']['sha256_before']}`（查询前后不变）。",
+        "两个索引的 SHA-256 在查询前后均不变。",
         f"Baseline: `{environment['baseline_version']}` / `{environment['baseline_sha256']}`。",
         f"Candidate: `{environment['candidate_version']}` / `{environment['candidate_sha256']}`。",
         "Baseline 使用 Shell 多进程管道，candidate 使用单进程 fused pipeline；"
-        "二者查询同一个只读索引，输出按原始 NDJSON 字节比较。", "",
+        "输出按去除 framing 冗余后的语义 digest 比较。", "",
     ])
 
 
@@ -290,28 +309,33 @@ def main() -> int:
             shutil.copy2(source, baseline_bin)
             baseline_label = "binary:" + str(source)
 
-        db = temp / "pipeline.db"
+        baseline_db = temp / "baseline.db"
+        candidate_db = temp / "candidate.db"
         run([str(baseline_bin), "index", str(project), "--no-classpath",
-             "--output", str(db)])
-        db_sha256_before = sha256(db)
+             "--output", str(baseline_db)])
+        run([str(candidate_bin), "index", str(project), "--no-classpath",
+             "--output", str(candidate_db)])
+        baseline_sha_before = sha256(baseline_db)
+        candidate_sha_before = sha256(candidate_db)
         fallback = "com.anatomist.query.QueryService#search(java.lang.String,java.lang.String,int)"
-        high_fanout_selector, high_fanout_sites = highest_fanout(db, fallback)
+        high_fanout_selector, high_fanout_sites = highest_fanout(candidate_db, fallback)
 
         selected_workloads = workloads(high_fanout_selector)
         operations: dict[str, tuple[Callable[[], bytes], Callable[[], bytes]]] = {}
-        outputs: dict[str, tuple[bool, bool]] = {}
+        outputs: dict[str, tuple[bool, bool, int, int]] = {}
         samples: dict[str, tuple[list[float], list[float]]] = {}
         for workload in selected_workloads:
             baseline_operation = lambda workload=workload: shell_pipeline(
-                baseline_bin, db, workload)
+                baseline_bin, baseline_db, workload)
             candidate_operation = lambda workload=workload: fused_pipeline(
-                candidate_bin, db, workload)
+                candidate_bin, candidate_db, workload)
             operations[workload.name] = (baseline_operation, candidate_operation)
             old_output = baseline_operation()
             new_output = candidate_operation()
             outputs[workload.name] = (
-                old_output == new_output,
+                semantic_digest(old_output) == semantic_digest(new_output),
                 validate_stream(new_output, workload.required_records),
+                len(old_output), len(new_output),
             )
             for _ in range(args.warmups):
                 baseline_operation()
@@ -335,7 +359,7 @@ def main() -> int:
         gates: list[dict] = []
         for workload in selected_workloads:
             old_samples, new_samples = samples[workload.name]
-            output_equal, stream_valid = outputs[workload.name]
+            semantic_equal, stream_valid, old_bytes, new_bytes = outputs[workload.name]
             old_stats = stats(old_samples)
             new_stats = stats(new_samples)
             p50_delta = delta(float(new_stats["p50_ms"]), float(old_stats["p50_ms"]))
@@ -347,22 +371,30 @@ def main() -> int:
                 "baseline_samples_ms": [round(value, 3) for value in old_samples],
                 "candidate_samples_ms": [round(value, 3) for value in new_samples],
                 "baseline_peak_rss_bytes": peak_rss(
-                    shell_command(baseline_bin, db, workload)),
+                    shell_command(baseline_bin, baseline_db, workload)),
                 "candidate_peak_rss_bytes": peak_rss(
-                    fused_command(candidate_bin, db, workload)),
+                    fused_command(candidate_bin, candidate_db, workload)),
                 "p50_delta_pct": round(p50_delta, 2),
                 "p95_delta_pct": round(p95_delta, 2),
-                "output_equal": output_equal,
+                "baseline_output_bytes": old_bytes,
+                "candidate_output_bytes": new_bytes,
+                "output_ratio": round(new_bytes / old_bytes, 4),
+                "semantic_equal": semantic_equal,
                 "stream_valid": stream_valid,
             }
             gates.extend([
-                {"name": workload.name + ".output_equal", "passed": output_equal},
+                {"name": workload.name + ".semantic_equal", "passed": semantic_equal},
                 {"name": workload.name + ".stream_valid", "passed": stream_valid},
                 {"name": workload.name + ".p50_regression",
                  "passed": p50_delta <= args.max_p50_regression_pct},
                 {"name": workload.name + ".p95_regression",
                  "passed": p95_delta <= args.max_p95_regression_pct},
             ])
+            if len(workload.stages) >= 2:
+                gates.append({
+                    "name": workload.name + ".output_at_most_60pct",
+                    "passed": new_bytes <= old_bytes * 0.60,
+                })
             if (args.required_calls_improvement_pct > 0
                     and workload.name.startswith("calls_")):
                 gates.append({
@@ -370,10 +402,12 @@ def main() -> int:
                     "passed": p50_delta <= -args.required_calls_improvement_pct,
                 })
 
-        db_sha256_after = sha256(db)
+        baseline_sha_after = sha256(baseline_db)
+        candidate_sha_after = sha256(candidate_db)
         gates.append({
-            "name": "shared_index_unchanged",
-            "passed": db_sha256_before == db_sha256_after,
+            "name": "indexes_unchanged",
+            "passed": baseline_sha_before == baseline_sha_after
+                      and candidate_sha_before == candidate_sha_after,
         })
 
         report = {
@@ -399,9 +433,12 @@ def main() -> int:
             },
             "index": {
                 "project": str(project),
-                "bytes": db.stat().st_size,
-                "sha256_before": db_sha256_before,
-                "sha256_after": db_sha256_after,
+                "baseline_bytes": baseline_db.stat().st_size,
+                "candidate_bytes": candidate_db.stat().st_size,
+                "baseline_sha256_before": baseline_sha_before,
+                "baseline_sha256_after": baseline_sha_after,
+                "candidate_sha256_before": candidate_sha_before,
+                "candidate_sha256_after": candidate_sha_after,
                 "high_fanout_selector": high_fanout_selector,
                 "high_fanout_sites": high_fanout_sites,
             },

@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name = "source", mixinStandardHelpOptions = true,
         description = "Project snapshot-verified source for an entity or source-backed site.",
         footer = "%nAccepts: entity | call_site | reference_site | access_site | control_region | dispatch_target%nEmits: source_slice + evidence%nOperation: source; inspect with: anatomist operations source%nDefault limits: 200 source lines; max 1000%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist source")
-public final class SourceCommand extends SemanticCommand {
+public final class SourceCommand extends TransformSemanticCommand {
     @Option(names = "--limit", defaultValue = "200",
             description = "Source lines per subject (default 200, max 1000).")
     int limit;

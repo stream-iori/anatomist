@@ -1,46 +1,27 @@
-# Core decision guide
+# Core workflow
 
-Use this guide for every independent static-analysis session.
+Use the index belonging to the exact checkout under analysis. Prefer
+`index --incremental`; recreate after extractor or semantic policy changes.
 
-1. Work from the exact checkout being analysed. Treat the resolved index path as
-   the writer and snapshot identity; never reuse another checkout's index.
-2. Read `doctor --help`, then run `doctor` in Agent-preflight JSON mode.
-3. Follow the reported repair action when preflight has blockers. Otherwise run
-   the `index` incremental integrity gate before querying. Read `index --help`
-   first and preserve the existing source, classpath, Spring, and scan profile.
-4. Stop when the gate fails. Do not query an older committed snapshot as if it
-   described current source.
-5. Load exactly one relevant scene from `skill topics`. Read each selected
-   command's `--help`, then inspect `operations [operation] --index <db>` for its
-   machine-readable records, constraints, language support, and availability.
-6. For declaration seeds from known files, use `declarations-of`; do not infer
-   Java declarations with source-text regular expressions.
-7. For multi-stage queries, read `pipeline --help`, then prefer
-   `pipeline --index <db> -- ... --then ...` so all stages use one read-only snapshot.
-   Put global options on `pipeline`, not its stages. Use Unix pipes only for external
-   tools, branching, or distinct index/module/scope values.
-8. Before executing a generated pipeline, use `pipeline --explain` for static
-   composition and `pipeline --check` for read-only index availability. Inspect
-   deferred checks; neither mode resolves selectors or consumes stdin.
+```text
+direct call evidence   resolve exact callable → calls → source
+virtual candidates     resolve exact callable → calls → dispatch → source
+changed file           declarations-of --file <project-relative.java>
+```
 
-For an unexpected missing symbol, inspect `doctor --format json --index <db>`
-for `config_source`, `config_path`, and `scan_policy_hash`. They describe the
-profile committed into the index, not a later filesystem change. Compare it
-with the intended roots, then run the incremental gate after a policy change.
+Use command `--help`, `operations <operation>`, `pipeline --explain`,
+`pipeline --check`, and `doctor` only when their information is needed. They are
+diagnostic tools, not mandatory setup steps.
 
-Interpret evidence conservatively:
+For configuration failures, inspect `doctor --format json` fields
+`config_source`, `config_path`, and `scan_policy_hash`; the profile committed into the index
+changes when policy changes and then requires re-indexing.
 
-- Positive indexed facts are usable but may not be exhaustive when coverage is partial.
-- Say an item is absent only when evidence confirms an empty result and marks a
-  negative conclusion safe.
-- For bounded traversals, also require result, depth, and compute-budget
-   truncation signals to be clear. Continue explicit limit/offset pages when needed.
-- Static paths describe possible source relationships, not runtime execution.
-- Use logs, traces, metrics, configuration, or runtime responses when the question
-  asks what happened online.
-- A fused result is complete only when its final `evidence(scope=stream)` is present.
-  Errors use `anatomist-error/v1`; branch on code/category/details, not message text.
-  Exit 5 can leave partial stdout; discard it as a final answer.
+Prefer fused `pipeline` for two or more linear stages. A valid NDJSON stream
+starts with `stream_header`, has one evidence record per logical seed, and ends
+with `evidence(scope=stream)`. Missing final evidence is failure. Absence is safe
+only with complete coverage and `negative_conclusion_safe=true`.
 
-Prefer incremental synchronization. For a 0.1x/schema/semantics mismatch, use explicit
-`index <project> --recreate`; 1.0 never silently deletes an incompatible index.
+`calls` reports source syntax and static targets. `dispatch` reports possible
+virtual targets, never observed runtime execution. Query failures use structured
+`anatomist-error/v1` codes.

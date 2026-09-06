@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="accesses", mixinStandardHelpOptions=true,
         description="Return source read/write sites for a value entity.",
         footer="%nAccepts: entity(value)%nEmits: access_site + evidence%n%nExample:%n  anatomist resolve 'p.Type#field' --kind value --unique | anatomist accesses --mode all")
-public final class AccessesCommand extends SemanticCommand {
+public final class AccessesCommand extends TransformSemanticCommand {
     @Option(names="--mode", defaultValue="all") String mode;
     @Option(names="--limit", defaultValue="50") int limit;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}

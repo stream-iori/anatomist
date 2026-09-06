@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -260,7 +261,8 @@ class SemanticPipelineIT {
 
     private static void assertRelationshipIds(String stream) {
         List<Map<String, Object>> relationships = records(stream).stream()
-                .filter(row -> !"evidence".equals(row.get("record"))).toList();
+                .filter(row -> !Set.of("evidence", "stream_header")
+                        .contains(row.get("record"))).toList();
         assertFalse(relationships.isEmpty(), stream);
         relationships.forEach(row -> assertTrue(String.valueOf(row.get("relationship_id"))
                 .matches("rel:sha256:[0-9a-f]{64}"), row.toString()));
@@ -270,9 +272,10 @@ class SemanticPipelineIT {
     void rejectsUnframedByDefaultAndAllowsExplicitOverride() throws Exception {
         RunResult entity = run("", "resolve", "p.A#run()", "--kind", "callable",
                 "--exact", "--unique");
-        String dataOnly = records(entity.stdout()).stream()
-                .filter(record -> "entity".equals(record.get("record")))
-                .map(Json::writeCompact).findFirst().orElseThrow() + "\n";
+        String dataOnly = entity.stdout().lines()
+                .filter(line -> line.contains("\"record\":\"stream_header\"")
+                        || line.contains("\"record\":\"entity\""))
+                .collect(java.util.stream.Collectors.joining("\n", "", "\n"));
         RunResult rejected = run(dataOnly, "calls");
         assertEquals(4, rejected.exitCode(), rejected.stderr());
         assertTrue(rejected.stderr().contains("MISSING_STREAM_EVIDENCE"));
@@ -337,8 +340,9 @@ class SemanticPipelineIT {
         RunResult entity = run("", "resolve", "p.A#run()", "--kind", "callable",
                 "--exact", "--unique");
         String entityLine = entity.stdout().lines()
-                .filter(line -> line.contains("\"record\":\"entity\""))
-                .findFirst().orElseThrow() + "\n";
+                .filter(line -> line.contains("\"record\":\"stream_header\"")
+                        || line.contains("\"record\":\"entity\""))
+                .collect(java.util.stream.Collectors.joining("\n", "", "\n"));
         CountDownLatch waitingForTail = new CountDownLatch(1);
         CountDownLatch releaseTail = new CountDownLatch(1);
         InputStream old = System.in;

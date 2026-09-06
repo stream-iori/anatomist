@@ -1,33 +1,33 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://antcodes.dev/anatomist/schema/semantic-stream-v1.schema.json",
-  "title": "Anatomist semantic-stream/v1 record",
+  "title": "Anatomist semantic-stream/v1 canonical NDJSON record",
   "type": "object",
-  "required": ["record", "contract", "index_revision_id", "source_snapshot_id", "semantic_profile_id"],
+  "required": ["record"],
   "properties": {
     "record": {
       "enum": [
-        "entity_candidate", "entity", "declaration", "containment", "type_relation",
-        "callable_relation", "binding_relation", "reference_site", "call_site",
-        "dispatch_target", "access_site", "control_region", "trace", "source_slice",
-        "artifact", "config_entity", "annotation", "document_relation", "evidence"
+        "stream_header", "entity_candidate", "entity", "declaration", "containment",
+        "type_relation", "callable_relation", "binding_relation", "reference_site",
+        "call_site", "dispatch_target", "access_site", "control_region", "trace",
+        "source_slice", "artifact", "config_entity", "annotation", "document_relation",
+        "result_count", "project_summary", "package_summary", "package_dependency", "evidence"
       ]
     },
     "contract": { "const": "semantic-stream/v1" },
+    "identity": {
+      "type": "object",
+      "required": ["index_revision_id", "source_snapshot_id", "semantic_profile_id"],
+      "properties": {
+        "index_revision_id": { "type": "string", "pattern": "^rev:" },
+        "source_snapshot_id": { "type": "string", "minLength": 1 },
+        "semantic_profile_id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
     "seed_id": { "type": "string", "minLength": 1 },
-    "parent_seed_id": { "type": "string", "minLength": 1 },
-    "index_revision_id": { "type": "string", "pattern": "^rev:" },
-    "source_snapshot_id": { "type": "string", "minLength": 1 },
-    "semantic_profile_id": { "type": "string", "minLength": 1 },
     "relationship_id": { "type": "string", "pattern": "^rel:sha256:[0-9a-f]{64}$" },
     "id": { "type": "string", "minLength": 1 },
-    "domain": { "enum": ["language", "configuration", "documentation", "build"] },
-    "language": { "type": "string" },
-    "provider_id": { "type": "string", "minLength": 1 },
-    "kind": { "type": "string" },
-    "origin": { "enum": ["extracted", "configured", "derived", "observed"] },
-    "resolution_status": { "enum": ["exact", "heuristic", "ambiguous", "unresolved"] },
-    "scope": { "type": "string" },
     "status": { "enum": ["positive", "empty", "partial", "unsupported"] },
     "coverage": { "enum": ["complete", "partial", "unknown", "unsupported"] },
     "truncated": { "type": "boolean" },
@@ -35,24 +35,25 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "record": { "const": "evidence" } } },
-      "then": {
-        "required": ["scope", "status", "coverage", "truncated", "negative_conclusion_safe"]
-      },
-      "else": { "required": ["seed_id", "id"] }
+      "if": { "properties": { "record": { "const": "stream_header" } } },
+      "then": { "required": ["contract", "identity"] },
+      "else": {
+        "not": {
+          "anyOf": [
+            { "required": ["contract"] }, { "required": ["identity"] },
+            { "required": ["index_revision_id"] }, { "required": ["source_snapshot_id"] },
+            { "required": ["semantic_profile_id"] }, { "required": ["parent_seed_id"] }
+          ]
+        }
+      }
     },
     {
-      "if": {
-        "properties": {
-          "record": {
-            "enum": ["type_relation", "callable_relation", "binding_relation",
-              "reference_site", "call_site", "dispatch_target", "access_site",
-              "document_relation"]
-          }
-        },
-        "required": ["record"]
-      },
-      "then": { "required": ["relationship_id"] }
+      "if": { "properties": { "record": { "const": "evidence" } } },
+      "then": { "required": ["scope", "status", "coverage", "truncated", "negative_conclusion_safe"] },
+      "else": {
+        "if": { "properties": { "record": { "const": "stream_header" } } },
+        "else": { "required": ["seed_id", "id"] }
+      }
     }
   ],
   "additionalProperties": true

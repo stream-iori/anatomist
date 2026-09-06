@@ -8,6 +8,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,6 +38,7 @@ final class CallSitePersistence {
             statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_targets_internal");
             statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_targets_external");
             statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_targets_identity");
+            statement.executeUpdate("DROP INDEX IF EXISTS idx_call_site_targets_site");
             statement.executeUpdate("DELETE FROM call_site_targets");
             statement.executeUpdate("DELETE FROM call_sites");
             statement.executeUpdate("DELETE FROM call_site_owners");
@@ -51,9 +53,8 @@ final class CallSitePersistence {
                     + "ON call_site_targets(target_id) WHERE target_id IS NOT NULL");
             statement.executeUpdate("CREATE INDEX idx_call_site_targets_external "
                     + "ON call_site_targets(external_target_fqn) WHERE external_target_fqn IS NOT NULL");
-            statement.executeUpdate("CREATE UNIQUE INDEX idx_call_site_targets_identity "
-                    + "ON call_site_targets(call_site_pk,COALESCE(target_id,''),"
-                    + "COALESCE(external_target_fqn,''))");
+            statement.executeUpdate("CREATE INDEX idx_call_site_targets_site "
+                    + "ON call_site_targets(call_site_pk)");
         }
     }
 
@@ -125,20 +126,28 @@ final class CallSitePersistence {
             throws SQLException {
         if (sites.isEmpty()) return;
         MessageDigest digest = sha256();
-        List<SiteInsert> inserts = sites.entrySet().stream()
-                .map(entry -> new SiteInsert(entry.getKey(), entry.getValue(),
+        List<SiteInsert> pending = sites.entrySet().stream()
+                .map(entry -> new SiteInsert(0, entry.getKey(), entry.getValue(),
                         stableHash(entry.getKey(), digest)))
                 .toList();
+        validateStableHashes(connection, pending);
+        long nextSitePk = nextSitePk(connection);
+        List<SiteInsert> inserts = new ArrayList<>(pending.size());
+        for (SiteInsert insert : pending) {
+            inserts.add(new SiteInsert(nextSitePk++, insert.site(), insert.group(),
+                    insert.stableHash()));
+        }
         Map<OwnerKey, Long> owners = ensureOwners(connection, inserts);
-        String siteSql = "INSERT INTO call_sites(stable_hash,owner_pk,begin_line,begin_column,"
+        String siteSql = "INSERT INTO call_sites(site_pk,stable_hash,owner_pk,begin_line,begin_column,"
                 + "end_line,end_column,ordinal,context,syntax_target,receiver_static_type,dispatch_kind,metadata,origin,"
-                + "resolution_status,producer_id,language,provider_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "resolution_status,producer_id,language,provider_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (PreparedStatement siteInsert = connection.prepareStatement(siteSql)) {
             for (SiteInsert insert : inserts) {
                 SiteKey site = insert.site();
                 SiteGroup group = insert.group();
                 List<Target> targets = group.targets();
                 int i = 1;
+                siteInsert.setLong(i++, insert.sitePk());
                 siteInsert.setBytes(i++, insert.stableHash());
                 siteInsert.setLong(i++, owners.get(new OwnerKey(site.callerId, site.sourceFile)));
                 siteInsert.setInt(i++, site.beginLine); siteInsert.setInt(i++, site.beginColumn);
@@ -155,21 +164,13 @@ final class CallSitePersistence {
             }
             siteInsert.executeBatch();
         }
-        String targetSql = "INSERT OR IGNORE INTO call_site_targets(call_site_pk,target_id,"
+        String targetSql = "INSERT INTO call_site_targets(call_site_pk,target_id,"
                 + "external_target_fqn,external_target_symbol,external_target_language,external_target_provider_id,"
                 + "resolution_status,confidence,producer_id) VALUES(?,?,?,?,?,?,?,?,?)";
-        try (PreparedStatement findSite = connection.prepareStatement(
-                    "SELECT site_pk FROM call_sites WHERE stable_hash=?");
-             PreparedStatement targetInsert = connection.prepareStatement(targetSql)) {
+        try (PreparedStatement targetInsert = connection.prepareStatement(targetSql)) {
             for (SiteInsert site : inserts) {
-                findSite.setBytes(1, site.stableHash());
-                long sitePk;
-                try (ResultSet row = findSite.executeQuery()) {
-                    if (!row.next()) throw new SQLException("inserted call site not found");
-                    sitePk = row.getLong(1);
-                }
                 for (Target target : site.group().targets()) {
-                    targetInsert.setLong(1, sitePk);
+                    targetInsert.setLong(1, site.sitePk());
                     targetInsert.setString(2, target.targetId());
                     targetInsert.setString(3, target.externalTarget());
                     targetInsert.setString(4, target.externalTargetSymbol());
@@ -182,6 +183,29 @@ final class CallSitePersistence {
                 }
             }
             targetInsert.executeBatch();
+        }
+    }
+
+    private static void validateStableHashes(Connection connection, List<SiteInsert> inserts)
+            throws SQLException {
+        Set<String> hashes = new java.util.HashSet<>();
+        try (Statement statement = connection.createStatement();
+             ResultSet rows = statement.executeQuery("SELECT stable_hash FROM call_sites")) {
+            while (rows.next()) hashes.add(HexFormat.of().formatHex(rows.getBytes(1)));
+        }
+        for (SiteInsert site : inserts) {
+            if (!hashes.add(HexFormat.of().formatHex(site.stableHash()))) {
+                throw new SQLException("duplicate call-site stable hash");
+            }
+        }
+    }
+
+    private static long nextSitePk(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet rows = statement.executeQuery(
+                     "SELECT COALESCE(MAX(site_pk),0)+1 FROM call_sites")) {
+            if (!rows.next()) throw new SQLException("failed to allocate call-site primary key");
+            return rows.getLong(1);
         }
     }
 
@@ -331,7 +355,7 @@ final class CallSitePersistence {
                            int endColumn, int ordinal, String producerId, String language,
                            String providerId) {}
 
-    private record SiteInsert(SiteKey site, SiteGroup group, byte[] stableHash) {}
+    private record SiteInsert(long sitePk, SiteKey site, SiteGroup group, byte[] stableHash) {}
 
     private record OwnerKey(String callerId, String sourceFile) {}
 
@@ -353,7 +377,9 @@ final class CallSitePersistence {
         }
 
         private void addTarget(Target target) {
-            String key = value(target.targetId) + "\n" + value(target.externalTarget);
+            String key = value(target.targetId) + "\n"
+                    + value(target.externalTargetProviderId) + "\n"
+                    + value(target.externalTarget);
             targets.merge(key, target, SiteGroup::moreCertain);
         }
 

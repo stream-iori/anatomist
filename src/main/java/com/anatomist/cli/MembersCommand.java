@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="members", mixinStandardHelpOptions=true,
         description="Enumerate direct or recursive contained entities.",
         footer="%nAccepts: entity container%nEmits: entity + evidence%n%nExample:%n  anatomist search application-context.xml --kind artifact --format ndjson | anatomist resolve --unique | anatomist members --recursive")
-public final class MembersCommand extends SemanticCommand {
+public final class MembersCommand extends TransformSemanticCommand {
     @Option(names="--recursive") boolean recursive;
     @Option(names="--kind") String kind;
     @Option(names="--max-depth", defaultValue="20") int maxDepth;

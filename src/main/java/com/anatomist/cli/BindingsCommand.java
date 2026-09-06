@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="bindings", mixinStandardHelpOptions=true,
         description="Return cross-domain configuration/language bindings, including configured member references.",
         footer="%nAccepts: entity%nEmits: binding_relation + evidence%nOperation: bindings; inspect with: anatomist operations bindings%n%nExamples:%n  anatomist search OrderService --kind type --format ndjson | anatomist resolve --unique | anatomist bindings --direction incoming --semantic realizes%n  anatomist search CheckoutBean --kind component --format ndjson | anatomist resolve --unique | anatomist bindings --semantic member")
-public final class BindingsCommand extends SemanticCommand {
+public final class BindingsCommand extends TransformSemanticCommand {
     @Option(names="--direction", defaultValue="outgoing") String direction;
     @Option(names="--semantic", defaultValue="any") String semantic;
     @Option(names="--limit", defaultValue="50") int limit;

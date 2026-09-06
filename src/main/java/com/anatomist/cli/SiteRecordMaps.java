@@ -42,7 +42,6 @@ final class SiteRecordMaps {
             resolved.put("id", target); resolved.put("external", row.target() == null);
             resolved.put("resolution_status", row.target() == null ? "heuristic" : "exact");
             out.put("resolved_targets", java.util.List.of(resolved));
-            out.put("resolved_target", target);
             out.put("dispatch_kind", "unknown");
         }
         if (row.sourceFile() != null) {

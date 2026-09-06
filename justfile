@@ -220,6 +220,17 @@ stream-stress:
         -Danatomist.test.excludedGroups= \
         -Dtest=SemanticStreamStressIT test
 
+# Pinned, hand-reviewed Commons Lang call-resolution precision/recall gate
+quality-real:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export SDKMAN_DIR="${SDKMAN_DIR:-${HOME}/.sdkman}"
+    source "${SDKMAN_DIR}/bin/sdkman-init.sh"
+    sdk env
+    mvn -Danatomist.test.groups=quality-real \
+        -Danatomist.test.excludedGroups= \
+        -Dtest=CommonsLangResolutionQualityIT test
+
 # Product regression: compare 0.14 aggregate commands with 1.0 Shell and fused workflows
 bench-query-refactor: native
     python3 scripts/benchmark-query-refactor.py \
@@ -232,8 +243,8 @@ bench-query-refactor-git BASELINE_REF="dd2e575": native
         --baseline-ref "{{BASELINE_REF}}" \
         --candidate-bin "{{NATIVE_BIN}}"
 
-# Same-contract comparison for pipeline-engine changes; both binaries query one immutable DB
-bench-semantic-pipeline BASELINE_REF="f5a9ef2": native
+# Same-contract comparison with schema-isolated indexes and semantic digests
+bench-semantic-pipeline BASELINE_REF="00e0dc7": native
     python3 scripts/benchmark-semantic-pipeline.py \
         --baseline-ref "{{BASELINE_REF}}" \
         --candidate-bin "{{NATIVE_BIN}}"
@@ -377,13 +388,12 @@ smoke: index-fixture
     METHOD='com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)'
     {{NATIVE_BIN}} resolve "$METHOD" --kind callable --exact --unique --index {{SMOKE_DB}} >"$TMP/calls-1"
     {{NATIVE_BIN}} calls --index {{SMOKE_DB}} <"$TMP/calls-1" >"$TMP/calls-2"
-    {{NATIVE_BIN}} dispatch --index {{SMOKE_DB}} <"$TMP/calls-2" >"$TMP/calls-3"
-    {{NATIVE_BIN}} source --limit 20 --index {{SMOKE_DB}} <"$TMP/calls-3" >"$TMP/calls-4"
+    {{NATIVE_BIN}} source --limit 20 --index {{SMOKE_DB}} <"$TMP/calls-2" >"$TMP/calls-4"
     {{NATIVE_BIN}} pipeline --index {{SMOKE_DB}} -- \
       resolve "$METHOD" --kind callable --exact --unique \
-      --then calls --then dispatch --then source --limit 20 >"$TMP/calls-fused"
+      --then calls --then source --limit 20 >"$TMP/calls-fused"
     cmp "$TMP/calls-4" "$TMP/calls-fused"
-    echo "=== resolve | calls | dispatch | source ==="
+    echo "=== resolve | calls | source ==="
     head -n 20 "$TMP/calls-4"
 
 # Smoke the installed binary on $PATH (after `just install`).
@@ -471,11 +481,10 @@ native-smoke: jar native
           run_cli "$variant" members --recursive --index "$db" >"$prefix-members"
         run_cli "$variant" resolve "$method" --kind callable --exact --unique --index "$db" |
           run_cli "$variant" calls --index "$db" |
-          run_cli "$variant" dispatch --index "$db" |
           run_cli "$variant" source --limit 20 --index "$db" >"$prefix-calls"
         run_cli "$variant" pipeline --index "$db" -- \
           resolve "$method" --kind callable --exact --unique \
-          --then calls --then dispatch --then source --limit 20 >"$prefix-calls-fused"
+          --then calls --then source --limit 20 >"$prefix-calls-fused"
         cmp "$prefix-calls" "$prefix-calls-fused"
         for case in search overview declarations members calls calls-fused; do
           normalize "$db" <"$prefix-$case" >"$prefix-$case.normalized"

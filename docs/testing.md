@@ -156,12 +156,13 @@ sdk env
 
 | 命令 | 验证什么 | 说明 |
 |------|----------|------|
-| `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | Shell 与 fused `resolve\|calls\|dispatch\|source` 原始字节对拍。 |
+| `just smoke` | native binary 对 mini-spring-shop 的 index + 核心查询 | Shell 与 fused `resolve\|calls\|source` 原始字节对拍。 |
 | `just native-smoke` | JVM jar 与 native binary 输出一致性 | 同时对拍 Shell/fused 和 JVM/native。 |
 | `just stream-stress` | 10 万 seed 的有界流 | 在 `-Xmx128m` 子 JVM 中验证逐 seed 交付；默认测试排除。 |
+| `just quality-real` | 真实项目解析质量 | 固定 Commons Lang commit；48 个手工真值同时卡 precision=100%、recall≥95%。CI 独立运行。 |
 | `just bench-query-refactor` | 0.14 → 1.0 产品回归 | 同时比较 0.14 聚合命令与 1.0 Shell、1.0 fused；fused p50/p95 使用 +15%/+25% 回归门禁。默认基线为 `~/.local/bin/anatomist`。 |
 | `just bench-query-refactor-git [BASELINE_REF]` | 可复现的 0.14 → 1.0 回归 | detached worktree 构建旧版本；报告写入 `target/benchmarks/query-refactor/`。 |
-| `just bench-semantic-pipeline [BASELINE_REF]` | 1.0 pipeline 引擎专项 | 两个 semantic-stream/v1 binary 查询同一个只读 DB，并逐字对拍 NDJSON。 |
+| `just bench-semantic-pipeline [BASELINE_REF]` | 1.0 pipeline 引擎专项 | 两版各建兼容索引，按事实摘要验等价；多段输出不超过旧版 60%。 |
 | `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |
 | `just extension-e2e-native` | 上述场景 + JVM/native JSON 对拍 | 使用 SDKMAN JDK 25 构建 native binary；对比前归一化回显的临时 index 路径。 |
 | `just external-cli PROJECT=/path/to/project` | 大型外部项目复杂 CLI | opt-in，本地手动跑；默认目标是 `/Users/stream/codes/antcodes/ipay/imerchantsettle`。 |
@@ -195,7 +196,7 @@ Case、fixture、adapter 和运行方式见 [`e2e/README.md`](../e2e/README.md)�
 | 增量 diff 正确性 | `anatomist index --incremental`（合成 diff，无文件系统事件） | 主路径，覆盖率高 |
 | Agent 查询门禁 | 无变更增量 + `--health-policy integrity`，随后才允许查询 | 确保无变更不触发 Maven/JavaParser/图重建，失败时 Agent 不应使用旧索引结论 |
 | 健康策略 | external resolution、parse failure、dangling facts 分别跑 `integrity` / `complete` | 防止第三方缺失误杀正常 Agent 查询，同时守住索引完整性 |
-| 查询证据 | 正结果、可信空结果、覆盖不全的空结果 | 空结果仍 exit 0，但必须披露 `confirmed_empty` / `indeterminate` |
+| 查询证据 | 正结果、可信空结果、覆盖不全的空结果 | 使用 `status=empty`、coverage 和 `negative_conclusion_safe` |
 
 ## 七、性能基线
 
@@ -236,19 +237,15 @@ just bench-query-refactor
 just bench-query-refactor-git dd2e575
 ```
 
-pipeline 执行引擎优化使用独立的同契约 benchmark，避免把 0.14 聚合命令的语义差异
-混入优化收益。基线可使用冻结 binary，默认 recipe 则从融合前提交 `f5a9ef2` 构建。
-脚本只用基线 binary 创建一次索引；baseline 执行 Shell 多进程管道，candidate 执行
-单进程 `pipeline`，四组 workload 按 round-robin AB/BA 交替读取同一个 DB，避免短时
-系统负载只污染一组；原始样本写入 `results.json`。覆盖单段 resolve、
-两段 type pipeline、三段 calls pipeline 和自动选出的最高扇出 callable。每个 workload
-必须保持原始 NDJSON 字节一致、包含最终 stream evidence，并记录 p50/p95 与峰值 RSS：
+pipeline benchmark 为两版分别建索引，避免 schema 串用。基线执行 Shell 多进程，
+candidate 执行单进程 `pipeline`；事实摘要必须一致，查询前后数据库 SHA-256 必须不变。
+覆盖 resolve、type、calls、显式 dispatch 和最高扇出调用；原始样本写入 `results.json`：
 
 ```bash
-just bench-semantic-pipeline f5a9ef2
+just bench-semantic-pipeline 00e0dc7
 # 融合验收时额外要求 calls p50 至少改善 25%：
 python3 scripts/benchmark-semantic-pipeline.py \
-  --baseline-ref f5a9ef2 \
+  --baseline-ref 00e0dc7 \
   --candidate-bin target/anatomist \
   --required-calls-improvement-pct 25
 ```

@@ -35,9 +35,6 @@ CREATE TABLE nodes (
 );
 
 CREATE INDEX idx_nodes_kind ON nodes(kind);
-CREATE INDEX idx_nodes_symbol_id ON nodes(symbol_id);
-CREATE INDEX idx_nodes_provider_symbol ON nodes(provider_id,symbol_id,module,scope);
-CREATE INDEX idx_nodes_language_kind ON nodes(language,entity_kind,language_kind);
 CREATE INDEX idx_nodes_symbol_identity ON nodes(symbol_id,module,scope,kind);
 CREATE INDEX idx_nodes_qualified_name ON nodes(qualified_name);
 CREATE INDEX idx_nodes_package ON nodes(package);
@@ -149,7 +146,7 @@ CREATE INDEX idx_call_site_owners_source ON call_site_owners(source_file, caller
 
 CREATE TABLE call_sites (
     site_pk INTEGER PRIMARY KEY,
-    stable_hash BLOB NOT NULL UNIQUE CHECK (length(stable_hash) = 32),
+    stable_hash BLOB NOT NULL CHECK (length(stable_hash) = 32),
     owner_pk INTEGER NOT NULL REFERENCES call_site_owners(owner_pk) ON DELETE CASCADE,
     begin_line INTEGER NOT NULL,
     begin_column INTEGER NOT NULL,
@@ -171,7 +168,6 @@ CREATE TABLE call_sites (
 CREATE INDEX idx_call_sites_caller_order ON call_sites(
     owner_pk,begin_line,begin_column,ordinal
 );
-CREATE INDEX idx_call_sites_provider ON call_sites(provider_id,language);
 CREATE TABLE call_site_targets (
     call_site_pk INTEGER NOT NULL REFERENCES call_sites(site_pk) ON DELETE CASCADE,
     target_id TEXT REFERENCES nodes(id) ON DELETE CASCADE,
@@ -189,10 +185,7 @@ CREATE INDEX idx_call_site_targets_internal ON call_site_targets(target_id)
     WHERE target_id IS NOT NULL;
 CREATE INDEX idx_call_site_targets_external ON call_site_targets(external_target_fqn)
     WHERE external_target_fqn IS NOT NULL;
-CREATE UNIQUE INDEX idx_call_site_targets_identity ON call_site_targets(
-    call_site_pk,COALESCE(target_id,''),COALESCE(external_target_provider_id,''),
-    COALESCE(external_target_fqn,'')
-);
+CREATE INDEX idx_call_site_targets_site ON call_site_targets(call_site_pk);
 
 CREATE TABLE annotations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,7 +211,6 @@ CREATE TABLE annotations (
 CREATE INDEX idx_annotations_node_id ON annotations(node_id);
 CREATE INDEX idx_annotations_fqn ON annotations(annotation_fqn);
 CREATE INDEX idx_annotations_producer_file ON annotations(producer_id, source_file);
-CREATE INDEX idx_annotations_provider ON annotations(provider_id,language);
 
 CREATE TABLE annotation_meta_relations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

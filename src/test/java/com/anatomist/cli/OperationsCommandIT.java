@@ -8,6 +8,7 @@ import picocli.CommandLine;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -44,6 +45,8 @@ class OperationsCommandIT {
                 .map(Map.class::cast)
                 .anyMatch(value -> "--direction".equals(value.get("option"))
                         && ((List<?>) value.get("values")).contains("incoming")));
+        assertTrue(result.stdout().getBytes(StandardCharsets.UTF_8).length <= 8 * 1024,
+                "one-operation catalog must stay below 8 KiB");
     }
 
     @Test

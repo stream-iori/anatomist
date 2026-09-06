@@ -1,22 +1,25 @@
 [ {
-  "caller" : "java-core::api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
   "contract" : "semantic-stream/v1",
+  "identity" : {
+    "index_revision_id" : "${REVISION}",
+    "semantic_profile_id" : "sha256:b06fa251f36630d18774a149d9670bb693b4a0296919b3e7bf69a6b7a02456a6",
+    "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
+  },
+  "record" : "stream_header"
+}, {
+  "caller" : "java-core::api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
   "derived_from" : [ {
     "id" : "java-core::service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
-    "qualified_name" : "com.example.shop.service.OrderService#createOrder",
     "record" : "entity"
   } ],
   "dispatch_kind" : "instance",
   "id" : "callsite:sha256:2215dc6657075f16a897484fc112e6daafb1e38b490229cb93020b5bb77bc089",
-  "index_revision_id" : "${REVISION}",
   "language" : "java",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:afe1fb0224d307b956e6a9d4",
   "producer_id" : "java-core",
   "record" : "call_site",
   "relationship_id" : "rel:sha256:a982b72b409a2af223093c496947141b87be049010c2992d141ef60c0270e283",
   "resolution_status" : "heuristic",
-  "resolved_target" : "java-core::service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
   "resolved_targets" : [ {
     "confidence" : "inferred",
     "external" : false,
@@ -25,8 +28,7 @@
     "qualified_name" : "com.example.shop.service.OrderService#createOrder",
     "resolution_status" : "heuristic"
   } ],
-  "seed_id" : "seed:10599f93d7c4bc39f1dd37ed",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
+  "seed_id" : "seed:afe1fb0224d307b956e6a9d4",
   "source" : {
     "end_column" : 66,
     "end_line" : 24,
@@ -35,42 +37,22 @@
     "start_column" : 34,
     "start_line" : 24
   },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "syntax_target" : "orderService.createOrder"
 }, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:afe1fb0224d307b956e6a9d4",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:10599f93d7c4bc39f1dd37ed",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
   "caller" : "java-core::service::MAIN::com.example.shop.service.OrderService#createOrder(java.lang.String,java.util.List)",
-  "contract" : "semantic-stream/v1",
   "derived_from" : [ {
     "id" : "java-core::service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
-    "qualified_name" : "com.example.shop.service.OrderService#createOrder",
     "record" : "entity"
   } ],
   "dispatch_kind" : "instance",
   "id" : "callsite:sha256:5e6acf7b86fb82a25ccb3edae29a71b9e056decdc8ddb4b4a1621bb66ad3e171",
-  "index_revision_id" : "${REVISION}",
   "language" : "java",
   "origin" : "extracted",
-  "parent_seed_id" : "seed:afe1fb0224d307b956e6a9d4",
   "producer_id" : "java-core",
   "receiver_static_type" : "com.example.shop.service.OrderService",
   "record" : "call_site",
   "relationship_id" : "rel:sha256:064ba334dece115aa95cfc1cdfdac38039ee7b55e28b0cff0898d7592eaf7aac",
   "resolution_status" : "exact",
-  "resolved_target" : "java-core::service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
   "resolved_targets" : [ {
     "confidence" : "extracted",
     "external" : false,
@@ -79,8 +61,7 @@
     "qualified_name" : "com.example.shop.service.OrderService#createOrder",
     "resolution_status" : "exact"
   } ],
-  "seed_id" : "seed:cc87f3557c1614809cccc002",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
+  "seed_id" : "seed:afe1fb0224d307b956e6a9d4",
   "source" : {
     "end_column" : 31,
     "end_line" : 47,
@@ -89,48 +70,25 @@
     "start_column" : 16,
     "start_line" : 47
   },
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "syntax_target" : "createOrder"
 }, {
-  "contract" : "semantic-stream/v1",
-  "coverage" : "complete",
-  "emitted" : 1,
-  "index_revision_id" : "${REVISION}",
-  "negative_conclusion_safe" : false,
-  "parent_seed_id" : "seed:afe1fb0224d307b956e6a9d4",
-  "record" : "evidence",
-  "scope" : "seed",
-  "seed_id" : "seed:cc87f3557c1614809cccc002",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "status" : "positive",
-  "truncated" : false
-}, {
-  "contract" : "semantic-stream/v1",
   "coverage" : "complete",
   "emitted" : 2,
-  "index_revision_id" : "${REVISION}",
   "negative_conclusion_safe" : false,
   "record" : "evidence",
   "scope" : "seed",
   "seed_id" : "seed:afe1fb0224d307b956e6a9d4",
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
 }, {
-  "contract" : "semantic-stream/v1",
   "coverage" : "complete",
   "emitted" : 2,
-  "index_revision_id" : "${REVISION}",
   "negative_conclusion_safe" : false,
   "record" : "evidence",
   "scope" : "stream",
   "seeds" : {
     "total" : 1
   },
-  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
-  "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
 } ]

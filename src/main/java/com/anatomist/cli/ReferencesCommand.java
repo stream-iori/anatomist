@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="references", mixinStandardHelpOptions=true,
         description="Return source or configuration reference sites.",
         footer="%nAccepts: entity%nEmits: reference_site + evidence%n%nExample:%n  anatomist resolve p.Type --kind type --unique | anatomist references --direction incoming")
-public final class ReferencesCommand extends SemanticCommand {
+public final class ReferencesCommand extends TransformSemanticCommand {
     @Option(names="--direction", defaultValue="incoming") String direction;
     @Option(names="--limit", defaultValue="50") int limit;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}

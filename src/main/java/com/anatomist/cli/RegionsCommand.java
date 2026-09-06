@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Command(name="regions", mixinStandardHelpOptions=true,
         description="Return indexed control regions owned by a callable.",
         footer="%nAccepts: entity(callable)%nEmits: control_region + evidence%n%nExample:%n  anatomist resolve 'p.Type#run()' --kind callable --unique | anatomist regions | anatomist sites-in")
-public final class RegionsCommand extends SemanticCommand {
+public final class RegionsCommand extends TransformSemanticCommand {
     @Option(names="--kind", defaultValue="branch") String kind;
     @Option(names="--limit", defaultValue="50") int limit;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}

@@ -38,3 +38,28 @@ jobs:
 
       - name: Config E2E (JVM)
         run: bash scripts/config-e2e.sh jvm
+
+  resolution-quality:
+    name: Real-project precision and recall
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository and pinned fixture
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up GraalVM
+        uses: actions/setup-java@v5
+        with:
+          distribution: graalvm
+          java-version: "25"
+          cache: maven
+
+      - name: Run Commons Lang quality gate
+        run: >-
+          mvn -q
+          -Danatomist.test.groups=quality-real
+          -Danatomist.test.excludedGroups=
+          -Dtest=CommonsLangResolutionQualityIT
+          test

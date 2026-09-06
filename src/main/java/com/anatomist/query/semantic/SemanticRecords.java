@@ -90,6 +90,18 @@ public final class SemanticRecords {
         return out;
     }
 
+    public static Map<String, Object> streamHeader(SemanticIdentity identity) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("record", "stream_header");
+        out.put("contract", CONTRACT);
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("index_revision_id", identity.indexRevisionId());
+        values.put("source_snapshot_id", identity.sourceSnapshotId());
+        values.put("semantic_profile_id", identity.semanticProfileId());
+        out.put("identity", values);
+        return out;
+    }
+
     public static Map<String, Object> seedEvidence(String seed, String parentSeed,
                                                     int emitted, boolean complete,
                                                     String code, SemanticIdentity identity) {
@@ -162,8 +174,6 @@ public final class SemanticRecords {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("record", input.get("record"));
         if (id != null) item.put("id", id);
-        Object name = input.get("qualified_name");
-        if (name != null) item.put("qualified_name", name);
         return Map.of("derived_from", List.of(item));
     }
 

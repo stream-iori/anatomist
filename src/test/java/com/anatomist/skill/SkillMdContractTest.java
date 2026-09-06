@@ -35,14 +35,15 @@ class SkillMdContractTest {
         assertTrue(text.contains("anatomist skill core"));
         assertTrue(text.contains("anatomist skill topics"));
         assertTrue(text.contains("incremental"));
-        assertTrue(text.contains("otherwise built-in defaults"));
+        assertTrue(text.contains("then built-ins"));
         assertTrue(text.contains("CLI flags override"));
         assertTrue(text.contains("config_source"));
-        assertTrue(text.contains("anatomist pipeline --help"));
+        assertTrue(text.contains("operations <operation>"));
         assertTrue(text.contains("--then"));
-        assertTrue(text.contains("--file pipeline.json"));
         assertTrue(text.contains("evidence(scope=stream)"));
-        assertTrue(text.contains("Exit 5"));
+        assertTrue(text.contains("exit 5"));
+        assertTrue(text.contains("only when"));
+        assertFalse(text.contains("Before execution"));
         assertFalse(text.toLowerCase().contains("watch"));
         assertFalse(text.contains("## Task details"));
     }

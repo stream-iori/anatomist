@@ -44,9 +44,10 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v23)
+## Node identity, declarations, and ownership (schema v24)
 
-Schema v23 adds provider/language provenance and provider-scoped identity. Schema v22
+Schema v24 removes unused/left-prefix duplicate indexes while retaining provider/language
+provenance and provider-scoped identity. Schema v22
 added structural annotation uses, meta-annotation relations, and configured member bindings.
 Schema v20 makes call-site tables the only final CALLS storage. Schema v19 added
 node-level exact ranges and numeric source ordinals; v18 normalized call-site storage;
@@ -274,7 +275,7 @@ the structured object directly as `lombok_usage`.
 | `target_id` | TEXT FK→nodes.id | Callee/parent/contained; **internal only**, NULL for external |
 | `external_target_fqn` | TEXT | External dep FQN (e.g. `java.util.List#add`); NULL for internal |
 | `relation` | TEXT | CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/BINDS_TO/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO；最终库不含 CALLS |
-| `call_kind` | TEXT | 历史/暂存兼容列；schema 23 最终 `edges` 的非调用关系不使用 |
+| `call_kind` | TEXT | 暂存提取列；schema 24 最终 `edges` 的非调用关系不使用 |
 | `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for derived dispatch/reflection bridges |
 | `resolution` | TEXT | External only: `classpath`, `ast_fallback`, `type_fallback`, `static_name_fallback`, `source_fallback`, `reflection`, or `xml`; NULL for internal edges |
 | `context` | TEXT | READS/WRITES 的轻量控制路径；REFERENCES 的 field_type/parameter_type/return_type/generic_arg |

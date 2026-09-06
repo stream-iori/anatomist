@@ -67,6 +67,14 @@ class AgentContractIT {
     }
 
     @Test
+    void onlyStreamConsumersExposeAcceptUnframed() {
+        for (String producer : List.of("search", "declarations-of", "overview")) {
+            assertFalse(runCli(producer, "--help").stdout.contains("--accept-unframed"), producer);
+        }
+        assertTrue(runCli("calls", "--help").stdout.contains("--accept-unframed"));
+    }
+
+    @Test
     void helpMakesFusedPipelineTheDefaultLinearComposition() {
         RunResult root = runCli("--help");
         assertEquals(0, root.exitCode, root.stderr);
@@ -74,8 +82,8 @@ class AgentContractIT {
         assertTrue(rootHelp.contains("Prefer pipeline for linear multi-stage queries"),
                 root.stdout);
         assertTrue(rootHelp.contains("pipeline --help"), root.stdout);
-        assertTrue(rootHelp.contains("doctor → operations → pipeline --explain/--check"),
-                root.stdout);
+        assertTrue(rootHelp.contains("operations <operation>"), root.stdout);
+        assertFalse(rootHelp.contains("--then calls --then dispatch --then source"), root.stdout);
 
         RunResult pipeline = runCli("pipeline", "--help");
         assertEquals(0, pipeline.exitCode, pipeline.stderr);
