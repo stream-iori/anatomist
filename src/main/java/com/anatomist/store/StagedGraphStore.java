@@ -219,7 +219,7 @@ public final class StagedGraphStore implements AutoCloseable {
     }
 
     public PromotionStats promoteFull(SqliteStore target) {
-        prepareFactIdentities();
+        FactPreparationStats factPreparation = prepareFactIdentities();
         closeConnection();
         try {
             if (!target.schemaExists()) target.initSchema();
@@ -245,7 +245,7 @@ public final class StagedGraphStore implements AutoCloseable {
                 detach(c);
             }
             return new PromotionStats(reboundExternalTargets, droppedDanglingFacts, wired[0],
-                    callSitePersistenceNanos[0]);
+                    callSitePersistenceNanos[0], factPreparation);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to promote full staged graph", e);
         }
@@ -283,7 +283,7 @@ public final class StagedGraphStore implements AutoCloseable {
                                                          boolean rebuildDerivedWiring,
                                                          String expectedRevision,
                                                          IncrementalCommitWork commitWork) {
-        prepareFactIdentities();
+        FactPreparationStats factPreparation = prepareFactIdentities();
         int newNodes = stagedCount("stage_nodes");
         int stagedEdges = stagedCount("stage_edges");
         closeConnection();
@@ -348,7 +348,7 @@ public final class StagedGraphStore implements AutoCloseable {
                         newNodes, newEdges, wired[0], callSitePersistenceNanos[0],
                         lockWaitNanos, System.nanoTime() - publishStarted,
                         newNodes - existingNodes, existingNodes - unchangedNodes, unchangedNodes,
-                        stagedGraphEdges - unchangedEdges, unchangedEdges);
+                        stagedGraphEdges - unchangedEdges, unchangedEdges, factPreparation);
             } catch (SQLException e) {
                 throw new RuntimeException("Failed to promote incremental staged graph", e);
             }
@@ -876,9 +876,10 @@ public final class StagedGraphStore implements AutoCloseable {
         }
     }
 
-    private void prepareFactIdentities() {
+    private FactPreparationStats prepareFactIdentities() {
         try {
             Connection c = connection();
+            long started = System.nanoTime();
             hashRows(c, "stage_nodes", """
                     SELECT n.seq,n.id,n.symbol_id,n.domain,n.language,n.provider_id,n.entity_kind,
                            n.language_kind,n.label,n.kind,n.qualified_name,n.package,n.namespace,
@@ -891,64 +892,91 @@ public final class StagedGraphStore implements AutoCloseable {
                     FROM stage_nodes n LEFT JOIN stage_declarations d
                       ON d.provider_id=n.provider_id AND d.symbol_id=n.symbol_id
                      AND d.module=n.module AND d.scope=n.scope AND d.source_file=n.source_file
-                     AND d.producer_id=n.producer_id ORDER BY n.seq
+                     AND d.producer_id=n.producer_id
+                    WHERE n.seq>? AND n.fact_hash IS NULL ORDER BY n.seq LIMIT ?
                     """);
+            long nodeHashNanos = System.nanoTime() - started;
+            started = System.nanoTime();
             hashRows(c, "stage_edges", """
                     SELECT seq,resolved_source,resolved_target,external_target_fqn,external_target_symbol,
                            external_target_language,external_target_provider_id,relation,semantic,mechanism,
                            language,provider_id,call_kind,confidence,resolution,context,is_external,source_file,
                            source_location,begin_line,begin_column,end_line,end_column,source_ordinal,
                            syntax_target,receiver_static_type,metadata,producer_id
-                    FROM stage_edges ORDER BY seq
+                    FROM stage_edges
+                    WHERE seq>? AND fact_hash IS NULL AND relation<>'CALLS' ORDER BY seq LIMIT ?
                     """);
+            long edgeHashNanos = System.nanoTime() - started;
+            started = System.nanoTime();
             hashRows(c, "stage_annotations", """
                     SELECT seq,resolved_node,annotation_fqn,raw_name,attributes,target_kind,target_path,
                            language,provider_id,mechanism,resolution_status,source_file,source_location,
                            begin_line,begin_column,end_line,end_column,producer_id
-                    FROM stage_annotations ORDER BY seq
+                    FROM stage_annotations
+                    WHERE seq>? AND fact_hash IS NULL ORDER BY seq LIMIT ?
                     """);
-            assignFactOrdinals(c, "stage_edges");
-            assignFactOrdinals(c, "stage_annotations");
+            long annotationHashNanos = System.nanoTime() - started;
+            started = System.nanoTime();
+            assignFactOrdinals(c, "stage_edges", "relation<>'CALLS' AND fact_hash IS NOT NULL");
+            long edgeOrdinalNanos = System.nanoTime() - started;
+            started = System.nanoTime();
+            assignFactOrdinals(c, "stage_annotations", "fact_hash IS NOT NULL");
+            long annotationOrdinalNanos = System.nanoTime() - started;
+            started = System.nanoTime();
             try (Statement statement = c.createStatement()) {
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS stage_edges_fact "
-                        + "ON stage_edges(fact_hash,fact_ordinal)");
+                        + "ON stage_edges(fact_hash,fact_ordinal) WHERE relation<>'CALLS'");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS stage_annotations_fact "
                         + "ON stage_annotations(fact_hash,fact_ordinal)");
             }
+            return new FactPreparationStats(nodeHashNanos, edgeHashNanos, annotationHashNanos,
+                    edgeOrdinalNanos, annotationOrdinalNanos, System.nanoTime() - started);
         } catch (SQLException failure) {
             throw new RuntimeException("Failed to prepare staged fact identities", failure);
         }
     }
 
     private static void hashRows(Connection c, String table, String sql) throws SQLException {
-        Map<Long, byte[]> hashes = new LinkedHashMap<>();
-        try (Statement statement = c.createStatement(); ResultSet rows = statement.executeQuery(sql)) {
-            int columns = rows.getMetaData().getColumnCount();
-            while (rows.next()) {
-                Object[] values = new Object[columns - 1];
-                for (int i = 2; i <= columns; i++) values[i - 2] = rows.getObject(i);
-                hashes.put(rows.getLong(1), StableHash.values(values));
+        final int pageSize = 2_048;
+        long cursor = 0;
+        try (PreparedStatement select = c.prepareStatement(sql);
+             PreparedStatement update = c.prepareStatement(
+                     "UPDATE " + table + " SET fact_hash=? WHERE seq=?")) {
+            while (true) {
+                select.setLong(1, cursor);
+                select.setInt(2, pageSize);
+                List<HashRow> page = new ArrayList<>(pageSize);
+                try (ResultSet rows = select.executeQuery()) {
+                    int columns = rows.getMetaData().getColumnCount();
+                    while (rows.next()) {
+                        Object[] values = new Object[columns - 1];
+                        for (int i = 2; i <= columns; i++) values[i - 2] = rows.getObject(i);
+                        cursor = rows.getLong(1);
+                        page.add(new HashRow(cursor, StableHash.values(values)));
+                    }
+                }
+                if (page.isEmpty()) return;
+                for (HashRow row : page) {
+                    update.setBytes(1, row.hash());
+                    update.setLong(2, row.sequence());
+                    update.addBatch();
+                }
+                update.executeBatch();
             }
-        }
-        try (PreparedStatement update = c.prepareStatement(
-                "UPDATE " + table + " SET fact_hash=? WHERE seq=?")) {
-            for (Map.Entry<Long, byte[]> entry : hashes.entrySet()) {
-                update.setBytes(1, entry.getValue());
-                update.setLong(2, entry.getKey());
-                update.addBatch();
-            }
-            update.executeBatch();
         }
     }
 
-    private static void assignFactOrdinals(Connection c, String table) throws SQLException {
+    private static void assignFactOrdinals(Connection c, String table, String predicate) throws SQLException {
         try (Statement statement = c.createStatement()) {
             statement.executeUpdate("WITH ranked AS (SELECT seq,row_number() OVER (PARTITION BY "
                     + "producer_id,coalesce(source_file,''),fact_hash ORDER BY seq)-1 AS ordinal FROM "
-                    + table + ") UPDATE " + table + " SET fact_ordinal=(SELECT ordinal FROM ranked "
-                    + "WHERE ranked.seq=" + table + ".seq)");
+                    + table + " WHERE " + predicate + ") UPDATE " + table
+                    + " SET fact_ordinal=(SELECT ordinal FROM ranked WHERE ranked.seq=" + table
+                    + ".seq) WHERE " + predicate);
         }
     }
+
+    private record HashRow(long sequence, byte[] hash) { }
 
     private void attach(Connection c) throws SQLException {
         try (Statement statement = c.createStatement()) {
@@ -1137,7 +1165,15 @@ public final class StagedGraphStore implements AutoCloseable {
     }
 
     public record PromotionStats(int reboundExternalTargets, int droppedDanglingFacts, int wiredEdges,
-                                 long callSitePersistenceNanos) {}
+                                 long callSitePersistenceNanos,
+                                 FactPreparationStats factPreparation) {}
+
+    public record FactPreparationStats(long nodeHashNanos,
+                                       long edgeHashNanos,
+                                       long annotationHashNanos,
+                                       long edgeOrdinalNanos,
+                                       long annotationOrdinalNanos,
+                                       long indexBuildNanos) { }
 
     @FunctionalInterface
     public interface IncrementalCommitWork {
@@ -1158,7 +1194,8 @@ public final class StagedGraphStore implements AutoCloseable {
                                             int updatedNodes,
                                             int unchangedNodes,
                                             int insertedEdges,
-                                            int unchangedEdges) {}
+                                            int unchangedEdges,
+                                            FactPreparationStats factPreparation) {}
 
     private static final String NODE_INSERT = "INSERT INTO stage_nodes(id,symbol_id,domain,language,provider_id,entity_kind,language_kind,label,kind,qualified_name,"
             + "package,namespace,source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,arity_key,producer_id) VALUES "

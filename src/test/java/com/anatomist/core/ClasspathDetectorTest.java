@@ -375,6 +375,25 @@ class ClasspathDetectorTest {
         assertNotEquals(before, detector.classpathInputFingerprint(tmp));
     }
 
+    @Test
+    void classpathInputFingerprintFollowsDeclaredModulesButIgnoresTargetPoms(@TempDir Path tmp)
+            throws Exception {
+        Files.writeString(tmp.resolve("pom.xml"),
+                "<project><modules><module>api</module></modules></project>");
+        Path module = Files.createDirectories(tmp.resolve("api"));
+        Files.writeString(module.resolve("pom.xml"), "<project><version>1</version></project>");
+        Path target = Files.createDirectories(tmp.resolve("target/fake"));
+        Files.writeString(target.resolve("pom.xml"), "<project><version>1</version></project>");
+        ClasspathDetector detector = new ClasspathDetector();
+        String before = detector.classpathInputFingerprint(tmp);
+
+        Files.writeString(target.resolve("pom.xml"), "<project><version>2</version></project>");
+        assertEquals(before, detector.classpathInputFingerprint(tmp));
+
+        Files.writeString(module.resolve("pom.xml"), "<project><version>2</version></project>");
+        assertNotEquals(before, detector.classpathInputFingerprint(tmp));
+    }
+
     private static ClasspathDetector detectorWithEnvironment(Map<String, String> env, Path userHome) {
         return new ClasspathDetector() {
             @Override protected String environment(String name) { return env.get(name); }

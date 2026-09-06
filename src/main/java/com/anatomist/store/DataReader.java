@@ -623,6 +623,25 @@ public class DataReader {
         }
     }
 
+    /** Bounded persisted-health view; occurrence counts stay lossless without materializing every file row. */
+    public List<IndexDiagnostic> readIndexDiagnosticSummary() {
+        List<IndexDiagnostic> out = new ArrayList<>();
+        String sql = "SELECT severity,code,phase,NULL,NULL,NULL,NULL,sum(occurrence_count),min(sample),"
+                + "language,provider_id,provider_reason FROM index_diagnostics "
+                + "GROUP BY severity,code,phase,language,provider_id,provider_reason "
+                + "ORDER BY CASE severity WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,code";
+        try (Statement st = conn().createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                out.add(new IndexDiagnostic(rs.getString(1), rs.getString(2), rs.getString(3),
+                        null, null, null, null, rs.getLong(8), rs.getString(9), rs.getString(10),
+                        rs.getString(11), rs.getString(12)));
+            }
+            return List.copyOf(out);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to summarize index diagnostics", e);
+        }
+    }
+
     /** Lossless resolution occurrence counts from analysis_coverage. */
     public Map<String, Long> readResolutionDiagnosticCounts() {
         Map<String, Long> out = new java.util.TreeMap<>();

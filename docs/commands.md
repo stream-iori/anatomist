@@ -96,6 +96,7 @@ anatomist index <project> --recreate --output <db>
 | `--spring-xml` | 索引 Spring `<beans>` 配置 |
 | `--lombok off\|ast` | 开启源码级 Lombok 结构模型 |
 | `--verify-content` | 增量时对每个文件重新算 hash |
+| `--changed-files-from <file\|->` | 权威变更清单，逐行项目相对路径；空行和 `#` 注释忽略，`-` 读 stdin |
 | `--timings` | 输出各阶段耗时 |
 | `--format json` | 机器可读构建结果 |
 

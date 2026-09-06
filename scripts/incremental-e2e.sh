@@ -14,7 +14,11 @@ DB="$TMP_DIR/incremental.db"
 FULL_DB="$TMP_DIR/full.db"
 
 if [[ "$MODE" == "native" ]]; then
-  CLI=("$ROOT/$NATIVE_BIN")
+  if [[ "$NATIVE_BIN" = /* ]]; then
+    CLI=("$NATIVE_BIN")
+  else
+    CLI=("$ROOT/$NATIVE_BIN")
+  fi
 else
   SDKMAN_ROOT="${SDKMAN_DIR:-${HOME}/.sdkman}"
   if [[ -s "$SDKMAN_ROOT/bin/sdkman-init.sh" ]]; then

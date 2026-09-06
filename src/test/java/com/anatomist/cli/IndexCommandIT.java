@@ -757,6 +757,63 @@ class IndexCommandIT {
         }
     }
 
+    @Test
+    void changedFilesManifestSupportsZeroWriteNoopAndSingleFileDelta(@TempDir Path tmp)
+            throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("manifest.db");
+        CliTestSupport.assertIndexOk(project, "--no-classpath", "--output", db.toString());
+        String before = com.anatomist.store.FileCacheService.sha256(db);
+        Path manifest = tmp.resolve("changes.txt");
+        Files.writeString(manifest, "# no changes\n");
+
+        RunResult noop = CliTestSupport.runIndex(project, "--no-classpath", "--incremental",
+                "--changed-files-from", manifest.toString(), "--format", "json",
+                "--output", db.toString());
+        assertEquals(0, noop.exitCode(), noop.stderr());
+        assertTrue(noop.stdout().contains("\"change_detection_mode\" : \"manifest\""), noop.stdout());
+        assertTrue(noop.stdout().contains("\"candidate_files\" : 0"), noop.stdout());
+        assertEquals(before, com.anatomist.store.FileCacheService.sha256(db));
+
+        Path source = project.resolve("src/main/java/p/A.java");
+        Files.writeString(source, "package p; class A { void manifestChanged() {} }\n");
+        Files.writeString(manifest, "src/main/java/p/A.java\n");
+        RunResult changed = CliTestSupport.runIndex(project, "--no-classpath", "--incremental",
+                "--changed-files-from", manifest.toString(), "--format", "json",
+                "--output", db.toString());
+        assertEquals(0, changed.exitCode(), changed.stderr());
+        assertTrue(changed.stdout().contains("\"candidate_files\" : 1"), changed.stdout());
+        assertTrue(changed.stdout().contains("\"changed_files\" : 1"), changed.stdout());
+    }
+
+    @Test
+    void cleanGitCheckoutUsesGitCandidateFastPath(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        runGit(project, "init", "-q");
+        runGit(project, "config", "user.email", "test@example.com");
+        runGit(project, "config", "user.name", "Test");
+        runGit(project, "add", ".");
+        runGit(project, "commit", "-qm", "initial");
+        Path db = tmp.resolve("git.db");
+        CliTestSupport.assertIndexOk(project, "--no-classpath", "--output", db.toString());
+
+        RunResult noop = CliTestSupport.runIndex(project, "--no-classpath", "--incremental",
+                "--format", "json", "--output", db.toString());
+        assertEquals(0, noop.exitCode(), noop.stderr());
+        assertTrue(noop.stdout().contains("\"change_detection_mode\" : \"git\""), noop.stdout());
+        assertTrue(noop.stdout().contains("\"candidate_files\" : 0"), noop.stdout());
+    }
+
+    private static void runGit(Path cwd, String... args) throws Exception {
+        java.util.ArrayList<String> command = new java.util.ArrayList<>();
+        command.add("git");
+        command.addAll(java.util.List.of(args));
+        Process process = new ProcessBuilder(command).directory(cwd.toFile())
+                .redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, process.waitFor(), output);
+    }
+
     private static synchronized <T> T withUserHome(
             Path home, ThrowingSupplier<T> action) throws Exception {
         String previous = System.getProperty("user.home");

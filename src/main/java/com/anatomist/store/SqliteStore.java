@@ -232,6 +232,9 @@ public class SqliteStore implements IndexWriter {
     public long queryAnnotationCount() { return reader.queryAnnotationCount(); }
     public long querySemanticAnnotationCount() { return reader.querySemanticAnnotationCount(); }
     public List<IndexDiagnostic> readIndexDiagnostics() { return reader.readIndexDiagnostics(); }
+    public List<IndexDiagnostic> readIndexDiagnosticSummary() {
+        return reader.readIndexDiagnosticSummary();
+    }
 
     public List<SymbolFact> readSymbolFacts() {
         try (Statement statement = connection().createStatement();

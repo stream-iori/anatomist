@@ -109,6 +109,30 @@ public final class ProjectMetadata {
                                                ScanPolicy scanPolicy,
                                                List<SourceScope> scanScopes,
                                                String providerId) {
+        PreparedIncremental prepared = prepareIncremental(store, projectRoot, sourcePaths, sourceRoots,
+                javaVersion, classpathMode, classpathEntries, classpathOverride, springXml, fileCache,
+                timings, gitTask, loadedConfig, scanPolicy, scanScopes, providerId);
+        commitIncremental(store, prepared, timings);
+        return prepared.result();
+    }
+
+    public static PreparedIncremental prepareIncremental(SqliteStore store,
+                                               Path projectRoot,
+                                               List<Path> sourcePaths,
+                                               List<SourceRoot> sourceRoots,
+                                               int javaVersion,
+                                               String classpathMode,
+                                               List<Path> classpathEntries,
+                                               String classpathOverride,
+                                               boolean springXml,
+                                               Map<String, FileCacheEntry> fileCache,
+                                               IndexTimings timings,
+                                               GitSnapshotTask gitTask,
+                                               LoadedConfig loadedConfig,
+                                               ScanPolicy scanPolicy,
+                                               List<SourceScope> scanScopes,
+                                               String providerId) {
+        long prepareStarted = System.nanoTime();
         Map<String, FileCacheEntry> effectiveCache = fileCache == null
                 ? store.readFileCache()
                 : fileCache;
@@ -140,17 +164,38 @@ public final class ProjectMetadata {
             values.put(IndexRevision.META_KEY, IndexRevision.next());
         }
         if (git != null) addGit(values, git.snapshot());
+        addTiming(timings, "metadata_prepare", prepareStarted);
+        return new PreparedIncremental(java.util.Collections.unmodifiableMap(
+                new LinkedHashMap<>(values)),
+                new WriteResult(git == null ? 0L : git.statusNanos() / 1_000_000L));
+    }
 
-        phaseStarted = System.nanoTime();
-        store.upsertProjectMeta(values);
+    public static void commitIncremental(SqliteStore store, PreparedIncremental prepared,
+                                         IndexTimings timings) {
+        long phaseStarted = System.nanoTime();
+        store.upsertProjectMeta(prepared.values());
         addTiming(timings, "metadata_write", phaseStarted);
-        return new WriteResult(git == null ? 0L : git.statusNanos() / 1_000_000L);
     }
 
     public static GitSnapshotTask startIncrementalGitRead(Path projectRoot,
                                                            Map<String, String> prior) {
         return new GitSnapshotTask(CompletableFuture.supplyAsync(
                 () -> GitSnapshot.readIncremental(projectRoot, prior)));
+    }
+
+    /** Reuse a Git observation already collected by incremental change detection. */
+    public static GitSnapshotTask completedIncrementalGitRead(Map<String, String> values) {
+        if (values == null || values.isEmpty()) return null;
+        GitSnapshot snapshot = new GitSnapshot(
+                values.get("source_git_root"), values.get("source_git_commit"),
+                values.get("source_git_branch"),
+                Boolean.parseBoolean(values.getOrDefault("source_git_dirty", "false")),
+                values.get("source_git_commit_time"),
+                values.get("source_git_remote_origin_url"),
+                values.getOrDefault("source_git_dirty_paths", "").lines()
+                        .filter(path -> !path.isBlank()).toList());
+        return new GitSnapshotTask(CompletableFuture.completedFuture(
+                new GitRead(snapshot, 0L)));
     }
 
     public static final class GitSnapshotTask {
@@ -248,6 +293,7 @@ public final class ProjectMetadata {
         values.put("source_git_commit", git.commit());
         values.put("source_git_branch", git.branch());
         values.put("source_git_dirty", String.valueOf(git.dirty()));
+        values.put("source_git_dirty_paths", String.join("\n", git.dirtyPaths()));
         values.put("source_git_commit_time", git.commitTime());
         values.put("source_git_remote_origin_url", git.remoteOriginUrl());
     }
@@ -403,10 +449,13 @@ public final class ProjectMetadata {
 
     public record WriteResult(long gitStatusMillis) {}
 
+    public record PreparedIncremental(Map<String, String> values, WriteResult result) { }
+
     private record GitRead(GitSnapshot snapshot, long statusNanos) {}
 
     private record GitSnapshot(String root, String commit, String branch, boolean dirty,
-                               String commitTime, String remoteOriginUrl) {
+                               String commitTime, String remoteOriginUrl,
+                               List<String> dirtyPaths) {
         static GitSnapshot read(Path projectRoot) {
             String root = git(projectRoot, "rev-parse", "--show-toplevel");
             String commit = git(projectRoot, "rev-parse", "HEAD");
@@ -415,8 +464,9 @@ public final class ProjectMetadata {
             String status = git(projectRoot, "status", "--porcelain");
             String commitTime = git(projectRoot, "show", "-s", "--format=%cI", "HEAD");
             String remote = git(projectRoot, "config", "--get", "remote.origin.url");
+            List<String> dirtyPaths = porcelainV1Paths(status);
             return new GitSnapshot(root, commit, branch,
-                    status != null && !status.isBlank(), commitTime, remote);
+                    !dirtyPaths.isEmpty(), commitTime, remote, dirtyPaths);
         }
 
         static GitRead readIncremental(Path projectRoot, Map<String, String> prior) {
@@ -428,6 +478,7 @@ public final class ProjectMetadata {
             String commit = null;
             String branch = null;
             boolean dirty = false;
+            List<String> dirtyPaths = new java.util.ArrayList<>();
             for (String line : status.split("\\R")) {
                 if (line.startsWith("# branch.oid ")) {
                     commit = line.substring("# branch.oid ".length()).trim();
@@ -437,6 +488,8 @@ public final class ProjectMetadata {
                     if ("(detached)".equals(branch)) branch = "HEAD";
                 } else if (!line.isBlank() && !line.startsWith("#")) {
                     dirty = true;
+                    String path = porcelainV2Path(line);
+                    if (path != null) dirtyPaths.add(path);
                 }
             }
             if (commit == null) return new GitRead(null, statusNanos);
@@ -455,7 +508,39 @@ public final class ProjectMetadata {
             String remote = git(projectRoot, "config", "--get", "remote.origin.url");
             if (branch == null || branch.isBlank()) branch = prior.get("source_git_branch");
             return new GitRead(new GitSnapshot(
-                    root, commit, branch, dirty, commitTime, remote), statusNanos);
+                    root, commit, branch, dirty, commitTime, remote,
+                    List.copyOf(dirtyPaths)), statusNanos);
+        }
+
+        private static List<String> porcelainV1Paths(String status) {
+            if (status == null || status.isBlank()) return List.of();
+            List<String> paths = new java.util.ArrayList<>();
+            for (String line : status.split("\\R")) {
+                if (line.length() < 4) continue;
+                String path = line.substring(3).trim();
+                int rename = path.indexOf(" -> ");
+                if (rename >= 0) {
+                    paths.add(path.substring(0, rename));
+                    path = path.substring(rename + 4);
+                }
+                paths.add(path);
+            }
+            return List.copyOf(paths);
+        }
+
+        private static String porcelainV2Path(String line) {
+            if (line.startsWith("? ") || line.startsWith("! ")) return line.substring(2);
+            if (line.startsWith("1 ")) {
+                String[] fields = line.split(" ", 9);
+                return fields.length == 9 ? fields[8] : null;
+            }
+            if (line.startsWith("2 ")) {
+                String[] fields = line.split(" ", 10);
+                if (fields.length != 10) return null;
+                int tab = fields[9].indexOf('\t');
+                return tab < 0 ? fields[9] : fields[9].substring(0, tab);
+            }
+            return null;
         }
 
         private static String git(Path cwd, String... args) {

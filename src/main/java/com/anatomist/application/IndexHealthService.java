@@ -55,6 +55,6 @@ public final class IndexHealthService {
     }
 
     public static IndexHealthReport read(SqliteStore store) {
-        return IndexHealthReport.of(store.readIndexDiagnostics());
+        return IndexHealthReport.of(store.readIndexDiagnosticSummary());
     }
 }

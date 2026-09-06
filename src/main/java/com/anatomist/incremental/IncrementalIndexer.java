@@ -144,6 +144,8 @@ public class IncrementalIndexer {
         public int unchangedEdges;
         public int publishRetries;
         public boolean metadataOnly;
+        public String changeDetectionMode = "scan";
+        public int candidateFiles;
         public long unresolvedSymbols;
         public int droppedDanglingFacts;
         public final Map<String, Long> extensionCounters = new LinkedHashMap<>();
@@ -153,7 +155,8 @@ public class IncrementalIndexer {
 
     @FunctionalInterface
     public interface PublicationMetadata {
-        void write(SqliteStore store, Map<String, FileCacheEntry> effectiveCache);
+        StagedGraphStore.IncrementalCommitWork prepare(
+                SqliteStore store, Map<String, FileCacheEntry> effectiveCache);
     }
 
     public Summary indexIncremental(List<String> changedFiles,
@@ -399,6 +402,11 @@ public class IncrementalIndexer {
                 projectRoot, sourcePaths, new NodeIdGenerator(), null, "MAIN", projectConfig);
         PreparedExtensions fingerprintExtensions = BuiltInExtensions.prepare(new AnalysisContext(
                 projectRoot, sourcePaths, fingerprintCtx, projectConfig, springXml));
+        Map<String, String> lombokMetadata =
+                com.anatomist.framework.lombok.LombokIndexMetadata.snapshot(
+                        projectConfig, fingerprintExtensions, store, resolutionDiagnostics);
+        StagedGraphStore.IncrementalCommitWork preparedPublication = publicationMetadata == null
+                ? null : publicationMetadata.prepare(store, Map.copyOf(effectiveCache));
 
         long graphStarted = startTiming();
         StagedGraphStore.IncrementalPromotionStats promoted =
@@ -412,19 +420,15 @@ public class IncrementalIndexer {
                             store.replaceIndexDiagnosticsForFiles(affectedFiles, resolutionDiagnostics);
                             store.upsertProjectMeta(Map.of(PreparedExtensions.META_KEY,
                                     fingerprintExtensions.fingerprint()));
-                            store.upsertProjectMeta(
-                                    com.anatomist.framework.lombok.LombokIndexMetadata.snapshot(
-                                            projectConfig, fingerprintExtensions, store,
-                                            resolutionDiagnostics));
-                            if (publicationMetadata != null) {
-                                publicationMetadata.write(store, Map.copyOf(effectiveCache));
-                            }
+                            store.upsertProjectMeta(lombokMetadata);
+                            if (preparedPublication != null) preparedPublication.run();
                         });
         stopTiming("stage_promote", graphStarted);
         if (timings != null) {
             timings.addNanos("call_site_persistence", promoted.callSitePersistenceNanos());
             timings.addNanos("publish_lock_wait", promoted.lockWaitNanos());
             timings.addNanos("publish_transaction", promoted.publishNanos());
+            addFactPreparationTimings(promoted.factPreparation());
         }
         stopTiming("graph_replace", graphStarted);
         stopTiming("graph_write", graphStarted);
@@ -440,7 +444,17 @@ public class IncrementalIndexer {
         s.insertedEdges = promoted.insertedEdges();
         s.unchangedEdges = promoted.unchangedEdges();
         return s;
-        }
+    }
+
+    }
+
+    private void addFactPreparationTimings(StagedGraphStore.FactPreparationStats stats) {
+        timings.addNanos("fact_hash_nodes", stats.nodeHashNanos());
+        timings.addNanos("fact_hash_edges", stats.edgeHashNanos());
+        timings.addNanos("fact_hash_annotations", stats.annotationHashNanos());
+        timings.addNanos("fact_ordinal_edges", stats.edgeOrdinalNanos());
+        timings.addNanos("fact_ordinal_annotations", stats.annotationOrdinalNanos());
+        timings.addNanos("fact_index_build", stats.indexBuildNanos());
     }
 
     private static long elapsedMillis(long startedNanos) {

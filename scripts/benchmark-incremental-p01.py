@@ -102,15 +102,23 @@ def build_baseline(root: Path, revision: str, temporary: Path, cache: Path) -> P
 def project_copy(source: Path, target: Path) -> Path:
     ignored = shutil.ignore_patterns(".git", "target", ".idea", "*.db", "*.db-wal", "*.db-shm")
     shutil.copytree(source, target, ignore=ignored)
+    execute(["git", "init", "-q"], target)
+    execute(["git", "config", "user.email", "benchmark@anatomist.local"], target)
+    execute(["git", "config", "user.name", "Anatomist Benchmark"], target)
+    execute(["git", "add", "."], target)
+    execute(["git", "commit", "-qm", "benchmark snapshot"], target)
     return target
 
 
-def index_command(binary: Path, project: Path, database: Path, incremental: bool) -> list[str]:
+def index_command(binary: Path, project: Path, database: Path, incremental: bool,
+                  extra: list[str] | None = None) -> list[str]:
     command = [str(binary), "index", str(project)]
     if incremental:
         command.append("--incremental")
     command.extend(["--include-tests", "--timings", "--format", "json",
                     "--output", str(database)])
+    if extra:
+        command.extend(extra)
     return command
 
 
@@ -136,6 +144,17 @@ def reset_database(source: Path, target: Path) -> None:
     for suffix in ("", "-wal", "-shm"):
         Path(str(target) + suffix).unlink(missing_ok=True)
     shutil.copy2(source, target)
+
+
+def database_envelope_digest(database: Path) -> str:
+    digest = hashlib.sha256()
+    for suffix in ("", "-wal", "-shm"):
+        path = Path(str(database) + suffix)
+        digest.update(suffix.encode())
+        if path.exists():
+            digest.update(str(path.stat().st_size).encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def mutate(project: Path, scenario: str, run: int) -> list[tuple[Path, bytes, int, int]]:
@@ -182,7 +201,7 @@ def incremental_benchmark(variants: dict[str, tuple[Path, Path]], databases: dic
                 work_db = temporary / f"{name}-{scenario}.db"
                 reset_database(databases[name], work_db)
                 originals = mutate(project, scenario, run)
-                before = digest_file(work_db)
+                before = database_envelope_digest(work_db)
                 try:
                     elapsed, output = timed(index_command(binary, project, work_db, True))
                 finally:
@@ -190,7 +209,7 @@ def incremental_benchmark(variants: dict[str, tuple[Path, Path]], databases: dic
                 samples[name].append(elapsed)
                 envelopes[name].append(json.loads(output))
                 if scenario == "incremental_noop":
-                    zero_write[name] &= before == digest_file(work_db)
+                    zero_write[name] &= before == database_envelope_digest(work_db)
         summary = {name: stats(value) for name, value in samples.items()}
         item = {"baseline": summary["baseline"], "candidate": summary["candidate"],
                 "p50_delta_pct": delta(summary["candidate"]["p50_ms"], summary["baseline"]["p50_ms"]),
@@ -199,6 +218,39 @@ def incremental_benchmark(variants: dict[str, tuple[Path, Path]], databases: dic
         results[scenario] = item
         raw[scenario] = envelopes
     return results, raw
+
+
+def candidate_fast_paths(binary: Path, project: Path, database: Path,
+                         temporary: Path, runs: int) -> dict:
+    manifest = temporary / "empty-changes.txt"
+    manifest.write_text("# authoritative no-op\n")
+    result = {}
+    for mode in ("manifest", "scan_fallback"):
+        samples = []
+        zero_write = True
+        envelopes = []
+        for run in range(runs):
+            work_db = temporary / f"candidate-fast-{mode}-{run}.db"
+            reset_database(database, work_db)
+            extra = ["--changed-files-from", str(manifest)] if mode == "manifest" else []
+            if mode == "scan_fallback":
+                with sqlite3.connect(work_db) as connection:
+                    connection.execute("UPDATE project_meta SET value='' WHERE key='source_git_root'")
+                    connection.commit()
+                    connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                # sqlite3 may leave an empty WAL and an SHM file after the setup write.
+                # Normalize the envelope before timing so their close-time removal is not
+                # misclassified as a write by the command under test.
+                for suffix in ("-wal", "-shm"):
+                    Path(str(work_db) + suffix).unlink(missing_ok=True)
+            before = database_envelope_digest(work_db)
+            elapsed, output = timed(index_command(binary, project, work_db, True, extra))
+            samples.append(elapsed)
+            envelopes.append(json.loads(output))
+            zero_write &= before == database_envelope_digest(work_db)
+        result[mode] = {"timing": stats(samples), "zero_write": zero_write,
+                        "envelopes": envelopes}
+    return result
 
 
 def query_commands(binary: Path, database: Path) -> dict[str, list[str]]:
@@ -282,6 +334,14 @@ def markdown(report: dict) -> str:
                   f"- Candidate no-op zero-write: {report['gates']['noop_zero_write']}",
                   f"- Query semantics equal: {report['gates']['queries_equal']}",
                   f"- Overall: {'PASS' if report['passed'] else 'FAIL'}", ""])
+    if "candidate_fast_paths" in report:
+        lines.extend(["| Candidate fast path | p50 | p95 | Zero write |",
+                      "|---|---:|---:|---:|"])
+        for name, item in report["candidate_fast_paths"].items():
+            timing = item["timing"]
+            lines.append(f"| {name} | {timing['p50_ms']:.2f} ms | "
+                         f"{timing['p95_ms']:.2f} ms | {item['zero_write']} |")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -303,6 +363,9 @@ def main() -> int:
         full, databases = full_indexes(variants, temporary, args.full_runs)
         incremental, raw_envelopes = incremental_benchmark(
             variants, databases, temporary, args.incremental_runs)
+        fast_paths = candidate_fast_paths(candidate, variants["candidate"][1],
+                                          databases["candidate"], temporary,
+                                          args.incremental_runs)
         queries = query_benchmark(variants, databases, args.warmups, args.query_runs)
         sizes = {name: storage(database, temporary) for name, database in databases.items()}
         storage_delta = delta(sizes["candidate"]["vacuum_bytes"], sizes["baseline"]["vacuum_bytes"])
@@ -329,7 +392,7 @@ def main() -> int:
             "candidate": {"git_head": execute(["git", "rev-parse", "HEAD"], root).decode().strip(),
                           "binary_sha256": digest_file(candidate)},
             "full_index": full, "incremental": incremental, "queries": queries,
-            "storage": sizes, "gates": gates,
+            "candidate_fast_paths": fast_paths, "storage": sizes, "gates": gates,
         }
         (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
         (output / "raw-incremental.json").write_text(json.dumps(raw_envelopes, indent=2) + "\n")

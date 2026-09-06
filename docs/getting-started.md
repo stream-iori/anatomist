@@ -53,6 +53,7 @@ anatomist doctor --agent-preflight --format json --index /tmp/shop.db
 | `--output` | SQLite 路径 |
 | `--incremental` | 只处理变化文件和受影响闭包 |
 | `--verify-content` | 不信任 mtime/size，重新计算文件 hash |
+| `--changed-files-from <file\|->` | 使用 CI/编辑器给出的项目相对路径增量清单；`-` 表示 stdin |
 | `--spring-xml` | 加入 Spring XML 静态配置 |
 | `--lombok ast` | 加入源码级 Lombok 签名证据 |
 | `--health-policy integrity` | parse/graph 不完整则拒绝提交 |

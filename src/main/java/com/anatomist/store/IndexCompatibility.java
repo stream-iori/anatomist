@@ -31,6 +31,15 @@ public final class IndexCompatibility {
     private IndexCompatibility() {}
 
     public static Report inspect(Path database) {
+        return inspect(database, true);
+    }
+
+    /** Routine incremental preflight; corruption checks remain in doctor/full validation. */
+    public static Report inspectFast(Path database) {
+        return inspect(database, false);
+    }
+
+    private static Report inspect(Path database, boolean verifyIntegrity) {
         if (database == null || !Files.isRegularFile(database)) {
             return new Report(Action.CREATE, List.of("INDEX_MISSING"), 0, 0, 0, 0);
         }
@@ -39,15 +48,17 @@ public final class IndexCompatibility {
             try (Statement statement = connection.createStatement()) {
                 statement.execute("PRAGMA query_only=ON");
             }
-            String quickCheck = scalarString(connection, "PRAGMA quick_check(1)");
-            if (!"ok".equalsIgnoreCase(quickCheck)) {
-                return report("DATABASE_CORRUPT", 0, 0, connection);
+            if (verifyIntegrity) {
+                String quickCheck = scalarString(connection, "PRAGMA quick_check(1)");
+                if (!"ok".equalsIgnoreCase(quickCheck)) {
+                    return report("DATABASE_CORRUPT", 0, 0, connection);
+                }
             }
             int schema = scalarInt(connection, "PRAGMA user_version");
             if (schema != IndexSchema.VERSION) {
                 return report("SCHEMA_MISMATCH", schema, 0, connection);
             }
-            if (hasRow(connection, "PRAGMA foreign_key_check")) {
+            if (verifyIntegrity && hasRow(connection, "PRAGMA foreign_key_check")) {
                 return report("INDEX_INTEGRITY_FAILED", schema, 0, connection);
             }
             if (!tableExists(connection, "nodes") || !tableExists(connection, "file_cache")

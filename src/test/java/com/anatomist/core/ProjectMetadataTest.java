@@ -92,6 +92,15 @@ class ProjectMetadataTest {
             assertEquals("false", store.readProjectMeta("source_git_dirty").orElseThrow());
         }
 
+        Files.writeString(project.resolve("untracked-doc.txt"), "not indexed\n");
+        CliTestSupport.assertIndexOk(project,
+                "--no-classpath", "--incremental", "--output", db.toString());
+        try (SqliteStore store = new SqliteStore(db)) {
+            assertEquals("false", store.readProjectMeta("source_git_dirty").orElseThrow(),
+                    "a graph no-op preserves committed Git metadata");
+        }
+        Files.delete(project.resolve("untracked-doc.txt"));
+
         Path source = project.resolve("src/main/java/p/A.java");
         String original = Files.readString(source);
         Files.writeString(source, original + "\n// dirty\n");

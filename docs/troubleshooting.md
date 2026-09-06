@@ -69,9 +69,15 @@ pair and reuses the saved SHA; this avoids reading every source file. Use
 
 | Path | Content check |
 |---|---|
-| Standalone incremental, size/mtime changed | Hashes bytes; unchanged content only refreshes stat metadata. |
+| Standalone incremental, size/mtime changed | Hashes bytes; unchanged content remains a zero-write no-op. |
 | Standalone incremental, size/mtime stable | Reuses cached hash. |
 | Standalone incremental with `--verify-content` | Hashes every source. |
+| Clean/same-HEAD Git checkout | Uses Git candidates and hashes only dirty or previously dirty indexed paths. |
+| Incremental with `--changed-files-from` | Trusts the supplied path set; infers add/change/delete and bypasses Git. |
+
+A true no-op does not refresh file-cache stats or Git metadata. This is intentional:
+the committed `source_git_*`, revision, and `indexed_at` describe the indexed graph,
+not the worktree observation made by a read-only no-op command.
 
 Opening an older schema database with the v16 binary intentionally reports
 `incremental degraded to full (schema_version mismatch)` once. The rebuild is

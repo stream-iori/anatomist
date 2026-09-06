@@ -340,6 +340,33 @@ class StagedGraphStoreTest {
         }
     }
 
+    @Test
+    void callsSkipGraphFactHashAndOrdinalWork(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("index.db");
+        Path stage = tmp.resolve("reusable-stage.db");
+        try (SqliteStore target = new SqliteStore(db);
+             StagedGraphStore staging = new StagedGraphStore(db, identities(tmp), stage)) {
+            ExtractionResult facts = graphWithDuplicateEdges("m1/src/main/java/A.java", 1);
+            Edge call = edge("com.x.A", "com.x.B", "m1/src/main/java/A.java");
+            call.relation = GraphConstants.Relation.CALLS;
+            call.callKind = "VIRTUAL";
+            call.beginLine = 1;
+            call.beginColumn = 1;
+            facts.edges.add(call);
+            staging.writeRawBatch(facts);
+            staging.finalizeRawFacts();
+            StagedGraphStore.PromotionStats stats = staging.promoteFull(target);
+            assertTrue(stats.factPreparation().edgeHashNanos() >= 0);
+        }
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + stage);
+             Statement statement = connection.createStatement()) {
+            assertEquals(1, scalar(statement,
+                    "SELECT count(*) FROM stage_edges WHERE relation='CALLS' AND fact_hash IS NULL"));
+            assertEquals(1, scalar(statement,
+                    "SELECT count(*) FROM stage_edges WHERE relation<>'CALLS' AND fact_hash IS NOT NULL"));
+        }
+    }
+
     private static String rootMessage(Throwable failure) {
         Throwable cursor = failure;
         while (cursor.getCause() != null) cursor = cursor.getCause();

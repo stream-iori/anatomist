@@ -133,6 +133,11 @@ public class IndexCommand implements Callable<Integer> {
                     + "By default unchanged size/mtime pairs reuse the cached hash.")
     boolean verifyContent;
 
+    @Option(names = "--changed-files-from", paramLabel = "<file|->",
+            description = "Authoritative UTF-8 project-relative changed paths; '-' reads stdin. "
+                    + "Blank lines and # comments are ignored.")
+    String changedFilesFrom;
+
     @Option(names = "--full", description = "Force full re-index (default behavior).")
     boolean full;
 
@@ -253,8 +258,10 @@ public class IndexCommand implements Callable<Integer> {
 
         ClasspathDetector cd = new ClasspathDetector();
 
+        long discoverStarted = phaseTimings.start();
         long phaseStarted = phaseTimings.start();
         List<Path> sourcePaths = resolveSourcePaths(cd, projectRoot);
+        phaseTimings.stop("source_root_discovery", phaseStarted);
         if (sourcePaths.isEmpty()) {
             System.err.println("ERROR: no source paths resolved for " + projectRoot);
             return 1;
@@ -274,8 +281,10 @@ public class IndexCommand implements Callable<Integer> {
         com.anatomist.provider.LanguageProvider languageProvider =
                 com.anatomist.provider.LanguageProviderRegistry.builtIns()
                         .requireProvider(providerId);
+        phaseStarted = phaseTimings.start();
         List<Path> sourceFiles = languageProvider.discover(scanner, resolvedSourceRoots).files();
-        phaseTimings.stop("discover", phaseStarted);
+        phaseTimings.stop("source_inventory", phaseStarted);
+        phaseTimings.stop("discover", discoverStarted);
         if (sourceFiles.isEmpty()) {
             System.err.println("ERROR: no source files claimed by " + providerId
                     + " found under " + sourcePaths);
@@ -287,8 +296,16 @@ public class IndexCommand implements Callable<Integer> {
                 : output.toAbsolutePath().normalize();
         Files.createDirectories(dbPath.getParent());
 
+        boolean requestedIncremental = incremental && !full && !recreate && Files.exists(dbPath);
+        phaseStarted = phaseTimings.start();
         com.anatomist.store.IndexCompatibility.Report compatibility =
-                com.anatomist.store.IndexCompatibility.inspect(dbPath);
+                requestedIncremental
+                        ? com.anatomist.store.IndexCompatibility.inspectFast(dbPath)
+                        : com.anatomist.store.IndexCompatibility.inspect(dbPath);
+        if (requestedIncremental && compatibility.requiresRecreate()) {
+            compatibility = com.anatomist.store.IndexCompatibility.inspect(dbPath);
+        }
+        phaseTimings.stop("schema_check", phaseStarted);
         if (compatibility.requiresRecreate() && !recreate) {
             System.err.println("ERROR: " + compatibility.primaryReason()
                     + ": index is incompatible with 1.0; rerun with --recreate "
@@ -297,32 +314,19 @@ public class IndexCommand implements Callable<Integer> {
             return 3;
         }
 
-        boolean useIncremental = incremental && !full && !recreate && Files.exists(dbPath);
+        boolean useIncremental = requestedIncremental;
 
         if (useIncremental) {
-            boolean schemaIncompatible;
-            try (com.anatomist.store.IndexLock readLock =
-                         com.anatomist.store.IndexLock.forRead(dbPath);
-                 SqliteStore store = new SqliteStore(dbPath)) {
-                schemaIncompatible = store.schemaExists() && !store.schemaCompatible();
-            }
-            if (schemaIncompatible) {
-                System.err.println("INFO: incremental degraded to full (schema_version mismatch)");
-                IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
-                return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                        sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
-                        runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, true,
-                        phaseTimings, totalStarted);
-            }
-
             try (SqliteStore store = new SqliteStore(dbPath)) {
                 java.util.Map<String, FileCacheEntry> cache;
+                phaseStarted = phaseTimings.start();
                 try {
                     cache = store.readFileCache();
                 } catch (RuntimeException ex) {
                     // Schema missing — fall back to full
                     cache = java.util.Collections.emptyMap();
                 }
+                phaseTimings.stop("cache_read", phaseStarted);
                 boolean schemaMismatch = !cache.isEmpty() && cache.values().stream()
                         .anyMatch(e -> e.schemaVersion() != FileCacheService.CURRENT_SCHEMA_VERSION);
                 if (cache.isEmpty() || schemaMismatch) {
@@ -344,8 +348,10 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started,
                             config, false, phaseTimings, totalStarted);
                 }
+                phaseStarted = phaseTimings.start();
                 String currentExtensions = preparedExtensions(
                         projectRoot, sourcePaths).fingerprint();
+                phaseTimings.stop("extension_check", phaseStarted);
                 if (!currentExtensions.equals(store.readProjectMeta(
                         com.anatomist.framework.PreparedExtensions.META_KEY).orElse(""))) {
                     String reason = "extension fingerprint changed";
@@ -377,8 +383,6 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
-                com.anatomist.core.JavaVersionDetection currentVersion =
-                        resolveJavaVersion(cd, projectRoot);
                 int priorVersion;
                 try {
                     priorVersion = Integer.parseInt(
@@ -386,6 +390,26 @@ public class IndexCommand implements Callable<Integer> {
                 } catch (NumberFormatException missingVersion) {
                     priorVersion = -1;
                 }
+                phaseStarted = phaseTimings.start();
+                String currentBuildInputs = cd.classpathInputFingerprint(projectRoot);
+                String priorBuildInputs = store.readProjectMeta("classpath_input_hash").orElse("");
+                boolean buildInputsUnchanged = currentBuildInputs != null
+                        && currentBuildInputs.equals(priorBuildInputs);
+                String classpathRefreshReason = classpathRefreshReason(cd, projectRoot, store);
+                phaseTimings.stop("classpath_input_scan", phaseStarted);
+                if (classpathRefreshReason != null) {
+                    System.err.println("INFO: incremental degraded to full (" + classpathRefreshReason + ")");
+                    IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
+                            phaseTimings, totalStarted);
+                }
+                phaseStarted = phaseTimings.start();
+                com.anatomist.core.JavaVersionDetection currentVersion =
+                        resolveIncrementalJavaVersion(cd, projectRoot, store,
+                                priorVersion, buildInputsUnchanged);
+                phaseTimings.stop("java_version_check", phaseStarted);
                 boolean reusePriorExplicitVersion =
                         currentVersion.source()
                                 == com.anatomist.core.JavaVersionDetection.Source.FALLBACK
@@ -400,18 +424,6 @@ public class IndexCommand implements Callable<Integer> {
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
                 }
-                String classpathRefreshReason = classpathRefreshReason(cd, projectRoot, store);
-                if (classpathRefreshReason != null) {
-                    System.err.println("INFO: incremental degraded to full (" + classpathRefreshReason + ")");
-                    IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
-                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
-                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
-                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
-                            phaseTimings, totalStarted);
-                }
-                com.anatomist.application.ProjectMetadata.GitSnapshotTask gitTask =
-                        com.anatomist.application.ProjectMetadata.startIncrementalGitRead(
-                                projectRoot, store.readProjectMeta());
                 phaseStarted = phaseTimings.start();
                 FileCacheService fcs = new FileCacheService();
                 java.util.Map<String, String> diskHashes;
@@ -427,39 +439,50 @@ public class IndexCommand implements Callable<Integer> {
                     hashTargets = new ArrayList<>(sourceFiles);
                     hashTargets.addAll(projectResources);
                 }
-                FileCacheService.CandidateScan scan = fcs.detectChangesFast(
-                        projectRoot, hashTargets, cache, verifyContent, phaseTimings);
+                com.anatomist.incremental.IncrementalChangeDetector.Detection detection;
+                if (changedFilesFrom != null) {
+                    detection = com.anatomist.incremental.IncrementalChangeDetector.fromManifest(
+                            projectRoot, changedFilesFrom, hashTargets, cache, phaseTimings);
+                } else if (!verifyContent) {
+                    detection = com.anatomist.incremental.IncrementalChangeDetector.fromGit(
+                            projectRoot, hashTargets, cache, store.readProjectMeta(), phaseTimings);
+                } else {
+                    detection = null;
+                }
+                FileCacheService.CandidateScan scan;
+                String changeDetectionMode;
+                int candidateFiles;
+                if (detection != null) {
+                    scan = detection.scan();
+                    changeDetectionMode = detection.mode();
+                    candidateFiles = detection.candidateFiles();
+                } else {
+                    long scanStarted = phaseTimings.start();
+                    scan = fcs.detectChangesFast(
+                            projectRoot, hashTargets, cache, verifyContent, phaseTimings);
+                    phaseTimings.stop("scan_delta", scanStarted);
+                    changeDetectionMode = verifyContent ? "verify-content" : "scan";
+                    candidateFiles = hashTargets.size();
+                }
                 diskHashes = scan.diskHashes();
                 ch = scan.changes();
-                if (!scan.statRefreshes().isEmpty()) store.updateFileCache(scan.statRefreshes());
                 phaseTimings.stop("change_detection", phaseStarted);
                 if (ch.isEmpty()) {
                     IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
-                    summary.metadataOnly = !scan.statRefreshes().isEmpty();
-                    for (com.anatomist.core.IndexDiagnostic diagnostic : store.readIndexDiagnostics()) {
-                        if ("UNRESOLVED_SYMBOLS".equals(diagnostic.code())) {
-                            summary.unresolvedSymbols += diagnostic.count();
-                        } else if ("DANGLING_FACTS_DROPPED".equals(diagnostic.code())) {
-                            summary.droppedDanglingFacts += (int) diagnostic.count();
-                        }
-                    }
-                    phaseStarted = phaseTimings.start();
-                    com.anatomist.application.ProjectMetadata.WriteResult metadataResult =
-                            com.anatomist.application.ProjectMetadata.writeIncremental(
-                            store, projectRoot, sourcePaths, resolvedSourceRoots,
-                            Integer.parseInt(store.readProjectMeta("java_version").orElse("8")),
-                            store.readProjectMeta("classpath_mode").orElse(classpathMode()),
-                            parsePathList(store.readProjectMeta("classpath_entries").orElse("")),
-                            store.readProjectMeta("classpath_override").orElse(""), springXml,
-                            cache, phaseTimings, gitTask,
-                            loadedConfig, scanPolicy, effectiveScanScopes, providerId);
-                    phaseTimings.stop("metadata", phaseStarted);
-                    maybeAdviseGitCache(projectRoot, metadataResult);
-                    persistClasspathDetection(store, cd, projectRoot);
+                    summary.changeDetectionMode = changeDetectionMode;
+                    summary.candidateFiles = candidateFiles;
+                    long diagnosticsStarted = phaseTimings.start();
+                    summary.unresolvedSymbols = store.readResolutionDiagnosticCounts()
+                            .getOrDefault("UNRESOLVED_SYMBOLS", 0L);
+                    summary.droppedDanglingFacts = Integer.parseInt(store.readProjectMeta(
+                            "dropped_dangling_edges").orElse("0"));
+                    phaseTimings.stop("diagnostics_read", diagnosticsStarted);
                     phaseTimings.stop("total", totalStarted);
                     long elapsed = System.currentTimeMillis() - started;
+                    diagnosticsStarted = phaseTimings.start();
                     com.anatomist.core.IndexHealthReport persistedHealth =
                             com.anatomist.application.IndexHealthService.read(store);
+                    phaseTimings.stop("diagnostics_read", diagnosticsStarted);
                     IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(cache),
                             summary, cache.size(), elapsed,
                             timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
@@ -469,6 +492,12 @@ public class IndexCommand implements Callable<Integer> {
                     return 0;
                 }
 
+                com.anatomist.application.ProjectMetadata.GitSnapshotTask gitTask =
+                        detection != null && !detection.gitMetadata().isEmpty()
+                                ? com.anatomist.application.ProjectMetadata
+                                        .completedIncrementalGitRead(detection.gitMetadata())
+                                : com.anatomist.application.ProjectMetadata.startIncrementalGitRead(
+                                        projectRoot, store.readProjectMeta());
                 phaseStarted = phaseTimings.start();
                 IndexRuntime runtime = resolveIncrementalRuntime(cd, projectRoot, sourcePaths, store);
                 phaseTimings.stop("runtime", phaseStarted);
@@ -483,16 +512,29 @@ public class IndexCommand implements Callable<Integer> {
                 IncrementalIndexer.Summary summary = ii.indexIncremental(
                         ch.changed, ch.added, ch.deleted, diskHashes, (target, effectiveCache) -> {
                             long metadataStarted = phaseTimings.start();
-                            metadataResultRef.set(
-                                    com.anatomist.application.ProjectMetadata.writeIncremental(
+                            com.anatomist.application.ProjectMetadata.PreparedIncremental prepared =
+                                    com.anatomist.application.ProjectMetadata.prepareIncremental(
                                             target, projectRoot, sourcePaths, resolvedSourceRoots,
                                             runtime.javaVersion(), runtime.classpathMode(),
                                             runtime.classpathEntries(), classpath, springXml,
                                             effectiveCache, phaseTimings, gitTask, loadedConfig,
-                                            scanPolicy, effectiveScanScopes, providerId));
-                            persistClasspathDetection(target, cd, projectRoot);
+                                            scanPolicy, effectiveScanScopes, providerId);
+                            metadataResultRef.set(prepared.result());
+                            java.util.Map<String, String> classpathMetadata =
+                                    classpathDetectionMetadata(target, cd, projectRoot);
                             phaseTimings.stop("metadata", metadataStarted);
+                            return () -> {
+                                long commitStarted = phaseTimings.start();
+                                com.anatomist.application.ProjectMetadata.commitIncremental(
+                                        target, prepared, phaseTimings);
+                                if (!classpathMetadata.isEmpty()) {
+                                    target.upsertProjectMeta(classpathMetadata);
+                                }
+                                phaseTimings.stop("metadata_commit", commitStarted);
+                            };
                         });
+                summary.changeDetectionMode = changeDetectionMode;
+                summary.candidateFiles = candidateFiles;
 
                 if (summary.degradedToFull) {
                     System.err.println("INFO: incremental degraded to full ("
@@ -513,8 +555,10 @@ public class IndexCommand implements Callable<Integer> {
                 PerformanceHistory.recordIncremental(store, summary.reparsedFiles,
                         variableMs, phaseTimings.millis().getOrDefault("total", 0L));
                 long elapsed = System.currentTimeMillis() - started;
+                long diagnosticsStarted = phaseTimings.start();
                 com.anatomist.core.IndexHealthReport persistedHealth =
                         com.anatomist.application.IndexHealthService.read(store);
+                phaseTimings.stop("diagnostics_read", diagnosticsStarted);
                 IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(after),
                         summary, after.size(), elapsed,
                         timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
@@ -875,6 +919,30 @@ public class IndexCommand implements Callable<Integer> {
         return detected;
     }
 
+    private com.anatomist.core.JavaVersionDetection resolveIncrementalJavaVersion(
+            ClasspathDetector detector, Path projectRoot, SqliteStore store,
+            int priorVersion, boolean buildInputsUnchanged) {
+        ProjectConfig config = loadedConfig == null
+                ? ConfigLoader.load(projectRoot) : loadedConfig.config();
+        if (javaVersion == null && !config.hasJavaVersion() && buildInputsUnchanged
+                && Files.isRegularFile(projectRoot.resolve("pom.xml"))
+                && priorVersion >= com.anatomist.core.JavaVersionDetection.MIN_SUPPORTED_VERSION
+                && priorVersion <= com.anatomist.core.JavaVersionDetection.MAX_SUPPORTED_VERSION) {
+            com.anatomist.core.JavaVersionDetection.Source source;
+            try {
+                source = com.anatomist.core.JavaVersionDetection.Source.valueOf(
+                        store.readProjectMeta("java_version_source").orElse("maven")
+                                .toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException missingSource) {
+                source = com.anatomist.core.JavaVersionDetection.Source.MAVEN;
+            }
+            return new com.anatomist.core.JavaVersionDetection(priorVersion, source,
+                    projectRoot.resolve("pom.xml"), "project_meta.java_version=" + priorVersion,
+                    java.util.List.of());
+        }
+        return resolveJavaVersion(detector, projectRoot);
+    }
+
     private IndexRuntime resolveIncrementalRuntime(ClasspathDetector cd,
                                                    Path projectRoot,
                                                    List<Path> sourcePaths,
@@ -1132,11 +1200,17 @@ public class IndexCommand implements Callable<Integer> {
 
     private void persistClasspathDetection(SqliteStore store, ClasspathDetector detector,
                                            Path projectRoot) {
-        if (store == null || currentClasspathDetection == null) return;
+        java.util.Map<String, String> values = classpathDetectionMetadata(store, detector, projectRoot);
+        if (!values.isEmpty()) store.upsertProjectMeta(values);
+    }
+
+    private java.util.Map<String, String> classpathDetectionMetadata(
+            SqliteStore store, ClasspathDetector detector, Path projectRoot) {
+        if (store == null || currentClasspathDetection == null) return java.util.Map.of();
         if (currentClasspathDetection.status()
                 == com.anatomist.core.ClasspathDetectionResult.Status.NOT_REQUESTED
                 && store.readProjectMeta("classpath_detection_status").isPresent()) {
-            return;
+            return java.util.Map.of();
         }
         java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
         values.put("classpath_detection_status", currentClasspathDetection.wireStatus());
@@ -1156,7 +1230,7 @@ public class IndexCommand implements Callable<Integer> {
         if (inputHash != null && !inputHash.isBlank()) {
             values.put("classpath_input_hash", inputHash);
         }
-        store.upsertProjectMeta(values);
+        return java.util.Map.copyOf(values);
     }
 
 }

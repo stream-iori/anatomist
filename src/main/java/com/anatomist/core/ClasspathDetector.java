@@ -13,14 +13,18 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.HexFormat;
 import java.util.OptionalInt;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -31,6 +35,11 @@ public class ClasspathDetector {
     private static final int MAVEN_OUTPUT_TAIL_BYTES = 64 * 1024;
     private volatile String lastMavenOutput = "";
     private Path forcedMavenJavaHome;
+    private Path fingerprintRoot;
+    private String fingerprintStamp;
+    private String fingerprintValue;
+    private static final Pattern MAVEN_MODULE = Pattern.compile(
+            "<module\\b[^>]*>\\s*([^<]+?)\\s*</module>", Pattern.CASE_INSENSITIVE);
 
     /** Filename written by {@code dependency:build-classpath}. Relative (not
      *  absolute) on purpose: in a multi-module reactor Maven runs the goal once
@@ -267,31 +276,72 @@ public class ClasspathDetector {
      */
     public String classpathInputFingerprint(Path projectRoot) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
             Path normalized = projectRoot.toAbsolutePath().normalize();
+            List<Path> inputs = classpathInputFiles(normalized);
+            String stamp = fingerprintStamp(inputs);
+            if (normalized.equals(fingerprintRoot) && stamp.equals(fingerprintStamp)) {
+                return fingerprintValue;
+            }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(normalized.toString().getBytes(StandardCharsets.UTF_8));
             String override = environment(MAVEN_JAVA_HOME_ENV);
             if (override != null) digest.update(override.getBytes(StandardCharsets.UTF_8));
-            List<Path> poms;
-            try (Stream<Path> walk = Files.walk(normalized)) {
-                poms = walk.filter(Files::isRegularFile)
-                        .filter(path -> path.getFileName() != null
-                                && "pom.xml".equals(path.getFileName().toString()))
-                        .sorted().toList();
+            for (Path input : inputs) {
+                String identity = input.startsWith(normalized)
+                        ? normalized.relativize(input).toString() : input.toString();
+                digest.update(identity.getBytes(StandardCharsets.UTF_8));
+                digest.update(Files.readAllBytes(input));
             }
-            for (Path pom : poms) {
-                digest.update(normalized.relativize(pom).toString().getBytes(StandardCharsets.UTF_8));
-                digest.update(Files.readAllBytes(pom));
-            }
-            String home = systemProperty("user.home");
-            if (home != null) {
-                Path settings = Path.of(home, ".m2", "settings.xml");
-                if (Files.isRegularFile(settings)) digest.update(Files.readAllBytes(settings));
-            }
-            return HexFormat.of().formatHex(digest.digest());
+            fingerprintRoot = normalized;
+            fingerprintStamp = stamp;
+            fingerprintValue = HexFormat.of().formatHex(digest.digest());
+            return fingerprintValue;
         } catch (IOException | NoSuchAlgorithmException | RuntimeException e) {
             return null;
         }
+    }
+
+    /** Maven classpath inputs without walking target/, source trees, or unrelated nested projects. */
+    private List<Path> classpathInputFiles(Path projectRoot) throws IOException {
+        LinkedHashSet<Path> files = new LinkedHashSet<>();
+        ArrayDeque<Path> pending = new ArrayDeque<>();
+        Path rootPom = projectRoot.resolve("pom.xml");
+        if (Files.isRegularFile(rootPom)) pending.add(rootPom);
+        while (!pending.isEmpty()) {
+            Path pom = pending.removeFirst().toAbsolutePath().normalize();
+            if (!pom.startsWith(projectRoot) || !Files.isRegularFile(pom) || !files.add(pom)) continue;
+            String xml = Files.readString(pom, StandardCharsets.UTF_8);
+            Matcher modules = MAVEN_MODULE.matcher(xml);
+            while (modules.find()) {
+                String module = modules.group(1).trim();
+                if (module.isEmpty() || module.contains("${")) continue;
+                Path modulePom = pom.getParent().resolve(module).resolve("pom.xml")
+                        .toAbsolutePath().normalize();
+                if (modulePom.startsWith(projectRoot) && Files.isRegularFile(modulePom)) {
+                    pending.addLast(modulePom);
+                }
+            }
+        }
+        for (String relative : List.of(".mvn/maven.config", ".mvn/jvm.config", ".mvn/extensions.xml")) {
+            Path input = projectRoot.resolve(relative);
+            if (Files.isRegularFile(input)) files.add(input.toAbsolutePath().normalize());
+        }
+        String home = systemProperty("user.home");
+        if (home != null) {
+            Path settings = Path.of(home, ".m2", "settings.xml").toAbsolutePath().normalize();
+            if (Files.isRegularFile(settings)) files.add(settings);
+        }
+        return files.stream().sorted().toList();
+    }
+
+    private static String fingerprintStamp(List<Path> inputs) throws IOException {
+        StringBuilder stamp = new StringBuilder();
+        for (Path input : inputs) {
+            BasicFileAttributes attributes = Files.readAttributes(input, BasicFileAttributes.class);
+            stamp.append(input).append('\n').append(attributes.size()).append(':')
+                    .append(attributes.lastModifiedTime()).append('\n');
+        }
+        return stamp.toString();
     }
 
     /** Locate every per-module {@link #CP_FILE} under the reactor, sorted for

@@ -164,7 +164,7 @@ sdk env
 | `just bench-query-refactor-git [BASELINE_REF]` | 可复现的 0.14 → 1.0 回归 | detached worktree 构建旧版本；报告写入 `target/benchmarks/query-refactor/`。 |
 | `just bench-semantic-pipeline [BASELINE_REF]` | 1.0 pipeline 引擎专项 | 两版各建兼容索引，按事实摘要验等价；多段输出不超过旧版 60%。 |
 | `just bench-storage-p1 [BASELINE_REF]` | schema v24 → v25 存储专项 | 独立 DB 对比体积、全量/三类增量索引、查询 p50/p95 和逻辑声明摘要。默认只索引 Anatomist 自身。 |
-| `just bench-incremental-p01 [BASELINE_REF]` | schema v25 → v26 增量专项 | 默认以 `10c873c` 为基线，测 no-op、body-only、高扇出、查询和表/索引体积；产物在 `target/benchmarks/incremental-p01/`。 |
+| `just bench-incremental-p01 [BASELINE_REF]` | schema v25 → v26 增量专项 | 默认以 `10c873c` 为基线，在真实 Git checkout 中测 no-op、body-only、高扇出、查询、表/索引体积，并校验 DB/WAL/SHM 零写；产物在 `target/benchmarks/incremental-p01/`。 |
 | `just incremental-e2e-jvm` / `just incremental-e2e-native` | 增量发布 E2E | 校验 no-op revision、body-only 精确解析、publish timings、增量/全量事实一致性和 integrity health。 |
 | `just verify-incremental-p01` | P0/P1 完整门禁 | 单测、JVM/native E2E、smoke、fixture 和全部 Jury Agent E2E。 |
 | `just extension-e2e-jvm` | SPI/producer/record/Spring XML/Lombok 全量与增量 | 自建临时 fixture 副本；校验 Accessors 不伪造签名及三类查询的 `lombok` 字段。 |

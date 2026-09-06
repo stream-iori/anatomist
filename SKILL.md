@@ -8,10 +8,12 @@ description: "Source-backed code analysis through semantic-stream/v1 pipelines."
 Work from the exact checkout being analysed. Load `anatomist skill core`, then
 use `anatomist skill topics` to select only the relevant scene.
 
-Prefer `index --incremental`. After extractor or policy changes, recreate the
-index. Use `doctor --format json` only when index health or freshness is in
-doubt. Read command help or `operations <operation>` only when an option or
-capability is unclear.
+Prefer `index --incremental`; clean Git worktrees use a candidate-only fast path.
+CI/editor integrations with an authoritative delta should add
+`--changed-files-from <file|->` using project-relative paths. After extractor or
+policy changes, recreate the index. Use `doctor --format json` only when index
+health or freshness is in doubt. Read command help or `operations <operation>`
+only when an option or capability is unclear.
 
 Configuration uses project config, then user config, then built-ins; files do
 not merge and CLI flags override. Inspect `doctor` `config_source` when needed.

@@ -213,6 +213,8 @@ final class IndexOutput {
         stats.put("unchanged_edges", summary.unchangedEdges);
         stats.put("publish_retries", summary.publishRetries);
         stats.put("metadata_only", summary.metadataOnly);
+        stats.put("change_detection_mode", summary.changeDetectionMode);
+        stats.put("candidate_files", summary.candidateFiles);
         stats.put("deleted_nodes", summary.deletedNodes);
         stats.put("deleted_edges", summary.deletedEdges);
         stats.put("written_nodes", summary.writtenNodes);
@@ -248,6 +250,8 @@ final class IndexOutput {
         System.out.println("  Changed files: " + summary.changedFiles);
         System.out.println("  New files:     " + summary.newFiles);
         System.out.println("  Deleted files: " + summary.deletedFiles);
+        System.out.println("  Change detect: " + summary.changeDetectionMode
+                + " (" + summary.candidateFiles + " candidates)");
         System.out.println("  Realigned deps:" + summary.realignedDependents);
         System.out.println("  Deleted nodes: " + summary.deletedNodes);
         System.out.println("  Deleted edges: " + summary.deletedEdges);

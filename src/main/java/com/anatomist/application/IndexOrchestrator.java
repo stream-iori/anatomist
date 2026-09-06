@@ -144,6 +144,7 @@ public class IndexOrchestrator {
             stopTiming(timings, "full_stage_promote", phaseStarted);
             if (timings != null) {
                 timings.addNanos("call_site_persistence", promotion.callSitePersistenceNanos());
+                addFactPreparationTimings(timings, promotion.factPreparation());
                 // Compatibility aliases retained for existing timing consumers.
                 timings.addNanos("full_write_nodes", 0L);
                 timings.addNanos("full_write_edges", 0L);
@@ -228,6 +229,16 @@ public class IndexOrchestrator {
         store.replaceAnalysisCoverage(rawDiagnostics);
         stopTiming(timings, "full_stats_health", phaseStarted);
         return indexResult;
+    }
+
+    private static void addFactPreparationTimings(IndexTimings timings,
+                                                   StagedGraphStore.FactPreparationStats stats) {
+        timings.addNanos("fact_hash_nodes", stats.nodeHashNanos());
+        timings.addNanos("fact_hash_edges", stats.edgeHashNanos());
+        timings.addNanos("fact_hash_annotations", stats.annotationHashNanos());
+        timings.addNanos("fact_ordinal_edges", stats.edgeOrdinalNanos());
+        timings.addNanos("fact_ordinal_annotations", stats.annotationOrdinalNanos());
+        timings.addNanos("fact_index_build", stats.indexBuildNanos());
     }
 
     private static long startTiming(IndexTimings timings) {
