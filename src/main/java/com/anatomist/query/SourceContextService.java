@@ -76,16 +76,13 @@ public final class SourceContextService {
     }
 
     private DeclarationRange declaration(NodeRow node) {
-        if (node == null || node.symbolId == null) return null;
-        String sql = "SELECT source_file,begin_line,begin_column,end_line,end_column,synthetic "
-                + "FROM declarations WHERE symbol_id=? AND module=? AND scope=? AND source_file=? "
-                + "AND producer_id=? LIMIT 2";
+        if (node == null || node.id == null) return null;
+        String sql = "SELECT source_file,declaration_begin_line,declaration_begin_column,"
+                + "declaration_end_line,declaration_end_column,synthetic "
+                + "FROM nodes WHERE id=? AND producer_id=? AND declaration_kind IS NOT NULL LIMIT 2";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, node.symbolId);
-            statement.setString(2, node.module);
-            statement.setString(3, node.scope);
-            statement.setString(4, node.sourceFile);
-            statement.setString(5, node.producerId);
+            statement.setString(1, node.id);
+            statement.setString(2, node.producerId);
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) return null;
                 DeclarationRange range = new DeclarationRange(rows.getString(1), integer(rows, 2), integer(rows, 3),

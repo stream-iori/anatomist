@@ -26,20 +26,9 @@ public final class DeclarationQueryService {
                     new IndexedSourceVerifier(connection, index).verify(file);
             if (!verification.current()) fail(verification.code(), verification.message());
 
-            StringBuilder dangling = new StringBuilder("SELECT 1 FROM declarations d WHERE d.source_file=? ")
-                    .append("AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.symbol_id=d.symbol_id ")
-                    .append("AND n.module=d.module AND n.scope=d.scope AND n.source_file=d.source_file)");
-            List<String> args = new ArrayList<>(); args.add(file);
-            appendSelection(dangling, args, module, scope, "d");
-            dangling.append(" LIMIT 1");
-            if (exists(dangling.toString(), args.toArray(String[]::new))) {
-                fail("GRAPH_INTEGRITY_FAILED", "declaration symbol is not query-resolvable for " + file);
-            }
-
             StringBuilder missing = new StringBuilder("SELECT 1 FROM nodes n WHERE n.source_file=? ")
                     .append("AND n.kind IN ('CLASS','INTERFACE','ENUM','ANNOTATION','RECORD','METHOD','CONSTRUCTOR') ")
-                    .append("AND NOT EXISTS (SELECT 1 FROM declarations d WHERE d.symbol_id=n.symbol_id ")
-                    .append("AND d.module=n.module AND d.scope=n.scope AND d.source_file=n.source_file)");
+                    .append("AND n.declaration_kind IS NULL");
             List<String> missingArgs = new ArrayList<>(); missingArgs.add(file);
             appendSelection(missing, missingArgs, module, scope, "n");
             missing.append(" LIMIT 1");
@@ -64,14 +53,10 @@ public final class DeclarationQueryService {
     public List<DeclarationRow> find(String file, String module, String scope, Set<String> visibility,
                                      Set<String> kinds, boolean topLevelTypes, boolean directMembers,
                                      boolean includeSynthetic, int limit, int offset) {
-        Query query = build("SELECT (SELECT n.id FROM nodes n WHERE n.symbol_id=d.symbol_id "
-                + "AND n.module=d.module AND n.scope=d.scope AND n.source_file=d.source_file LIMIT 1),"
-                + "symbol_id,qualified_name,label,kind,declaration_kind,type_kind,visibility,"
-                + "modifiers,declared_modifiers,implicit_modifiers,declaring_type,source_file,source_location,module,"
+        Query query = build("SELECT d.id,d.symbol_id,d.qualified_name,d.label,d.kind,d.declaration_kind,d.type_kind,d.visibility,"
+                + "modifiers,declared_modifiers,implicit_modifiers,declaring_type,source_file,declaration_source_location,module,"
                 + "scope,nesting_depth,direct_member,synthetic,producer_id,"
-                + "(SELECT json_extract(n.metadata,'$.lombok') FROM nodes n "
-                + "WHERE n.symbol_id=d.symbol_id AND n.module=d.module AND n.scope=d.scope "
-                + "AND n.source_file=d.source_file LIMIT 1) AS lombok_metadata",
+                + "json_extract(d.metadata,'$.lombok') AS lombok_metadata",
                 file, module, scope, visibility, kinds,
                 topLevelTypes, directMembers, includeSynthetic);
         query.sql.append(" ORDER BY CASE WHEN source_location GLOB 'L[0-9]*' THEN CAST(substr(source_location,2) AS INTEGER) "
@@ -88,7 +73,8 @@ public final class DeclarationQueryService {
     private static Query build(String select, String file, String module, String scope,
                                Set<String> visibility, Set<String> kinds, boolean topLevelTypes,
                                boolean directMembers, boolean includeSynthetic) {
-        Query out = new Query(new StringBuilder(select + " FROM declarations d WHERE d.source_file=?"));
+        Query out = new Query(new StringBuilder(select
+                + " FROM nodes d WHERE d.source_file=? AND d.declaration_kind IS NOT NULL"));
         out.args.add(file); appendSelection(out.sql, out.args, module, scope, "d");
         appendSet(out, "d.visibility", visibility);
         appendSet(out, "d.declaration_kind", kinds);

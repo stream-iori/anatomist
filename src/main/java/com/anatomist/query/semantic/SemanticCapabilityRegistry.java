@@ -32,10 +32,10 @@ public final class SemanticCapabilityRegistry {
     public boolean supports(String operation) {
         return switch (operation) {
             case "search", "resolve", "describe" -> tableExists("nodes");
-            case "declarations-of" -> tables("nodes", "declarations");
+            case "declarations-of" -> tableExists("nodes");
             case "calls" -> tables("nodes", "call_site_owners", "call_sites",
                     "call_site_targets");
-            case "dispatch" -> tables("nodes", "edges", "declarations",
+            case "dispatch" -> tables("nodes", "edges",
                     "call_site_owners", "call_sites", "call_site_targets");
             case "annotations" -> tables("nodes", "annotations");
             case "related-docs" -> tables("nodes", "documents", "semantic_annotations");

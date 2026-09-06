@@ -6,6 +6,7 @@ import com.anatomist.core.SourceIdentityResolver;
 import com.anatomist.core.SourceRoot;
 import com.anatomist.core.SourceScope;
 import com.anatomist.model.Annotation;
+import com.anatomist.model.Declaration;
 import com.anatomist.model.Edge;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.GraphConstants;
@@ -28,6 +29,67 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StagedGraphStoreTest {
+
+    @Test
+    void fullAndIncrementalPromotionEmbedAndClearDeclarationFacet(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("index.db");
+        String file = "m1/src/main/java/A.java";
+        try (SqliteStore target = new SqliteStore(db)) {
+            try (StagedGraphStore initial = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = new ExtractionResult();
+                facts.nodes.add(node("com.x.A", file));
+                facts.declarations.add(declaration("com.x.A", file, "public"));
+                initial.writeRawBatch(facts);
+                initial.promoteFull(target);
+            }
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(1, scalar(statement, "SELECT count(*) FROM nodes WHERE symbol_id='com.x.A' "
+                        + "AND declaration_kind='type' AND visibility='public'"));
+            }
+
+            try (StagedGraphStore update = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = new ExtractionResult();
+                facts.nodes.add(node("com.x.A", file));
+                facts.declarations.add(declaration("com.x.A", file, "private"));
+                update.writeRawBatch(facts);
+                update.promoteIncremental(target, List.of(file), false, false);
+            }
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(1, scalar(statement, "SELECT count(*) FROM nodes WHERE symbol_id='com.x.A' "
+                        + "AND visibility='private'"));
+            }
+
+            try (StagedGraphStore update = new StagedGraphStore(db, identities(tmp))) {
+                ExtractionResult facts = new ExtractionResult();
+                facts.nodes.add(node("com.x.A", file));
+                update.writeRawBatch(facts);
+                update.promoteIncremental(target, List.of(file), false, false);
+            }
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(1, scalar(statement, "SELECT count(*) FROM nodes WHERE symbol_id='com.x.A' "
+                        + "AND declaration_kind IS NULL AND visibility IS NULL"));
+            }
+        }
+    }
+
+    @Test
+    void unmatchedStagedDeclarationRejectsPromotion(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("index.db");
+        try (StagedGraphStore staging = new StagedGraphStore(db, identities(tmp));
+             SqliteStore target = new SqliteStore(db)) {
+            ExtractionResult facts = new ExtractionResult();
+            facts.nodes.add(node("com.x.A", "m1/src/main/java/A.java"));
+            facts.declarations.add(declaration("com.x.Missing", "m1/src/main/java/A.java", "public"));
+            staging.writeRawBatch(facts);
+
+            RuntimeException failure = assertThrows(RuntimeException.class,
+                    () -> staging.promoteFull(target));
+            assertTrue(rootMessage(failure).contains("DECLARATION_NODE_MISSING"));
+            try (Statement statement = target.connection().createStatement()) {
+                assertEquals(0, scalar(statement, "SELECT count(*) FROM nodes"));
+            }
+        }
+    }
 
     @Test
     void rawFactsResolveAcrossFilesAndAmbiguityBecomesExternal(@TempDir Path tmp) throws Exception {
@@ -208,6 +270,21 @@ class StagedGraphStoreTest {
         node.qualifiedName = id;
         node.sourceFile = sourceFile;
         return node;
+    }
+
+    private static Declaration declaration(String symbol, String sourceFile, String visibility) {
+        Declaration declaration = new Declaration();
+        declaration.symbolId = symbol;
+        declaration.qualifiedName = symbol;
+        declaration.label = symbol.substring(symbol.lastIndexOf('.') + 1);
+        declaration.kind = GraphConstants.Kind.CLASS;
+        declaration.declarationKind = "type";
+        declaration.typeKind = "class";
+        declaration.visibility = visibility;
+        declaration.sourceFile = sourceFile;
+        declaration.directMember = true;
+        declaration.bindingResolved = true;
+        return declaration;
     }
 
     private static Edge edge(String source, String target, String sourceFile) {

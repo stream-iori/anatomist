@@ -26,11 +26,52 @@ CREATE TABLE nodes (
     javadoc TEXT,
     metadata TEXT,
     producer_id TEXT NOT NULL DEFAULT 'java-core',
+    declaration_kind TEXT,
+    type_kind TEXT,
+    visibility TEXT,
+    modifiers TEXT,
+    declared_modifiers TEXT,
+    implicit_modifiers TEXT,
+    declaring_type TEXT,
+    declaration_namespace TEXT,
+    declaration_source_location TEXT,
+    declaration_begin_line INTEGER,
+    declaration_begin_column INTEGER,
+    declaration_end_line INTEGER,
+    declaration_end_column INTEGER,
+    nesting_depth INTEGER,
+    direct_member INTEGER,
+    synthetic INTEGER,
+    binding_resolved INTEGER,
     CHECK (
         (begin_line IS NULL AND begin_column IS NULL AND end_line IS NULL AND end_column IS NULL)
         OR
         (begin_line > 0 AND begin_column > 0 AND end_line > 0 AND end_column > 0
          AND (end_line > begin_line OR (end_line = begin_line AND end_column >= begin_column)))
+    ),
+    CHECK (
+        (declaration_kind IS NULL
+         AND type_kind IS NULL AND visibility IS NULL
+         AND modifiers IS NULL AND declared_modifiers IS NULL AND implicit_modifiers IS NULL
+         AND declaring_type IS NULL AND declaration_namespace IS NULL AND declaration_source_location IS NULL
+         AND declaration_begin_line IS NULL AND declaration_begin_column IS NULL
+         AND declaration_end_line IS NULL AND declaration_end_column IS NULL
+         AND nesting_depth IS NULL AND direct_member IS NULL
+         AND synthetic IS NULL AND binding_resolved IS NULL)
+        OR
+        (declaration_kind IN ('type','method','constructor')
+         AND (type_kind IS NULL OR type_kind IN ('class','interface','enum','record','annotation'))
+         AND visibility IN ('public','protected','private','package')
+         AND modifiers IS NOT NULL AND declared_modifiers IS NOT NULL AND implicit_modifiers IS NOT NULL
+         AND nesting_depth IS NOT NULL
+         AND direct_member IN (0,1) AND synthetic IN (0,1) AND binding_resolved IN (0,1)
+         AND ((declaration_begin_line IS NULL AND declaration_begin_column IS NULL
+               AND declaration_end_line IS NULL AND declaration_end_column IS NULL)
+              OR (declaration_begin_line > 0 AND declaration_begin_column > 0
+                  AND declaration_end_line > 0 AND declaration_end_column > 0
+                  AND (declaration_end_line > declaration_begin_line
+                       OR (declaration_end_line = declaration_begin_line
+                           AND declaration_end_column >= declaration_begin_column)))))
     )
 );
 
@@ -38,55 +79,14 @@ CREATE INDEX idx_nodes_kind ON nodes(kind);
 CREATE INDEX idx_nodes_symbol_identity ON nodes(symbol_id,module,scope,kind);
 CREATE INDEX idx_nodes_qualified_name ON nodes(qualified_name);
 CREATE INDEX idx_nodes_package ON nodes(package);
-CREATE INDEX idx_nodes_source_file ON nodes(source_file);
+CREATE INDEX idx_nodes_source_file ON nodes(source_file,module,scope);
 CREATE INDEX idx_nodes_module ON nodes(module);
 CREATE INDEX idx_nodes_scope ON nodes(scope);
 CREATE INDEX idx_nodes_producer_file ON nodes(producer_id, source_file);
-
-CREATE TABLE declarations (
-    symbol_id TEXT NOT NULL,
-    domain TEXT NOT NULL DEFAULT 'language',
-    language TEXT,
-    provider_id TEXT NOT NULL DEFAULT 'java-core',
-    entity_kind TEXT NOT NULL DEFAULT 'entity',
-    language_kind TEXT,
-    qualified_name TEXT NOT NULL,
-    label TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    declaration_kind TEXT NOT NULL CHECK (declaration_kind IN ('type','method','constructor')),
-    type_kind TEXT CHECK (type_kind IS NULL OR type_kind IN ('class','interface','enum','record','annotation')),
-    visibility TEXT NOT NULL CHECK (visibility IN ('public','protected','private','package')),
-    modifiers TEXT NOT NULL,
-    declared_modifiers TEXT NOT NULL,
-    implicit_modifiers TEXT NOT NULL,
-    declaring_type TEXT,
-    namespace TEXT,
-    source_file TEXT NOT NULL,
-    source_location TEXT,
-    begin_line INTEGER,
-    begin_column INTEGER,
-    end_line INTEGER,
-    end_column INTEGER,
-    module TEXT NOT NULL,
-    scope TEXT NOT NULL CHECK (scope IN ('MAIN','TEST','GENERATED')),
-    nesting_depth INTEGER NOT NULL,
-    direct_member INTEGER NOT NULL,
-    synthetic INTEGER NOT NULL DEFAULT 0,
-    binding_resolved INTEGER NOT NULL DEFAULT 1,
-    producer_id TEXT NOT NULL DEFAULT 'java-core',
-    CHECK (
-        (begin_line IS NULL AND begin_column IS NULL AND end_line IS NULL AND end_column IS NULL)
-        OR
-        (begin_line > 0 AND begin_column > 0 AND end_line > 0 AND end_column > 0
-         AND (end_line > begin_line OR (end_line = begin_line AND end_column >= begin_column)))
-    ),
-    PRIMARY KEY (provider_id,symbol_id,module,scope,source_file,producer_id)
-);
-
-CREATE INDEX idx_declarations_file ON declarations(source_file,module,scope);
-CREATE INDEX idx_declarations_filters ON declarations(declaration_kind,visibility,synthetic);
-CREATE INDEX idx_declarations_owner ON declarations(declaring_type);
-CREATE INDEX idx_declarations_producer_file ON declarations(producer_id, source_file);
+CREATE INDEX idx_nodes_declaration_filters ON nodes(declaration_kind,visibility,synthetic)
+    WHERE declaration_kind IS NOT NULL;
+CREATE INDEX idx_nodes_declaring_type ON nodes(declaring_type)
+    WHERE declaring_type IS NOT NULL;
 
 CREATE TABLE edges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

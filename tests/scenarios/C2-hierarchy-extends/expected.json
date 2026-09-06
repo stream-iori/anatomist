@@ -2,7 +2,7 @@
   "contract" : "semantic-stream/v1",
   "identity" : {
     "index_revision_id" : "${REVISION}",
-    "semantic_profile_id" : "sha256:b06fa251f36630d18774a149d9670bb693b4a0296919b3e7bf69a6b7a02456a6",
+    "semantic_profile_id" : "sha256:d89a9749a05b6f337e29199b7e42b660d2580eeb95f4ebec122590971e8923c1",
     "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6"
   },
   "record" : "stream_header"

@@ -2,6 +2,7 @@ package com.anatomist.store;
 
 import com.anatomist.core.IndexDiagnostic;
 import com.anatomist.model.Edge;
+import com.anatomist.model.Declaration;
 import com.anatomist.model.ExtractionResult;
 import com.anatomist.model.FileCacheEntry;
 import com.anatomist.model.Node;
@@ -158,6 +159,53 @@ class SqliteStoreWriteTest {
         assertEquals(1, count(c, "SELECT count(*) FROM nodes"));
     }
 
+    @Test
+    void writeEmbedsDeclarationAndNodeOnlyRewritePreservesIt(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+        ExtractionResult result = new ExtractionResult();
+        result.nodes.add(node("com.x.A", "A", "CLASS"));
+        result.declarations.add(declaration("com.x.A", "X.java", "public"));
+
+        store.write(result);
+        Node renamed = node("com.x.A", "Renamed", "CLASS");
+        store.writeNodes(List.of(renamed));
+
+        assertEquals(1, count(store.connection(), "SELECT count(*) FROM nodes WHERE id='com.x.A' "
+                + "AND label='Renamed' AND declaration_kind='type' AND visibility='public'"));
+    }
+
+    @Test
+    void unmatchedDeclarationRollsBackWholeWrite(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+        ExtractionResult result = new ExtractionResult();
+        result.nodes.add(node("com.x.A", "A", "CLASS"));
+        result.declarations.add(declaration("com.x.Missing", "X.java", "public"));
+
+        RuntimeException failure = assertThrows(RuntimeException.class, () -> store.write(result));
+        assertTrue(rootMessage(failure).contains("DECLARATION_NODE_MISSING"));
+        assertEquals(0, count(store.connection(), "SELECT count(*) FROM nodes"));
+    }
+
+    @Test
+    void sourceReplacementClearsStaleDeclarationFacet(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+        ExtractionResult initial = new ExtractionResult();
+        initial.nodes.add(node("com.x.A", "A", "CLASS"));
+        initial.declarations.add(declaration("com.x.A", "X.java", "public"));
+        store.write(initial);
+
+        ExtractionResult replacement = new ExtractionResult();
+        replacement.nodes.add(node("com.x.A", "A", "CLASS"));
+        store.inTransaction(ignored -> store.replaceSourceGraphInCurrentTransaction(
+                List.of("X.java"), replacement));
+
+        assertEquals(1, count(store.connection(), "SELECT count(*) FROM nodes WHERE id='com.x.A' "
+                + "AND declaration_kind IS NULL AND visibility IS NULL"));
+    }
+
     private static Node node(String id, String label, String kind) {
         Node n = new Node();
         n.id = id;
@@ -167,6 +215,29 @@ class SqliteStoreWriteTest {
         n.sourceFile = "X.java";
         n.scope = "MAIN";
         return n;
+    }
+
+    private static Declaration declaration(String symbol, String sourceFile, String visibility) {
+        Declaration declaration = new Declaration();
+        declaration.symbolId = symbol;
+        declaration.qualifiedName = symbol;
+        declaration.label = symbol.substring(symbol.lastIndexOf('.') + 1);
+        declaration.kind = "CLASS";
+        declaration.declarationKind = "type";
+        declaration.typeKind = "class";
+        declaration.visibility = visibility;
+        declaration.sourceFile = sourceFile;
+        declaration.module = ".";
+        declaration.scope = "MAIN";
+        declaration.directMember = true;
+        declaration.bindingResolved = true;
+        return declaration;
+    }
+
+    private static String rootMessage(Throwable failure) {
+        Throwable cursor = failure;
+        while (cursor.getCause() != null) cursor = cursor.getCause();
+        return String.valueOf(cursor.getMessage());
     }
 
     private static IndexDiagnostic diagnostic(String code, String sourceFile, long count) {

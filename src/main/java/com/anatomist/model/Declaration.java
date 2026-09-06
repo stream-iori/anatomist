@@ -2,7 +2,7 @@ package com.anatomist.model;
 
 import java.util.List;
 
-/** AST-backed Java declaration persisted independently from graph edges. */
+/** AST-backed Java declaration staged separately and embedded into its final node. */
 public class Declaration {
     public String symbolId;
     public String domain;

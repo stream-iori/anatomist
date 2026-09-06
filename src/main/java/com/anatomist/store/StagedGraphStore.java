@@ -225,6 +225,7 @@ public final class StagedGraphStore implements AutoCloseable {
             Connection c = target.connection();
             attach(c);
             validateNodeOwnership(c);
+            validateDeclarationNodes(c);
             final int[] wired = {0};
             final long[] callSitePersistenceNanos = {0L};
             try {
@@ -267,6 +268,7 @@ public final class StagedGraphStore implements AutoCloseable {
             Connection c = target.connection();
             attach(c);
             validateNodeOwnership(c);
+            validateDeclarationNodes(c);
             int oldNodeCount = countObsoleteNodes(c, affectedFiles);
             oldNodeCount += countObsoleteProjectNodes(c, rebuiltProjectProducers);
             int oldEdgeCount = countAffectedEdges(c, affectedFiles);
@@ -441,7 +443,6 @@ public final class StagedGraphStore implements AutoCloseable {
                 statement.executeUpdate("DELETE FROM semantic_annotations WHERE producer_id IN (" + producers + ")");
                 statement.executeUpdate("DELETE FROM annotations WHERE producer_id IN (" + producers + ")");
                 statement.executeUpdate("DELETE FROM annotation_meta_relations WHERE producer_id IN (" + producers + ")");
-                statement.executeUpdate("DELETE FROM declarations WHERE producer_id IN (" + producers + ")");
                 statement.executeUpdate("DELETE FROM edges WHERE producer_id IN (" + producers + ")");
             }
         }
@@ -462,18 +463,14 @@ public final class StagedGraphStore implements AutoCloseable {
                                 + "(source_file IS NULL AND source_id IN "
                                 + "(SELECT id FROM nodes WHERE source_file IN (" + placeholders + ")))");
                  PreparedStatement cache = c.prepareStatement(
-                        "DELETE FROM file_cache WHERE source_file IN (" + placeholders + ")");
-                 PreparedStatement declarations = c.prepareStatement(
-                        "DELETE FROM declarations WHERE source_file IN (" + placeholders + ")")) {
+                        "DELETE FROM file_cache WHERE source_file IN (" + placeholders + ")")) {
                 bindFiles(semantic, files, 1);
                 bindFiles(annotations, files, 1);
                 bindFiles(annotationMeta, files, 1);
                 bindFiles(edges, files, 2);
                 bindFiles(cache, files, 1);
-                bindFiles(declarations, files, 1);
                 semantic.executeUpdate(); annotations.executeUpdate(); annotationMeta.executeUpdate();
                 edges.executeUpdate(); cache.executeUpdate();
-                declarations.executeUpdate();
             }
         }
         try (Statement statement = c.createStatement()) {
@@ -776,7 +773,6 @@ public final class StagedGraphStore implements AutoCloseable {
     }
 
     private static void clearGraph(Statement statement) throws SQLException {
-        statement.executeUpdate("DELETE FROM declarations");
         statement.executeUpdate("DELETE FROM semantic_annotations");
         statement.executeUpdate("DELETE FROM annotation_meta_relations");
         statement.executeUpdate("DELETE FROM annotations");
@@ -799,28 +795,35 @@ public final class StagedGraphStore implements AutoCloseable {
 
     private static void insertNodesFromStage(Statement statement) throws SQLException {
         statement.executeUpdate("INSERT INTO nodes(id,symbol_id,domain,language,provider_id,entity_kind,language_kind,label,kind,qualified_name,package,namespace,source_file,"
-                + "source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,producer_id) SELECT id,symbol_id,domain,language,provider_id,entity_kind,language_kind,label,kind,qualified_name,"
-                + "package,namespace,source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,producer_id FROM " + ALIAS
-                + ".stage_nodes ORDER BY seq ON CONFLICT(id) DO UPDATE SET symbol_id=excluded.symbol_id,"
+                + "source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,producer_id,"
+                + "declaration_kind,type_kind,visibility,modifiers,declared_modifiers,implicit_modifiers,declaring_type,declaration_namespace,"
+                + "declaration_source_location,declaration_begin_line,declaration_begin_column,declaration_end_line,declaration_end_column,"
+                + "nesting_depth,direct_member,synthetic,binding_resolved) "
+                + "SELECT n.id,n.symbol_id,n.domain,n.language,n.provider_id,n.entity_kind,n.language_kind,n.label,n.kind,n.qualified_name,"
+                + "n.package,n.namespace,n.source_file,n.source_location,n.begin_line,n.begin_column,n.end_line,n.end_column,n.source_ordinal,n.module,n.scope,n.javadoc,n.metadata,n.producer_id,"
+                + "d.declaration_kind,d.type_kind,d.visibility,d.modifiers,d.declared_modifiers,d.implicit_modifiers,d.declaring_type,d.namespace,"
+                + "d.source_location,d.begin_line,d.begin_column,d.end_line,d.end_column,d.nesting_depth,d.direct_member,d.synthetic,d.binding_resolved "
+                + "FROM " + ALIAS + ".stage_nodes n LEFT JOIN " + ALIAS + ".stage_declarations d ON d.provider_id=n.provider_id "
+                + "AND d.symbol_id=n.symbol_id AND d.module=n.module AND d.scope=n.scope AND d.source_file=n.source_file "
+                + "AND d.producer_id=n.producer_id ORDER BY n.seq ON CONFLICT(id) DO UPDATE SET symbol_id=excluded.symbol_id,"
                 + "domain=excluded.domain,language=excluded.language,provider_id=excluded.provider_id,entity_kind=excluded.entity_kind,language_kind=excluded.language_kind,"
                 + "label=excluded.label,kind=excluded.kind,qualified_name=excluded.qualified_name,"
                 + "package=excluded.package,namespace=excluded.namespace,source_file=excluded.source_file,source_location=excluded.source_location,"
                 + "begin_line=excluded.begin_line,begin_column=excluded.begin_column,end_line=excluded.end_line,"
                 + "end_column=excluded.end_column,source_ordinal=excluded.source_ordinal,"
                 + "module=excluded.module,scope=excluded.scope,javadoc=excluded.javadoc,metadata=excluded.metadata,"
-                + "producer_id=excluded.producer_id");
+                + "producer_id=excluded.producer_id,declaration_kind=excluded.declaration_kind,type_kind=excluded.type_kind,"
+                + "visibility=excluded.visibility,modifiers=excluded.modifiers,declared_modifiers=excluded.declared_modifiers,"
+                + "implicit_modifiers=excluded.implicit_modifiers,declaring_type=excluded.declaring_type,"
+                + "declaration_namespace=excluded.declaration_namespace,"
+                + "declaration_source_location=excluded.declaration_source_location,"
+                + "declaration_begin_line=excluded.declaration_begin_line,declaration_begin_column=excluded.declaration_begin_column,"
+                + "declaration_end_line=excluded.declaration_end_line,declaration_end_column=excluded.declaration_end_column,"
+                + "nesting_depth=excluded.nesting_depth,direct_member=excluded.direct_member,synthetic=excluded.synthetic,"
+                + "binding_resolved=excluded.binding_resolved");
     }
 
     private static void insertFactsFromStage(Statement statement) throws SQLException {
-        statement.executeUpdate("INSERT OR REPLACE INTO declarations(symbol_id,domain,language,provider_id,entity_kind,language_kind,qualified_name,label,kind,"
-                + "declaration_kind,type_kind,visibility,modifiers,declared_modifiers,implicit_modifiers,"
-                + "declaring_type,namespace,source_file,source_location,begin_line,begin_column,end_line,end_column,"
-                + "module,scope,nesting_depth,direct_member,synthetic,"
-                + "binding_resolved,producer_id) SELECT symbol_id,domain,language,provider_id,entity_kind,language_kind,qualified_name,label,kind,declaration_kind,type_kind,visibility,"
-                + "modifiers,declared_modifiers,implicit_modifiers,declaring_type,namespace,source_file,source_location,"
-                + "begin_line,begin_column,end_line,end_column,module,"
-                + "scope,nesting_depth,direct_member,synthetic,binding_resolved,producer_id FROM " + ALIAS
-                + ".stage_declarations ORDER BY seq");
         statement.executeUpdate("INSERT INTO edges(source_id,target_id,external_target_fqn,external_target_symbol,external_target_language,external_target_provider_id,relation,semantic,mechanism,language,provider_id,call_kind,"
                 + "confidence,resolution,context,is_external,source_file,source_location,begin_line,begin_column,"
                 + "end_line,end_column,source_ordinal,syntax_target,receiver_static_type,metadata,producer_id) SELECT resolved_source,"
@@ -853,6 +856,20 @@ public final class StagedGraphStore implements AutoCloseable {
             if (row.next()) {
                 throw new SQLException("EXTENSION_NODE_OWNERSHIP_CONFLICT: node " + row.getString(1)
                         + " is owned by " + row.getString(2) + ", not " + row.getString(3));
+            }
+        }
+    }
+
+    private static void validateDeclarationNodes(Connection connection) throws SQLException {
+        String sql = "SELECT d.symbol_id,d.source_file,count(n.id) FROM " + ALIAS
+                + ".stage_declarations d LEFT JOIN " + ALIAS + ".stage_nodes n ON n.provider_id=d.provider_id "
+                + "AND n.symbol_id=d.symbol_id AND n.module=d.module AND n.scope=d.scope "
+                + "AND n.source_file=d.source_file AND n.producer_id=d.producer_id "
+                + "GROUP BY d.seq HAVING count(n.id)<>1 LIMIT 1";
+        try (Statement statement = connection.createStatement(); ResultSet row = statement.executeQuery(sql)) {
+            if (row.next()) {
+                throw new SQLException("DECLARATION_NODE_MISSING: expected one node for " + row.getString(1)
+                        + " in " + row.getString(2) + ", matched " + row.getInt(3));
             }
         }
     }

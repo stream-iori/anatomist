@@ -138,6 +138,24 @@ class DeclarationsOfCommandIT {
         assertTrue(run.stderr().contains("SOURCE_PROFILE_INCOMPLETE"), run.stderr());
     }
 
+    @Test void missingEmbeddedDeclarationFacetFailsClosed() throws Exception {
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             var statement = connection.createStatement()) {
+            assertTrue(statement.executeUpdate("""
+                    UPDATE nodes SET declaration_kind=NULL,type_kind=NULL,visibility=NULL,modifiers=NULL,
+                        declared_modifiers=NULL,implicit_modifiers=NULL,declaring_type=NULL,declaration_namespace=NULL,nesting_depth=NULL,
+                        declaration_source_location=NULL,declaration_begin_line=NULL,declaration_begin_column=NULL,
+                        declaration_end_line=NULL,declaration_end_column=NULL,direct_member=NULL,synthetic=NULL,binding_resolved=NULL
+                    WHERE source_file='src/main/java/com/example/Contract.java' AND kind='INTERFACE'
+                    """) > 0);
+        }
+
+        var run = command("--file", "src/main/java/com/example/Contract.java", "--format", "json");
+
+        assertEquals(3, run.exitCode());
+        assertTrue(run.stderr().contains("DECLARATION_COVERAGE_INCOMPLETE"), run.stderr());
+    }
+
     @Test void missingIndexKeepsStructuredStandaloneError() throws Exception {
         Path missing = tmp.resolve("missing.db");
         CliTestSupport.RunResult run = CliTestSupport.capture(() ->

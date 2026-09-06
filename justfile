@@ -249,6 +249,12 @@ bench-semantic-pipeline BASELINE_REF="00e0dc7": native
         --baseline-ref "{{BASELINE_REF}}" \
         --candidate-bin "{{NATIVE_BIN}}"
 
+# Schema v24 vs v25 storage, full/incremental indexing, and query baseline on Anatomist itself
+bench-storage-p1 BASELINE_REF="a2c5ce7cbc7fe84e25ff7ca8907c365fbf2f21d7": native
+    python3 scripts/benchmark-storage-p1.py \
+        --baseline-ref "{{BASELINE_REF}}" \
+        --candidate-bin "{{NATIVE_BIN}}"
+
 # Integration tests (anything ending in *IT)
 it:
     #!/usr/bin/env bash

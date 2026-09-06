@@ -110,7 +110,7 @@ LanguageProvider
   └─ semantics    provider-specific semantic operations
                          │
                          ▼
-              common nodes / declarations / edges
+         common nodes + declaration facets / edges
 ```
 
 Providers are registered explicitly in `LanguageProviderRegistry`; there is no

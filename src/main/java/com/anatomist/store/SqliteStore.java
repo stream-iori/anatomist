@@ -113,7 +113,7 @@ public class SqliteStore implements IndexWriter {
             DataWriter.insertAnnotations(c, result.annotations);
             DataWriter.insertAnnotationMetaRelations(c, result.annotationMetaRelations);
             DataWriter.insertSemanticAnnotations(c, result.semanticAnnotations);
-            DataWriter.insertDeclarations(c, result.declarations);
+            DataWriter.applyDeclarations(c, result.declarations);
             CallSitePersistence.rebuild(c);
             IndexRevision.bump(c);
         });

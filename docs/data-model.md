@@ -44,20 +44,22 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v24)
+## Node identity, declarations, and ownership (schema v25)
 
-Schema v24 removes unused/left-prefix duplicate indexes while retaining provider/language
-provenance and provider-scoped identity. Schema v22
+Schema v25 embeds declaration facets in `nodes` and removes the duplicate final
+`declarations` table. Extraction still stages declarations separately, then promotion
+requires each declaration to match exactly one node. Schema v24 removed unused/left-prefix
+duplicate indexes while retaining provider/language provenance and provider-scoped identity. Schema v22
 added structural annotation uses, meta-annotation relations, and configured member bindings.
 Schema v20 makes call-site tables the only final CALLS storage. Schema v19 added
 node-level exact ranges and numeric source ordinals; v18 normalized call-site storage;
 v16 removed the former dataflow tables; v15 added nullable declaration
-range columns to `declarations`, and v14 added `producer_id` to all structural
+range columns to declarations, and v14 added `producer_id` to all structural
 fact tables. An older index must be rebuilt; no migration or compatibility read
-path is provided. Declaration rows preserve AST-derived
+path is provided. Nullable node declaration facets preserve AST-derived
 kind, effective/declared/implicit modifiers, visibility, lexical ownership,
 nesting, source location, module, and scope. Query-time declaration discovery
-uses this table only.
+uses `nodes WHERE declaration_kind IS NOT NULL` only.
 
 | Declaration range column | Meaning |
 |---|---|
@@ -71,7 +73,7 @@ the range and snapshot hash evidence used by `resolve --exact | source`.
 
 | Table | Ownership |
 |---|---|
-| `nodes`, `edges`, `declarations`, `annotations`, `annotation_meta_relations`, `semantic_annotations` | required `producer_id` |
+| `nodes` (including declaration facets), `edges`, `annotations`, `annotation_meta_relations`, `semantic_annotations` | required `producer_id` |
 
 | Common field | Meaning |
 |---|---|

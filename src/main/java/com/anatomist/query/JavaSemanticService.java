@@ -360,11 +360,10 @@ final class JavaSemanticService {
     }
 
     private Set<String> modifiers(NodeRow node) {
-        if (node == null || node.symbolId == null) return Set.of();
-        String sql = "SELECT modifiers FROM declarations WHERE symbol_id=?" + selection("")
-                + " ORDER BY source_file LIMIT 1";
+        if (node == null || node.id == null) return Set.of();
+        String sql = "SELECT modifiers FROM nodes WHERE id=? AND declaration_kind IS NOT NULL";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, node.symbolId);
+            statement.setString(1, node.id);
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) return Set.of();
                 Object parsed = Json.parseTree(rows.getString(1));

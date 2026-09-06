@@ -33,7 +33,7 @@ class SqliteStoreInitSchemaTest {
         assertTrue(tables.contains("edges"));
         assertTrue(tables.contains("annotations"));
         assertTrue(tables.contains("annotation_meta_relations"));
-        assertTrue(tables.contains("declarations"));
+        assertFalse(tables.contains("declarations"));
         assertTrue(tables.contains("call_site_owners"));
         assertTrue(tables.contains("call_sites"));
         assertTrue(tables.contains("call_site_targets"));
@@ -53,7 +53,9 @@ class SqliteStoreInitSchemaTest {
         assertTrue(indexes.contains("idx_edges_source_relation_external"));
         assertTrue(indexes.contains("idx_annotations_fqn"));
         assertTrue(indexes.contains("idx_annotation_meta_source"));
-        assertTrue(indexes.contains("idx_declarations_file"));
+        assertTrue(indexes.contains("idx_nodes_declaration_filters"));
+        assertTrue(indexes.contains("idx_nodes_declaring_type"));
+        assertFalse(indexes.stream().anyMatch(name -> name.startsWith("idx_declarations_")));
         assertTrue(indexes.contains("idx_call_sites_caller_order"));
         assertTrue(indexes.contains("idx_call_site_owners_source"));
         assertTrue(indexes.contains("idx_call_site_targets_site"));
@@ -73,6 +75,13 @@ class SqliteStoreInitSchemaTest {
         assertFalse(callSiteColumns.contains("caller_id"));
         assertFalse(callSiteColumns.contains("source_file"));
         assertFalse(callSiteColumns.contains("id"));
+
+        Set<String> nodeColumns = tableColumns(store.connection(), "nodes");
+        assertTrue(nodeColumns.containsAll(Set.of("declaration_kind", "type_kind", "visibility",
+                "modifiers", "declared_modifiers", "implicit_modifiers", "declaring_type", "declaration_namespace",
+                "declaration_source_location", "declaration_begin_line", "declaration_begin_column",
+                "declaration_end_line", "declaration_end_column", "nesting_depth", "direct_member",
+                "synthetic", "binding_resolved")));
     }
 
     @Test
@@ -104,14 +113,42 @@ class SqliteStoreInitSchemaTest {
         try (Statement st = store.connection().createStatement();
              ResultSet rs = st.executeQuery("PRAGMA user_version")) {
             assertTrue(rs.next());
-            assertEquals(IndexSchema.VERSION, rs.getInt(1));
+            assertEquals(25, rs.getInt(1));
+        }
+    }
+
+    @Test
+    void declarationColumnsEnforceCompleteOrAbsentFacet(@TempDir Path tmp) throws Exception {
+        store = new SqliteStore(tmp.resolve("index.db"));
+        store.initSchema();
+
+        try (Statement statement = store.connection().createStatement()) {
+            assertThrows(Exception.class, () -> statement.executeUpdate("""
+                    INSERT INTO nodes(id,symbol_id,label,kind,qualified_name,source_file,module,scope,
+                                      declaration_kind)
+                    VALUES ('java-core::.::MAIN::p.A','p.A','A','CLASS','p.A','A.java','.','MAIN','type')
+                    """));
+            assertThrows(Exception.class, () -> statement.executeUpdate("""
+                    INSERT INTO nodes(id,symbol_id,label,kind,qualified_name,source_file,module,scope,
+                                      declaration_kind,type_kind,visibility,modifiers,declared_modifiers,
+                                      implicit_modifiers,nesting_depth,direct_member,synthetic,binding_resolved)
+                    VALUES ('java-core::.::MAIN::p.B','p.B','B','CLASS','p.B','B.java','.','MAIN',
+                            'type','class','public','[]','[]','[]',0,2,0,1)
+                    """));
+            assertTrue(statement.executeUpdate("""
+                    INSERT INTO nodes(id,symbol_id,label,kind,qualified_name,source_file,module,scope,
+                                      declaration_kind,type_kind,visibility,modifiers,declared_modifiers,
+                                      implicit_modifiers,nesting_depth,direct_member,synthetic,binding_resolved)
+                    VALUES ('java-core::.::MAIN::p.C','p.C','C','CLASS','p.C','C.java','.','MAIN',
+                            'type','class','public','[]','[]','[]',0,1,0,1)
+                    """) > 0);
         }
     }
 
     @Test
     void splitSqlStatements_doesNotTreatRangeColumnsAsTriggerBegin() {
         List<String> statements = SchemaManager.splitSqlStatements("""
-                CREATE TABLE declarations (
+                CREATE TABLE nodes (
                     begin_line INTEGER,
                     end_line INTEGER,
                     CHECK (end_line >= begin_line)
@@ -120,7 +157,7 @@ class SqliteStoreInitSchemaTest {
                 """);
 
         assertEquals(2, statements.size());
-        assertTrue(statements.get(0).contains("CREATE TABLE declarations"));
+        assertTrue(statements.get(0).contains("CREATE TABLE nodes"));
         assertTrue(statements.get(1).contains("CREATE TABLE after_ranges"));
     }
 
