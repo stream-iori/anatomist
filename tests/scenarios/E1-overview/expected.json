@@ -37,14 +37,14 @@
   "origin" : "derived",
   "producer_counts" : {
     "derived-wiring" : 1,
-    "java-core" : 380,
+    "java-core" : 398,
     "spring-components" : 17,
     "spring-mvc" : 4
   },
   "record" : "project_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:75642ac214cca63b27278d26",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "totals" : {
     "methods" : 47,
@@ -66,7 +66,7 @@
   "record" : "package_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:285b15eca652fae25385533a",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "types" : 1
 }, {
@@ -83,7 +83,7 @@
   "record" : "package_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:60c6fbcd84054df3365b229d",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "types" : 1
 }, {
@@ -100,7 +100,7 @@
   "record" : "package_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:a53c35dfb6a9dabcf52d6883",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "types" : 2
 }, {
@@ -117,7 +117,7 @@
   "record" : "package_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:f3c6e5ae71e89a6365711c8b",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "types" : 3
 }, {
@@ -134,7 +134,7 @@
   "record" : "package_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:4b0c98a8aeed56ae9b4c4a2d",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "types" : 1
 }, {
@@ -151,7 +151,7 @@
   "record" : "package_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:d4aed569ea2721323fd116e9",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "types" : 1
 }, {
@@ -168,7 +168,7 @@
   "record" : "package_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:436b621b4ae80daaf34b306c",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "types" : 3
 }, {
@@ -185,7 +185,7 @@
   "record" : "package_summary",
   "resolution_status" : "exact",
   "seed_id" : "seed:3abfc749b22951b59b7b29d2",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "types" : 5
 }, {
@@ -202,7 +202,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:a219a27a523c8b3a8180f1f8",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.controller",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.dto"
@@ -220,7 +220,7 @@
   "relation" : "CALLS",
   "resolution_status" : "exact",
   "seed_id" : "seed:a5d0fbcb0b3854f175240725",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.controller",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.service"
@@ -238,7 +238,7 @@
   "relation" : "INJECTS",
   "resolution_status" : "exact",
   "seed_id" : "seed:6040bfccbb74dd85060a2ff6",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.controller",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.service"
@@ -256,7 +256,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:4903d7270ccb55d67a5b6a5e",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.controller",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.service"
@@ -274,7 +274,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:ccfd94b0cd3b85e51b23144a",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.domain.dto",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.entity"
@@ -292,7 +292,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:626b267debc92de5045dd9a2",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.domain.event",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.entity"
@@ -310,7 +310,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:4b80d113317c88bdbf6027a4",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.event",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.event"
@@ -328,7 +328,7 @@
   "relation" : "CALLS",
   "resolution_status" : "exact",
   "seed_id" : "seed:1643f889b05b8ff9eeb9a4e4",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.repository",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.entity"
@@ -346,7 +346,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:8b25776aba1e8ad755b253fb",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.repository",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.entity"
@@ -364,7 +364,7 @@
   "relation" : "CALLS",
   "resolution_status" : "exact",
   "seed_id" : "seed:dda29137dee2660e6ff0e6a7",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.dto"
@@ -382,7 +382,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:0062bbd42e14dd1a31a6059b",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.dto"
@@ -400,7 +400,7 @@
   "relation" : "CALLS",
   "resolution_status" : "exact",
   "seed_id" : "seed:d0c6374aec821aaf908d2f45",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.entity"
@@ -418,7 +418,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:67ae37c0cb828472584fa059",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.entity"
@@ -436,7 +436,7 @@
   "relation" : "CALLS",
   "resolution_status" : "exact",
   "seed_id" : "seed:5d1372d1615cf144f032bd8e",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.domain.event"
@@ -454,7 +454,7 @@
   "relation" : "CALLS",
   "resolution_status" : "exact",
   "seed_id" : "seed:01556fc4c36c3b6925c5b1ba",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.event"
@@ -472,7 +472,7 @@
   "relation" : "INJECTS",
   "resolution_status" : "exact",
   "seed_id" : "seed:df008d355e6c5ceab44632eb",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.event"
@@ -490,7 +490,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:8c14cea8fe030ce8a2f55643",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.event"
@@ -508,7 +508,7 @@
   "relation" : "CALLS",
   "resolution_status" : "exact",
   "seed_id" : "seed:aa73e3f6e3b8e067c0368eb6",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.repository"
@@ -526,7 +526,7 @@
   "relation" : "INJECTS",
   "resolution_status" : "exact",
   "seed_id" : "seed:a0d7c1d50d3f644e75f5995b",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.repository"
@@ -544,7 +544,7 @@
   "relation" : "REFERENCES",
   "resolution_status" : "exact",
   "seed_id" : "seed:b84480e6925c7f663e7886dc",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_package" : "com.example.shop.service",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "target_package" : "com.example.shop.repository"
@@ -557,7 +557,7 @@
   "record" : "evidence",
   "scope" : "seed",
   "seed_id" : "seed:75642ac214cca63b27278d26",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
@@ -572,7 +572,7 @@
   "seeds" : {
     "total" : 1
   },
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false

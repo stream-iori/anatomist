@@ -10,6 +10,16 @@ data(child B) → evidence(child B) → evidence(parent A)
 
 每条 data 带 `seed_id`、`index_revision_id`、`source_snapshot_id`、`semantic_profile_id`。扩展操作为每个结果创建 child seed，并保留 `parent_seed_id` 和有界 `derived_from`。
 
+关系记录还带 `relationship_id=rel:sha256:<64 hex>`。它只包含 provider、
+语言、语义和端点等关系事实，不包含行列、ordinal、查询参数或 worktree 路径。
+因此挪行不变，端点/语义/provider 改变才变；`id` 仍表示具体出现位置。
+
+```text
+base relationship_id 集合 ─┐
+                            ├─ added / removed / unchanged
+head relationship_id 集合 ─┘
+```
+
 ## Evidence
 
 | 字段/状态 | 解释 |
@@ -97,6 +107,6 @@ Spring XML 创建 artifact 根和有序配置实体。抽象、parent、factory 
 | 0.1x | 旧 JSON 聚合命令；不属于 1.0 查询契约 |
 | 1.0.x | 仅 `semantic-stream/v1`；旧命令无 alias |
 
-1.0 使用 schema 22 / graph semantics 5。旧索引只能通过显式 `index --recreate` 重建。
+当前实现使用 schema 23 / graph semantics 6。旧索引只能通过显式 `index --recreate` 重建。
 
 机器可读 schema：[semantic stream](schema/semantic-stream-v1.schema.json)、[artifact IR](schema/artifact-ir-v1.schema.json)、[operation catalog](schema/operation-catalog-v1.schema.json)、[pipeline plan](schema/pipeline-plan-v1.schema.json) 和 [error](schema/error-v1.schema.json)。对象允许增加字段；未知 record type 或不兼容 major contract 会失败。

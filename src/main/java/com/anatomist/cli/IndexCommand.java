@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
 @Command(
         name = "index",
         mixinStandardHelpOptions = true,
-        description = "Index a Java project into a SQLite database. Use --format json for a stable Agent summary.",
+        description = "Index project sources with an installed language provider into SQLite. Use --format json for a stable Agent summary.",
         footer = {
                 "",
                 "Configuration: select .anatomist/config.toml, then ~/.anatomist/config.toml,",
@@ -61,8 +61,12 @@ public class IndexCommand implements Callable<Integer> {
     private static final Set<Path> GIT_CACHE_ADVISED =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-    @Parameters(index = "0", description = "Path to the Java project to index.")
+    @Parameters(index = "0", description = "Path to the project to index.")
     Path projectPath;
+
+    @Option(names = "--provider", defaultValue = "java-core",
+            description = "Installed language provider ID (default: java-core).")
+    String providerId;
 
     @Option(names = "--java-version",
             description = "Target Java language version. Precedence: CLI, config, Maven/Gradle, then Java 8.")
@@ -267,10 +271,14 @@ public class IndexCommand implements Callable<Integer> {
                 scanExcludeSpecs.isEmpty() ? config.scanExcludes() : scanExcludeSpecs,
                 extraExcludes);
         ProjectScanner scanner = new ProjectScanner(extraExcludes, scanPolicy);
-        List<Path> sourceFiles = scanner.scanSourceRoots(resolvedSourceRoots);
+        com.anatomist.provider.LanguageProvider languageProvider =
+                com.anatomist.provider.LanguageProviderRegistry.builtIns()
+                        .requireProvider(providerId);
+        List<Path> sourceFiles = languageProvider.discover(scanner, resolvedSourceRoots).files();
         phaseTimings.stop("discover", phaseStarted);
         if (sourceFiles.isEmpty()) {
-            System.err.println("ERROR: no .java files found under " + sourcePaths);
+            System.err.println("ERROR: no source files claimed by " + providerId
+                    + " found under " + sourcePaths);
             return 1;
         }
 
@@ -327,6 +335,14 @@ public class IndexCommand implements Callable<Integer> {
                             sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
                             runtime.javaVersion(), runtime.factory(), dbPath, classpath, started, config, false,
                             phaseTimings, totalStarted);
+                }
+                if (!providerId.equals(store.readProjectMeta("provider_id").orElse(""))) {
+                    System.err.println("INFO: incremental degraded to full (provider changed)");
+                    IndexRuntime runtime = resolveRuntimeTimed(cd, projectRoot, sourcePaths, phaseTimings);
+                    return runFullIndex(projectRoot, sourcePaths, runtime.classpathEntries(),
+                            sourceFilesForFull(scanner, resolvedSourceRoots, sourceFiles),
+                            runtime.javaVersion(), runtime.factory(), dbPath, classpath, started,
+                            config, false, phaseTimings, totalStarted);
                 }
                 String currentExtensions = preparedExtensions(
                         projectRoot, sourcePaths).fingerprint();
@@ -435,7 +451,7 @@ public class IndexCommand implements Callable<Integer> {
                             parsePathList(store.readProjectMeta("classpath_entries").orElse("")),
                             store.readProjectMeta("classpath_override").orElse(""), springXml,
                             cache, phaseTimings, gitTask,
-                            loadedConfig, scanPolicy, effectiveScanScopes);
+                            loadedConfig, scanPolicy, effectiveScanScopes, providerId);
                     phaseTimings.stop("metadata", phaseStarted);
                     maybeAdviseGitCache(projectRoot, metadataResult);
                     persistClasspathDetection(store, cd, projectRoot);
@@ -479,7 +495,7 @@ public class IndexCommand implements Callable<Integer> {
                         store, projectRoot, sourcePaths, resolvedSourceRoots,
                         runtime.javaVersion(), runtime.classpathMode(), runtime.classpathEntries(),
                         classpath, springXml, after, phaseTimings, gitTask,
-                        loadedConfig, scanPolicy, effectiveScanScopes);
+                        loadedConfig, scanPolicy, effectiveScanScopes, providerId);
                 phaseTimings.stop("metadata", phaseStarted);
                 maybeAdviseGitCache(projectRoot, metadataResult);
                 persistClasspathDetection(store, cd, projectRoot);
@@ -579,15 +595,15 @@ public class IndexCommand implements Callable<Integer> {
             }
             try (IndexLock ignored = IndexLock.forWrite(dbPath)) {
                 IndexFileSwap.promote(temporary, dbPath);
+                IndexStateStore.clear(dbPath);
+                capturedRebuild = new java.util.LinkedHashMap<>();
+                capturedRebuild.put("action", recreateDb ? "recreate" : "full");
+                capturedRebuild.put("reasons", List.of(rebuildReason));
+                capturedRebuild.put("atomic", true);
+                capturedRebuild.put("discarded_documents", previous.documents());
+                capturedRebuild.put("discarded_semantic_annotations", previous.semanticAnnotations());
+                emitCapturedFullResult(dbPath);
             }
-            IndexStateStore.clear(dbPath);
-            capturedRebuild = new java.util.LinkedHashMap<>();
-            capturedRebuild.put("action", recreateDb ? "recreate" : "full");
-            capturedRebuild.put("reasons", List.of(rebuildReason));
-            capturedRebuild.put("atomic", true);
-            capturedRebuild.put("discarded_documents", previous.documents());
-            capturedRebuild.put("discarded_semantic_annotations", previous.semanticAnnotations());
-            emitCapturedFullResult(dbPath);
             return 0;
         } catch (Exception failure) {
             IndexStateStore.write(dbPath, IndexStateStore.State.FAILED,
@@ -613,7 +629,7 @@ public class IndexCommand implements Callable<Integer> {
                                  IndexTimings phaseTimings,
                                  long totalStarted) throws Exception {
         com.anatomist.application.IndexConfig cfg = new com.anatomist.application.IndexConfig(
-                projectRoot, sourcePaths, classpathEntries, sourceFiles,
+                projectRoot, sourcePaths, classpathEntries, sourceFiles, providerId,
                 jv, springXml, config, dbPath, classpathOverride, noClasspath, debug,
                 resolveSourceRoots(projectRoot, sourcePaths),
                 effectiveHealthPolicy != com.anatomist.core.HealthPolicy.NONE,
@@ -715,7 +731,7 @@ public class IndexCommand implements Callable<Integer> {
             com.anatomist.application.IndexConfig cfg, Path database) {
         return new com.anatomist.application.IndexConfig(
                 cfg.projectRoot(), cfg.sourcePaths(), cfg.classpathEntries(), cfg.sourceFiles(),
-                cfg.javaVersion(), cfg.springXml(), cfg.config(), database,
+                cfg.providerId(), cfg.javaVersion(), cfg.springXml(), cfg.config(), database,
                 cfg.classpathOverride(), cfg.noClasspath(), cfg.debug(), cfg.sourceRoots(),
                 cfg.strictHealth(), cfg.javaVersionDetection(), cfg.loadedConfig(),
                 cfg.scanPolicy(), cfg.scanScopes());

@@ -44,10 +44,11 @@ From scenario requirements, only store what Agent actually queries.
 | USES | Too vague, CALLS + REFERENCES covers it | Not needed |
 | semantically_similar_to | Agent LLM reasoning | Runtime inference |
 
-## Node identity, declarations, and ownership (schema v22)
+## Node identity, declarations, and ownership (schema v23)
 
-Schema v22 adds structural annotation uses, meta-annotation relations, and configured
-member bindings. Schema v20 makes call-site tables the only final CALLS storage. Schema v19 added
+Schema v23 adds provider/language provenance and provider-scoped identity. Schema v22
+added structural annotation uses, meta-annotation relations, and configured member bindings.
+Schema v20 makes call-site tables the only final CALLS storage. Schema v19 added
 node-level exact ranges and numeric source ordinals; v18 normalized call-site storage;
 v16 removed the former dataflow tables; v15 added nullable declaration
 range columns to `declarations`, and v14 added `producer_id` to all structural
@@ -71,6 +72,18 @@ the range and snapshot hash evidence used by `resolve --exact | source`.
 |---|---|
 | `nodes`, `edges`, `declarations`, `annotations`, `annotation_meta_relations`, `semantic_annotations` | required `producer_id` |
 
+| Common field | Meaning |
+|---|---|
+| `provider_id`, `language` | Which language frontend owns the fact |
+| `domain` | `language` or cross-language domains such as `configuration` |
+| `entity_kind` | Common kind: `type`, `callable`, `value`, ... |
+| `language_kind` | Namespaced detail such as `java.record` |
+| `semantic`, `mechanism` | Common relation meaning plus provider-specific mechanism |
+
+`index_providers` records the exact provider version, operations, limitations, and
+profile hash used for the snapshot. Query commands fail closed when the requested
+language/provider was not installed or did not produce the index.
+
 Multiple extensions may analyze the same source/resource. Incremental cleanup
 is producer-scoped. The same node ID cannot be claimed by two producers;
 `EXTENSION_NODE_OWNERSHIP_CONFLICT` aborts promotion instead of silently
@@ -79,16 +92,16 @@ overwriting ownership.
 Every node stores both a logical symbol and a globally unique storage key:
 
 ```text
-symbol_id = extractor-level Java/config identity
-id        = <module>::<scope>::<symbol_id>
+symbol_id = provider-owned logical identity
+id        = <provider_id>::<module>::<scope>::<symbol_id>
 ```
 
 `module` defaults to `.` for a single-root project. `scope` is `MAIN`, `TEST`,
 or `GENERATED`. Query commands default to `MAIN`.
 
 ```text
-service::MAIN::com.example.OrderService
-service::TEST::com.example.OrderService
+java-core::service::MAIN::com.example.OrderService
+java-core::service::TEST::com.example.OrderService
 ```
 
 The two rows above intentionally share `symbol_id` but cannot collide in the
@@ -261,7 +274,7 @@ the structured object directly as `lombok_usage`.
 | `target_id` | TEXT FK→nodes.id | Callee/parent/contained; **internal only**, NULL for external |
 | `external_target_fqn` | TEXT | External dep FQN (e.g. `java.util.List#add`); NULL for internal |
 | `relation` | TEXT | CONTAINS/INHERITS/IMPLEMENTS/OVERRIDES/REFERENCES/READS/WRITES/DEFINED_BY/BINDS_TO/INJECTS/HANDLES/WIRES/CONFIGURES/XML_CONTAINS/XML_REFERS_TO；最终库不含 CALLS |
-| `call_kind` | TEXT | 历史/暂存兼容列；schema 22 最终 `edges` 的非调用关系不使用 |
+| `call_kind` | TEXT | 历史/暂存兼容列；schema 23 最终 `edges` 的非调用关系不使用 |
 | `confidence` | TEXT | `EXTRACTED` for source facts, `CONFIGURED` for framework/config facts, `INFERRED` for derived dispatch/reflection bridges |
 | `resolution` | TEXT | External only: `classpath`, `ast_fallback`, `type_fallback`, `static_name_fallback`, `source_fallback`, `reflection`, or `xml`; NULL for internal edges |
 | `context` | TEXT | READS/WRITES 的轻量控制路径；REFERENCES 的 field_type/parameter_type/return_type/generic_arg |
@@ -305,11 +318,14 @@ belong on every node or edge.
 | `classpath_hash` | Fingerprint of classpath input | Detect changed resolution environment |
 | `index_version` | File-cache/schema version | Incremental compatibility |
 | `index_revision_id` | Opaque identity of one committed fact set | Pipeline consistency |
-| `source_snapshot_fingerprint` | Portable source/resource content identity | Source freshness |
+| `source_snapshot_fingerprint` | Portable identity of the indexed source/resource set | Identify the built snapshot |
 | `index_environment_hash` | Analysis inputs | Semantic profile derivation |
 | `source_layout` / `source_layout_hash` | Module/scope/root identity mapping | Force full indexing when identity inputs change |
 | `config_source` / `config_path` | Selected configuration origin and path | Explain which config profile produced the index |
 | `scan_policy` / `scan_policy_hash` | Canonical scopes, roots, glob rules, and hard-exclude policy | Force full rebuild when scan eligibility changes |
+
+CLI 的 `index_identity` 是上述已提交元数据的只读封装，只描述索引构建时的
+事实集。索引与当前工作区的一致性由调用方在查询前执行增量同步来保证。
 
 ## Canonical call sites
 
@@ -333,6 +349,9 @@ call_sites.site_pk (INTEGER) ──< call_site_targets.call_site_pk
 Incremental promotion captures affected callers before graph replacement and refreshes
 only their persisted sites; unrelated call sites retain their rows. `edges` 中的
 `CALLS` 数量必须始终为 0。
+
+调用点 `id` 是出现位置身份；公开语义流中的 `relationship_id` 是跨索引关系身份。
+前者会随挪行变化，后者对 target 集合排序去重后计算，适合 Review 比较。
 
 ## Index Diagnostics
 
@@ -377,7 +396,7 @@ later source-level detail is unavailable.
 
 | Column | Meaning |
 |---|---|
-| `source_file`, `module`, `scope` | Coverage boundary; `*` means global/unknown |
+| `source_file`, `module`, `scope`, `language`, `provider_id` | Coverage boundary; `*` means global/unknown |
 | `capability` | Query capability such as `CALL_OUTGOING` or `CALL_PATH` |
 | `status` | `complete`, `partial`, or `failed` |
 | `occurrences`, `groups_count` | Full aggregate counts |

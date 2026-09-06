@@ -47,6 +47,19 @@ class OperationsCommandIT {
     }
 
     @Test
+    void rejectsProviderLanguageMismatchInTheCatalog() throws Exception {
+        CliTestSupport.RunResult result = CliTestSupport.capture(() ->
+                new CommandLine(new AnatomistCli()).execute("operations", "calls",
+                        "--language", "python", "--provider", "java-core"));
+        assertEquals(0, result.exitCode(), result.stderr());
+        Map<?, ?> root = object(result.stdout());
+        Map<?, ?> operation = (Map<?, ?>) ((List<?>) root.get("operations")).getFirst();
+        Map<?, ?> support = (Map<?, ?>) ((List<?>) operation.get("support")).getFirst();
+        assertEquals("unsupported", support.get("support"));
+        assertEquals("PROVIDER_LANGUAGE_MISMATCH", support.get("reason"));
+    }
+
+    @Test
     void advertisesMetaAnnotationAndMemberBindingSelectors() throws Exception {
         CliTestSupport.RunResult annotations = CliTestSupport.capture(() ->
                 new CommandLine(new AnatomistCli()).execute("operations", "annotations"));
@@ -71,6 +84,8 @@ class OperationsCommandIT {
                         "--index", db.toString()));
         assertEquals(0, result.exitCode(), result.stderr());
         Map<?, ?> root = object(result.stdout());
+        assertEquals("anatomist-index-identity/v1",
+                ((Map<?, ?>) root.get("index_identity")).get("contract"));
         Map<?, ?> operation = (Map<?, ?>) ((List<?>) root.get("operations")).getFirst();
         Map<?, ?> support = (Map<?, ?>) ((List<?>) operation.get("support")).getFirst();
         assertEquals("available", support.get("availability"));

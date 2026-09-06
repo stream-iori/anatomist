@@ -6,6 +6,12 @@ import java.util.Map;
 public class NodeRow {
     public String id;
     public String symbolId;
+    public String domain;
+    public String language;
+    public String providerId;
+    public String entityKind;
+    public String languageKind;
+    public String namespace;
     public String label;
     public String kind;
     public String qualifiedName;

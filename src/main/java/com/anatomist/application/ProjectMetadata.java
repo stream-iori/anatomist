@@ -24,6 +24,7 @@ import java.util.concurrent.TimeoutException;
 public final class ProjectMetadata {
 
     public static final String SNAPSHOT_FINGERPRINT_KEY = "source_snapshot_fingerprint";
+    public static final String SEMANTIC_PROFILE_INPUTS_KEY = "semantic_profile_inputs";
 
     private ProjectMetadata() {}
 
@@ -42,6 +43,7 @@ public final class ProjectMetadata {
                 cfg.projectRoot(), cfg.sourcePaths(), cfg.sourceRoots(), cfg.javaVersion(),
                 classpathMode(cfg), cfg.classpathEntries(), cfg.classpathOverride(),
                 cfg.springXml(), fingerprint, cfg.loadedConfig(), cfg.scanPolicy(), cfg.scanScopes());
+        values.put("provider_id", cfg.providerId());
         phaseStarted = System.nanoTime();
         addGit(values, GitSnapshot.read(cfg.projectRoot()));
         addTiming(timings, "metadata_git", phaseStarted);
@@ -54,6 +56,7 @@ public final class ProjectMetadata {
         }
         phaseStarted = System.nanoTime();
         store.upsertProjectMeta(values);
+        com.anatomist.provider.ProviderIndexMetadata.replaceProvider(store, cfg.providerId());
         addTiming(timings, "metadata_write", phaseStarted);
     }
 
@@ -70,7 +73,7 @@ public final class ProjectMetadata {
                                                IndexTimings timings) {
         return writeIncremental(store, projectRoot, sourcePaths, sourceRoots, javaVersion,
                 classpathMode, classpathEntries, classpathOverride, springXml, fileCache,
-                timings, null, null, null, List.of());
+                timings, null, null, null, List.of(), "java-core");
     }
 
     public static WriteResult writeIncremental(SqliteStore store,
@@ -87,7 +90,7 @@ public final class ProjectMetadata {
                                                GitSnapshotTask gitTask) {
         return writeIncremental(store, projectRoot, sourcePaths, sourceRoots, javaVersion,
                 classpathMode, classpathEntries, classpathOverride, springXml, fileCache,
-                timings, gitTask, null, null, List.of());
+                timings, gitTask, null, null, List.of(), "java-core");
     }
 
     public static WriteResult writeIncremental(SqliteStore store,
@@ -104,7 +107,8 @@ public final class ProjectMetadata {
                                                GitSnapshotTask gitTask,
                                                LoadedConfig loadedConfig,
                                                ScanPolicy scanPolicy,
-                                               List<SourceScope> scanScopes) {
+                                               List<SourceScope> scanScopes,
+                                               String providerId) {
         Map<String, FileCacheEntry> effectiveCache = fileCache == null
                 ? store.readFileCache()
                 : fileCache;
@@ -124,7 +128,9 @@ public final class ProjectMetadata {
         Map<String, String> values = baseMetadata(
                 projectRoot, sourcePaths, sourceRoots, javaVersion, classpathMode,
                 classpathEntries, classpathOverride, springXml, fingerprint,
-                loadedConfig, scanPolicy, scanScopes);
+                loadedConfig, scanPolicy, scanScopes,
+                prior.get(SEMANTIC_PROFILE_INPUTS_KEY));
+        values.put("provider_id", providerId);
         // One-time compatibility initialization. Normal no-op incrementals preserve
         // an existing revision; fact-changing promotions bump it atomically.
         if (!prior.containsKey(IndexRevision.META_KEY)) {
@@ -134,6 +140,7 @@ public final class ProjectMetadata {
 
         phaseStarted = System.nanoTime();
         store.upsertProjectMeta(values);
+        com.anatomist.provider.ProviderIndexMetadata.replaceProvider(store, providerId);
         addTiming(timings, "metadata_write", phaseStarted);
         return new WriteResult(git == null ? 0L : git.statusNanos() / 1_000_000L);
     }
@@ -176,6 +183,24 @@ public final class ProjectMetadata {
                                                     LoadedConfig loadedConfig,
                                                     ScanPolicy scanPolicy,
                                                     List<SourceScope> scanScopes) {
+        return baseMetadata(projectRoot, sourcePaths, sourceRoots, javaVersion,
+                classpathMode, classpathEntries, classpathOverride, springXml, fingerprint,
+                loadedConfig, scanPolicy, scanScopes, null);
+    }
+
+    private static Map<String, String> baseMetadata(Path projectRoot,
+                                                    List<Path> sourcePaths,
+                                                    List<SourceRoot> sourceRoots,
+                                                    int javaVersion,
+                                                    String classpathMode,
+                                                    List<Path> classpathEntries,
+                                                    String classpathOverride,
+                                                    boolean springXml,
+                                                    String fingerprint,
+                                                    LoadedConfig loadedConfig,
+                                                    ScanPolicy scanPolicy,
+                                                    List<SourceScope> scanScopes,
+                                                    String retainedSemanticProfileInputs) {
         Map<String, String> values = new LinkedHashMap<>();
         values.put("source_root", projectRoot.toAbsolutePath().normalize().toString());
         values.put("source_paths", joinPaths(sourcePaths));
@@ -206,6 +231,11 @@ public final class ProjectMetadata {
         values.put(IndexEnvironmentFingerprint.META_KEY, environment.hash());
         values.put(IndexEnvironmentFingerprint.CLASSPATH_ARTIFACTS_KEY,
                 environment.classpathArtifactsHash());
+        values.put(SEMANTIC_PROFILE_INPUTS_KEY,
+                retainedSemanticProfileInputs == null || retainedSemanticProfileInputs.isBlank()
+                        ? semanticProfileInputs(sourceRoots, javaVersion, classpathMode,
+                                classpathEntries, springXml, scanCanonical)
+                        : retainedSemanticProfileInputs);
         values.put(SNAPSHOT_FINGERPRINT_KEY, fingerprint);
         return values;
     }
@@ -295,6 +325,54 @@ public final class ProjectMetadata {
                 .sorted().collect(java.util.stream.Collectors.joining("\n"));
     }
 
+    /** Portable analysis configuration: excludes checkout paths, retains inputs that affect facts. */
+    static String semanticProfileInputs(List<SourceRoot> roots, int javaVersion,
+                                        String classpathMode, List<Path> classpathEntries,
+                                        boolean springXml, String scanCanonical) {
+        String logicalRoots = roots == null ? "" : roots.stream()
+                .map(root -> root.module() + "@" + root.scope()).sorted()
+                .collect(java.util.stream.Collectors.joining(","));
+        String portableScan = scanCanonical == null ? "" : scanCanonical.lines()
+                .filter(line -> !line.startsWith("root="))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        StringBuilder canonical = new StringBuilder("anatomist-semantic-profile-inputs-v1\n")
+                .append("roots=").append(logicalRoots).append('\n')
+                .append("java=").append(javaVersion).append('\n')
+                .append("classpath_mode=").append(classpathMode == null ? "" : classpathMode).append('\n')
+                .append("spring_xml=").append(springXml).append('\n')
+                .append("scan=").append(portableScan).append('\n');
+        if (classpathEntries != null) {
+            int ordinal = 0;
+            for (Path supplied : classpathEntries) {
+                if (supplied == null) continue;
+                canonical.append("classpath[").append(ordinal++).append("]=")
+                        .append(portableClasspathEntry(supplied)).append('\n');
+            }
+        }
+        return "sha256:" + FileCacheService.sha256OfString(canonical.toString());
+    }
+
+    private static String portableClasspathEntry(Path supplied) {
+        Path path = supplied.toAbsolutePath().normalize();
+        String name = path.getFileName() == null ? "entry" : path.getFileName().toString();
+        if (!java.nio.file.Files.exists(path)) return name + "|missing";
+        if (java.nio.file.Files.isRegularFile(path)) {
+            return name + "|file|" + FileCacheService.sha256(path);
+        }
+        if (!java.nio.file.Files.isDirectory(path)) return name + "|other";
+        StringBuilder content = new StringBuilder();
+        try (java.util.stream.Stream<Path> files = java.nio.file.Files.walk(path)) {
+            files.filter(java.nio.file.Files::isRegularFile)
+                    .filter(file -> file.getFileName().toString().endsWith(".class"))
+                    .sorted().forEach(file -> content.append(path.relativize(file).toString()
+                                    .replace('\\', '/')).append('\0')
+                            .append(FileCacheService.sha256(file)).append('\n'));
+        } catch (IOException failure) {
+            return name + "|directory|unreadable";
+        }
+        return name + "|directory|" + FileCacheService.sha256OfString(content.toString());
+    }
+
     public static GitUntrackedCache gitUntrackedCache(Path projectRoot) {
         String configured = GitSnapshot.git(projectRoot,
                 "config", "--bool", "--get", "core.untrackedCache");
@@ -306,6 +384,11 @@ public final class ProjectMetadata {
     /** Best-effort current checkout identity for read-only diagnostics. */
     public static String currentGitCommit(Path projectRoot) {
         return GitSnapshot.git(projectRoot, "rev-parse", "HEAD");
+    }
+
+    /** Best-effort current worktree branch name; detached checkouts return HEAD. */
+    public static String currentGitBranch(Path projectRoot) {
+        return GitSnapshot.git(projectRoot, "rev-parse", "--abbrev-ref", "HEAD");
     }
 
     public enum GitUntrackedCache {

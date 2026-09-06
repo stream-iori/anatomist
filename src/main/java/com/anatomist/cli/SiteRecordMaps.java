@@ -3,6 +3,8 @@ package com.anatomist.cli;
 import com.anatomist.query.GenericSemanticRows.Site;
 import com.anatomist.query.semantic.SemanticIdentity;
 import com.anatomist.query.semantic.SemanticRecords;
+import com.anatomist.query.semantic.RelationshipIdentity;
+import com.anatomist.query.semantic.SemanticProviders;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,6 +19,16 @@ final class SiteRecordMaps {
         out.put("id", record + ":sha256:" + SemanticIdentity.sha256(row.source() + "\n"
                 + row.relation() + "\n" + target + "\n" + row.sourceFile() + "\n"
                 + row.beginLine() + ":" + row.beginColumn() + ":" + row.ordinal()));
+        String provider = SemanticProviders.providerForProducer(row.producerId());
+        String language = SemanticProviders.languageForProducer(row.producerId());
+        Map<String, Object> relationship = "call_site".equals(record)
+                ? RelationshipIdentity.fields("provider", provider, "language", language,
+                        "caller", row.source(), "dispatch_kind", "unknown",
+                        "targets", java.util.List.of(target))
+                : RelationshipIdentity.fields("provider", provider, "language", language,
+                        "semantic", row.relation(), "source", row.source(), "target", target,
+                        "external", row.target() == null);
+        out.put("relationship_id", RelationshipIdentity.of(record, relationship));
         out.put("caller", row.source());
         out.put("target", target);
         out.put("semantic", row.relation());

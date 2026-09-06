@@ -9,8 +9,9 @@ public class Annotation {
     /** Structural target (type/callable/value) and optional sub-target path. */
     public String targetKind;
     public String targetPath;
-    public String language = "java";
-    public String mechanism = "java.annotation";
+    public String language;
+    public String providerId;
+    public String mechanism;
     public String resolutionStatus;
     public String sourceLocation;
     public Integer beginLine;

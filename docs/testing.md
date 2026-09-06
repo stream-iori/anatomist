@@ -98,6 +98,16 @@ Java/XML 同次增量合并、XML 删除清理、record 不依赖扩展，以及
 
 ## 三、JDK 8 语义边界验证
 
+解析质量同时卡 precision 和 recall，不能用“边更多了”冒充变好：
+
+| 指标 | 失败说明 | 当前门禁 |
+|---|---|---|
+| precision = TP / (TP + FP) | 解析出了错误目标 | 泛型、Lambda、record、JDK 小样本必须 100% |
+| recall = TP / (TP + FN) | 漏了解析目标 | 同上 |
+
+统一计算器是 `ResolutionQuality`；`JavaResolutionQualityGateTest` 保存真值集。
+新增语言 provider 时必须复用同一指标，不能只报 coverage。
+
 由于 anatomist 跑在 JDK 25、仍可索引 JDK 8 源码，必须显式断言以下不被“提升解析”：
 
 1. `ParserConfiguration.setLanguageLevel(JAVA_8)` 生效——Record / sealed / switch pattern 不应识别

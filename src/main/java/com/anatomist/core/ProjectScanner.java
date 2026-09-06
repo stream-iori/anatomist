@@ -41,10 +41,10 @@ public class ProjectScanner {
     }
 
     public List<Path> scan(Path root) {
-        return scan(root, false);
+        return scan(root, false, Set.of(".java"));
     }
 
-    private List<Path> scan(Path root, boolean trustedRoot) {
+    private List<Path> scan(Path root, boolean trustedRoot, Set<String> extensions) {
         if (root == null || !Files.isDirectory(root)) {
             return Collections.emptyList();
         }
@@ -64,7 +64,8 @@ public class ProjectScanner {
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    if (attrs.isRegularFile() && file.getFileName().toString().endsWith(".java")
+                    String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                    if (attrs.isRegularFile() && extensions.stream().anyMatch(name::endsWith)
                             && (scanPolicy == null || scanPolicy.includes(file))) {
                         out.add(file);
                     }
@@ -82,10 +83,19 @@ public class ProjectScanner {
     /** Scan resolved source roots while allowing an explicitly classified generated root
      *  to live below Maven's target directory. Ordinary target trees remain excluded. */
     public List<Path> scanSourceRoots(List<SourceRoot> roots) {
+        return scanSourceRoots(roots, Set.of(".java"));
+    }
+
+    public List<Path> scanSourceRoots(List<SourceRoot> roots, Set<String> extensions) {
         Set<Path> unique = new java.util.LinkedHashSet<>();
         if (roots == null) return List.of();
+        Set<String> normalizedExtensions = extensions == null || extensions.isEmpty()
+                ? Set.of(".java") : extensions.stream()
+                .map(value -> value.toLowerCase(java.util.Locale.ROOT))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
         for (SourceRoot root : roots) {
-            unique.addAll(scan(root.path(), root.scope() == SourceScope.GENERATED));
+            unique.addAll(scan(root.path(), root.scope() == SourceScope.GENERATED,
+                    normalizedExtensions));
         }
         List<Path> out = new ArrayList<>(unique);
         out.sort(java.util.Comparator.comparing(

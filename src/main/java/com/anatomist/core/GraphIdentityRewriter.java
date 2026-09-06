@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Rewrites extractor-level symbol ids into module/scope-qualified storage ids. */
+/** Rewrites provider-owned symbols into provider/module/scope-qualified storage ids. */
 public final class GraphIdentityRewriter {
 
     private GraphIdentityRewriter() {}
@@ -22,12 +22,13 @@ public final class GraphIdentityRewriter {
     public static void rewrite(ExtractionResult result,
                                SourceIdentityResolver identities,
                                Set<String> survivingNodeIds) {
+        com.anatomist.provider.FactDefaults.normalize(result);
         Map<String, Map<String, Candidate>> candidates = new HashMap<>();
         if (survivingNodeIds != null) {
             for (String key : survivingNodeIds) {
                 if (!NodeKeyFactory.isKey(key)) continue;
                 String symbol = NodeKeyFactory.symbolId(key);
-                addCandidate(candidates, symbol,
+                addCandidate(candidates, NodeKeyFactory.providerId(key), symbol,
                         new Candidate(key, NodeKeyFactory.identity(key), null));
             }
         }
@@ -39,15 +40,16 @@ public final class GraphIdentityRewriter {
             node.symbolId = symbol;
             node.module = identity.module();
             node.scope = identity.scope().name();
-            node.id = NodeKeyFactory.key(identity, symbol);
-            addCandidate(candidates, symbol,
+            node.id = NodeKeyFactory.key(node.providerId, identity, symbol);
+            addCandidate(candidates, node.providerId, symbol,
                     new Candidate(node.id, identity, node.sourceFile));
         }
 
         for (Annotation annotation : result.annotations) {
             if (NodeKeyFactory.isKey(annotation.nodeId)) continue;
             SourceIdentity identity = identities.resolve(annotation.sourceFile);
-            Candidate resolved = select(candidates.get(annotation.nodeId), identity, annotation.sourceFile);
+            Candidate resolved = select(candidates.get(candidateKey(annotation.providerId,
+                    annotation.nodeId)), identity, annotation.sourceFile);
             if (resolved != null) {
                 annotation.nodeId = resolved.key();
                 if (annotation.sourceFile == null) annotation.sourceFile = resolved.sourceFile();
@@ -57,17 +59,22 @@ public final class GraphIdentityRewriter {
         for (Edge edge : result.edges) {
             SourceIdentity sourceIdentity = identities.resolve(edge.sourceFile);
             if (!NodeKeyFactory.isKey(edge.sourceId)) {
-                Candidate resolved = select(candidates.get(edge.sourceId), sourceIdentity, edge.sourceFile);
+                Candidate resolved = select(candidates.get(candidateKey(edge.providerId,
+                        edge.sourceId)), sourceIdentity, edge.sourceFile);
                 if (resolved != null) {
                     edge.sourceId = resolved.key();
                     if (edge.sourceFile == null) edge.sourceFile = resolved.sourceFile();
                 }
             }
             if (!edge.isExternal && !NodeKeyFactory.isKey(edge.targetId)) {
-                Candidate resolved = select(candidates.get(edge.targetId), sourceIdentity, null);
+                Candidate resolved = select(candidates.get(candidateKey(edge.providerId,
+                        edge.targetId)), sourceIdentity, null);
                 if (resolved != null) edge.targetId = resolved.key();
             } else if (edge.isExternal && edge.externalTargetFqn != null) {
-                Candidate resolved = select(candidates.get(edge.externalTargetFqn), sourceIdentity, null);
+                String targetProvider = edge.externalTargetProviderId == null
+                        ? edge.providerId : edge.externalTargetProviderId;
+                Candidate resolved = select(candidates.get(candidateKey(targetProvider,
+                        edge.externalTargetFqn)), sourceIdentity, null);
                 if (resolved != null) {
                     edge.targetId = resolved.key();
                     edge.externalTargetFqn = null;
@@ -78,6 +85,9 @@ public final class GraphIdentityRewriter {
             if (!edge.isExternal && edge.targetId != null && !NodeKeyFactory.isKey(edge.targetId)) {
                 // A project symbol exists in more than one identity and cannot be selected safely.
                 edge.externalTargetFqn = edge.targetId;
+                edge.externalTargetSymbol = edge.targetId;
+                edge.externalTargetProviderId = edge.providerId;
+                edge.externalTargetLanguage = edge.language;
                 edge.targetId = null;
                 edge.isExternal = true;
                 edge.confidence = GraphConstants.Confidence.AMBIGUOUS;
@@ -87,13 +97,20 @@ public final class GraphIdentityRewriter {
     }
 
     private static void addCandidate(Map<String, Map<String, Candidate>> candidates,
-                                     String symbol,
+                                     String providerId, String symbol,
                                      Candidate candidate) {
-        Map<String, Candidate> byKey = candidates.computeIfAbsent(symbol,
+        Map<String, Candidate> byKey = candidates.computeIfAbsent(
+                candidateKey(providerId, symbol),
                 ignored -> new LinkedHashMap<>());
         byKey.merge(candidate.key(), candidate, (existing, replacement) ->
                 existing.sourceFile() == null && replacement.sourceFile() != null
                         ? replacement : existing);
+    }
+
+    private static String candidateKey(String providerId, String symbol) {
+        String provider = providerId == null || providerId.isBlank()
+                ? NodeKeyFactory.DEFAULT_PROVIDER : providerId;
+        return provider + '\0' + symbol;
     }
 
     private static Candidate select(Map<String, Candidate> candidates,

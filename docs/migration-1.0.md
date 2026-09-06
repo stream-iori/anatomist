@@ -14,6 +14,11 @@ anatomist index /path/to/project --recreate --output /path/to/index.db
 anatomist doctor --agent-preflight --format json --index /path/to/index.db
 ```
 
+Review 集成必须由外部分别同步 base/head 索引，再固定两边的
+`index_identity`，要求相同 `semantic_profile_id`，并以 `relationship_id`
+替代本地拼接的关系白名单。Anatomist 不管理 Git worktree，也不验证工作区
+与索引的精确一致性；同步责任在外部调用方。
+
 `--recreate` 会删除旧 SQLite 及 sidecar。源码、配置和可重建文档不需要保留数据库副本；人工 `annotate` 数据必须先从其来源备份。未传 `--recreate` 时，1.0 只报错和待丢弃数量，不会静默重建。
 
 ## 命令映射

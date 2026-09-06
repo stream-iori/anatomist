@@ -153,7 +153,7 @@ class PipelineCommandIT {
         assertEquals(20, commands.size());
         for (int i = 0; i < commands.size(); i++) {
             PipelineStageRegistry.Stage stage = PipelineStageRegistry.parse(
-                    commands.get(i), i + 1, db, null, "MAIN");
+                    commands.get(i), i + 1, db, null, "MAIN", "java", "java-core");
             assertEquals(commands.get(i).getFirst(), stage.name());
             assertNotNull(stage.command());
             assertFalse(stage.emitted().isEmpty());

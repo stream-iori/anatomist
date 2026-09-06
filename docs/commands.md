@@ -61,7 +61,7 @@ anatomist pipeline --check --index <db> -- resolve p.A --kind type --unique --th
 
 | 规则 | 结果 |
 |---|---|
-| `--index/--module/--scope/--format` | 只放在 `pipeline` 全局，stage 内会拒绝 |
+| `--index/--module/--scope/--language/--provider/--format` | 只放在 `pipeline` 全局，stage 内会拒绝 |
 | stage | 只允许 20 个只读 semantic-stream 查询命令 |
 | 资源上限 | 16 stages、每段 256 argv、spec 1 MiB；typed 中间流沿用协议上限 |
 | 执行 | 一个进程、一个只读 SQLite 连接；中间传 typed seed frame |
@@ -86,6 +86,7 @@ anatomist index <project> --recreate --output <db>
 
 | 参数 | 用途 |
 |---|---|
+| `--provider <id>` | 选择已安装的语言 provider；当前内置 `java-core` |
 | `--project-source <path-list>` | 覆盖自动探测的源码根 |
 | `--source-root module@SCOPE=path` | 精确指定模块、scope 与根；可重复 |
 | `--scan-scope/--scan-include/--scan-exclude` | 控制扫描范围 |
@@ -98,7 +99,7 @@ anatomist index <project> --recreate --output <db>
 | `--timings` | 输出各阶段耗时 |
 | `--format json` | 机器可读构建结果 |
 
-1.0 schema 22 / graph semantics 5 不兼容旧索引。已有数据库不兼容时命令会失败并报告将丢弃的数据量；只有显式 `--recreate` 才会删除并重建，不会静默覆盖。
+当前 schema 23 / graph semantics 6 不兼容旧索引。已有数据库不兼容时命令会失败并报告将丢弃的数据量；只有显式 `--recreate` 才会删除并重建，不会静默覆盖。
 
 ### `doctor`
 
@@ -106,6 +107,16 @@ anatomist index <project> --recreate --output <db>
 anatomist doctor --agent-preflight --format json --index <db>
 anatomist doctor --health-policy complete --format json --index <db>
 ```
+
+| 字段 | 含义 |
+|---|---|
+| `index_identity` | 当前已提交索引的 revision、构建时源码快照、语义 profile；查询可以固定它 |
+| `checkout` / `git` | worktree 路径、名字和 Git 辅助信息；只用于说明 |
+
+Review 时由外部建立 base/head worktree，并在查询前分别执行增量同步。
+Anatomist 不创建、不保留、不清理 worktree，也不提供索引与当前工作区的
+精确一致性证明；Doctor 的 Git/快速脏检查只作提示。两边 profile 相同后，
+可按关系记录的 `relationship_id` 做集合差。
 
 | exit | 含义 |
 |---:|---|

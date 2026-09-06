@@ -29,6 +29,9 @@ public final class OperationsCommand implements Callable<Integer> {
     @Option(names = "--language", description = "Filter support for one language ID.")
     String language;
 
+    @Option(names = "--provider", description = "Filter support for one provider ID.")
+    String provider;
+
     @Option(names = "--index",
             description = "Explicit index used only to inspect operation availability.")
     Path index;
@@ -47,8 +50,10 @@ public final class OperationsCommand implements Callable<Integer> {
             }
             String selectedLanguage = language == null || language.isBlank()
                     ? "java" : language.trim().toLowerCase(java.util.Locale.ROOT);
+            String selectedProvider = provider == null || provider.isBlank()
+                    ? SemanticProviders.providerForLanguage(selectedLanguage) : provider.trim();
             if (index == null) {
-                return emit(catalog(selected, selectedLanguage, null, null));
+                return emit(catalog(selected, selectedLanguage, selectedProvider, null, null));
             }
             Path db = index.toAbsolutePath().normalize();
             if (!Files.isRegularFile(db)) {
@@ -59,7 +64,7 @@ public final class OperationsCommand implements Callable<Integer> {
                 return 3;
             }
             try (SemanticExecutionContext context = SemanticExecutionContext.open(db, null, "ALL")) {
-                return emit(catalog(selected, selectedLanguage, context, db));
+                return emit(catalog(selected, selectedLanguage, selectedProvider, context, db));
             }
         } catch (IllegalArgumentException failure) {
             CliError.emit(CliError.of("operations", failure, 2));
@@ -73,33 +78,53 @@ public final class OperationsCommand implements Callable<Integer> {
 
     private Map<String, Object> catalog(SemanticOperationRegistry.Entry selected,
                                          String selectedLanguage,
+                                         String selectedProvider,
                                          SemanticExecutionContext context, Path db) {
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("contract", CONTRACT);
         root.put("query_contract", "semantic-stream/v1");
         root.put("version", BuildVersion.display());
-        if (db != null) root.put("index_path", db.toString());
+        if (db != null) {
+            root.put("index_path", db.toString());
+            String sourceRoot = projectMeta(context, "source_root");
+            root.put("index_identity", com.anatomist.query.semantic.IndexIdentity.map(
+                    db, sourceRoot, context.identity()));
+        }
         if (language == null || language.isBlank()) {
             root.put("languages", SemanticProviders.installedLanguages());
         } else {
             root.put("languages", List.of(Map.of("id", selectedLanguage,
-                    "installed", "java".equals(selectedLanguage))));
+                    "installed", SemanticProviders.installed(selectedLanguage))));
         }
         root.put("pipeline_limits", Map.of("stages", PipelineCommand.MAX_STAGES,
                 "argv_per_stage", PipelineCommand.MAX_ARGS_PER_STAGE,
                 "spec_bytes", PipelineCommand.MAX_SPEC_BYTES));
-        root.put("global_options", List.of("--index", "--module", "--scope", "--format"));
+        root.put("global_options", List.of("--index", "--module", "--scope", "--language",
+                "--provider", "--format"));
 
         List<Map<String, Object>> operations = new ArrayList<>();
         for (SemanticOperationRegistry.Entry entry : SemanticOperationRegistry.entriesView()) {
             if (selected != null && !selected.id().equals(entry.id())) continue;
             Boolean available = context == null ? null
-                    : context.capabilities().supports(entry.id());
+                    : context.capabilities().supports(entry.id(), selectedLanguage,
+                            selectedProvider);
             operations.add(SemanticOperationRegistry.catalogEntry(
-                    entry, selectedLanguage, available));
+                    entry, selectedLanguage, selectedProvider, available));
         }
         root.put("operations", List.copyOf(operations));
         return root;
+    }
+
+    private static String projectMeta(SemanticExecutionContext context, String key) {
+        try (java.sql.PreparedStatement statement = context.query().connection().prepareStatement(
+                "SELECT value FROM project_meta WHERE key=?")) {
+            statement.setString(1, key);
+            try (java.sql.ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getString(1) : "";
+            }
+        } catch (java.sql.SQLException failure) {
+            throw new RuntimeException("failed to read index identity", failure);
+        }
     }
 
     private int emit(Map<String, Object> catalog) {

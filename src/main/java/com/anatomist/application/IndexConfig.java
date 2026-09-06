@@ -15,6 +15,7 @@ public record IndexConfig(
         List<Path> sourcePaths,
         List<Path> classpathEntries,
         List<Path> sourceFiles,
+        String providerId,
         int javaVersion,
         boolean springXml,
         ProjectConfig config,

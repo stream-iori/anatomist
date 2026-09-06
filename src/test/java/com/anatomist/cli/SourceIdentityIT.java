@@ -37,11 +37,11 @@ class SourceIdentityIT {
                      "SELECT id,module,scope FROM nodes WHERE symbol_id='p.Duplicate' ORDER BY scope");
              var rs = ps.executeQuery()) {
             assertTrue(rs.next());
-            assertEquals("app::MAIN::p.Duplicate", rs.getString("id"));
+            assertEquals("java-core::app::MAIN::p.Duplicate", rs.getString("id"));
             assertEquals("app", rs.getString("module"));
             assertEquals("MAIN", rs.getString("scope"));
             assertTrue(rs.next());
-            assertEquals("app::TEST::p.Duplicate", rs.getString("id"));
+            assertEquals("java-core::app::TEST::p.Duplicate", rs.getString("id"));
             assertEquals("TEST", rs.getString("scope"));
             assertFalse(rs.next());
         }

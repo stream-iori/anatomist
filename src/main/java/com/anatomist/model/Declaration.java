@@ -5,6 +5,11 @@ import java.util.List;
 /** AST-backed Java declaration persisted independently from graph edges. */
 public class Declaration {
     public String symbolId;
+    public String domain;
+    public String language;
+    public String providerId;
+    public String entityKind;
+    public String languageKind;
     public String qualifiedName;
     public String label;
     public String kind;
@@ -15,6 +20,7 @@ public class Declaration {
     public List<String> declaredModifiers = List.of();
     public List<String> implicitModifiers = List.of();
     public String declaringType;
+    public String namespace;
     public String sourceFile;
     public String sourceLocation;
     public Integer beginLine;

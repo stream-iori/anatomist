@@ -34,6 +34,8 @@ public final class BindingsCommand extends SemanticCommand {
                     String child=SemanticRecords.childSeed(frame.seedId(), "bindings", id);
                     Map<String,Object> out=SemanticRecords.common("binding_relation", child, frame.seedId(), identity);
                     out.put("id",id); out.put("semantic", semantic(row.relation)); out.put("mechanism",configuredMechanism==null?mechanism(row.relation):configuredMechanism);
+                    String provider=SemanticProviders.providerForProducer(row.producerId); String language=SemanticProviders.languageForProducer(row.producerId);
+                    out.put("relationship_id",RelationshipIdentity.of("binding_relation",RelationshipIdentity.fields("provider",provider,"language",language,"semantic",semantic(row.relation),"mechanism",configuredMechanism==null?mechanism(row.relation):configuredMechanism,"role",role,"subject",row.source,"object",Boolean.TRUE.equals(row.isExternal)?row.externalTargetFqn:row.target,"external",row.isExternal)));
                     if(role!=null)out.put("role",role); if(metadata.get("symbolRef")!=null)out.put("symbol_ref",metadata.get("symbolRef"));
                     if(role!=null)out.put("candidate_group","binding-group:sha256:"+SemanticIdentity.sha256(row.source+"\n"+role+"\n"+configuredMechanism));
                     if(metadata.get("candidateIndex")!=null)out.put("candidate_index",metadata.get("candidateIndex"));

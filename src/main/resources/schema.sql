@@ -4,10 +4,16 @@
 CREATE TABLE nodes (
     id TEXT PRIMARY KEY,
     symbol_id TEXT NOT NULL,
+    domain TEXT NOT NULL DEFAULT 'language',
+    language TEXT,
+    provider_id TEXT NOT NULL DEFAULT 'java-core',
+    entity_kind TEXT NOT NULL DEFAULT 'entity',
+    language_kind TEXT,
     label TEXT NOT NULL,
     kind TEXT NOT NULL,
     qualified_name TEXT NOT NULL,
     package TEXT,
+    namespace TEXT,
     source_file TEXT NOT NULL,
     source_location TEXT,
     begin_line INTEGER,
@@ -30,6 +36,8 @@ CREATE TABLE nodes (
 
 CREATE INDEX idx_nodes_kind ON nodes(kind);
 CREATE INDEX idx_nodes_symbol_id ON nodes(symbol_id);
+CREATE INDEX idx_nodes_provider_symbol ON nodes(provider_id,symbol_id,module,scope);
+CREATE INDEX idx_nodes_language_kind ON nodes(language,entity_kind,language_kind);
 CREATE INDEX idx_nodes_symbol_identity ON nodes(symbol_id,module,scope,kind);
 CREATE INDEX idx_nodes_qualified_name ON nodes(qualified_name);
 CREATE INDEX idx_nodes_package ON nodes(package);
@@ -40,6 +48,11 @@ CREATE INDEX idx_nodes_producer_file ON nodes(producer_id, source_file);
 
 CREATE TABLE declarations (
     symbol_id TEXT NOT NULL,
+    domain TEXT NOT NULL DEFAULT 'language',
+    language TEXT,
+    provider_id TEXT NOT NULL DEFAULT 'java-core',
+    entity_kind TEXT NOT NULL DEFAULT 'entity',
+    language_kind TEXT,
     qualified_name TEXT NOT NULL,
     label TEXT NOT NULL,
     kind TEXT NOT NULL,
@@ -50,6 +63,7 @@ CREATE TABLE declarations (
     declared_modifiers TEXT NOT NULL,
     implicit_modifiers TEXT NOT NULL,
     declaring_type TEXT,
+    namespace TEXT,
     source_file TEXT NOT NULL,
     source_location TEXT,
     begin_line INTEGER,
@@ -69,7 +83,7 @@ CREATE TABLE declarations (
         (begin_line > 0 AND begin_column > 0 AND end_line > 0 AND end_column > 0
          AND (end_line > begin_line OR (end_line = begin_line AND end_column >= begin_column)))
     ),
-    PRIMARY KEY (symbol_id,module,scope,source_file,producer_id)
+    PRIMARY KEY (provider_id,symbol_id,module,scope,source_file,producer_id)
 );
 
 CREATE INDEX idx_declarations_file ON declarations(source_file,module,scope);
@@ -82,7 +96,14 @@ CREATE TABLE edges (
     source_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     target_id TEXT REFERENCES nodes(id) ON DELETE CASCADE,
     external_target_fqn TEXT,
+    external_target_symbol TEXT,
+    external_target_language TEXT,
+    external_target_provider_id TEXT,
     relation TEXT NOT NULL,
+    semantic TEXT,
+    mechanism TEXT,
+    language TEXT,
+    provider_id TEXT NOT NULL DEFAULT 'java-core',
     call_kind TEXT,
     confidence TEXT NOT NULL DEFAULT 'EXTRACTED',
     resolution TEXT,
@@ -142,16 +163,22 @@ CREATE TABLE call_sites (
     metadata TEXT,
     origin TEXT NOT NULL,
     resolution_status TEXT NOT NULL,
-    producer_id TEXT NOT NULL
+    producer_id TEXT NOT NULL,
+    language TEXT,
+    provider_id TEXT NOT NULL DEFAULT 'java-core'
 );
 
 CREATE INDEX idx_call_sites_caller_order ON call_sites(
     owner_pk,begin_line,begin_column,ordinal
 );
+CREATE INDEX idx_call_sites_provider ON call_sites(provider_id,language);
 CREATE TABLE call_site_targets (
     call_site_pk INTEGER NOT NULL REFERENCES call_sites(site_pk) ON DELETE CASCADE,
     target_id TEXT REFERENCES nodes(id) ON DELETE CASCADE,
     external_target_fqn TEXT,
+    external_target_symbol TEXT,
+    external_target_language TEXT,
+    external_target_provider_id TEXT,
     resolution_status TEXT NOT NULL,
     confidence TEXT,
     producer_id TEXT NOT NULL,
@@ -163,7 +190,8 @@ CREATE INDEX idx_call_site_targets_internal ON call_site_targets(target_id)
 CREATE INDEX idx_call_site_targets_external ON call_site_targets(external_target_fqn)
     WHERE external_target_fqn IS NOT NULL;
 CREATE UNIQUE INDEX idx_call_site_targets_identity ON call_site_targets(
-    call_site_pk,COALESCE(target_id,''),COALESCE(external_target_fqn,'')
+    call_site_pk,COALESCE(target_id,''),COALESCE(external_target_provider_id,''),
+    COALESCE(external_target_fqn,'')
 );
 
 CREATE TABLE annotations (
@@ -175,6 +203,7 @@ CREATE TABLE annotations (
     target_kind TEXT NOT NULL,
     target_path TEXT,
     language TEXT NOT NULL,
+    provider_id TEXT NOT NULL DEFAULT 'java-core',
     mechanism TEXT NOT NULL,
     resolution_status TEXT NOT NULL CHECK (resolution_status IN ('exact','heuristic','unresolved')),
     source_file TEXT,
@@ -189,6 +218,7 @@ CREATE TABLE annotations (
 CREATE INDEX idx_annotations_node_id ON annotations(node_id);
 CREATE INDEX idx_annotations_fqn ON annotations(annotation_fqn);
 CREATE INDEX idx_annotations_producer_file ON annotations(producer_id, source_file);
+CREATE INDEX idx_annotations_provider ON annotations(provider_id,language);
 
 CREATE TABLE annotation_meta_relations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,6 +226,7 @@ CREATE TABLE annotation_meta_relations (
     meta_annotation_fqn TEXT,
     raw_name TEXT NOT NULL,
     language TEXT NOT NULL,
+    provider_id TEXT NOT NULL DEFAULT 'java-core',
     mechanism TEXT NOT NULL,
     resolution_status TEXT NOT NULL CHECK (resolution_status IN ('exact','heuristic','unresolved')),
     source_file TEXT,
@@ -207,7 +238,7 @@ CREATE INDEX idx_annotation_meta_source ON annotation_meta_relations(annotation_
 CREATE INDEX idx_annotation_meta_target ON annotation_meta_relations(meta_annotation_fqn);
 CREATE INDEX idx_annotation_meta_producer_file ON annotation_meta_relations(producer_id, source_file);
 CREATE UNIQUE INDEX idx_annotation_meta_identity ON annotation_meta_relations(
-    annotation_fqn,COALESCE(meta_annotation_fqn,''),raw_name,language,mechanism,
+    provider_id,annotation_fqn,COALESCE(meta_annotation_fqn,''),raw_name,language,mechanism,
     COALESCE(source_file,''),producer_id
 );
 
@@ -301,7 +332,8 @@ CREATE UNIQUE INDEX idx_semantic_annotations_upsert_key
     ON semantic_annotations(node_id, category, source, producer_id);
 
 CREATE TABLE file_cache (
-    source_file TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL DEFAULT 'java-core',
+    source_file TEXT NOT NULL,
     hash TEXT NOT NULL,
     schema_version INTEGER NOT NULL,
     last_indexed TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -309,7 +341,8 @@ CREATE TABLE file_cache (
     edge_count INTEGER NOT NULL DEFAULT 0,
     file_size INTEGER NOT NULL DEFAULT -1,
     file_mtime_ns INTEGER NOT NULL DEFAULT -1,
-    contract_hash TEXT NOT NULL DEFAULT ''
+    contract_hash TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (provider_id, source_file)
 );
 
 CREATE INDEX idx_file_cache_schema_version ON file_cache(schema_version);
@@ -318,6 +351,17 @@ CREATE TABLE project_meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE index_providers (
+    provider_id TEXT PRIMARY KEY,
+    language TEXT NOT NULL,
+    provider_version TEXT NOT NULL,
+    operations TEXT NOT NULL,
+    limitations TEXT NOT NULL,
+    profile_hash TEXT NOT NULL
+);
+
+CREATE INDEX idx_index_providers_language ON index_providers(language);
 
 CREATE TABLE index_diagnostics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -328,6 +372,9 @@ CREATE TABLE index_diagnostics (
     module TEXT,
     scope TEXT,
     symbol TEXT,
+    language TEXT,
+    provider_id TEXT,
+    provider_reason TEXT,
     occurrence_count INTEGER NOT NULL,
     sample TEXT
 );
@@ -340,6 +387,8 @@ CREATE TABLE analysis_coverage (
     source_file TEXT NOT NULL,
     module TEXT NOT NULL,
     scope TEXT NOT NULL,
+    language TEXT,
+    provider_id TEXT NOT NULL DEFAULT 'java-core',
     capability TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('complete','partial','failed')),
     occurrences INTEGER NOT NULL DEFAULT 0,
@@ -347,7 +396,7 @@ CREATE TABLE analysis_coverage (
     codes TEXT NOT NULL,
     code_counts TEXT NOT NULL,
     details_truncated INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (source_file, module, scope, capability)
+    PRIMARY KEY (provider_id, source_file, module, scope, capability)
 );
 
 CREATE INDEX idx_analysis_coverage_capability
@@ -356,9 +405,11 @@ CREATE INDEX idx_analysis_coverage_source_file
     ON analysis_coverage(source_file);
 
 CREATE TABLE file_dependencies (
+    source_provider_id TEXT NOT NULL DEFAULT 'java-core',
     source_file TEXT NOT NULL,
+    depends_on_provider_id TEXT NOT NULL DEFAULT 'java-core',
     depends_on_file TEXT NOT NULL,
-    PRIMARY KEY (source_file, depends_on_file)
+    PRIMARY KEY (source_provider_id, source_file, depends_on_provider_id, depends_on_file)
 );
 
 CREATE INDEX idx_file_deps_target ON file_dependencies(depends_on_file);

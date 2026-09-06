@@ -24,6 +24,10 @@ abstract class SemanticCommand implements Callable<Integer> {
     @Option(names = "--module", description = "Restrict lookup to one module.") String module;
     @Option(names = "--scope", defaultValue = "MAIN",
             description = "Source scope: MAIN | TEST | GENERATED | ALL (default MAIN).") String scope;
+    @Option(names = "--language", defaultValue = "java",
+            description = "Language ID (default java).") String language;
+    @Option(names = "--provider", description = "Language provider ID (default: provider for --language).")
+    String provider;
     @Option(names = "--format", defaultValue = "ndjson",
             description = "Output: ndjson | json | table (default ndjson).") String format;
     @Option(names = "--accept-unframed",
@@ -63,11 +67,17 @@ abstract class SemanticCommand implements Callable<Integer> {
         frameSource = input;
         try {
             String operation = SemanticOperationRegistry.entry(this).id();
-            if (!context.capabilities().supports(operation)) {
+            language = language == null ? "java"
+                    : language.trim().toLowerCase(java.util.Locale.ROOT);
+            String selectedProvider = provider == null || provider.isBlank()
+                    ? com.anatomist.query.semantic.SemanticProviders.providerForLanguage(language)
+                    : provider.trim();
+            if (!context.capabilities().supports(operation, language, selectedProvider)) {
                 if ("fail".equals(onUnsupported)) {
-                    throw new UnsupportedCapabilityException(operation, "java");
+                    throw new UnsupportedCapabilityException(operation, language);
                 }
-                return emitUnsupported(operation, context.identity(), writer);
+                return emitUnsupported(operation, language, selectedProvider,
+                        context.identity(), writer);
             }
             return execute(context.query(), context.identity(), writer);
         } finally {
@@ -112,28 +122,36 @@ abstract class SemanticCommand implements Callable<Integer> {
         return source.readFrames(acceptedRecords, unframed, identity, frame -> {
             for (var record : frame.records()) {
                 Object language = record.raw().get("language");
-                if (language != null && !"java".equals(String.valueOf(language))) {
+                if (language != null && !com.anatomist.query.semantic.SemanticProviders
+                        .supports(String.valueOf(language), operation)) {
                     throw new UnsupportedCapabilityException(operation,
                             String.valueOf(language));
+                }
+                Object providerId = record.raw().get("provider_id");
+                if (providerId != null && !com.anatomist.query.semantic.SemanticProviders
+                        .supportsProvider(String.valueOf(providerId), operation)) {
+                    throw new UnsupportedCapabilityException(operation,
+                            language == null ? "unknown" : String.valueOf(language));
                 }
             }
             consumer.accept(frame);
         });
     }
 
-    private Result emitUnsupported(String operation, SemanticIdentity identity,
+    private Result emitUnsupported(String operation, String language, String providerId,
+                                   SemanticIdentity identity,
                                    SemanticStreamWriter writer) {
         String direct = directSeed();
         if (direct != null) {
             writer.write(SemanticRecords.unsupportedEvidence(direct, null,
-                    operation, identity));
+                    operation, language, providerId, identity));
             return new Result(1, 0, false, false);
         }
         java.util.concurrent.atomic.AtomicInteger seeds = new java.util.concurrent.atomic.AtomicInteger();
         readFrames(acceptedInputRecords(), acceptUnframed, identity,
                 frame -> {
                     writer.write(SemanticRecords.unsupportedEvidence(frame.seedId(), null,
-                            operation, identity));
+                            operation, language, providerId, identity));
                     seeds.incrementAndGet();
                 });
         if (seeds.get() == 0) throw new IllegalArgumentException(

@@ -10,7 +10,7 @@ final class PipelineStageRegistry {
     private PipelineStageRegistry() {}
 
     static Stage parse(List<String> argv, int position, Path index,
-                       String module, String scope) {
+                       String module, String scope, String language, String provider) {
         if (argv.isEmpty()) throw PipelineFailure.invalid(
                 "PIPELINE_INVALID_SPEC", "pipeline stage must not be empty");
         String name = argv.getFirst();
@@ -28,6 +28,8 @@ final class PipelineStageRegistry {
         command.index = index;
         command.module = module;
         command.scope = scope;
+        command.language = language;
+        command.provider = provider;
         command.format = "ndjson";
         SemanticOperationRegistry.Invocation invocation =
                 SemanticOperationRegistry.invocation(name, command, position);
@@ -56,6 +58,8 @@ final class PipelineStageRegistry {
             if (token.equals("--index") || token.startsWith("--index=")
                     || token.equals("--module") || token.startsWith("--module=")
                     || token.equals("--scope") || token.startsWith("--scope=")
+                    || token.equals("--language") || token.startsWith("--language=")
+                    || token.equals("--provider") || token.startsWith("--provider=")
                     || token.equals("--format") || token.startsWith("--format=")
                     || token.equals("--help") || token.equals("-h")
                     || token.equals("--version") || token.equals("-V")) {

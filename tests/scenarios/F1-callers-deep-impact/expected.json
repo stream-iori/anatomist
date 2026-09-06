@@ -1,31 +1,32 @@
 [ {
-  "caller" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+  "caller" : "java-core::service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
   "contract" : "semantic-stream/v1",
   "derived_from" : [ {
-    "id" : "service::MAIN::com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
+    "id" : "java-core::service::MAIN::com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
     "qualified_name" : "com.example.shop.service.OrderValidator#validate",
     "record" : "entity"
   } ],
   "dispatch_kind" : "instance",
-  "id" : "callsite:sha256:f8f3aa8f2b9b346935e218e380f0f7f48dc283939c15d75da4357b01907ebc23",
+  "id" : "callsite:sha256:1841e6dc941a892a70fbbc9008229493c229416f826ab121b7c89256ee93c0bc",
   "index_revision_id" : "${REVISION}",
   "language" : "java",
   "origin" : "extracted",
   "parent_seed_id" : "seed:63ed76f8026dc708a61effb0",
   "producer_id" : "java-core",
   "record" : "call_site",
+  "relationship_id" : "rel:sha256:9f7834f2894ba9355b0d815a605e290299f91b7f8defbd90543fe74b40e5d427",
   "resolution_status" : "heuristic",
-  "resolved_target" : "service::MAIN::com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
+  "resolved_target" : "java-core::service::MAIN::com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
   "resolved_targets" : [ {
     "confidence" : "inferred",
     "external" : false,
-    "id" : "service::MAIN::com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
+    "id" : "java-core::service::MAIN::com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)",
     "producer_id" : "java-core",
     "qualified_name" : "com.example.shop.service.OrderValidator#validate",
     "resolution_status" : "heuristic"
   } ],
-  "seed_id" : "seed:7d62a641d99307a597d6fa90",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "seed_id" : "seed:cf0f56732eb046f7d9d24ffc",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "end_column" : 35,
     "end_line" : 33,
@@ -45,8 +46,8 @@
   "parent_seed_id" : "seed:63ed76f8026dc708a61effb0",
   "record" : "evidence",
   "scope" : "seed",
-  "seed_id" : "seed:7d62a641d99307a597d6fa90",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "seed_id" : "seed:cf0f56732eb046f7d9d24ffc",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
@@ -59,7 +60,7 @@
   "record" : "evidence",
   "scope" : "seed",
   "seed_id" : "seed:63ed76f8026dc708a61effb0",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
@@ -74,7 +75,7 @@
   "seeds" : {
     "total" : 1
   },
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false

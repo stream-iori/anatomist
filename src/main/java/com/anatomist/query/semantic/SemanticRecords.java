@@ -38,12 +38,17 @@ public final class SemanticRecords {
                                                    SemanticIdentity identity) {
         Map<String, Object> out = common(record, seed, null, identity);
         out.put("id", node.id);
-        out.put("domain", domain(node.kind));
+        out.put("domain", node.domain == null ? domain(node.kind) : node.domain);
         if ("language".equals(out.get("domain"))) {
-            String language = SemanticProviders.languageForProducer(node.producerId);
+            String language = node.language == null
+                    ? SemanticProviders.languageForProducer(node.producerId) : node.language;
             if (language != null) out.put("language", language);
         }
-        out.put("kind", kind(node.kind));
+        String provider = node.providerId == null
+                ? SemanticProviders.providerForProducer(node.producerId) : node.providerId;
+        if (provider != null) out.put("provider_id", provider);
+        out.put("kind", node.entityKind == null
+                ? SemanticProviders.entityKind(node.producerId, node.kind) : node.entityKind);
         out.put("name", node.label);
         out.put("qualified_name", node.qualifiedName);
         out.put("module", node.module);
@@ -63,6 +68,9 @@ public final class SemanticRecords {
         }
         Map<String, Object> facets = new LinkedHashMap<>();
         facets.put("storage_kind", node.kind);
+        String languageKind = node.languageKind == null
+                ? SemanticProviders.languageKind(node.producerId, node.kind) : node.languageKind;
+        if (languageKind != null) facets.put("language_kind", languageKind);
         if (node.syntheticOrigin != null) facets.put("synthetic_origin", node.syntheticOrigin);
         if (node.lombok != null) facets.put("lombok", node.lombok);
         if (!facets.isEmpty()) out.put("facets", facets);
@@ -126,6 +134,14 @@ public final class SemanticRecords {
     public static Map<String, Object> unsupportedEvidence(String seed, String parentSeed,
                                                            String operation,
                                                            SemanticIdentity identity) {
+        return unsupportedEvidence(seed, parentSeed, operation, "java",
+                SemanticProviders.providerForLanguage("java"), identity);
+    }
+
+    public static Map<String, Object> unsupportedEvidence(String seed, String parentSeed,
+                                                           String operation, String language,
+                                                           String providerId,
+                                                           SemanticIdentity identity) {
         Map<String, Object> out = common("evidence", seed, parentSeed, identity);
         out.put("scope", "seed");
         out.put("status", "unsupported");
@@ -135,8 +151,8 @@ public final class SemanticRecords {
         out.put("truncated", false);
         out.put("code", "UNSUPPORTED_CAPABILITY");
         out.put("operation", operation);
-        out.put("provider", "java-core");
-        out.put("language", "java");
+        if (providerId != null) out.put("provider_id", providerId);
+        if (language != null) out.put("language", language);
         out.put("limitations", List.of(Map.of("code", "OPERATION_UNAVAILABLE")));
         return out;
     }

@@ -2,21 +2,23 @@
   "contract" : "semantic-stream/v1",
   "domain" : "configuration",
   "facets" : {
+    "language_kind" : "java.bean",
     "storage_kind" : "BEAN"
   },
-  "id" : "service::MAIN::bean:orderService",
+  "id" : "java-core::service::MAIN::bean:orderService",
   "index_revision_id" : "${REVISION}",
   "kind" : "component",
   "module" : "service",
   "name" : "orderService",
   "origin" : "extracted",
   "producer_id" : "spring-components",
+  "provider_id" : "java-core",
   "qualified_name" : "orderService",
   "record" : "entity_candidate",
   "resolution_status" : "ambiguous",
   "scope" : "MAIN",
   "seed_id" : "seed:14ec2d3050d11d608ba29bda",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "file" : "service/src/main/java/com/example/shop/service/OrderService.java",
     "start_line" : 18
@@ -26,9 +28,10 @@
   "contract" : "semantic-stream/v1",
   "domain" : "language",
   "facets" : {
+    "language_kind" : "java.class",
     "storage_kind" : "CLASS"
   },
-  "id" : "service::MAIN::com.example.shop.service.OrderService",
+  "id" : "java-core::service::MAIN::com.example.shop.service.OrderService",
   "index_revision_id" : "${REVISION}",
   "kind" : "type",
   "language" : "java",
@@ -36,12 +39,13 @@
   "name" : "OrderService",
   "origin" : "extracted",
   "producer_id" : "java-core",
+  "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.service.OrderService",
   "record" : "entity_candidate",
   "resolution_status" : "ambiguous",
   "scope" : "MAIN",
   "seed_id" : "seed:14ec2d3050d11d608ba29bda",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "end_column" : 1,
     "end_line" : 69,
@@ -55,9 +59,10 @@
   "contract" : "semantic-stream/v1",
   "domain" : "language",
   "facets" : {
+    "language_kind" : "java.field",
     "storage_kind" : "FIELD"
   },
-  "id" : "api::MAIN::com.example.shop.controller.OrderController#orderService",
+  "id" : "java-core::api::MAIN::com.example.shop.controller.OrderController#orderService",
   "index_revision_id" : "${REVISION}",
   "kind" : "value",
   "language" : "java",
@@ -65,12 +70,13 @@
   "name" : "orderService",
   "origin" : "extracted",
   "producer_id" : "java-core",
+  "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.controller.OrderController#orderService",
   "record" : "entity_candidate",
   "resolution_status" : "ambiguous",
   "scope" : "MAIN",
   "seed_id" : "seed:14ec2d3050d11d608ba29bda",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "file" : "api/src/main/java/com/example/shop/controller/OrderController.java",
     "start_line" : 20
@@ -80,9 +86,10 @@
   "contract" : "semantic-stream/v1",
   "domain" : "language",
   "facets" : {
+    "language_kind" : "java.field",
     "storage_kind" : "FIELD"
   },
-  "id" : "service::MAIN::com.example.shop.service.OrderService#orderRepository",
+  "id" : "java-core::service::MAIN::com.example.shop.service.OrderService#orderRepository",
   "index_revision_id" : "${REVISION}",
   "kind" : "value",
   "language" : "java",
@@ -90,12 +97,13 @@
   "name" : "orderRepository",
   "origin" : "extracted",
   "producer_id" : "java-core",
+  "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.service.OrderService#orderRepository",
   "record" : "entity_candidate",
   "resolution_status" : "ambiguous",
   "scope" : "MAIN",
   "seed_id" : "seed:14ec2d3050d11d608ba29bda",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "file" : "service/src/main/java/com/example/shop/service/OrderService.java",
     "start_line" : 22
@@ -105,9 +113,10 @@
   "contract" : "semantic-stream/v1",
   "domain" : "language",
   "facets" : {
+    "language_kind" : "java.field",
     "storage_kind" : "FIELD"
   },
-  "id" : "service::MAIN::com.example.shop.service.OrderService#validator",
+  "id" : "java-core::service::MAIN::com.example.shop.service.OrderService#validator",
   "index_revision_id" : "${REVISION}",
   "kind" : "value",
   "language" : "java",
@@ -115,12 +124,13 @@
   "name" : "validator",
   "origin" : "extracted",
   "producer_id" : "java-core",
+  "provider_id" : "java-core",
   "qualified_name" : "com.example.shop.service.OrderService#validator",
   "record" : "entity_candidate",
   "resolution_status" : "ambiguous",
   "scope" : "MAIN",
   "seed_id" : "seed:14ec2d3050d11d608ba29bda",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "file" : "service/src/main/java/com/example/shop/service/OrderService.java",
     "start_line" : 24
@@ -136,7 +146,7 @@
   "record" : "evidence",
   "scope" : "seed",
   "seed_id" : "seed:14ec2d3050d11d608ba29bda",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "partial",
   "truncated" : true
@@ -151,7 +161,7 @@
   "seeds" : {
     "total" : 1
   },
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "partial",
   "truncated" : true

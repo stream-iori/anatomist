@@ -24,7 +24,7 @@ import java.util.concurrent.Callable;
                 "Use --explain for static composition and --check for read-only index preflight."
         },
         footer = "%nRules:%n"
-                + "  Put --index/--module/--scope/--format before --; do not repeat them in stages.%n"
+                + "  Put --index/--module/--scope/--language/--provider/--format before --; do not repeat them in stages.%n"
                 + "  Read each stage's --help for its Accepts/Emits contract.%n"
                 + "  Success ends with evidence(scope=stream); do not trust partial stdout without it.%n"
                 + "  Specification, composition, limit, or stage failures exit 5 with one-line JSON on stderr.%n"
@@ -44,6 +44,11 @@ public final class PipelineCommand implements Callable<Integer> {
     @Option(names = "--scope", defaultValue = "MAIN",
             description = "Source scope for all stages: MAIN | TEST | GENERATED | ALL.")
     String scope;
+    @Option(names = "--language", defaultValue = "java",
+            description = "Language ID for all stages (default java).")
+    String language;
+    @Option(names = "--provider", description = "Language provider ID for all stages.")
+    String provider;
     @Option(names = "--format", defaultValue = "ndjson",
             description = "Final output: ndjson | json | table.")
     String format;
@@ -64,12 +69,17 @@ public final class PipelineCommand implements Callable<Integer> {
             if (explain && check) throw PipelineFailure.invalid("PIPELINE_INVALID_SPEC",
                     "--explain and --check are mutually exclusive");
             scope = CliValidation.scope(scope, true);
+            language = language == null ? "java"
+                    : language.trim().toLowerCase(java.util.Locale.ROOT);
+            provider = provider == null || provider.isBlank()
+                    ? com.anatomist.query.semantic.SemanticProviders.providerForLanguage(language)
+                    : provider.trim();
             format = CliValidation.choice("--format", format, "ndjson", "json", "table");
             List<List<String>> spec = file == null ? inlineSpec() : fileSpec();
             List<PipelineStageRegistry.Stage> stages = new ArrayList<>();
             for (int i = 0; i < spec.size(); i++) {
                 stages.add(PipelineStageRegistry.parse(spec.get(i), i + 1,
-                        index, module, scope));
+                        index, module, scope, language, provider));
             }
             PipelineStageRegistry.validateComposition(stages);
             if (explain) {
@@ -86,7 +96,7 @@ public final class PipelineCommand implements Callable<Integer> {
                          SemanticExecutionContext.open(db, module, scope)) {
                 if (check) {
                     for (PipelineStageRegistry.Stage stage : stages) {
-                        if (!context.capabilities().supports(stage.name())) {
+                        if (!context.capabilities().supports(stage.name(), language, provider)) {
                             throw PipelineFailure.check(stage.position(), stage.name(),
                                     "operation is unavailable in the selected index: "
                                             + stage.name(), "UNSUPPORTED_CAPABILITY");
@@ -131,6 +141,8 @@ public final class PipelineCommand implements Callable<Integer> {
         if (index != null) globals.put("index", index.toAbsolutePath().normalize().toString());
         if (module != null) globals.put("module", module);
         globals.put("scope", scope);
+        globals.put("language", language);
+        if (provider != null) globals.put("provider", provider);
         globals.put("format", format);
         out.put("globals", globals);
         List<Map<String, Object>> stagePlans = new ArrayList<>();

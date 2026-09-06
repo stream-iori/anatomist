@@ -8,7 +8,14 @@ public class Edge {
     public String sourceId;
     public String targetId;
     public String externalTargetFqn;
+    public String externalTargetSymbol;
+    public String externalTargetLanguage;
+    public String externalTargetProviderId;
     public String relation;
+    public String semantic;
+    public String mechanism;
+    public String language;
+    public String providerId;
     public String callKind;
     public String confidence;
     public String resolution;

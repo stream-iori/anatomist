@@ -79,6 +79,9 @@ final class IndexOutput {
         out.put("index_state", "committed");
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("index_path", config.dbPath().toString());
+        if (rebuild == null || !Boolean.FALSE.equals(rebuild.get("published"))) {
+            addCommittedContext(out, config.dbPath(), config.projectRoot());
+        }
         out.put("config_source", config.loadedConfig() == null
                 ? "default" : config.loadedConfig().sourceName());
         if (config.scanPolicy() != null) {
@@ -217,6 +220,7 @@ final class IndexOutput {
         out.put("schema_version", FileCacheService.CURRENT_SCHEMA_VERSION);
         out.put("project_root", projectRoot.toString());
         out.put("index_path", dbPath.toString());
+        addCommittedContext(out, dbPath, projectRoot);
         if (configSource != null) out.put("config_source", configSource);
         if (scanPolicyHash != null) out.put("scan_policy_hash", scanPolicyHash);
         out.put("stats", stats);
@@ -260,5 +264,29 @@ final class IndexOutput {
                 "total", health.diagnostics().size(),
                 "returned", page.size(),
                 "truncated", health.diagnostics().size() > page.size()));
+    }
+
+    private static void addCommittedContext(Map<String, Object> out, Path dbPath,
+                                            Path fallbackRoot) {
+        try (com.anatomist.store.SqliteStore store = new com.anatomist.store.SqliteStore(dbPath)) {
+            com.anatomist.query.semantic.SemanticIdentity identity =
+                    com.anatomist.query.semantic.SemanticIdentity.read(store);
+            String root = store.readProjectMeta("source_root")
+                    .orElse(fallbackRoot.toAbsolutePath().normalize().toString());
+            out.put("index_identity", com.anatomist.query.semantic.IndexIdentity.map(
+                    dbPath, root, identity));
+            String branch = store.readProjectMeta("source_git_branch").orElse("");
+            Map<String, Object> checkout = new LinkedHashMap<>();
+            checkout.put("path", root);
+            checkout.put("name", branch.isBlank() || "HEAD".equals(branch)
+                    ? Path.of(root).getFileName().toString() : branch);
+            out.put("checkout", checkout);
+            Map<String, Object> git = new LinkedHashMap<>();
+            store.readProjectMeta("source_git_commit").ifPresent(value -> git.put("indexed_commit", value));
+            if (!branch.isBlank()) git.put("indexed_branch", branch);
+            store.readProjectMeta("source_git_dirty").ifPresent(value ->
+                    git.put("indexed_dirty", Boolean.parseBoolean(value)));
+            out.put("git", git);
+        }
     }
 }

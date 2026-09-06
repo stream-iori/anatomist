@@ -1,6 +1,7 @@
 package com.anatomist.cli;
 
 import picocli.CommandLine;
+import com.anatomist.query.semantic.SemanticProviders;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -46,7 +47,7 @@ final class SemanticOperationRegistry {
                 entry.role());
     }
 
-    static Map<String, Object> catalogEntry(Entry entry, String language,
+    static Map<String, Object> catalogEntry(Entry entry, String language, String providerId,
                                              Boolean available) {
         SemanticCommand command = entry.factory().get();
         CommandLine.Model.CommandSpec spec = new CommandLine(command).getCommandSpec();
@@ -71,13 +72,23 @@ final class SemanticOperationRegistry {
 
         Map<String, Object> support = new LinkedHashMap<>();
         support.put("language", language);
-        boolean installed = "java".equals(language);
-        support.put("provider", installed ? "java-core" : "none");
-        support.put("support", installed ? "supported" : "unsupported");
+        String selectedProvider = providerId == null || providerId.isBlank()
+                ? SemanticProviders.providerForLanguage(language) : providerId;
+        boolean providerInstalled = selectedProvider != null
+                && SemanticProviders.installedProvider(selectedProvider);
+        boolean languageMatches = providerInstalled && language.equals(
+                SemanticProviders.languageForProvider(selectedProvider));
+        boolean installed = SemanticProviders.installed(language) && languageMatches;
+        boolean supported = installed
+                && SemanticProviders.supportsProvider(selectedProvider, entry.id());
+        support.put("provider", selectedProvider == null ? "none" : selectedProvider);
+        support.put("support", supported ? "supported" : "unsupported");
         support.put("availability", !installed ? "unavailable"
                 : available == null ? "unchecked" : available ? "available" : "unavailable");
-        if (!installed) support.put("reason", "PROVIDER_NOT_INSTALLED");
-        if (installed && !entry.limitations().isEmpty()) {
+        if (!providerInstalled) support.put("reason", "PROVIDER_NOT_INSTALLED");
+        else if (!languageMatches) support.put("reason", "PROVIDER_LANGUAGE_MISMATCH");
+        else if (!supported) support.put("reason", "OPERATION_NOT_SUPPORTED");
+        if (supported && !entry.limitations().isEmpty()) {
             support.put("limitations", entry.limitations());
         }
         out.put("support", List.of(support));

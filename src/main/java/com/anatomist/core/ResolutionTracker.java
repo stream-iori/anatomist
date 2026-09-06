@@ -113,7 +113,8 @@ final class ResolutionTracker {
                 key.scope(),
                 key.symbol(),
                 bucket.count,
-                bucket.sample)));
+                bucket.sample,
+                "java", "java-core", providerReason(key.reason()))));
         long failed = unresolved.get();
         return new ResolutionSummary(failed, 0, failed, diagnostics);
     }
@@ -237,6 +238,19 @@ final class ResolutionTracker {
         return switch (reason) {
             case "INTERNAL_SYMBOL_MISSING", "JDK_SYMBOL_MISMATCH" -> "warning";
             default -> "info";
+        };
+    }
+
+    private static String providerReason(String reason) {
+        return switch (reason) {
+            case "GENERIC_INFERENCE_FAILED" -> "java.generic_inference";
+            case "AMBIGUOUS_OVERLOAD" -> "java.overload_ambiguous";
+            case "JDK_SYMBOL_MISMATCH" -> "java.platform_symbol";
+            case "METHOD_NOT_FOUND" -> "java.method_binding";
+            case "FIELD_NOT_FOUND" -> "java.value_binding";
+            case "INTERNAL_SYMBOL_MISSING" -> "java.internal_symbol";
+            case "THIRDPARTY_SYMBOL_MISSING" -> "java.dependency_symbol";
+            default -> "java.resolution";
         };
     }
 

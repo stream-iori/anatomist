@@ -3,6 +3,7 @@ package com.anatomist.cli;
 import com.anatomist.test.CliTestSupport;
 import com.anatomist.test.CliTestSupport.RunResult;
 import com.anatomist.store.IndexSchema;
+import com.anatomist.json.Json;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -14,6 +15,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -74,11 +76,37 @@ class IndexCommandIT {
         assertEquals(3, rejected.exitCode(), rejected.stderr());
         assertTrue(rejected.stdout().contains("\"failed_files\" : 1"), rejected.stdout());
         assertTrue(rejected.stdout().contains("\"status\" : \"error\""), rejected.stdout());
+        assertFalse(rejected.stdout().contains("\"index_identity\""), rejected.stdout());
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
              Statement st = c.createStatement()) {
             assertEquals(nodesBefore, scalar(st, "SELECT count(*) FROM nodes"));
             assertEquals(1, scalar(st, "SELECT count(*) FROM file_cache"));
         }
+    }
+
+    @Test
+    void jsonPublishesOnlyCommittedIdentityAndNoopKeepsItStable(@TempDir Path tmp) throws Exception {
+        Path project = CliTestSupport.createSimpleMavenProject(tmp, false);
+        Path db = tmp.resolve("identity.db");
+        RunResult full = CliTestSupport.runIndex(project, "--no-classpath", "--output",
+                db.toString(), "--format", "json");
+        assertEquals(0, full.exitCode(), full.stderr());
+        Map<?, ?> first = (Map<?, ?>) ((Map<?, ?>) Json.parseTree(full.stdout())).get("index_identity");
+        assertEquals("anatomist-index-identity/v1", first.get("contract"));
+
+        RunResult noop = CliTestSupport.runIndex(project, "--no-classpath", "--incremental",
+                "--output", db.toString(), "--format", "json");
+        Map<?, ?> second = (Map<?, ?>) ((Map<?, ?>) Json.parseTree(noop.stdout())).get("index_identity");
+        assertEquals(first, second);
+
+        Files.writeString(project.resolve("src/main/java/p/A.java"),
+                "package p; class A { void changed() {} }\n");
+        RunResult changed = CliTestSupport.runIndex(project, "--no-classpath", "--incremental",
+                "--output", db.toString(), "--format", "json");
+        Map<?, ?> third = (Map<?, ?>) ((Map<?, ?>) Json.parseTree(changed.stdout())).get("index_identity");
+        assertNotEquals(first.get("index_revision_id"), third.get("index_revision_id"));
+        assertNotEquals(first.get("source_snapshot_id"), third.get("source_snapshot_id"));
+        assertEquals(first.get("semantic_profile_id"), third.get("semantic_profile_id"));
     }
 
     @Test

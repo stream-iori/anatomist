@@ -44,15 +44,15 @@ public class DataReader {
     public Map<String, FileCacheEntry> readFileCache() {
         Connection c = conn();
         Map<String, FileCacheEntry> out = new LinkedHashMap<>();
-        String sql = "SELECT source_file,hash,schema_version,last_indexed,node_count,edge_count,"
+        String sql = "SELECT provider_id,source_file,hash,schema_version,last_indexed,node_count,edge_count,"
                 + "file_size,file_mtime_ns,contract_hash FROM file_cache";
         try (PreparedStatement ps = c.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 FileCacheEntry e = new FileCacheEntry(
-                        rs.getString(1), rs.getString(2), rs.getInt(3),
-                        rs.getString(4), rs.getInt(5), rs.getInt(6),
-                        rs.getLong(7), rs.getLong(8), rs.getString(9));
+                        rs.getString(1), rs.getString(2), rs.getString(3), rs.getInt(4),
+                        rs.getString(5), rs.getInt(6), rs.getInt(7),
+                        rs.getLong(8), rs.getLong(9), rs.getString(10));
                 out.put(e.sourceFile(), e);
             }
         } catch (SQLException e) {
@@ -590,13 +590,14 @@ public class DataReader {
 
     public List<IndexDiagnostic> readIndexDiagnostics() {
         List<IndexDiagnostic> out = new ArrayList<>();
-        String sql = "SELECT severity,code,phase,source_file,module,scope,symbol,occurrence_count,sample "
+        String sql = "SELECT severity,code,phase,source_file,module,scope,symbol,occurrence_count,sample,language,provider_id,provider_reason "
                 + "FROM index_diagnostics ORDER BY CASE severity WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, code";
         try (Statement st = conn().createStatement(); ResultSet rs = st.executeQuery(sql)) {
             while (rs.next()) {
                 out.add(new IndexDiagnostic(rs.getString(1), rs.getString(2), rs.getString(3),
                         rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7),
-                        rs.getLong(8), rs.getString(9)));
+                        rs.getLong(8), rs.getString(9), rs.getString(10), rs.getString(11),
+                        rs.getString(12)));
             }
             return out;
         } catch (SQLException e) {
@@ -632,11 +633,11 @@ public class DataReader {
     /** File-level lossless coverage, optionally filtered like doctor --diagnostic-file. */
     public List<Map<String, Object>> readDiagnosticCoverage(String sourceFileFilter) {
         List<Map<String, Object>> out = new ArrayList<>();
-        String sql = "SELECT source_file,module,scope,capability,status,occurrences,groups_count,"
+        String sql = "SELECT source_file,module,scope,language,provider_id,capability,status,occurrences,groups_count,"
                 + "codes,code_counts,details_truncated FROM analysis_coverage"
                 + (sourceFileFilter == null || sourceFileFilter.isBlank()
                 ? "" : " WHERE source_file LIKE ?")
-                + " ORDER BY source_file,module,scope,capability";
+                + " ORDER BY provider_id,source_file,module,scope,capability";
         try (PreparedStatement ps = conn().prepareStatement(sql)) {
             if (sourceFileFilter != null && !sourceFileFilter.isBlank()) {
                 ps.setString(1, "%" + sourceFileFilter.replace('\\', '/') + "%");
@@ -647,13 +648,15 @@ public class DataReader {
                     row.put("source_file", rs.getString(1).replace('\\', '/'));
                     row.put("module", rs.getString(2));
                     row.put("scope", rs.getString(3));
-                    row.put("capability", rs.getString(4));
-                    row.put("status", rs.getString(5));
-                    row.put("occurrences", rs.getLong(6));
-                    row.put("groups", rs.getLong(7));
-                    row.put("codes", Json.parseTree(rs.getString(8)));
-                    row.put("code_counts", Json.parseTree(rs.getString(9)));
-                    row.put("details_truncated", rs.getInt(10) != 0);
+                    row.put("language", rs.getString(4));
+                    row.put("provider_id", rs.getString(5));
+                    row.put("capability", rs.getString(6));
+                    row.put("status", rs.getString(7));
+                    row.put("occurrences", rs.getLong(8));
+                    row.put("groups", rs.getLong(9));
+                    row.put("codes", Json.parseTree(rs.getString(10)));
+                    row.put("code_counts", Json.parseTree(rs.getString(11)));
+                    row.put("details_truncated", rs.getInt(12) != 0);
                     out.add(row);
                 }
             }

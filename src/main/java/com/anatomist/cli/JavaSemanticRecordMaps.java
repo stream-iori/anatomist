@@ -5,6 +5,7 @@ import com.anatomist.query.JavaSemanticRows.DispatchTarget;
 import com.anatomist.query.JavaSemanticRows.TypeRelation;
 import com.anatomist.query.semantic.SemanticIdentity;
 import com.anatomist.query.semantic.SemanticRecords;
+import com.anatomist.query.semantic.RelationshipIdentity;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,6 +19,11 @@ final class JavaSemanticRecordMaps {
                                             SemanticIdentity identity) {
         Map<String, Object> out = SemanticRecords.common("type_relation", seed, parent, identity);
         out.put("id", row.id());
+        out.put("relationship_id", RelationshipIdentity.of("type_relation",
+                RelationshipIdentity.fields("provider", "java-core", "language", "java",
+                        "semantic", row.semantic(), "mechanism", row.mechanism(),
+                        "subject", row.subject(), "object", row.object(),
+                        "external", row.externalObject())));
         out.put("semantic", row.semantic().toUpperCase(java.util.Locale.ROOT).replace('-', '_'));
         out.put("mechanism", row.mechanism());
         out.put("subject", row.subject());
@@ -39,6 +45,11 @@ final class JavaSemanticRecordMaps {
                                                 SemanticIdentity identity) {
         Map<String, Object> out = SemanticRecords.common("callable_relation", seed, parent, identity);
         out.put("id", row.id());
+        out.put("relationship_id", RelationshipIdentity.of("callable_relation",
+                RelationshipIdentity.fields("provider", "java-core", "language", "java",
+                        "semantic", row.semantic(), "mechanism", row.mechanism(),
+                        "subject", row.subject(), "object", row.object(),
+                        "external", row.externalObject())));
         out.put("semantic", row.semantic());
         out.put("mechanism", row.mechanism());
         out.put("subject", row.subject());
@@ -59,6 +70,10 @@ final class JavaSemanticRecordMaps {
                                         SemanticIdentity identity) {
         Map<String, Object> out = SemanticRecords.common("dispatch_target", seed, parent, identity);
         out.put("id", row.id());
+        out.put("relationship_id", RelationshipIdentity.of("dispatch_target",
+                RelationshipIdentity.fields("provider", "java-core", "language", "java",
+                        "caller", row.caller(), "target", row.target(),
+                        "mechanism", row.mechanism(), "candidate_kind", row.candidateKind())));
         out.put("call_site", row.callSite());
         out.put("caller", row.caller());
         out.put("target", row.target());

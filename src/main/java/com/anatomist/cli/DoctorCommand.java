@@ -120,6 +120,7 @@ public class DoctorCommand implements Callable<Integer> {
         List<String> capabilities = new java.util.ArrayList<>((List<String>) out.get("capabilities"));
         capabilities.add("file-resolution-coverage");
         capabilities.add("declarations-by-file-v1");
+        capabilities.add("stable-relationship-id-v1");
         out.put("capabilities", List.copyOf(capabilities));
 
         if (exists && compatibility.requiresRecreate()) {
@@ -151,7 +152,8 @@ public class DoctorCommand implements Callable<Integer> {
         }
 
         if (exists) {
-            try (SqliteStore store = new SqliteStore(db)) {
+            try (com.anatomist.store.IndexLock ignored = com.anatomist.store.IndexLock.forRead(db);
+                 SqliteStore store = new SqliteStore(db)) {
                 if (!store.schemaCompatible()) {
                     out.put("index_state", "incompatible");
                     out.put("status", "degraded");
@@ -208,11 +210,15 @@ public class DoctorCommand implements Callable<Integer> {
                             com.anatomist.query.semantic.SemanticProviders.installedLanguages());
                     out.put("index_revision_id", semanticIdentity.indexRevisionId());
                     out.put("semantic_profile_id", semanticIdentity.semanticProfileId());
+                    String sourceRoot = store.readProjectMeta("source_root").orElse("");
+                    out.put("index_identity", com.anatomist.query.semantic.IndexIdentity.map(
+                            db, sourceRoot, semanticIdentity));
+                    addCheckoutAndGit(out, store, sourceRoot);
                     addSnapshotStatus(out, store);
                     if (store.readProjectMeta("source_git_commit").isPresent()
-                            && out.get("source_root") instanceof String sourceRoot) {
+                            && out.get("source_root") instanceof String configuredSourceRoot) {
                         com.anatomist.application.ProjectMetadata.GitUntrackedCache cache =
-                                com.anatomist.application.ProjectMetadata.gitUntrackedCache(Path.of(sourceRoot));
+                                com.anatomist.application.ProjectMetadata.gitUntrackedCache(Path.of(configuredSourceRoot));
                         out.put("git_untracked_cache", cache.value());
                         if (cache != com.anatomist.application.ProjectMetadata.GitUntrackedCache.ENABLED) {
                             out.put("advice", List.of(
@@ -477,6 +483,29 @@ public class DoctorCommand implements Callable<Integer> {
         snapshot.put("match", !indexed.isBlank() && current != null && !current.isBlank()
                 ? indexed.equals(current) : null);
         if (!snapshot.isEmpty()) out.put("source_snapshot", snapshot);
+    }
+
+    private static void addCheckoutAndGit(Map<String, Object> out, SqliteStore store,
+                                          String sourceRoot) {
+        Map<String, Object> checkout = new java.util.LinkedHashMap<>();
+        if (!sourceRoot.isBlank()) {
+            checkout.put("path", Path.of(sourceRoot).toAbsolutePath().normalize().toString());
+            String branch = com.anatomist.application.ProjectMetadata.currentGitBranch(Path.of(sourceRoot));
+            checkout.put("name", branch == null || branch.isBlank() || "HEAD".equals(branch)
+                    ? Path.of(sourceRoot).getFileName().toString() : branch);
+        }
+        out.put("checkout", checkout);
+        Map<String, Object> git = new java.util.LinkedHashMap<>();
+        String indexed = store.readProjectMeta("source_git_commit").orElse("");
+        String current = sourceRoot.isBlank() ? null
+                : com.anatomist.application.ProjectMetadata.currentGitCommit(Path.of(sourceRoot));
+        if (!indexed.isBlank()) git.put("indexed_commit", indexed);
+        if (current != null && !current.isBlank()) git.put("current_commit", current);
+        git.put("commit_match", !indexed.isBlank() && current != null && !current.isBlank()
+                ? indexed.equals(current) : null);
+        store.readProjectMeta("source_git_branch").ifPresent(value -> git.put("indexed_branch", value));
+        store.readProjectMeta("source_git_dirty").ifPresent(value -> git.put("indexed_dirty", Boolean.parseBoolean(value)));
+        out.put("git", git);
     }
 
     private static Map<String, Long> resolutionCounts(

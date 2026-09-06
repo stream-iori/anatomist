@@ -73,6 +73,7 @@ class SemanticPipelineIT {
         RunResult type = run("", "resolve", "p.Gateway", "--kind", "type", "--exact", "--unique");
         RunResult relations = run(type.stdout(), "type-relations", "--direction", "incoming");
         assertEquals(0, relations.exitCode(), relations.stderr());
+        assertRelationshipIds(relations.stdout());
         assertTrue(relations.stdout().contains("CONFORMS_TO"), relations.stdout());
 
         RunResult implementations = run(type.stdout(), "runtime-implementations", "--instantiability", "yes");
@@ -84,12 +85,14 @@ class SemanticPipelineIT {
         RunResult method = run("", "resolve", "p.Gateway#execute()", "--kind", "callable", "--exact", "--unique");
         RunResult callableRelations = run(method.stdout(), "callable-relations", "--direction", "incoming", "--transitive");
         assertEquals(0, callableRelations.exitCode(), callableRelations.stderr());
+        assertRelationshipIds(callableRelations.stdout());
         assertTrue(callableRelations.stdout().contains("IMPLEMENTS_CONTRACT"), callableRelations.stdout());
 
         RunResult caller = run("", "resolve", "p.GatewayCaller#virtual(p.Gateway)", "--kind", "callable", "--exact", "--unique");
         RunResult calls = run(caller.stdout(), "calls");
         RunResult dispatch = run(calls.stdout(), "dispatch");
         assertEquals(0, dispatch.exitCode(), dispatch.stderr());
+        assertRelationshipIds(dispatch.stdout());
         assertTrue(dispatch.stdout().contains("\"algorithm\":\"CHA\""), dispatch.stdout());
         assertTrue(dispatch.stdout().contains("p.ConcreteGateway#execute()"), dispatch.stdout());
         assertFalse(dispatch.stdout().contains("\"target_name\":\"p.AbstractGateway#execute\""), dispatch.stdout());
@@ -119,6 +122,7 @@ class SemanticPipelineIT {
         RunResult type = run("", "resolve", "p.ConcreteGateway", "--kind", "type", "--exact", "--unique");
         RunResult bindings = run(type.stdout(), "bindings", "--direction", "incoming", "--semantic", "realizes");
         assertEquals(0, bindings.exitCode(), bindings.stderr());
+        assertRelationshipIds(bindings.stdout());
         assertTrue(bindings.stdout().contains("spring.xml.class"), bindings.stdout());
         assertTrue(bindings.stdout().contains("REALIZES"), bindings.stdout());
     }
@@ -140,6 +144,7 @@ class SemanticPipelineIT {
         RunResult field = run("", "resolve", "p.A#state", "--kind", "value", "--exact", "--unique");
         RunResult accesses = run(field.stdout(), "accesses", "--mode", "all");
         assertEquals(0, accesses.exitCode(), accesses.stderr());
+        assertRelationshipIds(accesses.stdout());
         assertTrue(accesses.stdout().contains("access_site"), accesses.stdout());
 
         RunResult callable = run("", "resolve", "p.A#guarded(boolean)", "--kind", "callable", "--exact", "--unique");
@@ -180,6 +185,8 @@ class SemanticPipelineIT {
         assertTrue(sites.size() >= 3, sites.toString());
         assertEquals(sites.size(), sites.stream().map(r -> r.get("id")).distinct().count());
         for (Map<String, Object> site : sites) {
+            assertTrue(String.valueOf(site.get("relationship_id"))
+                    .matches("rel:sha256:[0-9a-f]{64}"), site.toString());
             Map<?, ?> range = (Map<?, ?>) site.get("source");
             assertNotNull(range.get("start_column"), site.toString());
             assertNotNull(range.get("end_column"), site.toString());
@@ -213,6 +220,50 @@ class SemanticPipelineIT {
         assertTrue(source.stdout().contains("source_slice"), source.stdout());
         assertTrue(source.stdout().contains("new B().go()"), source.stdout());
         assertEquals("stream", lastRecord(source.stdout()).get("scope"));
+    }
+
+    @Test
+    void relationshipIdSurvivesLineMovementButChangesWithEndpoint() throws Exception {
+        String selector = "p.A#run()";
+        RunResult beforeEntity = run("", "resolve", selector, "--kind", "callable", "--exact", "--unique");
+        RunResult beforeCalls = run(beforeEntity.stdout(), "calls");
+        Map<String, Object> before = records(beforeCalls.stdout()).stream()
+                .filter(row -> "call_site".equals(row.get("record")))
+                .filter(row -> String.valueOf(row.get("resolved_targets")).contains("#go"))
+                .findFirst().orElseThrow();
+
+        Path source = project.resolve("src/main/java/p/A.java");
+        Files.writeString(source, "\n" + Files.readString(source));
+        CliTestSupport.assertIndexOk(project, "--incremental", "--no-classpath", "--spring-xml",
+                "--java-version", "17", "--output", db.toString());
+        RunResult afterEntity = run("", "resolve", selector, "--kind", "callable", "--exact", "--unique");
+        RunResult afterCalls = run(afterEntity.stdout(), "calls");
+        Map<String, Object> after = records(afterCalls.stdout()).stream()
+                .filter(row -> "call_site".equals(row.get("record")))
+                .filter(row -> String.valueOf(row.get("resolved_targets")).contains("#go"))
+                .findFirst().orElseThrow();
+        assertNotEquals(before.get("id"), after.get("id"));
+        assertEquals(before.get("relationship_id"), after.get("relationship_id"));
+
+        String changed = Files.readString(source).replace("new B().go()", "new B().stop()");
+        Files.writeString(source, changed);
+        CliTestSupport.assertIndexOk(project, "--incremental", "--no-classpath", "--spring-xml",
+                "--java-version", "17", "--output", db.toString());
+        RunResult changedEntity = run("", "resolve", selector, "--kind", "callable", "--exact", "--unique");
+        RunResult changedCalls = run(changedEntity.stdout(), "calls");
+        Map<String, Object> endpoint = records(changedCalls.stdout()).stream()
+                .filter(row -> "call_site".equals(row.get("record")))
+                .filter(row -> String.valueOf(row.get("resolved_targets")).contains("#stop"))
+                .findFirst().orElseThrow();
+        assertNotEquals(before.get("relationship_id"), endpoint.get("relationship_id"));
+    }
+
+    private static void assertRelationshipIds(String stream) {
+        List<Map<String, Object>> relationships = records(stream).stream()
+                .filter(row -> !"evidence".equals(row.get("record"))).toList();
+        assertFalse(relationships.isEmpty(), stream);
+        relationships.forEach(row -> assertTrue(String.valueOf(row.get("relationship_id"))
+                .matches("rel:sha256:[0-9a-f]{64}"), row.toString()));
     }
 
     @Test

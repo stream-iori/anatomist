@@ -1,16 +1,17 @@
 [ {
   "contract" : "semantic-stream/v1",
   "derived_from" : [ {
-    "id" : "service::MAIN::com.example.shop.service.OrderService",
+    "id" : "java-core::service::MAIN::com.example.shop.service.OrderService",
     "qualified_name" : "com.example.shop.service.OrderService",
     "record" : "entity"
   } ],
   "domain" : "language",
-  "entity" : "service::MAIN::com.example.shop.service.OrderService",
+  "entity" : "java-core::service::MAIN::com.example.shop.service.OrderService",
   "facets" : {
+    "language_kind" : "java.class",
     "storage_kind" : "CLASS"
   },
-  "id" : "declaration:sha256:b134e32c4d49169844677091fd3f6ba8baf7f5877ffdc4ed0d789775ef691084",
+  "id" : "declaration:sha256:5727aca7ddfcd5eb3f018e561917e0eb162a234f0d5b38356afb65be2047b4cf",
   "index_revision_id" : "${REVISION}",
   "kind" : "type",
   "language" : "java",
@@ -23,8 +24,8 @@
   "record" : "declaration",
   "resolution_status" : "exact",
   "scope" : "MAIN",
-  "seed_id" : "seed:bbcbea15fe47a69dc905f257",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "seed_id" : "seed:4b887f076e15f46be828f495",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source" : {
     "end_column" : 1,
     "end_line" : 69,
@@ -43,8 +44,8 @@
   "parent_seed_id" : "seed:db09a7f719a0c7b294622382",
   "record" : "evidence",
   "scope" : "seed",
-  "seed_id" : "seed:bbcbea15fe47a69dc905f257",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "seed_id" : "seed:4b887f076e15f46be828f495",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
@@ -57,7 +58,7 @@
   "record" : "evidence",
   "scope" : "seed",
   "seed_id" : "seed:db09a7f719a0c7b294622382",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
@@ -72,7 +73,7 @@
   "seeds" : {
     "total" : 1
   },
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false

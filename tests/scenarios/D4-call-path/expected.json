@@ -1,7 +1,7 @@
 [ {
   "contract" : "semantic-stream/v1",
   "derived_from" : [ {
-    "id" : "api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
+    "id" : "java-core::api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
     "qualified_name" : "com.example.shop.controller.OrderController#create",
     "record" : "entity"
   } ],
@@ -10,24 +10,24 @@
   "hops" : [ {
     "producer_id" : "java-core",
     "relation" : "CALLS",
-    "source" : "api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
-    "target" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)"
+    "source" : "java-core::api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target" : "java-core::service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)"
   }, {
     "producer_id" : "java-core",
     "relation" : "CALLS",
-    "source" : "service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
-    "target" : "service::MAIN::com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)"
+    "source" : "java-core::service::MAIN::com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)",
+    "target" : "java-core::service::MAIN::com.example.shop.service.OrderValidator#validate(com.example.shop.domain.dto.CreateOrderRequest)"
   } ],
-  "id" : "trace:sha256:5b75f90f58e1528bb4d3b93844e7ffc4cc93982620d45a537bf51ad9168df0cb",
+  "id" : "trace:sha256:e60915178e393885a9b7e84da371244d6459b3f58cfd3192f4b85230a9dedf63",
   "index_revision_id" : "${REVISION}",
   "origin" : "derived",
   "parent_seed_id" : "seed:fcaeff1d32242633a8a13a8c",
   "record" : "trace",
   "resolution_status" : "exact",
-  "seed_id" : "seed:4aa14fbdab52e42701bd31fd",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "seed_id" : "seed:676971cc49741b2b839b6666",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
-  "start" : "api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)"
+  "start" : "java-core::api::MAIN::com.example.shop.controller.OrderController#create(com.example.shop.domain.dto.CreateOrderRequest)"
 }, {
   "contract" : "semantic-stream/v1",
   "coverage" : "complete",
@@ -37,8 +37,8 @@
   "parent_seed_id" : "seed:fcaeff1d32242633a8a13a8c",
   "record" : "evidence",
   "scope" : "seed",
-  "seed_id" : "seed:4aa14fbdab52e42701bd31fd",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "seed_id" : "seed:676971cc49741b2b839b6666",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
@@ -51,7 +51,7 @@
   "record" : "evidence",
   "scope" : "seed",
   "seed_id" : "seed:fcaeff1d32242633a8a13a8c",
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false
@@ -66,7 +66,7 @@
   "seeds" : {
     "total" : 1
   },
-  "semantic_profile_id" : "sha256:9e79daf756ce59ba613ff15898f7d35f0bcdfef231d55233c80488d75195e807",
+  "semantic_profile_id" : "sha256:714c360f29edcb3ef72d0a77b10ecf33b97e245cc440a540a4b47c2f043d1e83",
   "source_snapshot_id" : "sha256:be96aa9f1d8b2b048b3be3288eac98be99ccb77d611f93d6d5f3964cf1d0bfc6",
   "status" : "positive",
   "truncated" : false

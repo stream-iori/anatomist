@@ -1,6 +1,6 @@
 ---
 name: anatomist
-description: "Source-backed structural analysis through semantic-stream/v1 pipelines."
+description: "Source-backed analysis through semantic-stream/v1 pipelines."
 ---
 
 # anatomist
@@ -50,13 +50,12 @@ conclusion safe. `--accept-unframed` intentionally downgrades coverage.
 candidates, not observed execution. Framework bindings come from artifact producers,
 not Java semantics.
 
-Annotations are direct by default; add `--include-meta` for composed definitions.
-Inspect all ambiguous members; unresolved SymbolRef is not proof of absence.
+Annotations are direct unless `--include-meta`. Inspect ambiguous members;
+unresolved SymbolRef is not proof of absence.
 
 Use `declarations-of --file <relative.java>` for changed files. For one method,
 run an exact callable `resolve --then source`; page until evidence is complete.
 
-1.0 cannot read 0.1x indexes. Run `index <project> --recreate`; there is no alias
-or silent rebuild.
+For 0.1x indexes run `index <project> --recreate`; no alias or silent rebuild.
 
 Lombok is off. Modeled AST facts are evidence; partial capability needs proof.

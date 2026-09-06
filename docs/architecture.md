@@ -62,7 +62,7 @@ IndexCommand (picocli adapter)
   → ProjectResourceAnalyzer pass (shared inventory + staged Java fact view):
           SpringXmlAnalyzer       → BEAN / DEFINED_BY / WIRES / BINDS_TO (--spring-xml only)
   → ExtractorPipeline provenance → source_file on Java facts
-  → GraphIdentityRewriter        → module::scope::symbol_id storage keys
+  → GraphIdentityRewriter        → provider::module::scope::symbol_id storage keys
   → GraphPostProcessor           → bind/prune graph facts
   → StagedGraphStore → sibling temporary SQLite DB
   → quick_check + foreign_key_check + schema/semantics gate
@@ -100,9 +100,28 @@ All structural rows carry `producer_id`. A node ID has exactly one producer;
 cross-producer ownership raises `EXTENSION_NODE_OWNERSHIP_CONFLICT`. Relations
 may reference nodes owned by another producer.
 
+## Language Provider Model
+
+```text
+LanguageProvider
+  ├─ descriptor   provider/language/version/extensions/operations
+  ├─ discover     source roots → provider-owned files
+  ├─ selectors    public selector → provider-local selector
+  └─ semantics    provider-specific semantic operations
+                         │
+                         ▼
+              common nodes / declarations / edges
+```
+
+Providers are registered explicitly in `LanguageProviderRegistry`; there is no
+reflection or `ServiceLoader`, so JVM and native-image use the same registry.
+The first installed provider is `java-core`. Python 3, Rust, and TypeScript use
+the same contract when their parsers are added; Java concepts such as record or
+JDK resolution stay inside the Java provider.
+
 ## Critical invariants
 
-- **Storage identity is `module::scope::symbol_id`.** Logical `symbol_id` still preserves original case.
+- **Storage identity is `provider::module::scope::symbol_id`.** Logical `symbol_id` remains provider-owned and preserves original case.
 - **Callable identity is AST-aware.** If SymbolSolver cannot render a parameter, normalized AST type text keeps overloads distinct.
 - **Record members are first-class.** Explicit methods, compact/canonical constructors, component fields, and accessors receive normal graph nodes.
 - **Record is core Java semantics, not an extension.** It remains available even when all framework extensions are disabled.
@@ -138,13 +157,18 @@ may reference nodes owned by another producer.
 
 Single source of truth: `src/main/resources/schema.sql`
 
-Schema v22 has no migration path. It stores structural annotation/meta facts and
+Schema v23 has no migration path. It stores provider ownership, structural annotation/meta facts and
 configured member bindings in addition to call-site joins with an internal integer
 primary key and keeps the public stable ID as a 32-byte SHA-256 digest. Separate
 `call_site_targets` let one syntax site retain several static candidates without
 repeating a long text key.
-`graph_semantics_version=5` identifies this meaning independently of table layout.
+`graph_semantics_version=6` identifies this meaning independently of table layout.
 `index_revision_id` is published in the same transaction as query-visible facts.
+
+`doctor` reports the committed index identity, health, checkout and Git metadata but
+does not prove that a mutable worktree still matches the index. The caller owns
+worktree lifecycle and synchronizes each index with `index --incremental` before
+queries. Cross-index consumers require equal semantic profiles and pinned identities.
 
 ```text
 startup / doctor

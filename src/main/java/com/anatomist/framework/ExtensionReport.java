@@ -33,7 +33,8 @@ public final class ExtensionReport {
             diagnostics.add(sourceFile == null ? diagnostic : new IndexDiagnostic(
                     diagnostic.severity(), diagnostic.code(), diagnostic.phase(), sourceFile,
                     diagnostic.module(), diagnostic.scope(), diagnostic.symbol(),
-                    diagnostic.count(), diagnostic.sample()));
+                    diagnostic.count(), diagnostic.sample(), diagnostic.language(),
+                    diagnostic.providerId(), diagnostic.providerReason()));
         }
         ExtensionAstData.counters(unit).forEach((key, value) -> counters.merge(key, value, Long::sum));
         if (timings != null) timings.addNanos("extension_ast_augment", ExtensionAstData.nanos(unit));

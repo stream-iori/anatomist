@@ -27,7 +27,8 @@ public final class IndexHealthService {
                     diagnostics.add(new IndexDiagnostic(
                             "warning", "JAVA_PARSE_FAILED", "PARSING",
                             file.toString(), null, null, null, 1,
-                            problems.isEmpty() ? "parser produced no compilation unit" : problems.get(0))));
+                            problems.isEmpty() ? "parser produced no compilation unit" : problems.get(0),
+                            "java", "java-core", "java.parse")));
         }
         return List.copyOf(diagnostics);
     }
@@ -41,12 +42,14 @@ public final class IndexHealthService {
         if (unresolved > 0) {
             diagnostics.add(new IndexDiagnostic("info", "UNRESOLVED_SYMBOLS", "RESOLUTION",
                     null, null, null, null, unresolved,
-                    "SymbolSolver could not resolve every expression; inspect --debug output when needed."));
+                    "SymbolSolver could not resolve every expression; inspect --debug output when needed.",
+                    "java", "java-core", "java.resolution"));
         }
         if (dropped > 0) {
             diagnostics.add(new IndexDiagnostic("warning", "DANGLING_FACTS_DROPPED", "EDGE_BINDING",
                     null, null, null, null, dropped,
-                    "Internal edges or annotations referenced nodes that were not emitted."));
+                    "Internal edges or annotations referenced nodes that were not emitted.",
+                    "java", "java-core", "java.graph_binding"));
         }
         return diagnostics;
     }

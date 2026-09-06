@@ -16,6 +16,8 @@ public final class AnalysisCoverage {
     public record Row(String sourceFile,
                       String module,
                       String scope,
+                      String language,
+                      String providerId,
                       String capability,
                       String status,
                       long occurrences,
@@ -40,13 +42,15 @@ public final class AnalysisCoverage {
             for (String capability : CAPABILITIES) {
                 if (!relevant(diagnostic, capability)) continue;
                 Key key = new Key(value(diagnostic.sourceFile()), value(diagnostic.module()),
-                        value(diagnostic.scope()), capability);
+                        value(diagnostic.scope()), value(diagnostic.language()),
+                        value(diagnostic.providerId()), capability);
                 grouped.computeIfAbsent(key, ignored -> new Accumulator()).add(diagnostic);
             }
         }
         List<Row> rows = new ArrayList<>();
         grouped.forEach((key, value) -> rows.add(new Row(
-                key.sourceFile(), key.module(), key.scope(), key.capability(),
+                key.sourceFile(), key.module(), key.scope(), key.language(), key.providerId(),
+                key.capability(),
                 "partial", value.occurrences, value.groups,
                 Json.writeCompact(value.codes),
                 Json.writeCompact(value.codeCounts),
@@ -100,7 +104,8 @@ public final class AnalysisCoverage {
         return value == null ? "" : value.toUpperCase(Locale.ROOT);
     }
 
-    private record Key(String sourceFile, String module, String scope, String capability)
+    private record Key(String sourceFile, String module, String scope, String language,
+                       String providerId, String capability)
             implements Comparable<Key> {
         @Override
         public int compareTo(Key other) {
@@ -109,6 +114,10 @@ public final class AnalysisCoverage {
             result = module.compareTo(other.module);
             if (result != 0) return result;
             result = scope.compareTo(other.scope);
+            if (result != 0) return result;
+            result = language.compareTo(other.language);
+            if (result != 0) return result;
+            result = providerId.compareTo(other.providerId);
             if (result != 0) return result;
             return capability.compareTo(other.capability);
         }

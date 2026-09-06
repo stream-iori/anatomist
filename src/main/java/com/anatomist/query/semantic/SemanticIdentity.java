@@ -24,13 +24,17 @@ public record SemanticIdentity(String indexRevisionId,
     public static SemanticIdentity read(Connection connection) {
         String snapshot = scalar(connection, SOURCE_SNAPSHOT_META_KEY);
         if (snapshot == null || snapshot.isBlank()) snapshot = "sha256:unknown";
-        String environment = scalar(connection, IndexEnvironmentFingerprint.META_KEY);
+        String environment = scalar(connection,
+                com.anatomist.application.ProjectMetadata.SEMANTIC_PROFILE_INPUTS_KEY);
+        if (environment == null || environment.isBlank()) {
+            environment = scalar(connection, IndexEnvironmentFingerprint.META_KEY);
+        }
         String extensions = scalar(connection, PreparedExtensions.META_KEY);
         String profile = "sha256:" + sha256(String.join("\n",
                 nullToEmpty(environment), nullToEmpty(extensions),
                 "schema=" + IndexSchema.VERSION,
                 "graph=" + GraphSemantics.VERSION,
-                "adapter=java-semantic-v1"));
+                "providers=" + providerProfiles(connection)));
         String revision = scalar(connection, IndexRevision.META_KEY);
         if (revision == null || revision.isBlank()) {
             // Read compatibility for an index created before revision identities existed.
@@ -57,6 +61,19 @@ public record SemanticIdentity(String indexRevisionId,
             }
         } catch (SQLException failure) {
             throw new RuntimeException("failed to read semantic identity", failure);
+        }
+    }
+
+    private static String providerProfiles(Connection connection) {
+        String sql = "SELECT provider_id,profile_hash FROM index_providers ORDER BY provider_id";
+        try (PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet rows = statement.executeQuery()) {
+            java.util.List<String> profiles = new java.util.ArrayList<>();
+            while (rows.next()) profiles.add(rows.getString(1) + ":" + rows.getString(2));
+            return profiles.isEmpty() ? "unknown" : String.join(",", profiles);
+        } catch (SQLException failure) {
+            // Only reachable for a legacy/incomplete index; compatibility checks reject it.
+            return "unknown";
         }
     }
 

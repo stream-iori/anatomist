@@ -11,6 +11,7 @@ import com.anatomist.query.semantic.SemanticProviders;
 import com.anatomist.query.semantic.SemanticStreamReader;
 import com.anatomist.query.semantic.SemanticStreamWriter;
 import com.anatomist.query.semantic.SemanticCursor;
+import com.anatomist.query.semantic.RelationshipIdentity;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -125,6 +126,19 @@ public final class CallsCommand extends SemanticCommand {
         if (targets.size() == 1) out.put("resolved_target", targets.getFirst().get("id"));
         out.put("dispatch_kind", site.dispatchKind == null ? "unknown"
                 : site.dispatchKind.toLowerCase(java.util.Locale.ROOT));
+        String provider = SemanticProviders.providerForProducer(site.producerId);
+        List<String> targetIds = site.targets.stream().map(CallSiteRow.Target::id)
+                .filter(java.util.Objects::nonNull).distinct().sorted().toList();
+        Map<String, Object> relationship = RelationshipIdentity.fields(
+                "provider", provider, "language", language, "caller", site.callerId,
+                "dispatch_kind", site.dispatchKind == null ? "unknown"
+                        : site.dispatchKind.toLowerCase(java.util.Locale.ROOT),
+                "targets", targetIds);
+        if (targetIds.isEmpty()) {
+            relationship.put("syntax_target", site.syntaxTarget);
+            relationship.put("receiver_static_type", site.receiverStaticType);
+        }
+        out.put("relationship_id", RelationshipIdentity.of("call_site", relationship));
         if (site.metadata != null) {
             Object metadata = com.anatomist.json.Json.parseTree(site.metadata);
             if (metadata instanceof Map<?, ?> values && values.get("lombok_usage") != null) {

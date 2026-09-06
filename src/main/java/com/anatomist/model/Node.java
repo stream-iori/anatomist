@@ -3,10 +3,17 @@ package com.anatomist.model;
 public class Node {
     public String id;
     public String symbolId;
+    /** Language-neutral semantic domain and provider provenance. */
+    public String domain;
+    public String language;
+    public String providerId;
+    public String entityKind;
+    public String languageKind;
     public String label;
     public String kind;
     public String qualifiedName;
     public String pkg;
+    public String namespace;
     public String sourceFile;
     public String sourceLocation;
     public Integer beginLine;

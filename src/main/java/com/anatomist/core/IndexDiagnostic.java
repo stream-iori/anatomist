@@ -12,8 +12,17 @@ public record IndexDiagnostic(
         String scope,
         String symbol,
         long count,
-        String sample
+        String sample,
+        String language,
+        String providerId,
+        String providerReason
 ) {
+    public IndexDiagnostic(String severity, String code, String phase, String sourceFile,
+                           String module, String scope, String symbol, long count, String sample) {
+        this(severity, code, phase, sourceFile, module, scope, symbol, count, sample,
+                null, null, null);
+    }
+
     public Map<String, Object> toMap() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("severity", severity);
@@ -23,6 +32,9 @@ public record IndexDiagnostic(
         if (module != null) out.put("module", module);
         if (scope != null) out.put("scope", scope);
         if (symbol != null) out.put("symbol", symbol);
+        if (language != null) out.put("language", language);
+        if (providerId != null) out.put("provider_id", providerId);
+        if (providerReason != null) out.put("provider_reason", providerReason);
         out.put("count", count);
         if (sample != null) out.put("sample", sample.length() > 500 ? sample.substring(0, 500) : sample);
         return out;

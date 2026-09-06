@@ -18,7 +18,7 @@ final class RowMappers {
 
     /** Node projection (alias {@code n}). Mapped by column name, so the alias is cosmetic. */
     static final String NODE_COLS =
-            "n.id, n.symbol_id, n.label, n.kind, n.qualified_name, n.source_file, "
+            "n.id, n.symbol_id, n.domain, n.language, n.provider_id, n.entity_kind, n.language_kind, n.namespace, n.label, n.kind, n.qualified_name, n.source_file, "
           + "n.source_location, n.module, n.scope, n.javadoc, n.producer_id AS producer_id, "
           + "n.begin_line, n.begin_column, n.end_line, n.end_column, n.source_ordinal, "
           + "json_extract(n.metadata, '$.isSynthetic') AS synthetic, "
@@ -63,6 +63,12 @@ final class RowMappers {
         NodeRow n = new NodeRow();
         n.id = rs.getString("id");
         n.symbolId = rs.getString("symbol_id");
+        n.domain = rs.getString("domain");
+        n.language = rs.getString("language");
+        n.providerId = rs.getString("provider_id");
+        n.entityKind = rs.getString("entity_kind");
+        n.languageKind = rs.getString("language_kind");
+        n.namespace = rs.getString("namespace");
         n.label = rs.getString("label");
         n.kind = rs.getString("kind");
         n.qualifiedName = rs.getString("qualified_name");

@@ -128,14 +128,16 @@ public final class QueryCoverageService {
     private List<IndexDiagnostic> readDiagnostics() {
         List<IndexDiagnostic> out = new ArrayList<>();
         String sql = "SELECT severity,code,phase,source_file,module,scope,symbol,"
-                + "occurrence_count,sample FROM index_diagnostics";
+                + "occurrence_count,sample,language,provider_id,provider_reason "
+                + "FROM index_diagnostics";
         try (Statement statement = connection.createStatement();
              ResultSet rows = statement.executeQuery(sql)) {
             while (rows.next()) {
                 out.add(new IndexDiagnostic(
                         rows.getString(1), rows.getString(2), rows.getString(3),
                         rows.getString(4), rows.getString(5), rows.getString(6),
-                        rows.getString(7), rows.getLong(8), rows.getString(9)));
+                        rows.getString(7), rows.getLong(8), rows.getString(9),
+                        rows.getString(10), rows.getString(11), rows.getString(12)));
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to read query coverage diagnostics", e);

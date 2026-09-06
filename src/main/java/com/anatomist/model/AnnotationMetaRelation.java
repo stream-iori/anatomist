@@ -5,8 +5,9 @@ public class AnnotationMetaRelation {
     public String annotationFqn;
     public String metaAnnotationFqn;
     public String rawName;
-    public String language = "java";
-    public String mechanism = "java.annotation.meta";
+    public String language;
+    public String providerId;
+    public String mechanism;
     public String resolutionStatus;
     public String sourceFile;
     public String sourceLocation;

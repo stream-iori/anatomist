@@ -48,12 +48,45 @@ public final class SemanticCapabilityRegistry {
         };
     }
 
+    public boolean supports(String operation, String language, String providerId) {
+        String provider = providerId == null || providerId.isBlank()
+                ? SemanticProviders.providerForLanguage(language) : providerId;
+        if (provider == null || !SemanticProviders.supportsProvider(provider, operation)
+                || !java.util.Objects.equals(language,
+                        SemanticProviders.languageForProvider(provider))
+                || !indexedProviderSupports(provider, language, operation)) return false;
+        return supports(operation);
+    }
+
     public List<String> supportedIds() {
         return OPERATIONS.stream().filter(this::supports).toList();
     }
 
     public void require(String operation) {
         if (!supports(operation)) throw new UnsupportedCapabilityException(operation, "java");
+    }
+
+    public void require(String operation, String language, String providerId) {
+        if (!supports(operation, language, providerId)) {
+            throw new UnsupportedCapabilityException(operation, language);
+        }
+    }
+
+    private boolean indexedProviderSupports(String provider, String language, String operation) {
+        if (!tableExists("index_providers")) return false;
+        String sql = "SELECT operations FROM index_providers WHERE provider_id=? AND language=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, provider);
+            statement.setString(2, language);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) return false;
+                Object parsed = com.anatomist.json.Json.parseTree(rows.getString(1));
+                if (!(parsed instanceof List<?> values)) return false;
+                return values.stream().anyMatch(operation::equals);
+            }
+        } catch (SQLException | RuntimeException failure) {
+            return false;
+        }
     }
 
     private boolean tables(String... names) {

@@ -39,8 +39,8 @@ public class DataWriter {
             "INSERT INTO documents(path,title,content,doc_type,module) VALUES (?,?,?,?,?)";
     private static final String SQL_INSERT_FILE_CACHE =
             "INSERT OR REPLACE INTO file_cache"
-                    + "(source_file,hash,schema_version,last_indexed,node_count,edge_count,"
-                    + "file_size,file_mtime_ns,contract_hash) VALUES (?,?,?,?,?,?,?,?,?)";
+                    + "(provider_id,source_file,hash,schema_version,last_indexed,node_count,edge_count,"
+                    + "file_size,file_mtime_ns,contract_hash) VALUES (?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_UPSERT_PROJECT_META =
             "INSERT INTO project_meta(key,value) VALUES (?,?) "
                     + "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
@@ -60,8 +60,9 @@ public class DataWriter {
     private static final String SQL_DELETE_FILE_DEPENDENCIES =
             "DELETE FROM file_dependencies";
     private static final String SQL_DERIVE_FILE_DEPENDENCIES = """
-            INSERT OR IGNORE INTO file_dependencies(source_file, depends_on_file)
-            SELECT DISTINCT sn.source_file, tn.source_file
+            INSERT OR IGNORE INTO file_dependencies(source_provider_id, source_file,
+                                                     depends_on_provider_id, depends_on_file)
+            SELECT DISTINCT sn.provider_id, sn.source_file, tn.provider_id, tn.source_file
             FROM edges e
             JOIN nodes sn ON e.source_id = sn.id
             JOIN nodes tn ON e.target_id = tn.id
@@ -69,25 +70,28 @@ public class DataWriter {
             AND sn.source_file IS NOT NULL AND tn.source_file IS NOT NULL
             AND sn.source_file <> tn.source_file
             UNION
-            SELECT DISTINCT a.source_file, tn.source_file
+            SELECT DISTINCT a.provider_id, a.source_file, tn.provider_id, tn.source_file
             FROM annotations a
-            JOIN nodes tn ON tn.qualified_name = a.annotation_fqn
+            JOIN nodes tn ON tn.provider_id = a.provider_id
+                         AND tn.qualified_name = a.annotation_fqn
             WHERE a.source_file IS NOT NULL AND tn.source_file IS NOT NULL
             AND a.source_file <> tn.source_file
             UNION
-            SELECT DISTINCT am.source_file, tn.source_file
+            SELECT DISTINCT am.provider_id, am.source_file, tn.provider_id, tn.source_file
             FROM annotation_meta_relations am
-            JOIN nodes tn ON tn.qualified_name = am.meta_annotation_fqn
+            JOIN nodes tn ON tn.provider_id = am.provider_id
+                         AND tn.qualified_name = am.meta_annotation_fqn
             WHERE am.source_file IS NOT NULL AND tn.source_file IS NOT NULL
             AND am.source_file <> tn.source_file
             """;
     private static final String SQL_INSERT_NODE =
             "INSERT INTO nodes"
-                    + "(id,symbol_id,label,kind,qualified_name,package,source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,producer_id)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    + "(id,symbol_id,domain,language,provider_id,entity_kind,language_kind,label,kind,qualified_name,package,namespace,source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,module,scope,javadoc,metadata,producer_id)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                     + " ON CONFLICT(id) DO UPDATE SET"
-                    + " symbol_id=excluded.symbol_id,label=excluded.label,kind=excluded.kind,"
-                    + " qualified_name=excluded.qualified_name,package=excluded.package,"
+                    + " symbol_id=excluded.symbol_id,domain=excluded.domain,language=excluded.language,provider_id=excluded.provider_id,"
+                    + " entity_kind=excluded.entity_kind,language_kind=excluded.language_kind,label=excluded.label,kind=excluded.kind,"
+                    + " qualified_name=excluded.qualified_name,package=excluded.package,namespace=excluded.namespace,"
                     + " source_file=excluded.source_file,source_location=excluded.source_location,"
                     + " begin_line=excluded.begin_line,begin_column=excluded.begin_column,"
                     + " end_line=excluded.end_line,end_column=excluded.end_column,source_ordinal=excluded.source_ordinal,"
@@ -95,23 +99,23 @@ public class DataWriter {
                     + " metadata=excluded.metadata,producer_id=excluded.producer_id";
     private static final String SQL_INSERT_EDGE =
             "INSERT INTO edges"
-                    + "(source_id,target_id,external_target_fqn,relation,call_kind,confidence,resolution,context,is_external,"
+                    + "(source_id,target_id,external_target_fqn,external_target_symbol,external_target_language,external_target_provider_id,relation,semantic,mechanism,language,provider_id,call_kind,confidence,resolution,context,is_external,"
                     + "source_file,source_location,begin_line,begin_column,end_line,end_column,source_ordinal,"
                     + "syntax_target,receiver_static_type,metadata,producer_id)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_ANNOTATION =
             "INSERT INTO annotations(node_id,annotation_fqn,raw_name,attributes,target_kind,target_path,"
                     + "language,mechanism,resolution_status,source_file,source_location,begin_line,begin_column,"
-                    + "end_line,end_column,producer_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                    + "end_line,end_column,producer_id,provider_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     private static final String SQL_INSERT_ANNOTATION_META =
             "INSERT OR IGNORE INTO annotation_meta_relations(annotation_fqn,meta_annotation_fqn,raw_name,"
-                    + "language,mechanism,resolution_status,source_file,source_location,producer_id)"
-                    + " VALUES (?,?,?,?,?,?,?,?,?)";
-    private static final String SQL_INSERT_DECLARATION = "INSERT OR REPLACE INTO declarations(symbol_id,"
+                    + "language,provider_id,mechanism,resolution_status,source_file,source_location,producer_id)"
+                    + " VALUES (?,?,?,?,?,?,?,?,?,?)";
+    private static final String SQL_INSERT_DECLARATION = "INSERT OR REPLACE INTO declarations(symbol_id,domain,language,provider_id,entity_kind,language_kind,"
             + "qualified_name,label,kind,declaration_kind,type_kind,visibility,modifiers,declared_modifiers,"
-            + "implicit_modifiers,declaring_type,source_file,source_location,begin_line,begin_column,end_line,end_column,"
+            + "implicit_modifiers,declaring_type,namespace,source_file,source_location,begin_line,begin_column,end_line,end_column,"
             + "module,scope,nesting_depth,direct_member,synthetic,binding_resolved,producer_id) "
-            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
     private final ConnectionSupplier connSupplier;
 
@@ -291,15 +295,16 @@ public class DataWriter {
         }
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_FILE_CACHE)) {
             for (FileCacheEntry entry : entries) {
-                ps.setString(1, entry.sourceFile());
-                ps.setString(2, entry.hash());
-                ps.setInt(3, entry.schemaVersion());
-                ps.setString(4, entry.lastIndexed() == null ? Instant.now().toString() : entry.lastIndexed());
-                ps.setInt(5, entry.nodeCount());
-                ps.setInt(6, entry.edgeCount());
-                ps.setLong(7, entry.fileSize());
-                ps.setLong(8, entry.fileMtimeNs());
-                ps.setString(9, entry.contractHash() == null ? "" : entry.contractHash());
+                ps.setString(1, entry.providerId());
+                ps.setString(2, entry.sourceFile());
+                ps.setString(3, entry.hash());
+                ps.setInt(4, entry.schemaVersion());
+                ps.setString(5, entry.lastIndexed() == null ? Instant.now().toString() : entry.lastIndexed());
+                ps.setInt(6, entry.nodeCount());
+                ps.setInt(7, entry.edgeCount());
+                ps.setLong(8, entry.fileSize());
+                ps.setLong(9, entry.fileMtimeNs());
+                ps.setString(10, entry.contractHash() == null ? "" : entry.contractHash());
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -574,8 +579,9 @@ public class DataWriter {
         String deleteSql = "DELETE FROM file_dependencies WHERE source_file IN (" + placeholders
                 + ") OR depends_on_file IN (" + placeholders + ")";
         String deriveSql = """
-                INSERT OR IGNORE INTO file_dependencies(source_file, depends_on_file)
-                SELECT sn.source_file, tn.source_file
+                INSERT OR IGNORE INTO file_dependencies(source_provider_id, source_file,
+                                                         depends_on_provider_id, depends_on_file)
+                SELECT sn.provider_id, sn.source_file, tn.provider_id, tn.source_file
                 FROM nodes sn
                 JOIN edges e ON e.source_id = sn.id
                 JOIN nodes tn ON tn.id = e.target_id
@@ -584,7 +590,7 @@ public class DataWriter {
                 AND sn.source_file <> tn.source_file
                 AND sn.source_file IN (%s)
                 UNION
-                SELECT sn.source_file, tn.source_file
+                SELECT sn.provider_id, sn.source_file, tn.provider_id, tn.source_file
                 FROM nodes tn
                 JOIN edges e ON e.target_id = tn.id
                 JOIN nodes sn ON sn.id = e.source_id
@@ -593,30 +599,34 @@ public class DataWriter {
                 AND sn.source_file <> tn.source_file
                 AND tn.source_file IN (%s)
                 UNION
-                SELECT a.source_file, tn.source_file
+                SELECT a.provider_id, a.source_file, tn.provider_id, tn.source_file
                 FROM annotations a
-                JOIN nodes tn ON tn.qualified_name = a.annotation_fqn
+                JOIN nodes tn ON tn.provider_id = a.provider_id
+                             AND tn.qualified_name = a.annotation_fqn
                 WHERE a.source_file IS NOT NULL AND tn.source_file IS NOT NULL
                 AND a.source_file <> tn.source_file
                 AND a.source_file IN (%s)
                 UNION
-                SELECT a.source_file, tn.source_file
+                SELECT a.provider_id, a.source_file, tn.provider_id, tn.source_file
                 FROM annotations a
-                JOIN nodes tn ON tn.qualified_name = a.annotation_fqn
+                JOIN nodes tn ON tn.provider_id = a.provider_id
+                             AND tn.qualified_name = a.annotation_fqn
                 WHERE a.source_file IS NOT NULL AND tn.source_file IS NOT NULL
                 AND a.source_file <> tn.source_file
                 AND tn.source_file IN (%s)
                 UNION
-                SELECT am.source_file, tn.source_file
+                SELECT am.provider_id, am.source_file, tn.provider_id, tn.source_file
                 FROM annotation_meta_relations am
-                JOIN nodes tn ON tn.qualified_name = am.meta_annotation_fqn
+                JOIN nodes tn ON tn.provider_id = am.provider_id
+                             AND tn.qualified_name = am.meta_annotation_fqn
                 WHERE am.source_file IS NOT NULL AND tn.source_file IS NOT NULL
                 AND am.source_file <> tn.source_file
                 AND am.source_file IN (%s)
                 UNION
-                SELECT am.source_file, tn.source_file
+                SELECT am.provider_id, am.source_file, tn.provider_id, tn.source_file
                 FROM annotation_meta_relations am
-                JOIN nodes tn ON tn.qualified_name = am.meta_annotation_fqn
+                JOIN nodes tn ON tn.provider_id = am.provider_id
+                             AND tn.qualified_name = am.meta_annotation_fqn
                 WHERE am.source_file IS NOT NULL AND tn.source_file IS NOT NULL
                 AND am.source_file <> tn.source_file
                 AND tn.source_file IN (%s)
@@ -700,22 +710,24 @@ public class DataWriter {
         if (rows == null || rows.isEmpty()) return;
         String sql = """
                 INSERT OR REPLACE INTO analysis_coverage
-                (source_file,module,scope,capability,status,occurrences,groups_count,
+                (source_file,module,scope,language,provider_id,capability,status,occurrences,groups_count,
                  codes,code_counts,details_truncated)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """;
         try (PreparedStatement statement = c.prepareStatement(sql)) {
             for (AnalysisCoverage.Row row : rows) {
                 statement.setString(1, row.sourceFile());
                 statement.setString(2, row.module());
                 statement.setString(3, row.scope());
-                statement.setString(4, row.capability());
-                statement.setString(5, row.status());
-                statement.setLong(6, row.occurrences());
-                statement.setLong(7, row.groups());
-                statement.setString(8, row.codes());
-                statement.setString(9, row.codeCounts());
-                statement.setInt(10, row.detailsTruncated() ? 1 : 0);
+                statement.setString(4, row.language());
+                statement.setString(5, row.providerId());
+                statement.setString(6, row.capability());
+                statement.setString(7, row.status());
+                statement.setLong(8, row.occurrences());
+                statement.setLong(9, row.groups());
+                statement.setString(10, row.codes());
+                statement.setString(11, row.codeCounts());
+                statement.setInt(12, row.detailsTruncated() ? 1 : 0);
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -751,8 +763,8 @@ public class DataWriter {
         if (diagnostics == null || diagnostics.isEmpty()) return;
         List<IndexDiagnostic> ordered =
                 com.anatomist.core.IndexDiagnosticRetention.retain(diagnostics);
-        String sql = "INSERT INTO index_diagnostics(severity,code,phase,source_file,module,scope,symbol,occurrence_count,sample)"
-                + " VALUES (?,?,?,?,?,?,?,?,?)";
+        String sql = "INSERT INTO index_diagnostics(severity,code,phase,source_file,module,scope,symbol,language,provider_id,provider_reason,occurrence_count,sample)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
         try (PreparedStatement ps = c.prepareStatement(sql)) {
             for (IndexDiagnostic d : ordered) {
                 ps.setString(1, d.severity());
@@ -762,8 +774,11 @@ public class DataWriter {
                 setNullableString(ps, 5, d.module());
                 setNullableString(ps, 6, d.scope());
                 setNullableString(ps, 7, d.symbol());
-                ps.setLong(8, d.count());
-                setNullableString(ps, 9, d.sample() == null ? null
+                setNullableString(ps, 8, d.language());
+                setNullableString(ps, 9, d.providerId());
+                setNullableString(ps, 10, d.providerReason());
+                ps.setLong(11, d.count());
+                setNullableString(ps, 12, d.sample() == null ? null
                         : d.sample().substring(0, Math.min(500, d.sample().length())));
                 ps.addBatch();
             }
@@ -777,24 +792,23 @@ public class DataWriter {
         if (nodes == null || nodes.isEmpty()) return;
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_NODE)) {
             for (Node n : nodes) {
+                com.anatomist.provider.FactDefaults.normalize(n);
                 ps.setString(1, n.id);
                 ps.setString(2, n.symbolId == null ? n.id : n.symbolId);
-                ps.setString(3, n.label);
-                ps.setString(4, n.kind);
-                ps.setString(5, n.qualifiedName);
-                ps.setString(6, n.pkg);
-                ps.setString(7, n.sourceFile == null ? "" : n.sourceFile);
-                ps.setString(8, n.sourceLocation);
-                setNullableInt(ps, 9, n.beginLine);
-                setNullableInt(ps, 10, n.beginColumn);
-                setNullableInt(ps, 11, n.endLine);
-                setNullableInt(ps, 12, n.endColumn);
-                setNullableInt(ps, 13, n.sourceOrdinal);
-                ps.setString(14, n.module == null ? "." : n.module);
-                ps.setString(15, n.scope == null ? GraphConstants.Scope.MAIN : n.scope);
-                ps.setString(16, n.javadoc);
-                ps.setString(17, n.metadata);
-                ps.setString(18, producer(n.producerId, ProducerIds.JAVA_CORE));
+                ps.setString(3, n.domain); ps.setString(4, n.language);
+                ps.setString(5, n.providerId); ps.setString(6, n.entityKind);
+                ps.setString(7, n.languageKind); ps.setString(8, n.label);
+                ps.setString(9, n.kind); ps.setString(10, n.qualifiedName);
+                ps.setString(11, n.pkg); ps.setString(12, n.namespace);
+                ps.setString(13, n.sourceFile == null ? "" : n.sourceFile);
+                ps.setString(14, n.sourceLocation);
+                setNullableInt(ps, 15, n.beginLine); setNullableInt(ps, 16, n.beginColumn);
+                setNullableInt(ps, 17, n.endLine); setNullableInt(ps, 18, n.endColumn);
+                setNullableInt(ps, 19, n.sourceOrdinal);
+                ps.setString(20, n.module == null ? "." : n.module);
+                ps.setString(21, n.scope == null ? GraphConstants.Scope.MAIN : n.scope);
+                ps.setString(22, n.javadoc); ps.setString(23, n.metadata);
+                ps.setString(24, producer(n.producerId, ProducerIds.JAVA_CORE));
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -805,6 +819,7 @@ public class DataWriter {
         if (edges == null || edges.isEmpty()) return;
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_EDGE)) {
             for (Edge e : edges) {
+                com.anatomist.provider.FactDefaults.normalize(e);
                 com.anatomist.model.EdgeTarget target = e.target();
                 String internalTarget = switch (target) {
                     case com.anatomist.model.EdgeTarget.Internal internal -> internal.nodeId();
@@ -821,23 +836,21 @@ public class DataWriter {
                 ps.setString(1, e.sourceId);
                 setNullableString(ps, 2, internalTarget);
                 setNullableString(ps, 3, externalTarget);
-                ps.setString(4, e.relation);
-                setNullableString(ps, 5, e.callKind);
-                ps.setString(6, e.confidence == null ? GraphConstants.Confidence.EXTRACTED : e.confidence);
-                setNullableString(ps, 7, resolution);
-                setNullableString(ps, 8, e.context);
-                ps.setInt(9, target instanceof com.anatomist.model.EdgeTarget.External ? 1 : 0);
-                ps.setString(10, e.sourceFile);
-                ps.setString(11, e.sourceLocation);
-                setNullableInt(ps, 12, e.beginLine);
-                setNullableInt(ps, 13, e.beginColumn);
-                setNullableInt(ps, 14, e.endLine);
-                setNullableInt(ps, 15, e.endColumn);
-                setNullableInt(ps, 16, e.sourceOrdinal);
-                setNullableString(ps, 17, e.syntaxTarget);
-                setNullableString(ps, 18, e.receiverStaticType);
-                ps.setString(19, e.metadata);
-                ps.setString(20, producer(e.producerId, ProducerIds.JAVA_CORE));
+                setNullableString(ps, 4, e.externalTargetSymbol);
+                setNullableString(ps, 5, e.externalTargetLanguage);
+                setNullableString(ps, 6, e.externalTargetProviderId);
+                ps.setString(7, e.relation); ps.setString(8, e.semantic);
+                setNullableString(ps, 9, e.mechanism); setNullableString(ps, 10, e.language);
+                ps.setString(11, e.providerId); setNullableString(ps, 12, e.callKind);
+                ps.setString(13, e.confidence == null ? GraphConstants.Confidence.EXTRACTED : e.confidence);
+                setNullableString(ps, 14, resolution); setNullableString(ps, 15, e.context);
+                ps.setInt(16, target instanceof com.anatomist.model.EdgeTarget.External ? 1 : 0);
+                ps.setString(17, e.sourceFile); ps.setString(18, e.sourceLocation);
+                setNullableInt(ps, 19, e.beginLine); setNullableInt(ps, 20, e.beginColumn);
+                setNullableInt(ps, 21, e.endLine); setNullableInt(ps, 22, e.endColumn);
+                setNullableInt(ps, 23, e.sourceOrdinal); setNullableString(ps, 24, e.syntaxTarget);
+                setNullableString(ps, 25, e.receiverStaticType); ps.setString(26, e.metadata);
+                ps.setString(27, producer(e.producerId, ProducerIds.JAVA_CORE));
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -855,6 +868,7 @@ public class DataWriter {
         if (anns == null || anns.isEmpty()) return;
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_ANNOTATION)) {
             for (Annotation a : anns) {
+                com.anatomist.provider.FactDefaults.normalize(a);
                 int i = 1;
                 ps.setString(i++, a.nodeId);
                 ps.setString(i++, a.annotationFqn);
@@ -871,7 +885,8 @@ public class DataWriter {
                 setNullableInt(ps, i++, a.beginColumn);
                 setNullableInt(ps, i++, a.endLine);
                 setNullableInt(ps, i++, a.endColumn);
-                ps.setString(i, producer(a.producerId, ProducerIds.JAVA_CORE));
+                ps.setString(i++, producer(a.producerId, ProducerIds.JAVA_CORE));
+                ps.setString(i, a.providerId == null ? "java-core" : a.providerId);
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -883,12 +898,14 @@ public class DataWriter {
         if (relations == null || relations.isEmpty()) return;
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_ANNOTATION_META)) {
             for (AnnotationMetaRelation relation : relations) {
+                com.anatomist.provider.FactDefaults.normalize(relation);
                 int i = 1;
                 ps.setString(i++, relation.annotationFqn);
                 ps.setString(i++, relation.metaAnnotationFqn);
                 ps.setString(i++, relation.rawName == null
                         ? relation.metaAnnotationFqn : relation.rawName);
                 ps.setString(i++, relation.language == null ? "java" : relation.language);
+                ps.setString(i++, relation.providerId == null ? "java-core" : relation.providerId);
                 ps.setString(i++, relation.mechanism == null
                         ? "java.annotation.meta" : relation.mechanism);
                 ps.setString(i++, relation.resolutionStatus == null
@@ -917,15 +934,20 @@ public class DataWriter {
         if (declarations == null || declarations.isEmpty()) return;
         try (PreparedStatement ps = c.prepareStatement(SQL_INSERT_DECLARATION)) {
             for (Declaration declaration : declarations) {
+                com.anatomist.provider.FactDefaults.normalize(declaration);
                 int i = 1;
-                ps.setString(i++, declaration.symbolId); ps.setString(i++, declaration.qualifiedName);
+                ps.setString(i++, declaration.symbolId); ps.setString(i++, declaration.domain);
+                ps.setString(i++, declaration.language); ps.setString(i++, declaration.providerId);
+                ps.setString(i++, declaration.entityKind); ps.setString(i++, declaration.languageKind);
+                ps.setString(i++, declaration.qualifiedName);
                 ps.setString(i++, declaration.label); ps.setString(i++, declaration.kind);
                 ps.setString(i++, declaration.declarationKind); ps.setString(i++, declaration.typeKind);
                 ps.setString(i++, declaration.visibility);
                 ps.setString(i++, com.anatomist.json.Json.writeCompact(declaration.modifiers));
                 ps.setString(i++, com.anatomist.json.Json.writeCompact(declaration.declaredModifiers));
                 ps.setString(i++, com.anatomist.json.Json.writeCompact(declaration.implicitModifiers));
-                ps.setString(i++, declaration.declaringType); ps.setString(i++, declaration.sourceFile);
+                ps.setString(i++, declaration.declaringType); ps.setString(i++, declaration.namespace);
+                ps.setString(i++, declaration.sourceFile);
                 ps.setString(i++, declaration.sourceLocation);
                 setNullableInt(ps, i++, declaration.beginLine); setNullableInt(ps, i++, declaration.beginColumn);
                 setNullableInt(ps, i++, declaration.endLine); setNullableInt(ps, i++, declaration.endColumn);

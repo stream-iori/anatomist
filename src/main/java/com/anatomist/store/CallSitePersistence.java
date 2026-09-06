@@ -132,7 +132,7 @@ final class CallSitePersistence {
         Map<OwnerKey, Long> owners = ensureOwners(connection, inserts);
         String siteSql = "INSERT INTO call_sites(stable_hash,owner_pk,begin_line,begin_column,"
                 + "end_line,end_column,ordinal,context,syntax_target,receiver_static_type,dispatch_kind,metadata,origin,"
-                + "resolution_status,producer_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "resolution_status,producer_id,language,provider_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (PreparedStatement siteInsert = connection.prepareStatement(siteSql)) {
             for (SiteInsert insert : inserts) {
                 SiteKey site = insert.site();
@@ -148,13 +148,16 @@ final class CallSitePersistence {
                 siteInsert.setString(i++, group.receiverStaticType); siteInsert.setString(i++, group.dispatchKind);
                 siteInsert.setString(i++, group.metadata);
                 siteInsert.setString(i++, "extracted"); siteInsert.setString(i++, resolutionStatus(targets));
-                siteInsert.setString(i, site.producerId);
+                siteInsert.setString(i++, site.producerId);
+                siteInsert.setString(i++, site.language);
+                siteInsert.setString(i, site.providerId);
                 siteInsert.addBatch();
             }
             siteInsert.executeBatch();
         }
         String targetSql = "INSERT OR IGNORE INTO call_site_targets(call_site_pk,target_id,"
-                + "external_target_fqn,resolution_status,confidence,producer_id) VALUES(?,?,?,?,?,?)";
+                + "external_target_fqn,external_target_symbol,external_target_language,external_target_provider_id,"
+                + "resolution_status,confidence,producer_id) VALUES(?,?,?,?,?,?,?,?,?)";
         try (PreparedStatement findSite = connection.prepareStatement(
                     "SELECT site_pk FROM call_sites WHERE stable_hash=?");
              PreparedStatement targetInsert = connection.prepareStatement(targetSql)) {
@@ -169,9 +172,12 @@ final class CallSitePersistence {
                     targetInsert.setLong(1, sitePk);
                     targetInsert.setString(2, target.targetId());
                     targetInsert.setString(3, target.externalTarget());
-                    targetInsert.setString(4, target.resolutionStatus());
-                    targetInsert.setString(5, target.confidence());
-                    targetInsert.setString(6, target.producerId());
+                    targetInsert.setString(4, target.externalTargetSymbol());
+                    targetInsert.setString(5, target.externalTargetLanguage());
+                    targetInsert.setString(6, target.externalTargetProviderId());
+                    targetInsert.setString(7, target.resolutionStatus());
+                    targetInsert.setString(8, target.confidence());
+                    targetInsert.setString(9, target.producerId());
                     targetInsert.addBatch();
                 }
             }
@@ -222,7 +228,8 @@ final class CallSitePersistence {
         String sql = "SELECT " + source + ",src.symbol_id,src.module,src.scope,e.source_file,"
                 + "e.begin_line,e.begin_column,e.end_line,e.end_column,COALESCE(e.source_ordinal,0),"
                 + "e.context,e.syntax_target,e.receiver_static_type,e.call_kind,e.metadata,e.producer_id," + target + ","
-                + "e.external_target_fqn,e.confidence FROM " + table + " e JOIN nodes src ON src.id=" + source + " "
+                + "e.external_target_fqn,e.confidence,e.language,e.provider_id,e.external_target_symbol,"
+                + "e.external_target_language,e.external_target_provider_id FROM " + table + " e JOIN nodes src ON src.id=" + source + " "
                 + "WHERE e.relation='CALLS' AND e.begin_line IS NOT NULL AND e.begin_column IS NOT NULL "
                 + "AND e.end_line IS NOT NULL AND e.end_column IS NOT NULL "
                 + (filter.empty() ? "" : "AND (" + edgeFilter + ") ")
@@ -235,7 +242,8 @@ final class CallSitePersistence {
                 while (rows.next()) {
                     SiteKey site = new SiteKey(rows.getString(1), rows.getString(2), rows.getString(3),
                             rows.getString(4), rows.getString(5), rows.getInt(6), rows.getInt(7),
-                            rows.getInt(8), rows.getInt(9), rows.getInt(10), rows.getString(16));
+                            rows.getInt(8), rows.getInt(9), rows.getInt(10), rows.getString(16),
+                            rows.getString(20), rows.getString(21));
                     SiteGroup group = sites.get(site);
                     if (group == null) {
                         group = new SiteGroup(rows.getString(11), rows.getString(12),
@@ -246,6 +254,7 @@ final class CallSitePersistence {
                                 rows.getString(13), rows.getString(14), rows.getString(15));
                     }
                     group.addTarget(new Target(rows.getString(17), rows.getString(18),
+                            rows.getString(22), rows.getString(23), rows.getString(24),
                             rows.getString(19), rows.getString(16)));
                 }
             }
@@ -254,7 +263,8 @@ final class CallSitePersistence {
     }
 
     private static byte[] stableHash(SiteKey site, MessageDigest digest) {
-        String canonical = String.join("\n", value(site.module), value(site.scope),
+        String canonical = String.join("\n", value(site.providerId), value(site.language),
+                value(site.module), value(site.scope),
                 value(site.sourceFile), value(site.callerSymbol), String.valueOf(site.beginLine),
                 String.valueOf(site.beginColumn), String.valueOf(site.endLine),
                 String.valueOf(site.endColumn), String.valueOf(site.ordinal), value(site.producerId));
@@ -318,7 +328,8 @@ final class CallSitePersistence {
 
     private record SiteKey(String callerId, String callerSymbol, String module, String scope,
                            String sourceFile, int beginLine, int beginColumn, int endLine,
-                           int endColumn, int ordinal, String producerId) {}
+                           int endColumn, int ordinal, String producerId, String language,
+                           String providerId) {}
 
     private record SiteInsert(SiteKey site, SiteGroup group, byte[] stableHash) {}
 
@@ -378,8 +389,9 @@ final class CallSitePersistence {
         }
     }
 
-    private record Target(String targetId, String externalTarget, String confidence,
-                          String producerId) {
+    private record Target(String targetId, String externalTarget, String externalTargetSymbol,
+                          String externalTargetLanguage, String externalTargetProviderId,
+                          String confidence, String producerId) {
         String resolutionStatus() {
             if ("AMBIGUOUS".equals(confidence)) return "ambiguous";
             if ("INFERRED".equals(confidence)) return "heuristic";

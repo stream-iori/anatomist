@@ -45,6 +45,13 @@ public class SearchCommand extends SemanticCommand {
     boolean includeMeta;
 
     @Override
+    protected String directSeed() {
+        String selector = name != null ? name : term;
+        return selector == null || selector.isBlank() ? null
+                : SemanticRecords.rootSeed("search", selector);
+    }
+
+    @Override
     protected Result execute(QueryService q, SemanticIdentity identity,
                              SemanticStreamWriter writer) {
         validateSemanticOptions();
