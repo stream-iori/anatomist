@@ -1,6 +1,6 @@
 ---
 name: anatomist
-description: "Source-backed code analysis through semantic-stream/v1 pipelines."
+description: 'Java code analysis through semantic-stream/v1 pipelines.'
 ---
 
 # anatomist
