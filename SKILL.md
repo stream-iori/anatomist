@@ -1,6 +1,6 @@
 ---
 name: anatomist
-description: 'Java code analysis through semantic-stream/v1 pipelines.'
+description: "Java code analysis through semantic-stream/v1 pipelines."
 ---
 
 # anatomist
@@ -39,13 +39,21 @@ ends with `evidence(scope=stream)`. Missing final evidence means failure. Never
 conclude absence unless coverage is complete and `negative_conclusion_safe` is
 true. Query errors use `anatomist-error/v1`; decide from `code`, not message.
 
+An index with `status=ok` and `index_state=committed` remains queryable when
+`health=degraded` or a resolution dimension is partial. Treat that as bounded
+evidence quality, not as a missing index: retain positive results, surface the
+degraded coverage, and do not derive negative conclusions from partial or
+unknown results.
+
 `calls` proves source call syntax and static targets. `dispatch` expands possible
 virtual targets; it does not prove runtime execution. Framework bindings do not
 manufacture calls.
 
 Use `declarations-of --file <relative.java>` for changed files. For one method,
 resolve the exact callable and pipe to `source`; follow source pagination when a
-conclusion must cover the full declaration.
+conclusion must cover the full declaration. `source` returns at most 1000 lines;
+repeat it with `--limit 1000 --offset <declaration-relative-line>` until
+`truncated=false`. Require stable stream identity and increasing offsets.
 
 For 0.1x indexes use `index <project> --recreate`. Lombok is off by default;
 partial modeled coverage requires additional evidence.
