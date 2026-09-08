@@ -1,45 +1,51 @@
 # Compare and inspect versions
 
-| Question | First command | Continue when |
-|---|---|---|
-| Where is changed code on disk? | diff --base HEAD --target WORKTREE | Select a before/after anchor and query its snapshot. |
-| What changed between refs? | diff --base <base> --target <target> | Use --merge-base for changes since the common ancestor. |
-| Read historical code | index . --ref <ref>, then query --ref <ref> | Fix --snapshot <id> when the branch name may move. |
-| Inspect captures | snapshots list | Use show for one ID; pin versions that must be retained. |
-| Which callers may be affected? | diff --base HEAD --target WORKTREE --impact | Use --impact-module for caller selection across modules. |
-| Which test callers may be affected? | diff --base HEAD --target WORKTREE --impact --impact-scope TEST | Requires captures that indexed TEST. |
+| Question | First command |
+|---|---|
+| Impact of current branch work since Base diverged | diff --base <Base> --target HEAD --merge-base --view calls --impact |
+| Differences from another branch tip | diff --base <other> --target HEAD --view calls --impact |
+| Include uncommitted edits | Replace --target HEAD with --target WORKTREE |
+| Locate all changed files and declarations | diff --base HEAD --target WORKTREE |
+| Return test callers | Add --impact-scope TEST; requires captures that indexed TEST |
+| Read a historical version | index . --ref <ref>, then query --ref <ref> |
 
-Version commands require Git. They capture versions without switching the checkout.
-Query --ref reads an existing capture; WORKTREE queries read the last capture.
-Diff builds missing endpoints and refreshes WORKTREE unless --no-build is selected.
-Each ordinary pipeline uses one version; --index, --ref and --snapshot are mutually
-exclusive and belong at the pipeline level.
+Choose the base explicitly. --merge-base compares from the common ancestor;
+without it, compare the two endpoints. Use a SHA/snapshot to retain an original
+fork point. Header request records the requested selectors and mode; base/target
+identify the actual comparison snapshots. Git versions are captured without
+switching the checkout. Diff builds missing endpoints and refreshes WORKTREE;
+--no-build uses existing captures, including the last WORKTREE capture.
 
-Diff emits `anatomist-diff/v2`. A declaration entry means text was touched,
-including comments and formatting; use Git diff for the edit itself. A candidate
-or owner anchor is a navigation fallback, not proof that its behavior changed.
-Use before for deleted code and after for added code. For an entity anchor:
+--view calls keeps declaration anchors, recorded CALLS changes and requested
+impact. Default all also includes files and other relationships. The view only
+filters output; --impact independently enables caller analysis. Header output
+counts disclose hidden records. A text-touched declaration includes comments and
+formatting; use Git diff for the edit. Candidate/owner anchors are navigation
+fallbacks, not behavior-change claims.
+
+Select before for deleted code and after for added code. For an entity anchor:
 
 ```bash
 anatomist pipeline --snapshot <anchor.snapshot_id> --scope <anchor.scope> -- resolve '<anchor.id>' --unique --then source
 ```
 
-Continue with calls, references, accesses or bindings for the selected entity kind.
-File-only entries have no entity ID; inspect the file in that snapshot or use
-`declarations-of --file` when it was indexed. Historical source stays frozen.
-Diff records are not semantic streams; select anchors instead of piping diff into source.
+Continue with calls, references, accesses or bindings for the entity kind.
+File-only entries have no entity ID; use Git or declarations-of --file in the
+snapshot. Diff emits anatomist-diff/v2, not a semantic stream. Each pipeline uses
+one version; --index, --ref and --snapshot are mutually exclusive.
 
-Read `evidence.capabilities` separately for files, declarations, relations and impact.
-File changes cover the project manifest; --scope/--module select declarations and
-relationships. Missing scope coverage is not absence. Read `skill maintenance` to
-capture missing sources; query scope does not expand what was indexed.
+Impact returns one shortest path per caller/origin on each side. By default it
+includes possible interface/override dispatch; --impact-dispatch resolved uses
+recorded calls only. Edge candidate_kind and proofs distinguish resolved from
+possible targets. Neither proves execution. Caller scope inherits --scope;
+--impact-module defaults to all modules. Caller filters do not cut traversal.
+Field, type-only and configuration effects are outside caller impact.
 
-Impact follows static calls only, with one shortest representative path for each
-caller/change-origin pair on each side. Caller filters do not cut traversal paths.
-It does not model field/configuration effects or prove runtime execution. Respect
-reported limits, coverage gaps and environment differences before concluding absence.
+Read evidence.capabilities separately for files, declarations, relations and
+impact. Open-world dispatch, missing coverage and environment changes limit
+absence claims; truncation is reported separately. For a limited call site,
+query calls then dispatch with explicit limits. Query scope never expands index
+coverage; read skill maintenance to capture missing sources.
 
-Use explicit SHA/snapshot IDs to retain a fork point. Linked worktrees can share
-committed captures; WORKTREE remains checkout-local. `snapshots gc` previews removal;
---execute performs it, retaining protected/pinned versions. Read snapshots --help
-only when managing retention.
+For retention, use snapshots list/show/pin; snapshots gc previews removal.
+Query --ref reads existing captures; WORKTREE queries read the last capture.

@@ -14,6 +14,15 @@ public final class VersionDiffService {
     public static final String CONTRACT="anatomist-diff/v2";
     public record Result(Map<String,Object> header,List<Map<String,Object>> changes,Map<String,Object> evidence) {
         public Map<String,Object> json() { return Map.of("contract",CONTRACT,"comparison",header,"changes",changes,"evidence",evidence); }
+        public Result present(String view,Map<String,Object> request) {
+            if(!Set.of("all","calls").contains(view)) throw new IllegalArgumentException("Unknown diff view: "+view);
+            var visible=changes.stream().filter(row->view.equals("all") || row.get("record").equals("declaration_change")
+                    || row.get("record").equals("impact") || row.get("record").equals("relation_change")
+                    && ((Map<?,?>)row.get("relationship")).get("relation").equals("CALLS")).toList();
+            Map<String,Object> h=new LinkedHashMap<>(header),e=new LinkedHashMap<>(evidence);
+            h.put("request",request);h.put("output",Map.of("view",view,"analyzed",changes.size(),"emitted",visible.size(),"hidden",changes.size()-visible.size()));
+            e.put("emitted",visible.size());return new Result(h,visible,e);
+        }
     }
     public Result compare(SnapshotAccess service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
                           String scope,String module,boolean impact,int depth) {
@@ -21,6 +30,11 @@ public final class VersionDiffService {
     }
     public Result compare(SnapshotAccess service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
                           String scope,String module,boolean impact,int depth,String impactScope,String impactModule) {
+        return compare(service,base,target,scope,module,impact,depth,impactScope,impactModule,"auto");
+    }
+    public Result compare(SnapshotAccess service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
+                          String scope,String module,boolean impact,int depth,String impactScope,String impactModule,String dispatch) {
+        if(!Set.of("auto","resolved").contains(dispatch)) throw new IllegalArgumentException("Unknown impact dispatch: "+dispatch);
         try(QueryService left=new QueryService(service.database(base.id()));
             QueryService right=new QueryService(service.database(target.id()))) {
             Map<String,String> oldMeta=metadata(left.connection()),newMeta=metadata(right.connection());
@@ -37,9 +51,12 @@ public final class VersionDiffService {
             header.put("environment_changed",environmentChanged); header.put("environment_differences",environmentDifferences);
             header.put("selection",Map.of("files","project_manifest","scope",scope,"module",module==null?"*":module));
             header.put("navigation_interpretation","text_touched_not_behavior_change");
-            header.put("impact",Map.of("requested",impact,"model","reverse_static_calls","scope",impactScope,
+            Map<String,Object> impactHeader=new LinkedHashMap<>(Map.of("requested",impact,"model","reverse_static_calls","scope",impactScope,
                     "module",impactModule==null?"*":impactModule,"depth",depth,"entity_limit",10_000,"state_limit",100_000,
                     "selection_applies_to","returned_callers","traversal","captured_call_graph"));
+            impactHeader.put("dispatch",dispatch);
+            if(dispatch.equals("auto")) impactHeader.putAll(Map.of("world","workspace-open","dispatch_max_depth",20,"dispatch_limit",50,"dispatch_state_limit",100_000));
+            header.put("impact",impactHeader);
 
             List<Map<String,Object>> changes=new ArrayList<>();
             fileChanges(service,base,target,oldFiles,newFiles,changes);
@@ -97,14 +114,19 @@ public final class VersionDiffService {
             if(impact) {
                 var oldCalls=VersionRelationships.read(left.connection(),"ALL",null);
                 var newCalls=VersionRelationships.read(right.connection(),"ALL",null);
-                var oldLimits=VersionRelationships.impacts("base",base.id(),oldCalls,changed,before,impactScope,impactModule,depth,changes);
-                var newLimits=VersionRelationships.impacts("target",target.id(),newCalls,changed,after,impactScope,impactModule,depth,changes);
+                var oldGraph=new VersionCallGraph(left,oldCalls,dispatch.equals("auto"));
+                var newGraph=new VersionCallGraph(right,newCalls,dispatch.equals("auto"));
+                var oldLimits=VersionRelationships.impacts("base",base.id(),oldGraph,changed,before,impactScope,impactModule,depth,changes,10_000,100_000);
+                var newLimits=VersionRelationships.impacts("target",target.id(),newGraph,changed,after,impactScope,impactModule,depth,changes,10_000,100_000);
                 var oldImpact=oldCoverage.reasons("ALL",null,"impact"); var newImpact=newCoverage.reasons("ALL",null,"impact");
                 oldImpact.addAll(oldCoverage.reasons(impactScope,impactModule,"impact"));
                 newImpact.addAll(newCoverage.reasons(impactScope,impactModule,"impact"));
                 oldImpact.addAll(oldGaps);newImpact.addAll(newGaps);
                 oldImpact.addAll(oldLimits);newImpact.addAll(newLimits);
-                Map<String,Object> impactEvidence=paired(oldImpact,newImpact,environmentChanged,!oldLimits.isEmpty()||!newLimits.isEmpty());
+                oldImpact.addAll(oldGraph.reasons());newImpact.addAll(newGraph.reasons());
+                Map<String,Object> impactEvidence=paired(oldImpact,newImpact,environmentChanged,!oldLimits.isEmpty()||!newLimits.isEmpty()||oldGraph.truncated()||newGraph.truncated());
+                impactEvidence.put("dispatch",dispatch);
+                impactEvidence.put("dispatch_states",Map.of("base",oldGraph.states(),"target",newGraph.states()));
                 impactEvidence.put("model","reverse_static_calls");impactEvidence.put("paths","one_shortest_path_per_origin");
                 impactEvidence.put("entity_coverage",impactEvidence.get("status"));impactEvidence.put("origin_coverage",impactEvidence.get("status"));
                 impactEvidence.put("unsupported_seed_kinds",List.of("type","field"));

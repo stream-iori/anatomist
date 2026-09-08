@@ -258,6 +258,13 @@ public class QueryService implements AutoCloseable {
         return javaSemantics.dispatch(callSite, algorithm, world, maxDepth, limit);
     }
 
+    public JavaSemanticRows.DispatchResult dispatchDetailed(Map<String,Object> callSite,
+            String algorithm,String world,int maxDepth,int limit,int stateBudget) {
+        return javaSemantics.dispatchDetailed(callSite,algorithm,world,maxDepth,limit,stateBudget);
+    }
+
+    SemanticCursor<CallSiteRow> dispatchCallSites(String candidate) { return callSites.dispatchCandidates(candidate); }
+
     public List<NodeRow> semanticMembers(String containerId, boolean recursive,
                                          int maxDepth, int limit) {
         return genericSemantics.members(containerId, recursive, maxDepth, limit);
@@ -293,17 +300,7 @@ public class QueryService implements AutoCloseable {
             while (width-- > 0 && !visited.contains(end)) {
                 String current = frontier.removeFirst();
                 for (CallSiteRow site : callSites.calls(current, "outgoing")) {
-                    Map<String, Object> raw = new LinkedHashMap<>();
-                    raw.put("id", site.id); raw.put("caller", site.callerId);
-                    raw.put("dispatch_kind", site.dispatchKind == null ? "unknown"
-                            : site.dispatchKind.toLowerCase(java.util.Locale.ROOT));
-                    raw.put("resolved_targets", site.targets.stream().map(target -> {
-                        Map<String, Object> value = new LinkedHashMap<>();
-                        value.put("id", target.id()); value.put("external", target.external());
-                        value.put("resolution_status", target.resolutionStatus());
-                        if (target.qualifiedName() != null) value.put("qualified_name", target.qualifiedName());
-                        return value;
-                    }).toList());
+                    Map<String,Object> raw = site.dispatchInput();
                     for (JavaSemanticRows.DispatchTarget candidate : javaSemantics.dispatch(
                             raw, "auto", "workspace-open", maxDepth, 10_000)) {
                         String next = candidate.target();

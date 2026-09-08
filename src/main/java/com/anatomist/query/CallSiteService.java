@@ -42,6 +42,17 @@ final class CallSiteService {
             default -> throw new IllegalArgumentException(
                     "--direction must be outgoing or incoming; got " + direction);
         };
+        return cursor(predicate,ids);
+    }
+
+    SemanticCursor<CallSiteRow> dispatchCandidates(String candidate) {
+        NodeRow method=resolver.readNodeById(candidate);
+        // Java overriding preserves the method name. Dispatch verifies types and overloads later.
+        return cursor("EXISTS (SELECT 1 FROM call_site_targets hit JOIN nodes method ON method.id=hit.target_id "
+                + "WHERE hit.call_site_pk=cs.site_pk AND method.label=?)",List.of(method==null?"":method.label));
+    }
+
+    private SemanticCursor<CallSiteRow> cursor(String predicate,List<String> ids) {
         String sql = "SELECT 'callsite:sha256:'||lower(hex(cs.stable_hash)),cso.caller_id,"
                 + "cso.source_file,cs.begin_line,cs.begin_column,"
                 + "cs.end_line,cs.end_column,cs.ordinal,cs.context,cs.syntax_target,cs.receiver_static_type,"

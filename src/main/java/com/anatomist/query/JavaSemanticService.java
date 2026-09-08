@@ -136,102 +136,17 @@ final class JavaSemanticService {
         return List.copyOf(out);
     }
 
-    @SuppressWarnings("unchecked")
-    List<DispatchTarget> dispatch(Map<String, Object> callSite, String requestedAlgorithm,
+    private JavaDispatchService dispatchService;
+
+    List<DispatchTarget> dispatch(Map<String, Object> callSite, String algorithm,
                                   String world, int maxDepth, int limit) {
-        String siteId = String.valueOf(callSite.get("id"));
-        String caller = String.valueOf(callSite.get("caller"));
-        String dispatchKind = String.valueOf(callSite.getOrDefault("dispatch_kind", "unknown"));
-        Object targetsValue = callSite.get("resolved_targets");
-        if (!(targetsValue instanceof List<?> targets)) return List.of();
-        LinkedHashMap<String, DispatchTarget> out = new LinkedHashMap<>();
-        for (Object value : targets) {
-            if (!(value instanceof Map<?, ?> raw)) continue;
-            Map<String, Object> target = (Map<String, Object>) raw;
-            String targetId = string(target.get("id"));
-            if (targetId == null) continue;
-            boolean external = Boolean.TRUE.equals(target.get("external"));
-            NodeRow node = external ? null : resolver.readNodeById(targetId);
-            String algorithm = chooseAlgorithm(requestedAlgorithm, dispatchKind, node);
-            boolean abstractTarget = node != null && modifiers(node).contains("abstract");
-            Boolean executable = external ? null : !abstractTarget;
-            String targetState = external ? "unknown" : ownerInstantiability(node).state();
-            DispatchTarget resolved = dispatchTarget(siteId, caller, targetId,
-                    string(target.get("qualified_name")), "resolved",
-                    mechanism(dispatchKind, "exact".equals(algorithm)), executable, targetState,
-                    algorithm, world, external ? "heuristic" :
-                            stringOr(target.get("resolution_status"), "exact"),
-                    List.of("java.static_resolution"), List.of());
-            out.put(targetId, resolved);
-
-            if (external || "exact".equals(algorithm)) continue;
-            Set<String> configuredTypes = configuredTypes(caller, targetId);
-            Map<String, List<CallableRelation>> proofs = new LinkedHashMap<>();
-            proofs.put(targetId, List.of());
-            Deque<String> frontier = new ArrayDeque<>();
-            frontier.add(targetId);
-            Set<String> visited = new HashSet<>();
-            visited.add(targetId);
-            int depth = 0;
-            while (!frontier.isEmpty() && depth++ < maxDepth && out.size() < limit) {
-                List<String> current = new ArrayList<>(frontier);
-                frontier.clear();
-                for (String parent : current) {
-                    for (CallableRelation relation : directCallableRelations(
-                            List.of(parent), "incoming")) {
-                        String candidateId = relation.subject();
-                        if (!visited.add(candidateId)) continue;
-                        List<CallableRelation> candidateProof = new ArrayList<>(
-                                proofs.getOrDefault(parent, List.of()));
-                        candidateProof.add(relation);
-                        proofs.put(candidateId, List.copyOf(candidateProof));
-                        frontier.add(candidateId);
-                        NodeRow candidate = resolver.readNodeById(candidateId);
-                        if (candidate == null || modifiers(candidate).contains("abstract")) continue;
-                        boolean configured = configuredTypes.contains(ownerType(candidateId));
-                        if (!configuredTypes.isEmpty() && !configured) continue;
-                        Instantiability owner = ownerInstantiability(candidate);
-                        if (!"yes".equals(owner.state())) continue;
-                        out.put(candidateId, dispatchTarget(siteId, caller, candidateId,
-                                candidate.qualifiedName, "possible",
-                                mechanism(dispatchKind, false), true, owner.state(), "CHA", world,
-                                configured ? "exact" : "heuristic",
-                                configured ? List.of("java.override", "configuration.binding")
-                                        : List.of("java.override", "java.runtime_type"),
-                                candidateProof));
-                        if (out.size() >= limit) break;
-                    }
-                    if (out.size() >= limit) break;
-                }
-            }
-        }
-        return List.copyOf(out.values());
+        return dispatchDetailed(callSite, algorithm, world, maxDepth, limit, 100_000).targets();
     }
 
-    private Set<String> configuredTypes(String caller, String target) {
-        String callerType = ownerType(caller);
-        String declaredType = ownerType(target);
-        if (callerType == null || declaredType == null) return Set.of();
-        String sql = "SELECT DISTINCT w.target_id FROM edges i JOIN edges w "
-                + "ON w.source_id=i.source_id AND w.relation='WIRES' AND w.is_external=0 "
-                + "WHERE i.relation='INJECTS' AND i.is_external=0 "
-                + "AND i.source_id=? AND i.target_id=?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, callerType); statement.setString(2, declaredType);
-            try (ResultSet rows = statement.executeQuery()) {
-                Set<String> out = new LinkedHashSet<>();
-                while (rows.next()) out.add(rows.getString(1));
-                return Set.copyOf(out);
-            }
-        } catch (SQLException failure) {
-            throw new RuntimeException("failed to query configured dispatch targets", failure);
-        }
-    }
-
-    private static String ownerType(String callable) {
-        if (callable == null) return null;
-        int hash = callable.indexOf('#');
-        return hash < 1 ? null : callable.substring(0, hash);
+    JavaSemanticRows.DispatchResult dispatchDetailed(Map<String, Object> callSite, String algorithm,
+                                                      String world, int maxDepth, int limit, int budget) {
+        if (dispatchService == null) dispatchService = new JavaDispatchService(connection);
+        return dispatchService.dispatch(callSite, algorithm, world, maxDepth, limit, budget, module, scope);
     }
 
     private List<TypeRelation> directTypeRelations(List<String> ids, String direction,
@@ -309,40 +224,6 @@ final class JavaSemanticService {
         }
     }
 
-    private DispatchTarget dispatchTarget(String site, String caller, String target,
-                                          String targetName, String candidateKind,
-                                          String mechanism, Boolean executable,
-                                          String instantiability, String algorithm, String world,
-                                          String resolution, List<String> reason,
-                                          List<CallableRelation> proof) {
-        String id = "dispatch:sha256:" + SemanticIdentity.sha256(site + "\n" + target + "\n"
-                + candidateKind + "\n" + algorithm + "\n" + world);
-        return new DispatchTarget(id, site, caller, target, targetName, candidateKind,
-                mechanism, executable, instantiability, algorithm, world, resolution,
-                reason, proof);
-    }
-
-    private String chooseAlgorithm(String requested, String dispatchKind, NodeRow target) {
-        if (!"auto".equals(requested)) return "cha".equals(requested) ? "CHA" : "exact";
-        if (Set.of("static", "super", "constructor").contains(dispatchKind)) return "exact";
-        if (target == null) return "CHA";
-        Set<String> modifiers = modifiers(target);
-        if (modifiers.contains("static") || modifiers.contains("private")
-                || modifiers.contains("final") || "CONSTRUCTOR".equals(target.kind)) return "exact";
-        Instantiability owner = ownerInstantiability(target);
-        if ("java.final_class".equals(owner.reason())) return "exact";
-        return "CHA";
-    }
-
-    private Instantiability ownerInstantiability(NodeRow callable) {
-        if (callable == null || callable.id == null) return new Instantiability("unknown", "java.external");
-        int hash = callable.id.indexOf('#');
-        if (hash < 0) return new Instantiability("unknown", "java.owner_unknown");
-        NodeRow owner = resolver.readNodeById(callable.id.substring(0, hash));
-        return owner == null ? new Instantiability("unknown", "java.owner_unknown")
-                : instantiability(owner);
-    }
-
     private Instantiability instantiability(NodeRow node) {
         if (node == null) return new Instantiability("unknown", "java.external");
         return switch (node.kind) {
@@ -413,17 +294,6 @@ final class JavaSemanticService {
                 ? "java.extends_interface" : "java.extends_class";
     }
 
-    private static String mechanism(String dispatchKind, boolean exact) {
-        if (exact) return switch (dispatchKind) {
-            case "static" -> "java.static";
-            case "super" -> "java.super";
-            case "constructor" -> "java.constructor";
-            default -> "java.exact_dispatch";
-        };
-        return "interface".equals(dispatchKind)
-                ? "java.interface_dispatch" : "java.virtual_dispatch";
-    }
-
     private static String origin(String confidence) {
         return "EXTRACTED".equals(confidence) ? "extracted" : "derived";
     }
@@ -436,15 +306,6 @@ final class JavaSemanticService {
 
     private static String lower(String value) {
         return value == null ? null : value.toLowerCase(java.util.Locale.ROOT);
-    }
-
-    private static String string(Object value) {
-        return value == null ? null : String.valueOf(value);
-    }
-
-    private static String stringOr(Object value, String fallback) {
-        String text = string(value);
-        return text == null || text.isBlank() ? fallback : text;
     }
 
     private record Instantiability(String state, String reason) {}

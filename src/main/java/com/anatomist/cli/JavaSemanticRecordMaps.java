@@ -90,6 +90,7 @@ final class JavaSemanticRecordMaps {
         out.put("reason", row.reason());
         if (!row.proof().isEmpty()) out.put("proof", row.proof().stream()
                 .map(JavaSemanticRecordMaps::proof).toList());
+        if (!row.typeProof().isEmpty()) out.put("type_proof", proof(row.typeProof()));
         Object source = input.get("source");
         if (source != null) out.put("source", source);
         out.putAll(SemanticRecords.lineage(input));

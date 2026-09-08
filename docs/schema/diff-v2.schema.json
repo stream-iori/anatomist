@@ -286,6 +286,24 @@
             },
             "traversal": {
               "const": "captured_call_graph"
+            },
+            "dispatch": {
+              "enum": [
+                "auto",
+                "resolved"
+              ]
+            },
+            "world": {
+              "const": "workspace-open"
+            },
+            "dispatch_max_depth": {
+              "const": 20
+            },
+            "dispatch_limit": {
+              "const": 50
+            },
+            "dispatch_state_limit": {
+              "const": 100000
             }
           }
         },
@@ -297,6 +315,57 @@
         },
         "environment_differences": {
           "type": "object"
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "mode",
+            "base",
+            "target"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "endpoints",
+                "merge_base"
+              ]
+            },
+            "base": {
+              "$ref": "#/$defs/comparison_selector"
+            },
+            "target": {
+              "$ref": "#/$defs/comparison_selector"
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "view",
+            "analyzed",
+            "emitted",
+            "hidden"
+          ],
+          "properties": {
+            "view": {
+              "enum": [
+                "all",
+                "calls"
+              ]
+            },
+            "analyzed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "emitted": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "hidden": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         }
       }
     },
@@ -648,8 +717,99 @@
               },
               "sites_interpretation": {
                 "const": "representative_samples"
+              },
+              "candidate_kind": {
+                "enum": [
+                  "resolved",
+                  "possible"
+                ]
+              },
+              "call_site": {
+                "type": "string"
+              },
+              "resolved_targets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "algorithm": {
+                "enum": [
+                  "exact",
+                  "CHA"
+                ]
+              },
+              "world": {
+                "const": "workspace-open"
+              },
+              "mechanism": {
+                "type": "string"
+              },
+              "resolution_status": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "proof": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/dispatch_proof_edge"
+                }
+              },
+              "type_proof": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/dispatch_proof_edge"
+                }
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "candidate_kind"
+                  ],
+                  "properties": {
+                    "candidate_kind": {
+                      "const": "possible"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "call_site",
+                    "resolved_targets",
+                    "algorithm",
+                    "world",
+                    "mechanism",
+                    "resolution_status",
+                    "reason",
+                    "proof",
+                    "type_proof"
+                  ],
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "proof": {
+                          "minItems": 1
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "type_proof": {
+                          "minItems": 1
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
         "path_interpretation": {
@@ -657,6 +817,9 @@
         },
         "interpretation": {
           "const": "static_possible_impact"
+        },
+        "contains_possible_dispatch": {
+          "type": "boolean"
         }
       }
     },
@@ -736,6 +899,49 @@
               ]
             }
           }
+        }
+      }
+    },
+    "comparison_selector": {
+      "type": "object",
+      "required": [
+        "selector",
+        "commit"
+      ],
+      "properties": {
+        "selector": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40,64}$"
+        }
+      }
+    },
+    "dispatch_proof_edge": {
+      "type": "object",
+      "required": [
+        "id",
+        "subject",
+        "object",
+        "semantic",
+        "mechanism"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "semantic": {
+          "type": "string"
+        },
+        "mechanism": {
+          "type": "string"
         }
       }
     }

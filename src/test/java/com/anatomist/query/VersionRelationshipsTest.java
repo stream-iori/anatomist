@@ -61,4 +61,16 @@ class VersionRelationshipsTest {
         assertTrue(VersionRelationships.impacts("base","s",graph("caller>field"),Set.of("missing","field"),declarations,"ALL",null,3,out).isEmpty());
         assertTrue(out.isEmpty());
     }
+
+    @Test void equallyShortResolvedPathWinsEvenWhenCandidateSortsFirst() {
+        var graph=graph("caller>a","a>seed","caller>z","z>seed");
+        var candidate=graph.get("a>seed");
+        graph.put("a>seed",new VersionRelationships.Relation(candidate.fields(),1,List.of(),Map.of("candidate_kind","possible")));
+        var out=new ArrayList<Map<String,Object>>();
+        VersionRelationships.impacts("target","s",graph,Set.of("seed"),nodes("seed","a","z","caller"),"ALL",null,3,out);
+        var caller=out.stream().filter(r->r.get("entity").equals("caller")).findFirst().orElseThrow();
+        assertEquals(List.of("caller","z","seed"),caller.get("path"));
+        assertEquals(false,caller.get("contains_possible_dispatch"));
+        assertEquals(true,out.stream().filter(r->r.get("entity").equals("a")).findFirst().orElseThrow().get("contains_possible_dispatch"));
+    }
 }

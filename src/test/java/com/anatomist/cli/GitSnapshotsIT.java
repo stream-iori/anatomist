@@ -314,6 +314,13 @@ class GitSnapshotsIT {
             Map<?,?> comparison=(Map<?,?>)output.get("comparison");
             assertEquals(ancestor,((Map<?,?>)comparison.get("base")).get("commit"));
             assertEquals(right,service.git().commit("HEAD"));
+            var request=(Map<?,?>)comparison.get("request");
+            assertEquals("merge_base",request.get("mode"));assertEquals(left,((Map<?,?>)request.get("base")).get("commit"));
+            Map<?,?> tips=(Map<?,?>)Json.parseTree(cli("diff","--project",project.toString(),"--base",left,
+                    "--target","HEAD","--no-classpath","--java-version","25","--format","json","--view","calls"));
+            var tipHeader=(Map<?,?>)tips.get("comparison");
+            assertEquals(left,((Map<?,?>)tipHeader.get("base")).get("commit"));
+            assertEquals("endpoints",((Map<?,?>)tipHeader.get("request")).get("mode"));
         });
     }
 
@@ -400,6 +407,8 @@ class GitSnapshotsIT {
             var a=build("HEAD");
             assertThrows(IllegalArgumentException.class,()->new VersionDiffService().compare(service,a.entry(),a.entry(),"MAIN","missing",false,3));
             assertEquals(2,new picocli.CommandLine(new DiffCommand()).execute("--base","HEAD","--target","WORKTREE","--impact-scope","TEST"));
+            assertEquals(2,new picocli.CommandLine(new DiffCommand()).execute("--base","HEAD","--target","WORKTREE","--impact-dispatch","auto"));
+            assertEquals(2,new picocli.CommandLine(new DiffCommand()).execute("--base","HEAD","--target","WORKTREE","--view","invalid"));
         });
     }
 
@@ -452,12 +461,15 @@ class GitSnapshotsIT {
     @Test void realCrossModuleTraversalKeepsFilteredIntermediate() throws Exception {
         isolated(()->{
             write(".anatomist/config.toml","[scan]\nsource_roots = [\"api@MAIN=src/main/java\", \"bridge@MAIN=bridge/src/main/java\", \"tests@TEST=tests/src/test/java\"]\n");
-            write("bridge/src/main/java/p/Bridge.java","package p; public class Bridge { public int call() { return new A().value(); } }");
-            write("tests/src/test/java/p/Check.java","package p; public class Check { public int check() { return new Bridge().call(); } }");commit("cross module");var a=build("HEAD");
-            write("src/main/java/p/A.java","package p; public class A { public int value() { return 2; } }");var b=build("WORKTREE");
+            write("src/main/java/p/I.java","package p; public interface I { int value(); }");
+            write("src/main/java/p/A.java","package p; public class A implements I { public int value() { return 1; } }");
+            write("bridge/src/main/java/p/Bridge.java","package p; public class Bridge { public int call(I value) { return value.value(); } }");
+            write("tests/src/test/java/p/Check.java","package p; public class Check { public int check() { return new Bridge().call(new A()); } }");commit("cross module");var a=build("HEAD");
+            write("src/main/java/p/A.java","package p; public class A implements I { public int value() { return 2; } }");var b=build("WORKTREE");
             var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN","api",true,3,"TEST","tests");
             var impacts=diff.changes().stream().filter(r->r.get("record").equals("impact")).toList();
             assertEquals(2,impacts.size(),diff.json().toString());
+            assertTrue(impacts.stream().allMatch(r->Boolean.TRUE.equals(r.get("contains_possible_dispatch"))));
             assertTrue(impacts.stream().allMatch(r->((List<?>)r.get("path")).size()==3));
         });
     }
@@ -473,4 +485,72 @@ class GitSnapshotsIT {
             assertFalse(diff.changes().stream().anyMatch(r->r.get("record").equals("declaration_change")));
         });
     }
+    @Test void polymorphicImpactKeepsVersionAnchorsAndViewDoesNotChangeAnalysis() throws Exception {
+        isolated(()->{
+            write("src/main/java/p/I.java","package p; public interface I { int work(); }");
+            write("src/main/java/p/Worker.java","package p; public class Worker implements I { public int work() { return 1; } }");
+            write("src/main/java/p/Caller.java","package p; public class Caller { public int call(I i) { return i.work(); } }");
+            commit("polymorphic callers");var a=build("HEAD");
+            write("src/main/java/p/Worker.java","package p; public class Worker implements I { public int work() { return 2; } }");var b=build("WORKTREE");
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,true,3);
+            var impacts=diff.changes().stream().filter(r->r.get("record").equals("impact")).toList();
+            assertEquals(2,impacts.size(),diff.json().toString());
+            assertTrue(impacts.stream().allMatch(r->Boolean.TRUE.equals(r.get("contains_possible_dispatch"))));
+            assertTrue(impacts.stream().allMatch(r->r.get("entity").toString().endsWith("p.Caller#call(p.I)")));
+            assertFalse(diff.changes().stream().anyMatch(r->r.get("record").equals("relation_change")));
+            var resolved=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,true,3,"MAIN",null,"resolved");
+            assertFalse(resolved.changes().stream().anyMatch(r->r.get("record").equals("impact")));
+            var focused=diff.present("calls",Map.of());
+            assertEquals(impacts,focused.changes().stream().filter(r->r.get("record").equals("impact")).toList());
+            assertEquals(capability(diff,"impact"),capability(focused,"impact"));
+            assertEquals(false,capability(diff,"impact").get("truncated"));
+            assertEquals(false,capability(diff,"impact").get("negative_conclusion_safe"));
+            assertTrue(focused.changes().stream().noneMatch(r->r.get("record").equals("file_change")));
+            assertEquals(diff.changes().size()-focused.changes().size(),((Map<?,?>)focused.header().get("output")).get("hidden"));
+            var noImpact=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3).present("calls",Map.of());
+            assertEquals("not_requested",capability(noImpact,"impact").get("status"));
+            assertTrue(noImpact.changes().stream().anyMatch(r->r.get("record").equals("declaration_change")));
+            write("src/main/java/p/Worker.java","package p; public class Worker { public int work() { return 3; } }");
+            var detached=build("WORKTREE");
+            var changedHierarchy=new VersionDiffService().compare(service,a.entry(),detached.entry(),"MAIN",null,true,3);
+            var workerImpacts=changedHierarchy.changes().stream().filter(r->r.get("record").equals("impact")
+                    && ((Map<?,?>)r.get("origin")).get("symbol").equals("p.Worker#work()")).toList();
+            assertEquals(1,workerImpacts.size(),changedHierarchy.json().toString());
+            assertEquals("base",workerImpacts.getFirst().get("side"));
+        });
+    }
+
+    @Test void callsViewKeepsCallRetargetingAndHidesOtherRelationships() throws Exception {
+        isolated(()->{
+            write("src/main/java/p/A.java","package p; public class A { public int value() { return 1; } public int other() { return 9; } }");
+            write("src/main/java/p/B.java","package p; public class B { public int call() { return new A().value(); } }");
+            commit("caller");var a=build("HEAD");
+            write("src/main/java/p/B.java","package p; @Deprecated public class B { public int call() { return new A().other(); } }");var b=build("WORKTREE");
+            var all=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,true,3);
+            var calls=all.present("calls",Map.of());
+            assertTrue(all.changes().stream().anyMatch(r->r.get("record").equals("relation_change") && !((Map<?,?>)r.get("relationship")).get("relation").equals("CALLS")));
+            assertTrue(calls.changes().stream().anyMatch(r->r.get("record").equals("relation_change") && r.get("change").equals("added")));
+            assertTrue(calls.changes().stream().anyMatch(r->r.get("record").equals("relation_change") && r.get("change").equals("deleted")));
+            assertTrue(calls.changes().stream().filter(r->r.get("record").equals("relation_change")).allMatch(r->((Map<?,?>)r.get("relationship")).get("relation").equals("CALLS")));
+            assertEquals(all.changes().stream().filter(r->r.get("record").equals("impact")).toList(),calls.changes().stream().filter(r->r.get("record").equals("impact")).toList());
+        });
+    }
+
+    @Test void noBuildWorktreeMergeBaseUsesTheCapturedCommitAfterBranchSwitch() throws Exception {
+        isolated(()->{
+            String ancestor=service.git().commit("HEAD");build("HEAD");
+            write("left.txt","left");commit("left");String left=service.git().commit("HEAD");build("HEAD");
+            var capture=build("WORKTREE");
+            GitRepository.text(project,"checkout","--detach",ancestor);
+            write("right.txt","right");commit("right");String right=service.git().commit("HEAD");
+            var output=(Map<?,?>)Json.parseTree(cli("diff","--project",project.toString(),"--base",left,
+                    "--target","WORKTREE","--merge-base","--no-build","--format","json"));
+            var header=(Map<?,?>)output.get("comparison");
+            assertEquals(left,((Map<?,?>)header.get("base")).get("commit"));
+            assertEquals(capture.entry().id(),((Map<?,?>)header.get("target")).get("id"));
+            assertEquals(left,((Map<?,?>)((Map<?,?>)header.get("request")).get("target")).get("commit"));
+            assertEquals(right,service.git().commit("HEAD"));
+        });
+    }
+
 }

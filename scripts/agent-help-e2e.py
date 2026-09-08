@@ -307,6 +307,109 @@ def main():
         report["diff_schema_validated"] = bool(validator)
         check("diff v2: two origins per caller, both snapshots navigable, JSON/NDJSON/table, JAR/native equality")
 
+        print("[branches] diverged tips, polymorphic callers and calls view", flush=True)
+        write_diff("src/main/java/p/I.java", "package p; public interface I { int work(); }\n")
+        worker = "package p; public class Worker implements I { public int work() { return 1; } }\n"
+        write_diff("src/main/java/p/Worker.java", worker)
+        write_diff("src/main/java/p/Caller.java", "package p; public class Caller { public int call(I i) { return i.work(); } }\n")
+        git_diff("config", "user.name", "Diff Test")
+        git_diff("config", "user.email", "diff@example.test")
+        git_diff("add", ".")
+        git_diff("commit", "-qm", "common ancestor")
+        ancestor = git_diff("rev-parse", "HEAD")
+        git_diff("branch", "base-tip")
+        git_diff("checkout", "-qb", "feature")
+        write_diff("src/main/java/p/Worker.java", worker.replace("return 1", "return 2"))
+        git_diff("add", ".")
+        git_diff("commit", "-qm", "feature work")
+        feature_tip = git_diff("rev-parse", "HEAD")
+        git_diff("checkout", "-q", "base-tip")
+        write_diff("src/main/java/p/A.java", source.replace("return 1", "return 99"))
+        git_diff("add", ".")
+        git_diff("commit", "-qm", "base advances")
+        base_tip = git_diff("rev-parse", "HEAD")
+        # Warm a capture on another branch before returning to the feature checkout.
+        run(first_mode, ["index", diff_project, "--ref", "HEAD", "--no-classpath", "--java-version", "25"])
+        git_diff("checkout", "-q", "feature")
+        branch_results = []
+        for merge_base in (True, False):
+            argv = ["diff", "--project", diff_project, "--base", "base-tip", "--target", "HEAD",
+                    "--impact", "--no-classpath", "--java-version", "25"]
+            if merge_base:
+                argv.append("--merge-base")
+            paired = []
+            for mode in runners:
+                focused = json.loads(run(mode, [*argv, "--view", "calls", "--format", "json"]).stdout)
+                paired.append(focused)
+                header = focused["comparison"]
+                assert header["base"]["commit"] == (ancestor if merge_base else base_tip)
+                assert header["target"]["commit"] == feature_tip
+                assert header["request"]["base"] == {"selector": "base-tip", "commit": base_tip}
+                assert header["request"]["mode"] == ("merge_base" if merge_base else "endpoints")
+                assert header["impact"]["dispatch"] == "auto"
+                impacts = [r for r in records(focused["changes"], "impact") if r["origin"]["symbol"] == "p.Worker#work()"]
+                assert len(impacts) == 2, impacts
+                assert all(r["contains_possible_dispatch"] for r in impacts)
+                for impact in impacts:
+                    edge = impact["edges"][0]
+                    assert edge["candidate_kind"] == "possible" and (edge["proof"] or edge["type_proof"])
+                    anchor = impact["origin"]
+                    route = ["pipeline", "--project", diff_project, "--snapshot", anchor["snapshot_id"],
+                             "--scope", anchor["scope"], "--", "resolve", anchor["id"], "--unique", "--then", "source"]
+                    snippet = records(stream(run(mode, route).stdout), "source_slice")[0]["snippet"]
+                    assert ("return 1" if impact["side"] == "base" else "return 2") in snippet
+                assert not focused["evidence"]["capabilities"]["impact"]["negative_conclusion_safe"]
+                assert not focused["evidence"]["capabilities"]["impact"]["truncated"]
+                all_rows = json.loads(run(mode, [*argv, "--format", "json"]).stdout)
+                expected = [r for r in all_rows["changes"] if r["record"] in ("declaration_change", "impact")
+                            or r["record"] == "relation_change" and r["relationship"]["relation"] == "CALLS"]
+                assert focused["changes"] == expected
+                assert focused["evidence"]["capabilities"] == all_rows["evidence"]["capabilities"]
+                assert header["output"]["hidden"] == len(all_rows["changes"]) - len(expected)
+                resolved = json.loads(run(mode, [*argv, "--view", "calls", "--impact-dispatch", "resolved", "--format", "json"]).stdout)
+                assert not any(r["origin"]["symbol"] == "p.Worker#work()" for r in records(resolved["changes"], "impact"))
+                ndjson = [json.loads(line) for line in run(mode, [*argv, "--view", "calls"]).stdout.splitlines()]
+                assert ndjson == [header, *focused["changes"], focused["evidence"]]
+                table = run(mode, [*argv, "--view", "calls", "--format", "table"]).stdout
+                assert "dispatch=possible" in table
+                assert ("merge_base" if merge_base else "endpoints") in table
+                if validator:
+                    validator.validate(focused)
+                    for row in ndjson:
+                        validator.validate(row)
+                    invalid = json.loads(json.dumps(impacts[0]))
+                    invalid["edges"][0]["proof"] = []
+                    invalid["edges"][0]["type_proof"] = []
+                    assert not validator.is_valid(invalid), "schema accepted a candidate without proof"
+            assert all(value == paired[0] for value in paired)
+            branch_results.extend(paired)
+        assert git_diff("rev-parse", "HEAD") == feature_tip
+        assert git_diff("status", "--porcelain") == ""
+        write_diff("src/main/java/p/Worker.java", worker.replace("return 1", "return 3"))
+        disk = json.loads(run(last_mode, ["diff", "--project", diff_project, "--base", "base-tip", "--target", "WORKTREE",
+                                       "--merge-base", "--view", "calls", "--impact", "--no-classpath", "--java-version", "25", "--format", "json"]).stdout)
+        assert disk["comparison"]["base"]["commit"] == ancestor
+        assert disk["comparison"]["target"]["id"] != branch_results[0]["comparison"]["target"]["id"]
+        if validator:
+            validator.validate(disk)
+        git_diff("restore", "src/main/java/p/Worker.java")
+        git_diff("checkout", "-q", "base-tip")
+        cached_comparisons = []
+        for mode in runners:
+            cached = json.loads(run(mode, ["diff", "--project", diff_project, "--base", "feature", "--target", "WORKTREE",
+                                          "--merge-base", "--view", "calls", "--impact", "--no-build", "--format", "json"]).stdout)
+            assert cached["comparison"]["base"]["commit"] == feature_tip
+            assert cached["comparison"]["target"]["id"] == disk["comparison"]["target"]["id"]
+            assert cached["comparison"]["request"]["target"]["commit"] == feature_tip
+            if validator:
+                validator.validate(cached)
+            cached_comparisons.append(cached)
+        assert all(value == cached_comparisons[0] for value in cached_comparisons)
+        assert git_diff("rev-parse", "HEAD") == base_tip
+        report["cached_worktree_comparisons"] = len(cached_comparisons)
+        report["branch_comparisons"] = len(branch_results)
+        check("branches: merge-base versus tips, branch-switch isolation, polymorphic evidence, view invariance, WORKTREE and frozen source")
+
     for mode, path in (("jar", args.jar), ("native", args.native)):
         if path:
             report["runners"][mode]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()

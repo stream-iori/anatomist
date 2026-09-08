@@ -9,7 +9,8 @@
 
 Use full method signatures for both endpoints. Select overloads before tracing.
 `calls` reports source call sites and static resolution. `dispatch` adds possible
-virtual targets. Configuration bindings can constrain possibilities, not create calls.
+virtual targets. Configuration bindings add evidence without excluding other compatible targets.
+Read dispatch_reasons for open-world gaps and actual traversal limits.
 
 `trace` returns one path within --max-depth, not all paths. An empty bounded search
 cannot rule out longer routes or unresolved calls. Trace records cannot be piped to

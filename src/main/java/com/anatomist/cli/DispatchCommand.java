@@ -25,21 +25,22 @@ public final class DispatchCommand extends TransformSemanticCommand {
         CliValidation.positive("--max-depth", maxDepth); CliValidation.positive("--limit", limit);
         AtomicInteger seeds=new AtomicInteger(), emitted=new AtomicInteger(); AtomicBoolean complete=new AtomicBoolean(true), truncated=new AtomicBoolean(false);
         SemanticStreamReader.Summary input=readFrames(Set.of("call_site"), acceptUnframed, identity, frame->{
-            seeds.incrementAndGet(); int count=0; boolean frameComplete=frame.evidence().complete();
+            seeds.incrementAndGet(); int count=0; boolean frameComplete=frame.evidence().complete(),frameTruncated=false;
+            var reasons=new java.util.TreeSet<String>();
             for(SemanticRecord record:frame.records()){
                 SemanticRecord.CallSite site=(SemanticRecord.CallSite)record;
-                var rows=query.dispatch(site.raw(), algorithm, world, maxDepth, limit);
-                for(DispatchTarget row:rows){
+                var result=query.dispatchDetailed(site.raw(), algorithm, world, maxDepth, limit,100_000);
+                reasons.addAll(result.reasons());frameComplete &= result.complete();frameTruncated |= result.truncated();
+                for(DispatchTarget row:result.targets()){
                     String child=SemanticRecords.childSeed(frame.seedId(), "dispatch", row.id());
                     writer.write(JavaSemanticRecordMaps.dispatch(row, child, frame.seedId(), site.raw(), identity));
                     writer.write(SemanticRecords.seedEvidence(child, frame.seedId(), 1, true, null, identity)); count++; emitted.incrementAndGet();
-                    if("possible".equals(row.candidateKind()) || !"exact".equals(row.resolutionStatus())) frameComplete=false;
                 }
-                if(rows.size()>=limit){ truncated.set(true); frameComplete=false; }
             }
-            if(!"workspace-closed".equals(world)) frameComplete=false;
-            writer.write(SemanticRecords.seedEvidence(frame.seedId(), null, count, frameComplete,
-                    truncated.get()?"QUERY_LIMIT_TRUNCATED":frameComplete?null:"OPEN_WORLD_OR_HEURISTIC", truncated.get(), identity));
+            if(frameTruncated) truncated.set(true);
+            var evidence=SemanticRecords.seedEvidence(frame.seedId(), null, count, frameComplete,
+                    frameTruncated?"QUERY_LIMIT_TRUNCATED":frameComplete?null:"OPEN_WORLD_OR_HEURISTIC", frameTruncated, identity);
+            evidence.put("dispatch_reasons",java.util.List.copyOf(reasons));writer.write(evidence);
             if(!frameComplete) complete.set(false);
         });
         if(seeds.get()==0) throw new IllegalArgumentException("dispatch requires a call_site stream on stdin");

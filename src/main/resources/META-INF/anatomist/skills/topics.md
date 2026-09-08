@@ -19,7 +19,7 @@ selection between candidates is a decision before starting the next query.
 | Who reads or writes this field? | resolve value → accesses | `skill relations` |
 | What annotations/configuration apply? | resolve → annotations or bindings | `skill spring` |
 | Where is changed code? | diff --base HEAD --target WORKTREE | `skill versions` |
-| Which callers may be affected? | diff --base HEAD --target WORKTREE --impact | `skill versions` |
+| Which callers may branch work affect? | diff --base <base> --target HEAD --merge-base --view calls --impact | `skill versions` |
 | Is the index usable/current? | doctor --format json | `skill maintenance` |
 
 For rules not yet loaded, read `skill core`. Load another scene only when the

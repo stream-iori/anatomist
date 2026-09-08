@@ -340,3 +340,19 @@ uv run --with jsonschema python scripts/agent-help-e2e.py --jar target/anatomist
 
 本地 macOS 构建使用 `.sdkmanrc` 中的 GraalVM：`mvn -Pnative clean package`。
 以原生程序 `--version`、`file target/anatomist` 和上述运行报告共同确认产物。
+
+## 分支调用影响验收
+
+`JavaDispatchServiceTest` 覆盖接口／继承方法体、默认方法、接收者约束、非虚调用、
+配置证据和精确截断边界。`VersionRelationshipsTest` 验证多起点、环、跨筛选路径和最短路径。
+`GitSnapshotsIT` 以真实索引验证两种分支比较、两侧候选影响、calls 视图和导航锚点。
+
+```bash
+mvn test
+just golden-update
+mvn -Pnative -DskipTests package
+python3 scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --validate-schema --report target/agent-help-e2e.json
+```
+
+端到端脚本在临时 Git 项目中执行 help/skill 示例、分支及 WORKTREE 比较、快照源码读取，
+并检查 JAR/native 输出一致性。测试数据库和报告不提交；复用维护中的脚本，不保留临时 Python 脚本。

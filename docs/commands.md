@@ -23,7 +23,7 @@
 | `index . --ref HEAD` | 保存提交快照，默认尝试增量 |
 | `index . --ref WORKTREE` | 冻结当前磁盘内容 |
 | 查询／pipeline 的 `--ref`、`--snapshot` | 选择已建立的版本；与 `--index` 互斥 |
-| `diff --base main --target feature [--merge-base] [--impact]` | 定位文本修改的双端声明；自动补建缺失快照，`--no-build` 禁止构建 |
+| `diff --base main --target HEAD [--merge-base] [--view calls] [--impact]` | 比较分支、定位双端声明并查询可能的调用影响；自动补建缺失快照，`--no-build` 禁止构建 |
 | `snapshots list/show/pin/unpin/gc` | 查询、固定和显式清理历史 |
 
 具体默认值、输出和生命周期见 [Git snapshots](git-snapshots.md)。
@@ -156,6 +156,17 @@ anatomist diff --base HEAD --target WORKTREE --module api --impact --impact-scop
 `--impact-module` 只筛选返回的调用者，不切断中间路径。`--impact-scope` 默认继承 `--scope`。
 文件变化始终覆盖项目快照清单；`--scope/--module` 筛选声明和关系。
 读取 `evidence.capabilities` 判断各项覆盖；影响仅为静态调用图中的可能影响，路径是每个修改点的最短代表路径。
+| 分支问题 | 命令 |
+|---|---|
+| 本分支从 Base 分叉后的影响 | `anatomist diff --base Base --target HEAD --merge-base --view calls --impact` |
+| 与指定分支最新提交的差异 | `anatomist diff --base other --target HEAD --view calls --impact` |
+| 包含未提交修改 | 将 `--target HEAD` 改为 `--target WORKTREE` |
+
+`--view all` 为默认输出；`calls` 保留声明锚点、CALLS 变化和已请求的 impact，
+仅筛选展示，不影响分析起点。`--impact` 默认包含接口和覆写候选，
+`--impact-dispatch resolved` 可仅沿已解析调用分析；该选项要求同时使用 `--impact`。
+逐边读取 `candidate_kind` 和证明，候选分派不代表实际执行。
+
 完整字段和边界见 [diff v2](git-snapshots.md#diff-navigation-v2)。
 
 | exit | 含义 |

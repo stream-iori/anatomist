@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 public final class AgentHelp implements CommandLine.IModelTransformer {
     static final Map<String, List<String>> COMMAND_GROUPS = groups();
     private static final Set<String> SHARED = Set.of("--index", "--ref", "--snapshot",
-            "--project", "--module", "--scope", "--language", "--provider", "--format",
+            "--project", "--module", "--scope", "--language", "--provider", "--format", "--view",
             "--on-unsupported", "--accept-unframed", "--help", "--version");
 
     @Override public CommandSpec transform(CommandSpec spec) {

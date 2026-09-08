@@ -91,6 +91,59 @@ not proof of no test changes. Configure scan scopes or build with existing index
 options such as `--include-tests`, then select the resulting snapshot IDs. Old
 snapshots lacking coverage metadata remain readable with unknown coverage.
 
+## Branch comparisons and caller views
+
+| Intent | Command |
+|---|---|
+| Current branch work since Base diverged | `anatomist diff --base Base --target HEAD --merge-base --view calls --impact` |
+| Current branch tip versus another tip | `anatomist diff --base other --target HEAD --view calls --impact` |
+| Include disk edits | Replace `--target HEAD` with `--target WORKTREE` |
+
+The base is explicit. A merge base is the current common ancestor, not a recorded
+original fork point; use a fixed SHA/snapshot when that distinction matters.
+Header `request.mode` is `endpoints` or `merge_base`; `request.base/target` contain
+`selector` and its resolved `commit`. Header `base/target` remain the actual frozen
+comparison endpoints. WORKTREE request commit describes HEAD at selection time for automatic capture.
+With --no-build, it describes the last captured commit, including after a branch
+switch; merge-base uses that captured commit. The endpoint identifies the exact
+disk capture.
+
+`--view all` is the default. `--view calls` retains every declaration anchor,
+CALLS relation changes and requested impact, hiding file details and other
+relationships. Analysis and evidence precede this presentation filter.
+`output` contains `view`, `analyzed`, `emitted` and `hidden` record counts;
+`evidence.emitted` is the visible change count. Hidden files are not absent files.
+
+`--impact-dispatch auto` is the default when impact is requested. It augments
+recorded calls with possible Java dispatch, independently in each snapshot.
+`resolved` uses recorded calls only. Explicit --impact-dispatch requires --impact.
+The model remains reverse_static_calls: candidate expansion is static evidence.
+`impact.dispatch` discloses the selected mode; auto uses `world=workspace-open`.
+The graph always spans captured scopes/modules; caller filters apply at output.
+
+Path edges expose `candidate_kind=resolved|possible`; candidate edges add
+`call_site`, `resolved_targets`, `algorithm`, `world`, `mechanism`,
+`resolution_status`, `reason`, callable `proof` and `type_proof`.
+`contains_possible_dispatch` summarizes the selected path. One shortest path is
+retained per caller/origin; ties prefer paths containing only resolved edges,
+then stable identity order. Relationship changes never include invented candidate deltas.
+
+Dispatch preserves nonvirtual calls, includes inherited bodies on their actual
+declarations, and restricts candidates to captured compatible receiver types.
+Receiver metadata can be a declaring-type fallback, so candidates may be broader
+than source-level receiver analysis. Configuration bindings add evidence without
+excluding other compatible implementations. Missing external types, unsupported
+call mechanisms or hierarchy gaps prevent a complete candidate claim.
+
+Auto exposes dispatch_max_depth=20, dispatch_limit=50 targets per site and
+dispatch_state_limit=100000 per snapshot, independently of call depth and the
+existing impact entity/state budgets. Candidate expansion is lazy and cached by
+call site within each snapshot. `impact` evidence includes per-side dispatch_states.
+DISPATCH_DEPTH_LIMIT, DISPATCH_TARGET_LIMIT and DISPATCH_STATE_LIMIT indicate
+actual truncation; DISPATCH_OPEN_WORLD and resolution/hierarchy gaps do not.
+For further candidates, select the call site in its snapshot and query dispatch
+with explicit limits. Type-only, field and configuration effects are not propagated.
+
 ## Incremental builds and impact
 
 Version builds default to incremental reuse. A compatible indexed ancestor is

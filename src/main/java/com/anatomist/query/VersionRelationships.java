@@ -6,7 +6,8 @@ import java.util.*;
 
 /** Location-independent multiset of persisted relationships, with bounded call impact. */
 final class VersionRelationships {
-    record Relation(Map<String,Object> fields,int count,List<Map<String,Object>> sites) {
+    record Relation(Map<String,Object> fields,int count,List<Map<String,Object>> sites,Map<String,Object> dispatch) {
+        Relation(Map<String,Object> fields,int count,List<Map<String,Object>> sites) { this(fields,count,sites,Map.of("candidate_kind","resolved")); }
         String source() { return String.valueOf(fields.get("source")); }
         String target() { return String.valueOf(fields.get("target")); }
         String kind() { return String.valueOf(fields.get("relation")); }
@@ -72,47 +73,59 @@ final class VersionRelationships {
                                int depth, List<Map<String,Object>> out, int entityLimit, int stateLimit) {
         Map<String,List<Relation>> incoming=new HashMap<>();
         for(Relation r:relations.values()) if(r.kind().equals("CALLS")) incoming.computeIfAbsent(r.target(),k->new ArrayList<>()).add(r);
-        incoming.values().forEach(list->list.sort(Comparator.comparing(Relation::source)
-                .thenComparing(r->RelationshipIdentity.of("version-relation",r.fields()))));
-        record Visit(String node,List<String> path,List<Map<String,Object>> edges) {}
-        Set<String> reasons=new TreeSet<>(), entities=new HashSet<>(); int states=0;
+        return impacts(side,snapshot,id->incoming.getOrDefault(id,List.of()),seeds,declarations,scope,module,depth,out,entityLimit,stateLimit);
+    }
+    static Set<String> impacts(String side,String snapshot,java.util.function.Function<String,List<Relation>> incoming,Set<String> seeds,
+                               Map<String,DiffNavigation.Declaration> declarations,String scope,String module,int depth,
+                               List<Map<String,Object>> out,int entityLimit,int stateLimit) {
+        record Visit(String node,List<String> path,List<Map<String,Object>> edges,boolean possible,String order) {}
+        Comparator<Visit> order=Comparator.comparingInt((Visit v)->v.path().size()).thenComparing(Visit::possible).thenComparing(Visit::order);
+        Set<String> reasons=new TreeSet<>(), entities=new HashSet<>();int states=0;
         for(String seed:new TreeSet<>(seeds)) {
-            var origin=declarations.get(seed);
-            if(origin==null || !origin.callable()) continue;
-            if(!entities.contains(seed) && entities.size()>=entityLimit) { reasons.add("ENTITY_LIMIT"); return reasons; }
-            if(states>=stateLimit) { reasons.add("STATE_LIMIT"); return reasons; }
-            entities.add(seed); states++;
-            ArrayDeque<Visit> queue=new ArrayDeque<>(); Set<String> visited=new HashSet<>(); visited.add(seed);
-            queue.add(new Visit(seed,List.of(seed),List.of()));
+            var origin=declarations.get(seed);if(origin==null || !origin.callable()) continue;
+            PriorityQueue<Visit> queue=new PriorityQueue<>(order);Map<String,Visit> best=new HashMap<>();Set<String> visited=new HashSet<>();
+            Visit start=new Visit(seed,List.of(seed),List.of(),false,seed);queue.add(start);best.put(seed,start);
             while(!queue.isEmpty()) {
-                Visit current=queue.removeFirst();
-                List<Relation> callers=incoming.getOrDefault(current.node(),List.of());
+                Visit current=queue.remove();
+                if(best.get(current.node())!=current || visited.contains(current.node())) continue;
+                if(!entities.contains(current.node()) && entities.size()>=entityLimit) { reasons.add("ENTITY_LIMIT");return reasons; }
+                if(states>=stateLimit) { reasons.add("STATE_LIMIT");return reasons; }
+                entities.add(current.node());visited.add(current.node());states++;
+                var caller=declarations.get(current.node());
+                if(!current.node().equals(seed) && caller!=null && caller.selected(scope,module)) {
+                    Map<String,Object> row=new LinkedHashMap<>();row.put("record","impact");row.put("side",side);row.put("entity",current.node());
+                    row.put("origin",origin.anchor(snapshot,origin.located()?"declaration":"unlocated"));
+                    row.put("caller",caller.anchor(snapshot,caller.located()?"declaration":"unlocated"));
+                    row.put("path",current.path());row.put("edges",current.edges());row.put("contains_possible_dispatch",current.possible());
+                    row.put("path_interpretation","one_shortest_path_per_origin");row.put("interpretation","static_possible_impact");out.add(row);
+                }
+                List<Relation> callers=incoming.apply(current.node());
                 if(current.path().size()-1>=depth) {
-                    if(callers.stream().anyMatch(r->!visited.contains(r.source()))) reasons.add("DEPTH_LIMIT");
+                    if(callers.stream().anyMatch(r->!visited.contains(r.source()) && !best.containsKey(r.source()))) reasons.add("DEPTH_LIMIT");
                     continue;
                 }
                 for(Relation relation:callers) {
                     if(visited.contains(relation.source())) continue;
-                    if(!entities.contains(relation.source()) && entities.size()>=entityLimit) { reasons.add("ENTITY_LIMIT"); return reasons; }
-                    if(states>=stateLimit) { reasons.add("STATE_LIMIT"); return reasons; }
-                    entities.add(relation.source()); visited.add(relation.source()); states++;
                     List<String> path=new ArrayList<>();path.add(relation.source());path.addAll(current.path());
-                    List<Map<String,Object>> edges=new ArrayList<>();
-                    edges.add(Map.of("source",relation.source(),"target",relation.target(),"sites",relation.sites(),
-                            "sites_interpretation","representative_samples")); edges.addAll(current.edges());
-                    var caller=declarations.get(relation.source());
-                    if(caller!=null && caller.selected(scope,module)) {
-                        Map<String,Object> row=new LinkedHashMap<>();
-                        row.put("record","impact"); row.put("side",side); row.put("entity",relation.source());
-                        row.put("origin",origin.anchor(snapshot,origin.located()?"declaration":"unlocated"));
-                        row.put("caller",caller.anchor(snapshot,caller.located()?"declaration":"unlocated"));
-                        row.put("path",List.copyOf(path)); row.put("edges",List.copyOf(edges));
-                        row.put("path_interpretation","one_shortest_path_per_origin");
-                        row.put("interpretation","static_possible_impact"); out.add(row);
-                    }
-                    queue.add(new Visit(relation.source(),List.copyOf(path),List.copyOf(edges)));
+                    Map<String,Object> edge=new LinkedHashMap<>(relation.dispatch());
+                    edge.put("source",relation.source());edge.put("target",relation.target());edge.put("sites",relation.sites());edge.put("sites_interpretation","representative_samples");
+                    List<Map<String,Object>> edges=new ArrayList<>();edges.add(edge);edges.addAll(current.edges());
+                    boolean possible=current.possible() || "possible".equals(relation.dispatch().get("candidate_kind"));
+                    String key=String.join("\n",path)+"\n"+com.anatomist.json.Json.writeCompact(canonical(edges));
+                    Visit next=new Visit(relation.source(),List.copyOf(path),List.copyOf(edges),possible,key);
+                    Visit previous=best.get(next.node());
+                    if(previous==null || order.compare(next,previous)<0) { best.put(next.node(),next);queue.add(next); }
                 }
             }
-        } return reasons;
+        }
+        return reasons;
+    }
+
+    private static Object canonical(Object value) {
+        if(value instanceof Map<?,?> map) {
+            Map<String,Object> sorted=new TreeMap<>();map.forEach((k,v)->sorted.put(k.toString(),canonical(v)));return sorted;
+        }
+        if(value instanceof List<?> list) return list.stream().map(VersionRelationships::canonical).toList();
+        return value;
     }
 }

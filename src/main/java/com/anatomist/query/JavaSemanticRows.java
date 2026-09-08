@@ -32,10 +32,17 @@ public final class JavaSemanticRows {
                                  Boolean executable, String instantiability,
                                  String algorithm, String world,
                                  String resolutionStatus, List<String> reason,
-                                 List<CallableRelation> proof) {
+                                 List<CallableRelation> proof, List<TypeRelation> typeProof) {
         public DispatchTarget {
             reason = reason == null ? List.of() : List.copyOf(reason);
             proof = proof == null ? List.of() : List.copyOf(proof);
+            typeProof = typeProof == null ? List.of() : List.copyOf(typeProof);
         }
+    }
+
+    public record DispatchResult(List<DispatchTarget> targets, List<String> reasons,
+                                 boolean truncated, int states) {
+        public DispatchResult { targets = List.copyOf(targets); reasons = List.copyOf(reasons); }
+        public boolean complete() { return reasons.isEmpty() && !truncated; }
     }
 }
