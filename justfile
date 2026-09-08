@@ -412,7 +412,7 @@ smoke: index-fixture
     {{NATIVE_BIN}} pipeline --index {{SMOKE_DB}} -- \
       resolve "$METHOD" --kind callable --exact --unique \
       --then calls --then source --limit 20 >"$TMP/calls-fused"
-    cmp "$TMP/calls-4" "$TMP/calls-fused"
+    python3 -c 'import json, pathlib, sys; a, b = ([json.loads(line) for line in pathlib.Path(p).read_text().splitlines()] for p in sys.argv[1:]); assert a == b, "shell and fused pipeline records differ"' "$TMP/calls-4" "$TMP/calls-fused"
     echo "=== resolve | calls | source ==="
     head -n 20 "$TMP/calls-4"
 
@@ -488,7 +488,8 @@ native-smoke: jar native
         local db="$1"
         sed -E \
           -e 's/"index_revision_id"[[:space:]]*:[[:space:]]*"[^"]*"/"index_revision_id":"<REVISION>"/g' \
-          -e "s|$db|<INDEX>|g"
+          -e "s|$db|<INDEX>|g" |
+          python3 -c 'import json, sys; [print(json.dumps(json.loads(line), sort_keys=True, separators=(",", ":"))) for line in sys.stdin]'
     }
     run_suite() {
         local variant="$1" db="$2" prefix="$3"
@@ -505,7 +506,7 @@ native-smoke: jar native
         run_cli "$variant" pipeline --index "$db" -- \
           resolve "$method" --kind callable --exact --unique \
           --then calls --then source --limit 20 >"$prefix-calls-fused"
-        cmp "$prefix-calls" "$prefix-calls-fused"
+        python3 -c 'import json, pathlib, sys; a, b = ([json.loads(line) for line in pathlib.Path(p).read_text().splitlines()] for p in sys.argv[1:]); assert a == b, "shell and fused pipeline records differ"' "$prefix-calls" "$prefix-calls-fused"
         for case in search overview declarations members calls calls-fused; do
           normalize "$db" <"$prefix-$case" >"$prefix-$case.normalized"
         done

@@ -39,6 +39,9 @@ jobs:
       - name: Config E2E (JVM)
         run: bash scripts/config-e2e.sh jvm
 
+      - name: Git snapshots E2E (JVM)
+        run: python3 scripts/snapshots-e2e.py --jar target/anatomist.jar --files 20 --repeats 1
+
   resolution-quality:
     name: Real-project precision and recall
     runs-on: ubuntu-latest

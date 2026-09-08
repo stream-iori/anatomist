@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://antcodes.dev/anatomist/schema/diff-v1.schema.json",
+  "title": "Anatomist diff v1 JSON result or NDJSON record",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["contract", "comparison", "changes", "evidence"],
+      "properties": {
+        "contract": { "const": "anatomist-diff/v1" },
+        "comparison": { "$ref": "#/$defs/header" },
+        "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      }
+    },
+    { "$ref": "#/$defs/header" },
+    { "$ref": "#/$defs/change" },
+    { "$ref": "#/$defs/evidence" }
+  ],
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "required": ["id", "commit", "source_snapshot_id", "semantic_profile_id", "index_revision_id"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "commit": { "type": "string" },
+        "source_snapshot_id": { "type": "string" },
+        "semantic_profile_id": { "type": "string" },
+        "index_revision_id": { "type": "string" }
+      }
+    },
+    "header": {
+      "type": "object",
+      "required": ["contract", "record", "base", "target", "environment_changed", "environment_differences"],
+      "properties": {
+        "contract": { "const": "anatomist-diff/v1" },
+        "record": { "const": "diff_header" },
+        "base": { "$ref": "#/$defs/identity" },
+        "target": { "$ref": "#/$defs/identity" },
+        "environment_changed": { "type": "boolean" },
+        "environment_differences": { "type": "object" }
+      }
+    },
+    "change": {
+      "type": "object",
+      "required": ["record"],
+      "properties": {
+        "record": { "enum": ["file_change", "declaration_change", "relation_change", "impact"] },
+        "change": { "enum": ["added", "deleted", "modified", "renamed", "count_changed"] },
+        "side": { "enum": ["base", "target"] },
+        "interpretation": { "const": "static_possible_impact" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["record", "scope", "complete", "truncated", "negative_conclusion_safe", "emitted"],
+      "properties": {
+        "record": { "const": "evidence" },
+        "scope": { "const": "comparison" },
+        "complete": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "negative_conclusion_safe": { "type": "boolean" },
+        "emitted": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

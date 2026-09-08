@@ -65,6 +65,10 @@ public final class DiffCommand implements Callable<Integer> {
         List<String> options=new ArrayList<>();
         if(noClasspath) options.add("--no-classpath");
         if(javaVersion!=null) options.addAll(List.of("--java-version",javaVersion.toString()));
+        IndexCommand request=new IndexCommand();
+        List<String> indexArgs=new ArrayList<>(List.of(project.toString()));indexArgs.addAll(options);
+        new picocli.CommandLine(request).parseArgs(indexArgs.toArray(String[]::new));
+        options=request.snapshotOptions();
         System.err.println("Building snapshot for " + ref);
         return service.build(ref,Json.writeCompact(options),false,
                 IndexCommand.snapshotBuilder(options,project.toAbsolutePath().normalize())).entry();

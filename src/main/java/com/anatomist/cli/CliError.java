@@ -26,6 +26,8 @@ final class CliError {
         if (operation != null) {
             out.put("inspect", List.of(operation.equals("pipeline")
                     ? List.of("anatomist", "pipeline", "--help")
+                    : java.util.Set.of("diff","snapshots","index","doctor").contains(operation)
+                    ? List.of("anatomist",operation,"--help")
                     : List.of("anatomist", "operations", operation, "--format", "json")));
         }
         return out;

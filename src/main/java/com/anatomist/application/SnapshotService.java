@@ -71,18 +71,25 @@ public final class SnapshotService implements SnapshotAccess {
         String sha=commit(ref);
         Path catalogPath=directory.resolve("catalog.db"), workspace=directory.resolve("workspace");
         try {
-            Files.createDirectories(directory);
-            if(directory.startsWith(git.root())) throw new SnapshotException("SNAPSHOT_STORAGE_INVALID",
+            Path existingParent=directory;
+            while(!Files.exists(existingParent)) existingParent=existingParent.getParent();
+            Path canonicalDirectory=existingParent.toRealPath().resolve(existingParent.relativize(directory));
+            if(canonicalDirectory.startsWith(git.root())) throw new SnapshotException("SNAPSHOT_STORAGE_INVALID",
                     "ANATOMIST_HOME must be outside the Git working tree for version indexing");
+            Files.createDirectories(directory);
             try(var operation=IndexOperationLock.forWrite(catalogPath); var catalog=new SnapshotCatalog(directory)) {
                 recover(catalog,workspace);
                 boolean working=ref.equals("WORKTREE");
                 String requestHash=requestHash(request);
                 Map<String,String> workingFiles=null;
-                if(working) { git.requireNoConflicts(); workingFiles=SnapshotFiles.inventory(git.root()); }
+                if(working) {
+                    git.requireNoConflicts(); workingFiles=SnapshotFiles.inventory(git.root());
+                    if(!sha.equals(git.commit("HEAD"))) throw new SnapshotException("WORKTREE_CHANGED","HEAD changed during capture");
+                }
                 String input=working ? SnapshotFiles.fingerprint(workingFiles) : sha;
                 if(!full) for(var entry:catalog.list()) {
-                    if(entry.status().equals("READY") && entry.inputHash().equals(input)
+                    if(entry.status().equals("READY") && entry.commit().equals(sha)
+                            && entry.checkout().equals(working?git.checkoutKey():"") && entry.inputHash().equals(input)
                             && entry.requestHash().equals(requestHash) && artifactsCurrent(database(entry.id()))) {
                         catalog.origin(selectorKey(ref),sha,entry.id());
                         return new Built(entry,database(entry.id()),true);
@@ -127,6 +134,7 @@ public final class SnapshotService implements SnapshotAccess {
                     // Build tools may add generated inputs. Original source/configuration bytes must remain stable.
                     for(var file:before.entrySet()) if(!Objects.equals(file.getValue(),after.get(file.getKey())))
                         throw new SnapshotException("SNAPSHOT_INPUT_CHANGED","Build modified input: " + file.getKey());
+                    verifyIndexedInputs(db,after);
                     Path blobs=directory.resolve("blobs");
                     SourceBlobStore.Stats cached=new SourceBlobStore(blobs).store(project,after);
                     metrics.put("source_written_bytes",cached.writtenBytes());
@@ -167,6 +175,18 @@ public final class SnapshotService implements SnapshotAccess {
             }
         }
         throw new SnapshotException("WORKTREE_CHANGED","Working tree changed during capture; retry indexing");
+    }
+    private static void verifyIndexedInputs(Path db,Map<String,String> frozen) throws SQLException {
+        try(SqliteStore store=new SqliteStore(db);Statement statement=store.connection().createStatement();
+            ResultSet files=statement.executeQuery("SELECT source_file,hash FROM file_cache")) {
+            while(files.next()) {
+                String file=files.getString("source_file"),hash=files.getString("hash");
+                if(!frozen.containsKey(file)) throw new SnapshotException("SNAPSHOT_SOURCE_OUTSIDE_PROJECT",
+                        "Indexed source is outside the captured project; index a common project root: " + file);
+                if(!Objects.equals(hash,frozen.get(file))) throw new SnapshotException("SNAPSHOT_INPUT_CHANGED",
+                        "Indexed source differs from frozen content: " + file);
+            }
+        }
     }
     private String requestHash(String request) throws Exception {
         Path userConfig=Path.of(System.getProperty("user.home"),".anatomist","config.toml");

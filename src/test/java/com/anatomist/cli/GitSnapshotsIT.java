@@ -166,6 +166,20 @@ class GitSnapshotsIT {
             var dirty=build("WORKTREE");
             assertThrows(SnapshotException.class,()->other.resolve("WORKTREE"));
             assertEquals(dirty.entry().id(),service.resolve("WORKTREE").id());
+            Files.writeString(linked.resolve("src/main/java/p/A.java"),Files.readString(project.resolve("src/main/java/p/A.java")));
+            var otherDirty=other.build("WORKTREE",Json.writeCompact(options),false,IndexCommand.snapshotBuilder(options,linked));
+            assertNotEquals(dirty.entry().id(),otherDirty.entry().id());
+            assertEquals(dirty.entry().id(),service.resolve("WORKTREE").id());
+        });
+    }
+
+    @Test void identicalWorktreeAfterEmptyCommitGetsNewCommitIdentity() throws Exception {
+        isolated(()->{
+            var a=build("WORKTREE");GitRepository.text(project,"commit","--allow-empty","-qm","empty");
+            var b=build("WORKTREE");
+            assertNotEquals(a.entry().id(),b.entry().id());
+            assertEquals(service.git().commit("HEAD"),b.entry().commit());
+            assertEquals(a.entry().sourceSnapshot(),b.entry().sourceSnapshot());
         });
     }
 
@@ -224,6 +238,91 @@ class GitSnapshotsIT {
             assertEquals(true,diff.header().get("environment_changed"));
             assertEquals(false,diff.evidence().get("negative_conclusion_safe"));
             assertEquals(a.entry().id(),service.resolve("snapshot:"+a.entry().id()).id());
+        });
+    }
+
+    @Test void fieldInitializerAndTypeChangesAreCompared() throws Exception {
+        isolated(()->{
+            write("src/main/java/p/A.java","package p; public class A { public int count=1; }");commit("field");
+            var a=build("HEAD");
+            write("src/main/java/p/A.java","package p; public class A { public int count=2; }");
+            var b=build("WORKTREE");
+            var body=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
+            Map<String,Object> change=body.changes().stream().filter(r->r.get("record").equals("declaration_change")
+                    && r.get("entity").toString().endsWith("p.A#count")).findFirst().orElseThrow();
+            assertEquals(false,change.get("signature_changed"));assertEquals(true,change.get("content_changed"));
+            write("src/main/java/p/A.java","package p; public class A { private long count=2; }");
+            var c=build("WORKTREE");
+            var type=new VersionDiffService().compare(service,b.entry(),c.entry(),"MAIN",null,false,3);
+            assertTrue(type.changes().stream().anyMatch(r->r.get("record").equals("declaration_change")
+                    && r.get("entity").toString().endsWith("p.A#count") && Boolean.TRUE.equals(r.get("signature_changed"))));
+        });
+    }
+
+    @Test void renamedDeletedAndAddedFilesMatchFullIndex() throws Exception {
+        isolated(()->{
+            write("src/main/java/p/Removed.java","package p; class Removed {}");commit("before moves");
+            var a=build("HEAD");
+            Files.move(project.resolve("src/main/java/p/A.java"),project.resolve("src/main/java/p/Moved.java"));
+            Files.delete(project.resolve("src/main/java/p/Removed.java"));
+            write("src/main/java/p/Added.java","package p; class Added {}");commit("file changes");
+            var b=build("HEAD");
+            var full=service.build("HEAD",Json.writeCompact(options),true,IndexCommand.snapshotBuilder(options,project));
+            assertEquals(canonical(full.database()),canonical(b.database()));
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
+            for(String change:List.of("renamed","deleted","added"))
+                assertTrue(diff.changes().stream().anyMatch(r->r.get("record").equals("file_change")
+                        && change.equals(r.get("change"))),diff.json().toString());
+        });
+    }
+
+    @Test void worktreeUsesDiskNotStageAndCapturesUntrackedAndIgnoredFiles() throws Exception {
+        isolated(()->{
+            write(".gitignore","ignored.txt\n");commit("ignore");
+            var head=build("HEAD");
+            write("src/main/java/p/A.java","package p; public class A { public int value() { return 2; } }");
+            GitRepository.text(project,"add","src/main/java/p/A.java");
+            byte[] staged=GitRepository.bytes(project,"diff","--cached","--binary");
+            write("src/main/java/p/A.java","package p; public class A { public int value() { return 3; } }");
+            write("src/main/java/p/New.java","package p; class New {}");write("ignored.txt","frozen ignored content");
+            var disk=build("WORKTREE");
+            assertArrayEquals(staged,GitRepository.bytes(project,"diff","--cached","--binary"));
+            try(QueryService query=new QueryService(disk.database())) {
+                assertTrue(Files.readString(com.anatomist.query.SnapshotSource.path(query.connection(),"src/main/java/p/A.java")).contains("return 3"));
+            }
+            var diff=new VersionDiffService().compare(service,head.entry(),disk.entry(),"MAIN",null,false,3);
+            for(String path:List.of("ignored.txt","src/main/java/p/New.java"))
+                assertTrue(diff.changes().stream().anyMatch(r->path.equals(r.get("path")) && "added".equals(r.get("change"))));
+        });
+    }
+
+    @Test void mergeBaseResolvesDivergedHistory() throws Exception {
+        isolated(()->{
+            String ancestor=service.git().commit("HEAD");
+            write("left.txt","left");commit("left");String left=service.git().commit("HEAD");
+            // A detached checkout here belongs only to the temporary test fixture.
+            GitRepository.text(project,"checkout","--detach",ancestor);
+            write("right.txt","right");commit("right");String right=service.git().commit("HEAD");
+            Map<?,?> output=(Map<?,?>)Json.parseTree(cli("diff","--project",project.toString(),"--base",left,
+                    "--target",right,"--merge-base","--no-classpath","--java-version","25","--format","json"));
+            Map<?,?> comparison=(Map<?,?>)output.get("comparison");
+            assertEquals(ancestor,((Map<?,?>)comparison.get("base")).get("commit"));
+            assertEquals(right,service.git().commit("HEAD"));
+        });
+    }
+
+    @Test void externalSourceRootsCannotPublishUnfrozenEvidence() throws Exception {
+        isolated(()->{
+            Path external=Files.createDirectories(temporary.resolve("external"));
+            Files.writeString(external.resolve("Outside.java"),"public class Outside {}");
+            List<String> externalOptions=new ArrayList<>(options);
+            externalOptions.addAll(List.of("--project-source",external.toString()));
+            SnapshotException failure=assertThrows(SnapshotException.class,()->service.build("HEAD",
+                    Json.writeCompact(externalOptions),false,IndexCommand.snapshotBuilder(externalOptions,project)));
+            assertEquals("SNAPSHOT_SOURCE_OUTSIDE_PROJECT",failure.code(),failure.getMessage());
+            try(var catalog=new SnapshotCatalog(service.directory())) {
+                assertTrue(catalog.list().stream().noneMatch(e->e.status().equals("READY")));
+            }
         });
     }
 

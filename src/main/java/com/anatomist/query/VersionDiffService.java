@@ -27,9 +27,10 @@ public final class VersionDiffService {
             baseIdentity.put("index_revision_id",com.anatomist.query.semantic.SemanticIdentity.read(left.connection()).indexRevisionId());
             targetIdentity.put("index_revision_id",com.anatomist.query.semantic.SemanticIdentity.read(right.connection()).indexRevisionId());
             header.put("base",baseIdentity); header.put("target",targetIdentity);
-            boolean profileChanged=!base.profile().equals(target.profile());
+            Map<String,Object> environmentDifferences=environment(left.connection(),right.connection());
+            boolean profileChanged=!base.profile().equals(target.profile()) || !environmentDifferences.isEmpty();
             header.put("environment_changed",profileChanged);
-            header.put("environment_differences",environment(left.connection(),right.connection()));
+            header.put("environment_differences",environmentDifferences);
             List<Map<String,Object>> changes=new ArrayList<>();
             fileChanges(service,base,target,changes);
             Map<String,String> oldFiles=files(service,base.id()),newFiles=files(service,target.id());
@@ -149,9 +150,10 @@ public final class VersionDiffService {
             try(ResultSet r=s.executeQuery()) { while(r.next()) {
                 String file=r.getString("source_file"); int bl=r.getInt("bl"),bc=r.getInt("bc"),el=r.getInt("el"),ec=r.getInt("ec");
                 String structure=String.join("|",r.getString("symbol_id"),r.getString("kind"),
-                        Objects.toString(r.getString("modifiers"),""),Objects.toString(r.getString("visibility"),""));
+                        Objects.toString(r.getString("modifiers"),""),Objects.toString(r.getString("visibility"),""),
+                        declarationMetadata(r.getString("metadata")));
                 String content=structure,signature=structure;
-                if(changedFiles.contains(file) && bl>0 && bc>0 && el>0 && ec>0 && file.endsWith(".java")) {
+                if(changedFiles.contains(file) && file.endsWith(".java")) {
                     CompilationUnit unit=parsed.get(file);
                     if(unit==null) {
                         Path path=SnapshotSource.path(c,file);
@@ -165,6 +167,25 @@ public final class VersionDiffService {
                         var result=new JavaParser(new ParserConfiguration().setLanguageLevel(ParserConfiguration.LanguageLevel.BLEEDING_EDGE)).parse(path);
                         unit=result.getResult().orElseThrow(()->new SnapshotException("SNAPSHOT_PARSE_FAILED","Cannot parse " + file));
                         parsed.put(file,unit);
+                    }
+                    if(bl<=0 && "FIELD".equals(r.getString("kind"))) {
+                        String symbol=r.getString("symbol_id"),label=r.getString("label");
+                        Optional<VariableDeclarator> field=unit.findAll(VariableDeclarator.class).stream()
+                                .filter(v->v.getNameAsString().equals(label) && v.getParentNode().orElse(null) instanceof FieldDeclaration)
+                                .filter(v->{
+                                    TypeDeclaration<?> owner=v.findAncestor(TypeDeclaration.class).orElse(null);
+                                    return owner!=null && owner.getFullyQualifiedName()
+                                            .map(name->symbol.equals(name+"#"+label)).orElse(false);
+                                }).findFirst();
+                        if(field.isPresent() && field.get().getRange().isPresent()) {
+                            Range fieldRange=field.get().getRange().get();
+                            bl=fieldRange.begin.line;bc=fieldRange.begin.column;el=fieldRange.end.line;ec=fieldRange.end.column;
+                            structure+="|"+((FieldDeclaration)field.get().getParentNode().orElseThrow()).getModifiers();
+                        }
+                    }
+                    if(bl<=0 || bc<=0 || el<=0 || ec<=0) {
+                        String id=r.getString("id");out.put(id,new Declaration(id,r.getString("symbol_id"),r.getString("kind"),file,bl,bc,el,ec,signature,content));
+                        continue;
                     }
                     Range range=new Range(new Position(bl,bc),new Position(el,ec));
                     StringBuilder tokens=new StringBuilder();
@@ -183,6 +204,7 @@ public final class VersionDiffService {
                         if(copy instanceof TypeDeclaration<?> type) type.getMembers().clear();
                         copy.findAll(MethodDeclaration.class).forEach(m->m.setBody(null));
                         copy.findAll(ConstructorDeclaration.class).forEach(m->m.setBody(new com.github.javaparser.ast.stmt.BlockStmt()));
+                        copy.findAll(CompactConstructorDeclaration.class).forEach(m->m.setBody(new com.github.javaparser.ast.stmt.BlockStmt()));
                         copy.findAll(VariableDeclarator.class).forEach(VariableDeclarator::removeInitializer);
                         signature=structure+"|"+copy;
                     }
@@ -191,5 +213,15 @@ public final class VersionDiffService {
                 out.put(id,new Declaration(id,r.getString("symbol_id"),r.getString("kind"),file,bl,bc,el,ec,signature,content));
             }}
         } return out;
+    }
+    private static String declarationMetadata(String raw) {
+        if(raw==null || raw.isBlank()) return "";
+        Object parsed=Json.parseTree(raw);
+        Map<String,Object> result=new TreeMap<>();
+        if(parsed instanceof Map<?,?> fields) for(String key:List.of("type","returnType","isStatic","isFinal",
+                "isAbstract","isConstructor","parameters","signature","isRecordComponent")) {
+            if(fields.containsKey(key)) result.put(key,fields.get(key));
+        }
+        return Json.writeCompact(result);
     }
 }

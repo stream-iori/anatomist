@@ -2,6 +2,8 @@
 
 anatomist 自身运行在 **JDK 25+**（`maven.compiler.release=25`），被索引的目标项目支持 **Java 8–25**。本文定义验收策略、fixture 设计与 CI 流程。
 
+1.1 的多版本集成回归为 `GitSnapshotsIT`：提交／WORKTREE 隔离、增量与全量事实对比、历史源码、语义 diff、并发、profile、源码缓存和 GC。`scripts/snapshots-e2e.py` 对 JAR/native 执行同一套端到端检查，并支持 1,000 文件及本地 commons-lang 克隆的性能报告，见 [验证说明](git-snapshots.md#verification)。
+
 ## 一、测试金字塔
 
 目标项目版本矩阵固定覆盖 Java 8、11、17、21、25。版本探测测试覆盖 Maven release/plugin/父属性引用和

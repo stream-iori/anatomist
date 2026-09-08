@@ -3,6 +3,14 @@
 Use the index belonging to the exact checkout under analysis. Prefer
 `index --incremental`; recreate after extractor or semantic policy changes.
 
+For Git history, build `index . --ref <Git-ref|WORKTREE>` and query with
+`--snapshot <id>` (or `--ref` for an already indexed version). Historical source
+is frozen; do not refresh it from the live checkout. `diff --base HEAD --target
+WORKTREE` captures current disk content and compares both versions using
+`anatomist-diff/v1`. Keep each ordinary semantic pipeline on one snapshot;
+never feed records from one revision into another. Different environments and
+incomplete diff evidence prohibit source-only or negative conclusions.
+
 ```text
 direct call evidence   resolve exact callable → calls → source
 virtual candidates     resolve exact callable → calls → dispatch → source

@@ -7,10 +7,15 @@
 | Read one exact method | `resolve --kind callable --exact --unique → source` |
 | Map packages and dependencies | `overview`，再用 `members → references` 缩小范围 |
 | Apply project docs | `index-docs`，再用 `search → resolve → related-docs` |
+| Compare Git versions | `diff --base <ref> --target <ref>`; add `--impact` for possible callers |
 
 Read every selected command's `--help`. Arrows above describe stages, not Shell syntax.
 Execute them as `pipeline --index <db> -- <stage> --then <stage>` and require final
 stream evidence.
+
+Versioned queries accept `--snapshot <id>` or `--ref <Git-ref|WORKTREE>` at the
+pipeline level. WORKTREE queries read the last capture; diff refreshes WORKTREE
+unless `--no-build` is used. Use `snapshots list` to inspect capture identities.
 Routes, annotations, names, and documents are
 technical signals; verify source/configuration before calling them business rules.
 Annotation search is direct by default. Add `--include-meta` only for composed

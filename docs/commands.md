@@ -1,6 +1,16 @@
-# Anatomist 1.0 命令参考
+# Anatomist 1.1 命令参考
 
-结论：查询接口只有 `semantic-stream/v1`。Agent 按需查看单个 operation，直接组合原子操作。
+单版本查询使用 `semantic-stream/v1`。多版本比较使用独立的 `anatomist-diff/v1`，不混合两版管道身份。
+
+| 1.1 新接口 | 用途 |
+|---|---|
+| `index . --ref HEAD` | 保存提交快照，默认尝试增量 |
+| `index . --ref WORKTREE` | 冻结当前磁盘内容 |
+| 查询／pipeline 的 `--ref`、`--snapshot` | 选择已建立的版本；与 `--index` 互斥 |
+| `diff --base main --target feature [--merge-base] [--impact]` | 自动补建缺失快照并比较；`--no-build` 禁止构建 |
+| `snapshots list/show/pin/unpin/gc` | 查询、固定和显式清理历史 |
+
+具体默认值、输出和生命周期见 [Git snapshots](git-snapshots.md)。
 
 ```text
 execute ──异常/不确定──> help | operations <operation> | doctor | explain/check

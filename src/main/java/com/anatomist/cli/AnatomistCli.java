@@ -99,7 +99,8 @@ public class AnatomistCli implements Runnable {
                         .addSubcommand(args[0], command);
                 if (command instanceof SemanticCommand
                         || command instanceof PipelineCommand
-                        || command instanceof OperationsCommand) {
+                        || command instanceof OperationsCommand
+                        || command instanceof DiffCommand || command instanceof SnapshotsCommand) {
                     line.setParameterExceptionHandler((failure, parsed) -> {
                         String operation = failure.getCommandLine().getCommandName();
                         if (command instanceof PipelineCommand) {

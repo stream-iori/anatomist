@@ -1,6 +1,14 @@
 # anatomist
 
-Java 代码结构索引与查询工具。源码只解析一次，事实写入 SQLite；1.0 的公开查询接口只有 `semantic-stream/v1` NDJSON 管道。
+Java 代码结构索引与查询工具。源码事实写入 SQLite，单版本查询使用 `semantic-stream/v1` NDJSON 管道。1.1.0 新增 Git／WORKTREE 增量多版本索引与语义 diff。
+
+```bash
+anatomist index . --ref HEAD
+anatomist diff --base HEAD --target WORKTREE --impact
+anatomist snapshots list
+```
+
+详见 [Git 多版本索引](docs/git-snapshots.md) 和 [1.1.0 迁移说明](docs/migration-1.1.md)。不指定版本时保留原有命令行为。
 
 ```text
 Java source ── index ──> SQLite snapshot ── semantic pipeline ──> evidence

@@ -2,8 +2,12 @@
 
 ## Package layout under `src/main/java/com/anatomist/`
 
+- `application/` — CLI-independent orchestration, including `SnapshotService` and explicit snapshot maintenance.
+- `version/` — Git plumbing, managed-file ownership checks, and the read-side `SnapshotAccess` interface.
+- Version persistence is in `store/`: a separately versioned catalog, immutable graph databases, and a SHA-256 source cache. `query/VersionDiffService` compares two read contexts without importing application orchestration. See [Git snapshots](git-snapshots.md).
+
 - `model/` — Plain data: `Node`, `Edge`, `Annotation`, `ExtractionResult`
-- `core/` — Index application boundary and plumbing: `IndexRequest`, `IndexApplicationService`, `IndexOutcome`, `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, identity/health services, and extraction context.
+- `core/` — Dependency-light primitives: `ProjectScanner`, `ClasspathDetector`, `JavaParserFactory`, identities, health, and extraction context. Application requests and orchestration live in `application/`.
 - `extract/` — `Extractor` implementations. `CallGraphExtractor` handles traversal/emission while `CallOverloadResolver` owns shared AST/SymbolSolver overload ranking. Plus `XmlBeanExtractor` for Spring XML beans.
 - `framework/` — Compile-time extension SPI. `AstModelExtension` augments the in-memory AST, `CallSiteEvidenceProvider` decorates fallback calls without changing graph shape, `JavaUnitAnalyzer` emits per-unit facts, `ProjectResourceProvider` discovers shared resources, and `ProjectResourceAnalyzer` emits project-resource facts. `AnalyzerRegistry` wires built-ins.
 - `framework/spring/` — Spring Boot baseline analyzers: stereotype beans, `@Autowired` injections, MVC routes, and optional XML bean wiring.
