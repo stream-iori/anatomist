@@ -51,6 +51,46 @@ public final class SnapshotService implements SnapshotAccess {
             return requireReady(entries.getFirst());
         }
     }
+    /** Diff selection uses the same request fingerprint as immutable builds. Never builds. */
+    public SnapshotCatalog.Entry resolve(String ref, String request) {
+        String sha=ref.equals("WORKTREE") ? "" : commit(ref);
+        Map<String,Object> details=new LinkedHashMap<>();
+        details.put("selector",ref); details.put("commit",sha);
+        details.put("requested_options",Json.parseTree(request));
+        details.put("candidate_ids",List.of());
+        if(!Files.isRegularFile(directory.resolve("catalog.db")))
+            throw new SnapshotException("SNAPSHOT_MISSING","No version catalog",details);
+        try(var catalog=new SnapshotCatalog(directory)) {
+            String hash=requestHash(request);
+            Set<String> ids=ref.equals("WORKTREE") ? catalog.heads(selectorKey(ref)) : catalog.idsForCommit(sha);
+            var candidates=catalog.list().stream().filter(e->ids.contains(e.id())).toList();
+            details.put("candidate_ids",candidates.stream().map(SnapshotCatalog.Entry::id).toList());
+            var matching=candidates.stream().filter(e->e.requestHash().equals(hash)).toList();
+            for(var entry:matching) if(entry.status().equals("READY") && artifactsCurrent(database(entry.id())))
+                return requireReady(entry);
+            String code=candidates.isEmpty()?"SNAPSHOT_MISSING":matching.isEmpty()?"SNAPSHOT_CONFIG_MISMATCH":"SNAPSHOT_NOT_READY";
+            throw new SnapshotException(code,"No usable snapshot matching the requested indexing configuration",details);
+        } catch(SnapshotException failure) { throw failure; }
+        catch(Exception failure) { throw new SnapshotException("CATALOG_FAILED",failure.getMessage(),failure); }
+    }
+
+    /** Explicit instances retain their identity; only explicitly requested requirements apply. */
+    public SnapshotCatalog.Entry requireOptions(SnapshotCatalog.Entry entry, boolean tests, Integer javaVersion, boolean noClasspath) {
+        requireReady(entry);
+        try(SqliteStore store=new SqliteStore(database(entry.id()))) {
+            String policy=store.readProjectMeta("scan_policy").orElse("");
+            boolean testCoverage=policy.lines().anyMatch(s->s.equals("scope=TEST") || s.startsWith("root=") && s.contains("@TEST="));
+            if(tests && !testCoverage) throw new SnapshotException("SNAPSHOT_COVERAGE_MISMATCH",
+                    "TEST coverage is required; configure TEST source roots or capture with --include-tests",
+                    Map.of("snapshot_id",entry.id(),"required_scope","TEST","reason","TEST_COVERAGE_NOT_CONFIRMED"));
+            if(javaVersion!=null && !javaVersion.toString().equals(store.readProjectMeta("java_version").orElse(""))
+                    || noClasspath && !"none".equals(store.readProjectMeta("classpath_mode").orElse("")))
+                throw new SnapshotException("SNAPSHOT_CONFIG_MISMATCH","Explicit snapshot does not satisfy requested options",
+                        Map.of("snapshot_id",entry.id(),"reason","EXPLICIT_OPTIONS_DIFFER"));
+            return entry;
+        }
+    }
+
     private void requireCatalog() {
         if(!Files.isRegularFile(directory.resolve("catalog.db"))) throw new SnapshotException("SNAPSHOT_MISSING",
                 "No version catalog; run anatomist index " + git.project() + " --ref HEAD");
@@ -67,8 +107,13 @@ public final class SnapshotService implements SnapshotAccess {
         }
     }
     public Built build(String ref,String request,boolean full,Builder builder) {
+        return build(ref,request,full,builder,null);
+    }
+    public Built build(String ref,String request,boolean full,Builder builder,String expectedCommit) {
         if(ref.startsWith("snapshot:")) throw new IllegalArgumentException("Build requires a Git ref or WORKTREE");
         String sha=commit(ref);
+        if(expectedCommit!=null && !expectedCommit.equals(sha))
+            throw new SnapshotException("WORKTREE_CHANGED","HEAD changed after endpoint selection");
         Path catalogPath=directory.resolve("catalog.db"), workspace=directory.resolve("workspace");
         try {
             Path existingParent=directory;
@@ -149,7 +194,10 @@ public final class SnapshotService implements SnapshotAccess {
                                 "source_git_branch",working?"WORKTREE":ref,"source_git_dirty",String.valueOf(working)));
                         SemanticIdentity identity=SemanticIdentity.read(store);
                         profile=identity.semanticProfileId(); source=identity.sourceSnapshotId();
-                        store.upsertProjectMeta("snapshot_artifacts",artifactFingerprint(store.readProjectMeta("classpath_entries").orElse("")));
+                        String entries=store.readProjectMeta("classpath_entries").orElse("");
+                        Map<String,String> captured=capturedArtifacts(entries,project.toRealPath());
+                        store.upsertProjectMeta("snapshot_captured_artifacts",Json.writeCompact(captured));
+                        store.upsertProjectMeta("snapshot_artifacts",artifactFingerprint(entries,captured));
                         try(Statement statement=store.connection().createStatement()) { statement.execute("PRAGMA wal_checkpoint(TRUNCATE)"); }
                     }
                     metrics.put("total_ms",(System.nanoTime()-started)/1_000_000);
@@ -218,19 +266,35 @@ public final class SnapshotService implements SnapshotAccess {
         if(Files.exists(workspace)) git.removeMaterialization(workspace);
     }
     private static boolean artifactsCurrent(Path db) {
+        if(!Files.isRegularFile(db)) return false;
         try(SqliteStore store=new SqliteStore(db)) {
             String entries=store.readProjectMeta("classpath_entries").orElse("");
-            return artifactFingerprint(entries).equals(store.readProjectMeta("snapshot_artifacts").orElse("unrecorded"));
+            Map<String,String> captured=new HashMap<>();
+            if(Json.parseTree(store.readProjectMeta("snapshot_captured_artifacts").orElse("{}")) instanceof Map<?,?> values)
+                values.forEach((key,value)->captured.put(key.toString(),value.toString()));
+            return artifactFingerprint(entries,captured).equals(store.readProjectMeta("snapshot_artifacts").orElse("unrecorded"));
         } catch(Exception failure) { return false; }
     }
-    private static String artifactFingerprint(String entries) throws Exception {
+    /** Private project outputs are frozen inputs, not live external dependencies. */
+    private static Map<String,String> capturedArtifacts(String entries,Path project) throws Exception {
+        Map<String,String> out=new TreeMap<>();
+        for(String value:entries.split(java.io.File.pathSeparator)) {
+            if(!value.isBlank() && Path.of(value).toAbsolutePath().normalize().startsWith(project))
+                out.put(value,artifactFingerprint(Path.of(value)));
+        }
+        return out;
+    }
+    private static String artifactFingerprint(Path entry) throws Exception {
+        if(Files.isRegularFile(entry)) return FileCacheService.sha256(entry);
+        if(Files.isDirectory(entry)) return SnapshotFiles.fingerprint(SnapshotFiles.inventory(entry));
+        return "missing";
+    }
+    private static String artifactFingerprint(String entries,Map<String,String> captured) throws Exception {
         StringBuilder out=new StringBuilder();
         for(String path:entries.split(java.io.File.pathSeparator)) {
             if(path.isBlank()) continue;
             Path entry=Path.of(path); out.append(path).append('\0');
-            if(Files.isRegularFile(entry)) out.append(FileCacheService.sha256(entry));
-            else if(Files.isDirectory(entry)) out.append(SnapshotFiles.fingerprint(SnapshotFiles.inventory(entry)));
-            else out.append("missing");
+            out.append(captured.containsKey(path)?captured.get(path):artifactFingerprint(entry));
             out.append('\n');
         }
         return FileCacheService.sha256OfString(out.toString());

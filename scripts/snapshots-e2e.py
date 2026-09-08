@@ -5,6 +5,7 @@ All Git mutations and generated files are confined to a TemporaryDirectory.
 The optional --fixture clones an existing local Git repository, without changing it.
 """
 import argparse
+from e2e_report import execute, track, run_command, workspace
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ import time
 
 
 def run(command, cwd=None, env=None, stderr_lines=None):
-    result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True, timeout=300)
+    result = run_command(command, cwd=cwd, env=env, text=True, capture_output=True, timeout=300)
     if stderr_lines is not None:
         stderr_lines.extend(result.stderr.splitlines())
     if result.returncode:
@@ -33,6 +34,7 @@ def main():
     parser.add_argument("--files", type=int, default=20)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--fixture", type=Path)
+    parser.add_argument("--keep-on-failure", action="store_true", help="Retain the owned fixture after failure.")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     if args.files < 2 or args.repeats < 1:
@@ -40,7 +42,8 @@ def main():
     cli = [str(args.native.resolve())] if args.native else [args.java, "-jar", str(args.jar.resolve())]
     report = {"platform": platform.system() + "-" + platform.machine(), "version": run(cli + ["--version"]),
               "fixture": "commons-lang" if args.fixture else "generated", "samples": []}
-    with tempfile.TemporaryDirectory(prefix="anatomist-snapshots-") as temporary:
+    report = track(report)
+    with workspace(prefix="anatomist-snapshots-") as temporary:
         root = Path(temporary)
         project = root / "project"
         env = os.environ.copy()
@@ -117,7 +120,7 @@ def main():
         sha = git("rev-parse", "HEAD")
         status_before = git("status", "--porcelain")
         comparison = json.loads(run(cli + ["diff", "--project", str(project), "--base", original_sha,
-                                           "--target", sha, "--no-build", "--impact", "--format", "json"], env=env))
+                                           "--target", sha, "--no-build", "--no-classpath", "--java-version", "25", "--impact", "--format", "json"], env=env))
         assert comparison["contract"] == "anatomist-diff/v2"
         assert any(row["record"] == "file_change" for row in comparison["changes"])
         if not args.fixture:
@@ -152,4 +155,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    execute(main, "target/snapshots-e2e.json")

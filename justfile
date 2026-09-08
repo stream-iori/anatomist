@@ -313,14 +313,18 @@ test-all:
     mvn -q clean test
     mvn -q test -Dtest='IndexCommandIT,QueryServiceIT,GoldenFileIT,MicroFixtureIT,EnrichQueryIT,EnrichCommandIT,AnnotateCommandIT,IndexDocsCommandIT,PicocliCodegenIT,JdkTypeCatalogBuilderIT,JdkTypeCatalogE2EIT,CommonsLangSmokeIT,JavaParserFactoryEmbeddedJdkIT,EmbeddedJdkSolverEndToEndIT'
 
+# Pure adapter/oracle tests; no Jury, model or native executable required.
+agent-e2e-unit:
+    PYTHONPATH="{{ROOT}}/e2e" python3 -m unittest discover -s "{{ROOT}}/e2e" -p 'test_*.py'
+
 # Validate optional Jury Agent E2E assets without invoking a model.
-agent-e2e-contract:
+agent-e2e-contract: agent-e2e-unit
     #!/usr/bin/env bash
     set -euo pipefail
     command -v "{{JURY_BIN}}" >/dev/null || { echo "Jury missing; set JURY_BIN=/path/to/jury" >&2; exit 2; }
-    PYTHONPATH="{{ROOT}}/e2e" python3 -m unittest discover -s "{{ROOT}}/e2e" -p 'test_*.py'
     "{{JURY_BIN}}" suite validate "{{ROOT}}/e2e/jury-suites/smoke.yaml" --strict
     "{{JURY_BIN}}" suite validate "{{ROOT}}/e2e/jury-suites/complex.yaml" --strict
+    "{{JURY_BIN}}" suite validate "{{ROOT}}/e2e/jury-suites/versions.yaml" --strict
 
 # Build, index, and query the complex fixture without invoking a model.
 agent-e2e-fixture:
@@ -330,7 +334,7 @@ agent-e2e-fixture:
     ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
       python3 "{{ROOT}}/e2e/validate_complex_fixture.py"
 
-# Run all nine real-Agent evidence cases through Jury's Codex SDK runner.
+# Run all twelve real-Agent evidence cases through Jury's Codex SDK runner.
 agent-e2e-smoke: agent-e2e-contract agent-e2e-fixture
     #!/usr/bin/env bash
     set -euo pipefail
@@ -342,7 +346,7 @@ agent-e2e-smoke: agent-e2e-contract agent-e2e-fixture
       "{{JURY_BIN}}" suite run "{{ROOT}}/e2e/jury-suites/smoke.yaml" \
         --cwd "{{ROOT}}/e2e" \
         --runs-dir "{{ROOT}}/e2e/jury-runs" \
-        --adapter anatomist_jury_adapter:create_adapter
+        --adapter anatomist_jury_adapter:create_adapter --continue-on-failure
 
 # Run only the six complex multi-module cases.
 agent-e2e-complex: agent-e2e-contract agent-e2e-fixture
@@ -355,7 +359,7 @@ agent-e2e-complex: agent-e2e-contract agent-e2e-fixture
       "{{JURY_BIN}}" suite run "{{ROOT}}/e2e/jury-suites/complex.yaml" \
         --cwd "{{ROOT}}/e2e" \
         --runs-dir "{{ROOT}}/e2e/jury-runs" \
-        --adapter anatomist_jury_adapter:create_adapter
+        --adapter anatomist_jury_adapter:create_adapter --continue-on-failure
 
 # Refresh golden files after an intentional output-format change
 golden-update:
@@ -700,3 +704,20 @@ clean:
 # Remove everything including the Linux build's Maven cache and produced artifacts.
 clean-all: clean
     rm -rf .m2-cache target/native-agent-config dist/anatomist-*
+
+# Run the three natural-language version cases.
+agent-e2e-versions: agent-e2e-contract
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PATH="{{ROOT}}/target:${PATH}" ANATOMIST_E2E_BIN="${ANATOMIST_E2E_BIN:-{{NATIVE_BIN}}}" \
+      "{{JURY_BIN}}" suite run "{{ROOT}}/e2e/jury-suites/versions.yaml" \
+        --cwd "{{ROOT}}/e2e" --runs-dir "{{ROOT}}/e2e/jury-runs" \
+        --adapter anatomist_jury_adapter:create_adapter --continue-on-failure
+
+# Deterministic Git/Maven diff acceptance (requires JAR and jsonschema).
+diff-e2e-jvm:
+    uv run --with-requirements e2e/requirements.txt python scripts/diff-e2e.py --jar target/anatomist.jar --report target/diff-jvm-e2e.json
+
+# Full JAR/native comparison, using explicit instances for runtime equality.
+diff-e2e-native:
+    uv run --with-requirements e2e/requirements.txt python scripts/diff-e2e.py --jar target/anatomist.jar --native target/anatomist --report target/diff-native-e2e.json

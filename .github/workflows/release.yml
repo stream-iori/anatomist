@@ -87,6 +87,24 @@ jobs:
           version="${RELEASE_TAG#v}"
           mvn -Pnative -DskipTests -Drevision="${version}" -Dchangelist= package
 
+      - name: Prepare diff E2E dependencies
+        run: |
+          python3 -m venv target/e2e-venv
+          target/e2e-venv/bin/pip install -r e2e/requirements.txt
+
+      - name: Diff and help release gate (JAR and native)
+        run: |
+          target/e2e-venv/bin/python scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --validate-schema --report target/agent-help-e2e.json
+          target/e2e-venv/bin/python scripts/diff-e2e.py --jar target/anatomist.jar --native target/anatomist --report target/diff-native-e2e.json
+
+      - name: Upload diff diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diff-diagnostics-${{ runner.os }}
+          path: target/*e2e*.json
+          if-no-files-found: ignore
+
       - name: Config E2E (native)
         run: bash scripts/config-e2e.sh native target/anatomist
 
@@ -119,6 +137,12 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
+      - name: Set up Java for JAR/native comparison
+        uses: actions/setup-java@v5
+        with:
+          distribution: graalvm
+          java-version: "25"
+
       - name: Build native binary in CentOS 7 container
         env:
           ANATOMIST_LINUX_BASE_IMAGE: docker.io/library/centos:centos7.9.2009
@@ -126,6 +150,24 @@ jobs:
           set -euo pipefail
           version="${RELEASE_TAG#v}"
           ANATOMIST_MAVEN_ARGS="-Drevision=${version} -Dchangelist=" ./docker/build-linux-amd64.sh
+
+      - name: Prepare diff E2E dependencies
+        run: |
+          python3 -m venv target/e2e-venv
+          target/e2e-venv/bin/pip install -r e2e/requirements.txt
+
+      - name: Diff and help release gate (JAR and native)
+        run: |
+          target/e2e-venv/bin/python scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --validate-schema --report target/agent-help-e2e.json
+          target/e2e-venv/bin/python scripts/diff-e2e.py --jar target/anatomist.jar --native target/anatomist --report target/diff-native-e2e.json
+
+      - name: Upload diff diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diff-diagnostics-${{ runner.os }}
+          path: target/*e2e*.json
+          if-no-files-found: ignore
 
       - name: Config E2E (native)
         run: bash scripts/config-e2e.sh native target/anatomist
@@ -170,7 +212,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p upload
-          find downloaded-artifacts -maxdepth 3 -type f -exec cp {} upload/ \;
+          find downloaded-artifacts/jar-and-static downloaded-artifacts/macos-native downloaded-artifacts/linux-native -maxdepth 3 -type f -exec cp {} upload/ \;
           ls -lh upload
 
       - name: Generate release notes

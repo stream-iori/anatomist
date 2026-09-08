@@ -148,6 +148,8 @@
                     <argLine>@{argLine} --enable-native-access=ALL-UNNAMED</argLine>
                     <groups>${anatomist.test.groups}</groups>
                     <excludedGroups>${anatomist.test.excludedGroups}</excludedGroups>
+                    <!-- In-process snapshot tests own user.home; never inherit a developer's store. -->
+                    <excludedEnvironmentVariables>ANATOMIST_HOME</excludedEnvironmentVariables>
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*IT.java</include>

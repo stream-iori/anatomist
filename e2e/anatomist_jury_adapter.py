@@ -13,6 +13,8 @@ import sqlite3
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from evidence_contracts import semantic_frames, embedded_semantic_frames, diff_documents
+from version_checks import validate_diff, navigation_sides
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
@@ -81,9 +83,6 @@ def _resolve_binary() -> Path:
     candidates = (
         [Path(configured)] if configured else [SOURCE_ROOT / "target/anatomist"]
     )
-    installed = shutil.which("anatomist")
-    if installed:
-        candidates.append(Path(installed))
     for candidate in candidates:
         resolved = candidate.expanduser().resolve()
         if resolved.is_file() and os.access(resolved, os.X_OK):
@@ -275,6 +274,9 @@ def semantic_pipelines(trace: object) -> list[dict[str, object]]:
         for command in _event_commands(event):
             for chain in re.split(r"&&|\|\||[;\n]", command):
                 parts = [part.strip() for part in re.split(r"(?<!\|)\|(?!\|)", chain) if part.strip()]
+                # tee preserves the full stream while saving evidence; filters
+                # such as jq/head do not and remain unsupported.
+                parts = [part for part in parts if part.split(maxsplit=1)[0] != "tee"]
                 if len(parts) == 1:
                     segments = _fused_pipeline_segments(parts[0])
                     if segments and all(item["subcommand"] in _SEMANTIC_PIPELINE_COMMANDS
@@ -308,6 +310,25 @@ def semantic_pipelines(trace: object) -> list[dict[str, object]]:
                         "exit_code": exit_code,
                     }
                 )
+    # Sequential pipelines in one tool call each own one complete frame. Never
+    # attach all frames to every command, or guess when their counts disagree.
+    groups = {}
+    for pipeline in pipelines:
+        if _pipeline_is_ndjson(pipeline):
+            groups.setdefault(pipeline["event_index"], []).append(pipeline)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        try:
+            output_frames = semantic_frames(group[0]["output"])
+        except RuntimeError:
+            continue
+        if len(output_frames) == len(group):
+            for pipeline, rows in zip(group, output_frames):
+                pipeline["output"] = "\n".join(json.dumps(row) for row in rows)
+        else:
+            for pipeline in group:
+                pipeline["output"] = ""
     return pipelines
 
 
@@ -323,7 +344,7 @@ def _pipeline_is_ndjson(pipeline: dict[str, object]) -> bool:
     segments = pipeline["segments"]
     if not isinstance(segments, list) or not segments:
         return False
-    for index, segment in enumerate(segments):
+    for segment in segments:
         args = segment["args"]
         if not isinstance(args, list):
             return False
@@ -333,48 +354,53 @@ def _pipeline_is_ndjson(pipeline: dict[str, object]) -> bool:
                     return False
             elif argument.startswith("--format=") and argument != "--format=ndjson":
                 return False
-        if index == 0 and segment["subcommand"] == "search":
-            if "--format=ndjson" not in args and not any(
-                argument == "--format" and position + 1 < len(args)
-                and args[position + 1] == "ndjson"
-                for position, argument in enumerate(args)
-            ):
-                return False
     return True
 
 
 def _semantic_records(output: str) -> list[dict[str, object]]:
-    records: list[dict[str, object]] = []
-    semantic_stream = False
-    for line in output.splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
+    parsed = semantic_frames(output)
+    if len(parsed) != 1:
+        raise RuntimeError("expected exactly one attributable semantic stream")
+    return parsed[0]
+
+
+def consumed_evidence_files(trace, workspace):
+    """Only owned files explicitly read by a successful Agent tool event."""
+    root = Path(workspace).resolve() / "evidence"
+    if not root.is_dir() or root.is_symlink():
+        return []
+    files = [p for p in root.iterdir() if p.is_file() and not p.is_symlink()
+             and p.suffix in (".json", ".ndjson")]
+    consumed = []
+    for index, event in enumerate(getattr(trace, "tool_events", [])):
+        raw = getattr(event, "raw_input", {})
+        if raw.get("exit_code") not in (0, None):
             continue
-        if not isinstance(value, dict):
-            continue
-        contract = value.get("contract")
-        if contract == "semantic-stream/v1":
-            semantic_stream = True
-        elif contract is not None:
-            continue
-        if semantic_stream:
-            records.append(value)
-    return records
+        for command in _event_commands(event):
+            if not re.search(r"\bcat\s|read_text\s*\(|json\.load\s*\(|\bopen\s*\(", command):
+                continue
+            patterns = re.findall(r"[\"']([^\"']*\*[^\"']*)[\"']", command)
+            for path in files:
+                if path.name in command or any(fnmatch.fnmatch(path.name, pattern) for pattern in patterns):
+                    consumed.append({"event_index": index, "path": path.resolve(), "output": path.read_text()})
+    return consumed
+
+
+def redirected_evidence(execution, project, consumed):
+    """Bind a diff redirection to its later consumed, owned artifact."""
+    args = execution["args"]
+    target = next((args[i + 1] for i, arg in enumerate(args[:-1]) if arg == ">"), None)
+    if target is None:
+        target = next((arg[1:] for arg in args if arg.startswith(">") and not arg.startswith(">>") and len(arg) > 1), None)
+    if target is None:
+        return execution["output"]
+    path = (Path(project) / target).resolve()
+    matches = [item for item in consumed if item["path"] == path and item["event_index"] >= execution["event_index"]]
+    return matches[-1]["output"] if matches else ""
 
 
 def _record_types(value: object) -> set[str]:
-    found: set[str] = set()
-    if isinstance(value, dict):
-        record = value.get("record")
-        if isinstance(record, str):
-            found.add(record)
-        for child in value.values():
-            found.update(_record_types(child))
-    elif isinstance(value, list):
-        for child in value:
-            found.update(_record_types(child))
-    return found
+    return {row["record"] for row in value if isinstance(row, dict) and isinstance(row.get("record"), str)} if isinstance(value, list) else set()
 
 
 def contains_sequence(observed: list[str], required: list[str]) -> bool:
@@ -401,20 +427,47 @@ class AnatomistJuryAdapter:
         if os.path.commonpath([str(workspace), str(project)]) != str(workspace):
             raise ValueError("anatomist.project_root escapes workspace")
         binary = _resolve_binary()
+        command_directory = workspace / "anatomist-bin"
+        command_directory.mkdir()
+        (command_directory / "anatomist").symlink_to(binary)
+        path = os.pathsep.join([str(command_directory), os.environ.get("PATH", "")])
+        shell_directory = workspace / "anatomist-shell"
+        shell_directory.mkdir()
+        for name in (".zshenv", ".zprofile", ".bash_env"):
+            (shell_directory / name).write_text("export PATH=" + shlex.quote(path) + "\n")
+        skill = workspace / "anatomist-skill.md"
+        skill.write_text((SOURCE_ROOT / "SKILL.md").read_text())
+        (workspace / "AGENTS.md").write_text(
+            "Use the Anatomist skill supplied for this test at " + str(skill)
+            + ". CLI --help is the syntax source of truth.\n")
+        environment = {**os.environ, "ANATOMIST_HOME": str(workspace / "anatomist-storage"),
+                       "ANATOMIST_E2E_BIN": str(binary),
+                       "PATH": path, "ZDOTDIR": str(shell_directory), "BASH_ENV": str(shell_directory / ".bash_env")}
+        identity = {"binary": str(binary), "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+                    "version": subprocess.run([str(binary), "--version"], capture_output=True, text=True, check=True, timeout=30).stdout.strip(),
+                    "skill_sha256": hashlib.sha256(skill.read_bytes()).hexdigest(),
+                    "commit": subprocess.run(["git", "rev-parse", "HEAD"], cwd=SOURCE_ROOT, capture_output=True, text=True, check=True).stdout.strip()}
+        if not identity["version"].startswith("anatomist "):
+            raise RuntimeError("selected executable did not identify itself as Anatomist")
+        identity["command_path"] = str(command_directory / "anatomist")
+        identity["worktree_dirty"] = bool(subprocess.run(["git", "status", "--porcelain"], cwd=SOURCE_ROOT, capture_output=True, text=True, check=True).stdout.strip())
         key = str(workspace)
         self._workspaces[key] = {
             "project": project,
             "binary": binary,
             "extension": extension,
+            "env": environment,
+            "identity": identity,
+            "workspace": workspace,
         }
-        path = os.pathsep.join([str(binary.parent), os.environ.get("PATH", "")])
         return _AdapterWorkspace(
             agent_cwd=str(project),
-            env={"PATH": path, "ANATOMIST_E2E_BIN": str(binary)},
+            env={key: environment[key] for key in ("PATH", "ANATOMIST_E2E_BIN", "ANATOMIST_HOME", "ZDOTDIR", "BASH_ENV")},
             metadata={
                 "adapter": "anatomist",
                 "project_root": str(project),
                 "binary": str(binary),
+                "identity": identity,
             },
         )
 
@@ -431,6 +484,11 @@ class AnatomistJuryAdapter:
         invocations = anatomist_invocations(trace)
         executions = executed_anatomist_invocations(trace)
         self._evidence[str(Path(workspace_cwd).resolve())] = {
+            "consumed_evidence": [
+                {"path": str(item["path"]), "read_event": item["event_index"],
+                 "sha256": hashlib.sha256(item["output"].encode()).hexdigest()}
+                for item in consumed_evidence_files(trace, workspace_cwd)
+            ],
             "commands": commands,
             "anatomist_subcommands": [item["subcommand"] for item in executions],
             "anatomist_invocations": [
@@ -458,12 +516,20 @@ class AnatomistJuryAdapter:
         if isinstance(project, Path):
             evidence = dict(evidence)
             evidence["git"] = _git_evidence(project)
+            evidence["identity"] = workspace.get("identity", {})
         target = Path(run_dir) / "anatomist-evidence.json"
+        artifacts = {"anatomist_evidence": str(target)}
+        for item in evidence.get("consumed_evidence", []):
+            source = Path(item["path"])
+            copied = Path(run_dir) / "anatomist-consumed-evidence" / source.name
+            copied.parent.mkdir(exist_ok=True)
+            shutil.copy2(source, copied)
+            artifacts["consumed_" + source.name] = str(copied)
         target.write_text(
             json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        return {"anatomist_evidence": str(target)}
+        return artifacts
 
     def extension_check_providers(self) -> dict[str, object]:
         return {"anatomist": _AnatomistCheckProvider(self)}
@@ -507,6 +573,66 @@ class _AnatomistCheckProvider:
         check = config.get("check")
         executions = executed_anatomist_invocations(context.trace)
         observed = [str(item["subcommand"]) for item in executions]
+        if check in ("diff_evidence", "snapshot_navigation", "version_checkout_unchanged"):
+            facts = json.loads((Path(state["workspace"]) / "version-oracle.json").read_text())
+            if check == "version_checkout_unchanged":
+                project = Path(state["project"])
+                head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project, capture_output=True, text=True, check=True).stdout.strip()
+                status = subprocess.run(["git", "status", "--porcelain"], cwd=project, capture_output=True, text=True, check=True).stdout.strip()
+                refs = subprocess.run(["git", "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"], cwd=project, capture_output=True, text=True, check=True).stdout.strip()
+                if head != facts["head"] or status != facts["status"] or refs != facts["refs"]:
+                    raise RuntimeError("Agent changed checkout or project files")
+                return {"head": head, "status": status}
+            candidates = []
+            errors = []
+            consumed = consumed_evidence_files(context.trace, state["workspace"])
+            for execution in executions:
+                if execution["subcommand"] != "diff" or execution["exit_code"] not in (0, None):
+                    continue
+                try:
+                    for document in diff_documents(redirected_evidence(execution, state["project"], consumed)):
+                        evidence = validate_diff(document, facts, facts["scenario"], tests=facts["scenario"] != "boundary")
+                        if facts["scenario"] != "boundary":
+                            if "--include-tests" not in execution["args"] or "--no-build" in execution["args"]:
+                                raise RuntimeError("expected diff to prepare TEST coverage")
+                            if any(item["subcommand"] == "index" for item in executions):
+                                raise RuntimeError("Agent used index orchestration instead of automatic diff preparation")
+                        candidates.append((execution, document, evidence))
+                except (ValueError, RuntimeError) as failure:
+                    errors.append(str(failure))
+            if not candidates:
+                raise RuntimeError("no valid branch diff consumed: " + "; ".join(errors))
+            if check == "diff_evidence":
+                return candidates[-1][2]
+            for execution, document, evidence in candidates:
+                streams = []
+                for item in consumed:
+                    if item["event_index"] >= execution["event_index"]:
+                        try:
+                            streams.extend(semantic_frames(item["output"]))
+                        except RuntimeError:
+                            pass
+                # Python subprocess loops can emit complete source frames too.
+                for index, event in enumerate(getattr(context.trace, "tool_events", [])):
+                    raw = getattr(event, "raw_input", {})
+                    if index < execution["event_index"] or raw.get("exit_code") not in (0, None):
+                        continue
+                    try:
+                        streams.extend(embedded_semantic_frames(str(getattr(event, "raw_output", "") or raw.get("aggregated_output", ""))))
+                    except RuntimeError:
+                        pass
+                for query in executions:
+                    if query["event_index"] < execution["event_index"] or query["exit_code"] not in (0, None):
+                        continue
+                    if query["subcommand"] not in ("source", "pipeline"):
+                        continue
+                    try:
+                        streams.extend(semantic_frames(query["output"]))
+                    except RuntimeError:
+                        continue
+                if navigation_sides(document, streams) == {"base", "target"}:
+                    return {**evidence, "navigated_sides": ["base", "target"]}
+            raise RuntimeError("missing exact source navigation in both comparison snapshots")
         if check == "commands_present":
             required = [str(item) for item in config.get("commands", [])]
             missing = [item for item in required if item not in observed]
@@ -557,7 +683,7 @@ class _AnatomistCheckProvider:
             required_commands = [str(item) for item in config.get("commands", [])]
             candidates = [
                 pipeline for pipeline in semantic_pipelines(context.trace)
-                if _pipeline_is_ndjson(pipeline)
+                if pipeline["exit_code"] in (0, None) and _pipeline_is_ndjson(pipeline)
                 and contains_contiguous_sequence(
                     [str(segment["subcommand"]) for segment in pipeline["segments"]],
                     required_commands,
@@ -572,26 +698,35 @@ class _AnatomistCheckProvider:
                     f"expected one NDJSON pipe chain containing {required_commands}; "
                     f"observed_pipelines={observed_pipelines}"
                 )
-            pipeline = candidates[-1]
             required_records = {str(item) for item in config.get("records", [])}
-            decoded = _semantic_records(str(pipeline["output"]))
-            found = _record_types(decoded)
-            missing = sorted(required_records - found)
-            final = next((item for item in reversed(decoded)
-                          if item.get("record") == "evidence"
-                          and item.get("scope") == "stream"), None)
-            if missing or final is None:
-                raise RuntimeError(
-                    f"semantic output missing records={missing}, final_stream_evidence={final is not None}"
-                )
-            if final.get("negative_conclusion_safe") is True and final.get("coverage") != "complete":
-                raise RuntimeError("incomplete semantic stream incorrectly marked negative-safe")
-            return {
-                "commands": required_commands,
-                "pipeline": pipeline["command"],
-                "records": sorted(found),
-                "final": final,
-            }
+            failures = []
+            consumed = consumed_evidence_files(context.trace, state["workspace"]) if state.get("workspace") else []
+            for pipeline in reversed(candidates):
+                try:
+                    output = redirected_evidence(
+                        {**pipeline, "args": pipeline["segments"][-1]["args"]},
+                        state.get("project", "."), consumed)
+                    decoded = _semantic_records(str(output))
+                    found = _record_types(decoded)
+                    missing = sorted(required_records - found)
+                    final = decoded[-1]
+                    if missing or final.get("record") != "evidence" or final.get("scope") != "stream":
+                        raise RuntimeError(f"semantic output missing records={missing} or final stream evidence")
+                    if final.get("negative_conclusion_safe") is True and final.get("coverage") != "complete":
+                        raise RuntimeError("incomplete semantic stream incorrectly marked negative-safe")
+                    return {"commands": required_commands, "pipeline": pipeline["command"],
+                            "records": sorted(found), "final": final}
+                except RuntimeError as failure:
+                    failures.append(str(failure))
+            raise RuntimeError("; ".join(failures))
+        if check == "semantic_pipeline_any":
+            failures = []
+            for alternative in config["alternatives"]:
+                try:
+                    return self._execute({**alternative, "check": "semantic_pipeline"}, context, state)
+                except RuntimeError as failure:
+                    failures.append(str(failure))
+            raise RuntimeError("no supported impact pipeline: " + "; ".join(failures))
         if check == "source_page_followed":
             target = re.compile(str(config.get("target", "")), re.IGNORECASE)
             first_page = None
@@ -655,6 +790,7 @@ class _AnatomistCheckProvider:
             result = subprocess.run(
                 ["git", "status", "--porcelain"],
                 cwd=project,
+                env=state.get("env"),
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -692,6 +828,7 @@ class _AnatomistCheckProvider:
                 result = subprocess.run(
                     ["mvn", *arguments],
                     cwd=project,
+                    env=state.get("env"),
                     capture_output=True,
                     text=True,
                     timeout=int(config.get("timeout_sec", 180)),
@@ -718,6 +855,7 @@ class _AnatomistCheckProvider:
             result = subprocess.run(
                 [str(binary), *arguments],
                 cwd=project,
+                env=state.get("env"),
                 capture_output=True,
                 text=True,
                 timeout=int(config.get("timeout_sec", 30)),
@@ -803,6 +941,7 @@ class _AnatomistCheckProvider:
                     str(index),
                 ],
                 cwd=project,
+                env=state.get("env"),
                 capture_output=True,
                 text=True,
                 timeout=30,

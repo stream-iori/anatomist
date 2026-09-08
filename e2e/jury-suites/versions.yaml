@@ -1,0 +1,14 @@
+schema_version: jury.suite/v2
+id: anatomist-agent-versions
+name: Anatomist branch and snapshot Agent E2E
+includes: []
+members:
+  - id: branch-work-impact
+    type: case
+    path: ../cases/anatomist-branch-work-impact.yaml
+  - id: branch-tip-impact
+    type: case
+    path: ../cases/anatomist-branch-tip-impact.yaml
+  - id: impact-boundary
+    type: case
+    path: ../cases/anatomist-impact-boundary.yaml

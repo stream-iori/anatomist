@@ -175,7 +175,7 @@ sdk env
 | `just agent-e2e-contract` | 校验 Jury Case、suite 和 trace adapter | 不调用模型，不进入 Maven 依赖。 |
 | `just agent-e2e-fixture` | 构建并查询复杂多模块 fixture | 不调用模型；验证 search 消歧、Spring、callback、branch 和源码分页。 |
 | `just agent-e2e-complex` | 6 条复杂多模块真实 Agent 用例 | 覆盖业务链路、分页 flow、影响分析、改码闭环和两条新 NDJSON 管道。 |
-| `just agent-e2e-smoke` | 全部 9 条真实 Agent E2E | 全部使用新 NDJSON 原子管道；预计约 20 分钟，产物写入忽略的 `e2e/jury-runs/`。 |
+| `just agent-e2e-smoke` | 全部 12 条真实 Agent E2E | 版本场景自然语言路由，其余覆盖 NDJSON 协议，产物写入忽略的 `e2e/jury-runs/`。 |
 
 Operation 决策合同由 `OperationsCommandIT`、`PipelineCommandIT` 和 `AgentContractIT` 联合锁定：20 个原子 operation 完整枚举；`--explain` 不开库；`--check` 和 `operations --index` 不修改数据库；只读查询错误是一行 `anatomist-error/v1`。`SKILL.md` 继续执行 3 KiB 门禁。
 
@@ -307,52 +307,52 @@ jobs:
 **触发约定**：Surefire 默认同时包含 `*Test` 和 `*IT`；使用
 `mvn test -Dtest=<ClassName>` 只是在本地缩小回归范围。
 
-## Agent 帮助与场景验收（1.2）
+## 1.2 帮助、自动快照与 Agent 验收
 
-`AgentHelpTest` 检查公开参数说明、根命令分组、三种 help 入口的一致性、真实输入输出契约和示例组合。
-`SkillCommandTest` 检查所有场景及导航引用，并验证已删除场景的替代提示。
-
-```bash
-python3 scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --report target/agent-help-e2e.json
-python3 scripts/snapshots-e2e.py --native target/anatomist --files 20 --repeats 1 --report target/snapshots-native.json
-```
-
-第一条可只传 `--jar` 或 `--native`；JAR 使用 `--java` 指定 Java 25。
-验收脚本在临时项目中实际执行 20 个语义命令的帮助示例，并覆盖分派现场、声明源码、分页、
-重载歧义、TEST scope、XML 成员绑定和不兼容管道。双运行器模式在每个生成的索引上比较完整查询证据。
-快照脚本补充历史源码、WORKTREE、版本差异和生命周期验证。
-
-## Diff v2 验收
-
-`DiffNavigationTest` 验证文本区间、最内层声明、同行候选、字段/生成声明回退和 Git 返回码。
-`DiffCoverageTest` 验证扫描范围、旧元数据、缺失源文件和环境差异。
-`VersionRelationshipsTest` 验证多来源、环路、最短代表路径、跨模块/TEST 筛选、深度与数量上限。
-`GitSnapshotsIT` 用真实索引验证两端锚点接 source、声明增删、TEST 未索引、关系变化和版本隔离。
-
-```bash
-mvn -Dtest=DiffNavigationTest,DiffCoverageTest,VersionRelationshipsTest,GitSnapshotsIT test
-uv run --with jsonschema python scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --validate-schema --report target/agent-help-e2e.json
-```
-
-第二条在临时项目中验证 v2 JSON 与每条 NDJSON 均符合 schema，缺失实体 ID 的记录被拒绝；
-比较 JAR/native 完整输出并实际执行锚点导航。`--validate-schema` 依赖仅用于验收，不进入运行时。
-不要求注释/格式修改保持空声明输出，也不再断言签名/方法体分类字段。
-
-本地 macOS 构建使用 `.sdkmanrc` 中的 GraalVM：`mvn -Pnative clean package`。
-以原生程序 `--version`、`file target/anatomist` 和上述运行报告共同确认产物。
-
-## 分支调用影响验收
-
-`JavaDispatchServiceTest` 覆盖接口／继承方法体、默认方法、接收者约束、非虚调用、
-配置证据和精确截断边界。`VersionRelationshipsTest` 验证多起点、环、跨筛选路径和最短路径。
-`GitSnapshotsIT` 以真实索引验证两种分支比较、两侧候选影响、calls 视图和导航锚点。
+| 层次 | 入口 | 验证内容 | 门禁 |
+|---|---|---|---|
+| Java 单测与 IT | `mvn test` | 参数、请求匹配、缓存、导航、调用图和覆盖限制 | PR CI |
+| Python 校验器 | `just agent-e2e-unit` | 协议分帧、错误产物、错误端点/路径/导航、失败报告 | PR CI，无 Jury 依赖 |
+| help/查询契约 | `scripts/agent-help-e2e.py` | help/skill 示例、20 个语义命令、分页、Schema、运行时一致性 | PR JVM、发布 native |
+| 自动准备 | `scripts/diff-e2e.py` | 真实 Git/Maven、TEST、配置共存、worktree、调用关系及清理 | PR JVM、发布 JAR/native |
+| 快照生命周期 | `scripts/snapshots-e2e.py` | 增量、冻结源码、pin/GC 和性能样本 | PR CI |
+| Agent 配置 | `just agent-e2e-contract` | Python 单测及 Jury case/suite 严格校验 | E2E 资产变更 |
+| 真实 Agent | `just agent-e2e-smoke` | 现有 9 条 + 新增 3 条版本场景 | 本轮完整验收，不进普通 PR CI |
 
 ```bash
 mvn test
-just golden-update
-mvn -Pnative -DskipTests package
-python3 scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --validate-schema --report target/agent-help-e2e.json
+uv run --with-requirements e2e/requirements.txt python scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --validate-schema --report target/agent-help-e2e.json
+just diff-e2e-jvm
+just diff-e2e-native
+python3 scripts/snapshots-e2e.py --native target/anatomist --files 20 --repeats 1 --report target/snapshots-native-e2e.json
+just agent-e2e-contract
+just agent-e2e-versions
+just agent-e2e-smoke
 ```
 
-端到端脚本在临时 Git 项目中执行 help/skill 示例、分支及 WORKTREE 比较、快照源码读取，
-并检查 JAR/native 输出一致性。测试数据库和报告不提交；复用维护中的脚本，不保留临时 Python 脚本。
+JAR 使用 Java 25，可通过 `--java` 指定。Schema 依赖固定在 `e2e/requirements.txt`，不进入产品运行时。
+本地 native 用 `.sdkmanrc` 中的 GraalVM 构建：`mvn -Pnative -DskipTests package`。
+
+`AutoSnapshotPreparationIT` 覆盖 MAIN-only 到 TEST、多配置筛选、失效候选、严格 no-build、
+显式 ID/roots 冲突、移动 ref、跨 worktree 和失败清理。`GitSnapshotsIT` 保留版本隔离和冻结导航。
+`DiffCoverageTest`、`VersionRelationshipsTest`、`JavaDispatchServiceTest` 验证覆盖、路径和派发边界。
+
+CLI 自动准备场景使用小型真实 Maven reactor，包括 test-only 模块，执行 Maven 依赖解析并验证
+两侧具体 TEST 调用方。`--no-maven` 仅供快速结构探针，不能替代 Maven 验收。
+resolved 必须返回已知直接调用方；auto 必须返回已知候选和证明；calls 视图 fixture 必须有
+真实非 CALLS 变化。分别验证截断、未捕获范围与开放世界限制，不能用空结果或数量相等代替事实。
+
+自动生成的快照可具有不同运行时身份。JAR/native 一致性通过同一组固定实例比较完整证据；
+自动准备分别验收。三个版本 Agent 用例复用该 Git 场景，但不在 prompt 中写死命令链。
+详情见 [Agent E2E](../e2e/README.md)。
+
+### 报告与失败复现
+
+三个 CLI 脚本从启动起记录本次 run ID、状态、提交、产物路径/哈希、最后命令及输出；异常和超时也写报告。
+重新运行前将带 run ID 的旧报告归档到 `target/e2e-history/`，保留失败与重跑记录。
+场景数、执行次数、运行时比较次数与 Agent 用例数分开记录。默认使用独立临时目录和 ANATOMIST_HOME，
+回收自有 fixture；增加 `--keep-on-failure` 可保留失败项目，报告给出路径。复现时沿用报告中的产物和存储位置。
+CI 即使失败也上传诊断。Jury 保存 trace、独立检查结果和产物身份；基础设施故障不能记为通过。
+
+`AgentHelpTest` 校验 help 示例，包括 diff 参数解析与 semantic pipeline 组合；`SkillMdContractTest`
+继续限制场景指南为 3 KiB。文档输出契约变更才更新 golden，并审查差异。

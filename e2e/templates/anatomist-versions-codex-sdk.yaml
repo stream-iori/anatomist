@@ -1,0 +1,48 @@
+schema_version: jury.case/v2
+extends: anatomist-codex-sdk.yaml
+merge: {checks: append}
+category: e2e
+setup:
+  workspace_mode: isolated
+  commands:
+    - id: prepare-version-history
+      type: shell
+      command: python3 version_fixture.py --project version-project --scenario "$ANATOMIST_E2E_SCENARIO"
+      cwd: .
+      timeout_sec: 900
+execution:
+  # Snapshot preparation creates owned Git worktrees; workspace-write protects
+  # .git even inside this disposable fixture. Checkout preservation is checked.
+  agent_mode: agent-full-access
+  timeout_sec: 900
+  inactivity_timeout_sec: 240
+  turn_timeout_sec: 900
+  max_turns: 24
+extensions:
+  anatomist: {project_root: version-project}
+checks:
+  - id: branch-diff-evidence
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: diff_evidence}
+    covers: [anatomist-routing, coverage-boundary]
+  - id: both-snapshots-navigated
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: snapshot_navigation}
+    covers: [grounded-answer]
+  - id: checkout-preserved
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: version_checkout_unchanged}
+    covers: [source-integrity]
+expectations:
+  criteria:
+    - {id: execution-completes, description: Agent completes the analysis., kind: process, verification: deterministic}
+    - {id: anatomist-routing, description: Agent consumes the correct diff endpoints and caller paths., kind: process, verification: deterministic}
+    - {id: grounded-answer, description: Exact source evidence belongs to both selected snapshots., kind: outcome, verification: deterministic}
+    - {id: source-integrity, description: Checkout and project contents remain unchanged., kind: constraint, verification: deterministic}
+    - {id: coverage-boundary, description: Captured TEST coverage and possible dispatch limits are respected., kind: outcome, verification: deterministic}

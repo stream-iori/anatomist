@@ -3,9 +3,10 @@
 
 All indexing and Git mutations use temporary projects. With both runners, query
 each index through both executables and compare parsed evidence without dropping
-semantic fields. No model service or installed Anatomist is used.
+semantic fields. No model service is used; executable paths are explicit.
 """
 import argparse
+from e2e_report import execute, track, run_command, workspace
 import hashlib
 import json
 import os
@@ -72,6 +73,7 @@ def main():
     parser.add_argument("--jar", type=Path)
     parser.add_argument("--native", type=Path)
     parser.add_argument("--java", default="java")
+    parser.add_argument("--keep-on-failure", action="store_true", help="Retain the owned fixture after failure.")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--validate-schema", action="store_true", help="Validate diff v2 JSON/NDJSON (requires jsonschema).")
     args = parser.parse_args()
@@ -89,7 +91,8 @@ def main():
     if args.native:
         runners["native"] = [str(args.native.resolve())]
     report = {"runners": {}, "checks": [], "query_comparisons": 0}
-    with tempfile.TemporaryDirectory(prefix="anatomist-help-e2e-") as temporary:
+    report = track(report)
+    with workspace(prefix="anatomist-help-e2e-") as temporary:
         root = Path(temporary)
         project = root / "project"
         fixture(project)
@@ -97,7 +100,7 @@ def main():
         env["ANATOMIST_HOME"] = str(root / "storage")
 
         def run(mode, argv, expected=0):
-            result = subprocess.run(runners[mode] + list(map(str, argv)), cwd=project,
+            result = run_command(runners[mode] + list(map(str, argv)), cwd=project,
                                     env=env, text=True, capture_output=True, timeout=120)
             assert result.returncode == expected, (mode, argv, result.returncode, result.stdout, result.stderr)
             return result
@@ -253,7 +256,7 @@ def main():
             path.write_text(text)
 
         def git_diff(*argv):
-            return subprocess.run(["git", "-C", str(diff_project), *argv], env=env,
+            return run_command(["git", "-C", str(diff_project), *argv], env=env,
                                   capture_output=True, text=True, check=True).stdout.strip()
 
         write_diff("pom.xml", "<project><modelVersion>4.0.0</modelVersion><groupId>p</groupId><artifactId>diff</artifactId><version>1</version></project>")
@@ -303,7 +306,8 @@ def main():
             error = run(mode, ["diff", "--base", "HEAD", "--target", "WORKTREE", "--impact-scope", "TEST"], 2)
             assert json.loads(error.stderr)["code"] == "INVALID_ARGUMENT"
         assert all(value == comparisons[0] for value in comparisons)
-        report["diff_comparisons"] = len(comparisons)
+        report["diff_executions"] = len(comparisons)
+        report["diff_comparisons"] = int(len(comparisons) > 1)
         report["diff_schema_validated"] = bool(validator)
         check("diff v2: two origins per caller, both snapshots navigable, JSON/NDJSON/table, JAR/native equality")
 
@@ -381,7 +385,12 @@ def main():
                     invalid["edges"][0]["proof"] = []
                     invalid["edges"][0]["type_proof"] = []
                     assert not validator.is_valid(invalid), "schema accepted a candidate without proof"
-            assert all(value == paired[0] for value in paired)
+            # Automatic captures have runtime-specific request identities. Compare
+            # both readers against the same fixed instances, preserving all fields.
+            fixed = ["diff", "--project", diff_project, "--base", "snapshot:" + paired[0]["comparison"]["base"]["id"],
+                     "--target", "snapshot:" + paired[0]["comparison"]["target"]["id"], "--view", "calls", "--impact", "--format", "json"]
+            readers = [json.loads(run(reader, fixed).stdout) for reader in runners]
+            assert all(value == readers[0] for value in readers)
             branch_results.extend(paired)
         assert git_diff("rev-parse", "HEAD") == feature_tip
         assert git_diff("status", "--porcelain") == ""
@@ -392,22 +401,27 @@ def main():
         assert disk["comparison"]["target"]["id"] != branch_results[0]["comparison"]["target"]["id"]
         if validator:
             validator.validate(disk)
+        captures = {last_mode: disk}
+        for mode in runners:
+            if mode != last_mode:
+                captures[mode] = json.loads(run(mode, ["diff", "--project", diff_project, "--base", "base-tip", "--target", "WORKTREE",
+                    "--merge-base", "--view", "calls", "--impact", "--no-classpath", "--java-version", "25", "--format", "json"]).stdout)
         git_diff("restore", "src/main/java/p/Worker.java")
         git_diff("checkout", "-q", "base-tip")
         cached_comparisons = []
         for mode in runners:
             cached = json.loads(run(mode, ["diff", "--project", diff_project, "--base", "feature", "--target", "WORKTREE",
-                                          "--merge-base", "--view", "calls", "--impact", "--no-build", "--format", "json"]).stdout)
+                                          "--merge-base", "--view", "calls", "--impact", "--no-build", "--no-classpath", "--java-version", "25", "--format", "json"]).stdout)
             assert cached["comparison"]["base"]["commit"] == feature_tip
-            assert cached["comparison"]["target"]["id"] == disk["comparison"]["target"]["id"]
+            assert cached["comparison"]["target"]["id"] == captures[mode]["comparison"]["target"]["id"]
             assert cached["comparison"]["request"]["target"]["commit"] == feature_tip
             if validator:
                 validator.validate(cached)
             cached_comparisons.append(cached)
-        assert all(value == cached_comparisons[0] for value in cached_comparisons)
         assert git_diff("rev-parse", "HEAD") == base_tip
-        report["cached_worktree_comparisons"] = len(cached_comparisons)
-        report["branch_comparisons"] = len(branch_results)
+        report["cached_worktree_executions"] = len(cached_comparisons)
+        report["branch_executions"] = len(branch_results)
+        report["branch_comparisons"] = 2 if len(runners) > 1 else 0
         check("branches: merge-base versus tips, branch-switch isolation, polymorphic evidence, view invariance, WORKTREE and frozen source")
 
     for mode, path in (("jar", args.jar), ("native", args.native)):
@@ -420,4 +434,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    execute(main, "target/agent-help-e2e.json")

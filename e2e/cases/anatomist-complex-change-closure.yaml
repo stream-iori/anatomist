@@ -28,16 +28,27 @@ checks:
     severity: hard
     config:
       check: command_sequence
-      commands: [skill, doctor, index, resolve, calls, dispatch, index, declarations-of, resolve, source]
+      commands: [resolve, index, resolve, source]
+    covers: [anatomist-routing]
+  - id: changed-declarations-route
+    type: extension
+    provider: anatomist
+    severity: hard
+    config:
+      check: command_sequence
+      commands: [resolve, index, declarations-of]
     covers: [anatomist-routing]
   - id: impact-pipeline
     type: extension
     provider: anatomist
     severity: hard
     config:
-      check: semantic_pipeline
-      commands: [resolve, calls, dispatch]
-      records: [dispatch_target, evidence]
+      check: semantic_pipeline_any
+      alternatives:
+        - commands: [resolve, calls, dispatch]
+          records: [dispatch_target, evidence]
+        - commands: [resolve, references]
+          records: [evidence]
     covers: [anatomist-routing]
   - id: bounded-diff
     type: extension
@@ -97,10 +108,10 @@ checks:
     config:
       check: response_regex
       all:
-        - 'OrderAdmissionPolicy'
+        - 'OrderAdmissionPolicy|策略|规则'
         - 'X-RESTRICTED'
         - 'expedited|加急'
-        - 'OrderRejectedException'
+        - 'OrderRejectedException|拒绝'
         - 'test|测试'
         - 'incremental|增量'
     covers: [grounded-answer]

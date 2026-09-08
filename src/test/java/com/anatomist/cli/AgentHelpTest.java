@@ -100,6 +100,11 @@ class AgentHelpTest {
                     var args = words(line.replace("<anchor.snapshot_id>", "a".repeat(32))
                             .replace("<anchor.scope>", "MAIN").replace("<anchor.id>", "p.Service#run()"));
                     assertEquals("anatomist", args.removeFirst());
+                    if (args.getFirst().equals("diff")) {
+                        String[] argv=args.toArray(String[]::new);
+                        AnatomistCli.commandLine(argv).parseArgs(argv);
+                        continue;
+                    }
                     assertEquals("pipeline", args.getFirst());
                     args.add(1, "--explain");
                     String[] argv = args.toArray(String[]::new);

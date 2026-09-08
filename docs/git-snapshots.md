@@ -18,7 +18,7 @@ anatomist snapshots gc --keep 20 --execute
 `--ref` selects an already indexed Git commit, branch, or the most recently
 captured WORKTREE. `--snapshot <id>` fixes an exact analysis instance. These
 selectors are mutually exclusive with `--index`. Read commands never build;
-`diff` builds missing endpoints unless `--no-build` is supplied. For structural
+`diff` prepares endpoints matching its indexing configuration unless `--no-build` is supplied. For structural
 analysis without Maven use `--no-classpath` on both indexing and diff commands.
 
 WORKTREE captures final disk contents (staged and unstaged together), including
@@ -63,7 +63,7 @@ anatomist diff --base HEAD --target WORKTREE
 # Substitute an entity anchor from before (deleted code) or after (added code):
 anatomist pipeline --snapshot <anchor.snapshot_id> --scope <anchor.scope> -- resolve '<anchor.id>' --unique --then source
 # Select api changes, but return test callers across the project:
-anatomist diff --base HEAD --target WORKTREE --module api --impact --impact-scope TEST
+anatomist diff --base HEAD --target WORKTREE --include-tests --module api --impact --impact-scope TEST
 ```
 
 Diff is not a semantic stream. Select an anchor and start a single-version query;
@@ -87,9 +87,50 @@ There is no global safety boolean. Different environments limit relationship and
 impact conclusions, while valid text navigation remains available.
 
 Query selection does not expand indexing. TEST missing from a capture is partial,
-not proof of no test changes. Configure scan scopes or build with existing index
-options such as `--include-tests`, then select the resulting snapshot IDs. Old
+not proof of no test changes. Use `diff --include-tests` to prepare test coverage
+automatically, or select existing snapshot IDs with the required coverage. Old
 snapshots lacking coverage metadata remain readable with unknown coverage.
+
+## Automatic preparation including Maven tests
+
+```bash
+anatomist diff --base main --target HEAD --merge-base --include-tests --scope ALL --impact-scope ALL --view calls --impact
+```
+
+| Option | Responsibility |
+|---|---|
+| `--include-tests` | Add TEST to automatic scan coverage, including test-only Maven modules. |
+| `--scope ALL` | Select declarations and relationships across captured scopes. |
+| `--impact-scope ALL` | Return callers across captured scopes; traversal is not filtered. |
+| `--no-build` | Read only captures matching the indexing request; never invoke Maven or an index build. |
+
+Without `--include-tests`, existing scan defaults and configuration remain in
+effect. Explicit source roots take precedence; a TEST request with MAIN-only
+roots fails with `SNAPSHOT_COVERAGE_MISMATCH`. Includes/excludes, unresolved
+dependencies and open-world dispatch still limit the relevant capabilities.
+
+Automatic preparation uses the same indexing request fingerprint as `index
+--ref`. Committed snapshots are selected by frozen commit and request; WORKTREE
+captures also belong to a checkout. MAIN-only and TEST-enabled captures can
+coexist. Unrelated profiles and invalid candidates do not hide a usable match.
+Linked worktrees share committed captures through their Git common-directory and
+project-relative identity; storage remains under `ANATOMIST_HOME`.
+
+Captured project build outputs (such as Maven `target/classes`) retain their
+artifact fingerprints after the private build checkout is cleaned. External
+dependency files are still checked for changes during automatic cache selection.
+Explicit historical snapshot reads remain available independently of those live dependencies.
+
+With `--no-build`, missing captures return `SNAPSHOT_MISSING`, configuration
+mismatches return `SNAPSHOT_CONFIG_MISMATCH`, and unavailable matching artifacts
+return `SNAPSHOT_NOT_READY`. These use `anatomist-error/v1`; `details` identifies
+the side, selector, requested options and candidate IDs when available.
+
+Explicit `snapshot:<id>` selectors remain fixed. Explicit requirements such as
+TEST coverage are validated against that instance, with unknown coverage treated
+as unconfirmed. Historical reads without new requirements retain their original
+behavior. `--merge-base` rejects an explicit base snapshot when the ancestor is
+a different commit; when it is the same commit, the original instance is retained.
 
 ## Branch comparisons and caller views
 

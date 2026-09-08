@@ -70,7 +70,7 @@ checks:
         - 'CANCELLED'
         - 'release.*record|恢复.*审计'
         - '恢复库存.*(RuntimeException|异常|失败)|release.*(RuntimeException|异常|失败)'
-        - '审计\s*\|\s*不执行|审计.*(不执行|不会|无法|不记录)'
+        - '审计\s*\|\s*不执行|审计.*(不执行|不会|无法|不记录)|不记审计|跳过审计'
         - 'failures|失败计数'
         - 'PartialReconciliationException'
     covers: [grounded-answer]

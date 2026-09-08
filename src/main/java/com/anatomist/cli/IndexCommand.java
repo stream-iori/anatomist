@@ -258,7 +258,9 @@ public class IndexCommand implements Callable<Integer> {
             List<String> args=new ArrayList<>(List.of(project.toString()));
             for(String arg:options) args.add(arg.replace(original.toString(),project.toString()));
             args.addAll(List.of("--output",database.toString(),"--format","json","--timings"));
-            if(useIncremental) args.add("--incremental");
+            // Private captures can preserve size/mtime across different contents.
+            // Their immutable manifest requires content-based incremental detection.
+            if(useIncremental) args.addAll(List.of("--incremental","--verify-content"));
             IndexCommand command=new IndexCommand();
             new picocli.CommandLine(command).parseArgs(args.toArray(String[]::new));
             command.suppressSummary=true;

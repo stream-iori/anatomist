@@ -18,7 +18,12 @@ import static org.junit.jupiter.api.Assertions.*;
 @ResourceLock("system-properties")
 class GitSnapshotsIT {
     @TempDir Path temporary;
-    private final List<String> options=List.of("--no-classpath","--java-version","25");
+    private final List<String> options=canonicalOptions();
+    private static List<String> canonicalOptions() {
+        var command=new IndexCommand();
+        new picocli.CommandLine(command).parseArgs(".","--no-classpath","--java-version","25");
+        return command.snapshotOptions();
+    }
     private Path project;
     private SnapshotService service;
 
@@ -43,7 +48,11 @@ class GitSnapshotsIT {
     private void isolated(Checked work) throws Exception {
         String prior=System.getProperty("user.home");
         System.setProperty("user.home",temporary.resolve("home").toString());
-        try { setup(); work.run(); } finally { System.setProperty("user.home",prior); }
+        try {
+            assertEquals(temporary.resolve("home/.anatomist"),com.anatomist.config.StoragePaths.home(),
+                    "Run with ANATOMIST_HOME unset; every fixture must own its store");
+            setup(); work.run();
+        } finally { System.setProperty("user.home",prior); }
     }
     @FunctionalInterface interface Checked { void run() throws Exception; }
 
@@ -544,7 +553,7 @@ class GitSnapshotsIT {
             GitRepository.text(project,"checkout","--detach",ancestor);
             write("right.txt","right");commit("right");String right=service.git().commit("HEAD");
             var output=(Map<?,?>)Json.parseTree(cli("diff","--project",project.toString(),"--base",left,
-                    "--target","WORKTREE","--merge-base","--no-build","--format","json"));
+                    "--target","WORKTREE","--merge-base","--no-build","--no-classpath","--java-version","25","--format","json"));
             var header=(Map<?,?>)output.get("comparison");
             assertEquals(left,((Map<?,?>)header.get("base")).get("commit"));
             assertEquals(capture.entry().id(),((Map<?,?>)header.get("target")).get("id"));

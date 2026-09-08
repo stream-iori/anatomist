@@ -31,6 +31,20 @@ jobs:
       - name: Build shaded jar
         run: mvn -q -DskipTests package
 
+      - name: Prepare E2E dependencies
+        run: |
+          python3 -m venv target/e2e-venv
+          target/e2e-venv/bin/pip install -r e2e/requirements.txt
+
+      - name: Adapter and evidence unit tests
+        run: PYTHONPATH=e2e target/e2e-venv/bin/python -m unittest discover -s e2e -p 'test_*.py'
+
+      - name: Agent help and diff contracts (JVM)
+        run: target/e2e-venv/bin/python scripts/agent-help-e2e.py --jar target/anatomist.jar --validate-schema --report target/agent-help-e2e.json
+
+      - name: Automatic diff preparation (Git and Maven)
+        run: target/e2e-venv/bin/python scripts/diff-e2e.py --jar target/anatomist.jar --report target/diff-jvm-e2e.json
+
       - name: Smoke CLI
         run: |
           java -jar target/anatomist.jar --version
@@ -41,6 +55,14 @@ jobs:
 
       - name: Git snapshots E2E (JVM)
         run: python3 scripts/snapshots-e2e.py --jar target/anatomist.jar --files 20 --repeats 1
+
+      - name: Upload E2E diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jvm-e2e-diagnostics
+          path: target/*e2e*.json
+          if-no-files-found: ignore
 
   resolution-quality:
     name: Real-project precision and recall

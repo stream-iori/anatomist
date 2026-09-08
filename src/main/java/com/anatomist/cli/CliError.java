@@ -103,7 +103,9 @@ final class CliError {
 
     private static Map<String, Object> details(RuntimeException failure) {
         Map<String, Object> details = new LinkedHashMap<>();
-        if (failure instanceof SymbolResolutionException resolution) {
+        if (failure instanceof com.anatomist.version.SnapshotException snapshot) {
+            details.putAll(snapshot.details());
+        } else if (failure instanceof SymbolResolutionException resolution) {
             details.put("selector", resolution.resolution().input());
             details.put("selector_kind",
                     resolution.resolution().targetKind().name().toLowerCase());

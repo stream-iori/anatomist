@@ -59,7 +59,7 @@ checks:
     description: 回答必须说明旧索引和同步后的 current 结果。
     config:
       check: response_regex
-      all: ['current', '过期|stale|旧索引|不一致', '增量|incremental|同步|重建']
+      all: ['current', '过期|stale|旧索引|不一致', '增量|incremental|同步|重建|修复|刷新']
     covers: [grounded-answer]
   - id: source-clean
     type: extension

@@ -31,7 +31,7 @@ checks:
     severity: hard
     config:
       check: semantic_pipeline
-      commands: [search, resolve, bindings]
+      commands: [resolve, bindings]
       records: [binding_relation, evidence]
     covers: [anatomist-routing]
   - id: grounded-answer

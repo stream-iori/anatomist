@@ -15,6 +15,7 @@ prompt:
     的真实调用名。分别说明哪些是调用点已经观察到的事实，哪些不能当作完整的生成声明
     或编译结果。声明范围可用 `declarations-of`，但调用点必须经新的 NDJSON 原子管道
     `resolve --exact | calls | source` 获取；不得使用 legacy `callees-of` 或 `context`。
+    还需读取这三个调用方的完整方法源码，列全链式调用的方法名；调用点片段不足以证明整条链。
     只做分析，不要修改源码。
 setup:
   commands:
@@ -37,7 +38,7 @@ checks:
     provider: anatomist
     severity: hard
     description: 已由 setup 建好新鲜索引；Agent 应直接进入声明和精确调用证据。
-    config: {check: command_sequence, commands: [skill, declarations-of, resolve]}
+    config: {check: command_sequence, commands: [skill, resolve]}
     covers: [anatomist-routing]
   - id: lombok-queries
     type: extension

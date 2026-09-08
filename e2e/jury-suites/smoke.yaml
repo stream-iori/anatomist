@@ -30,6 +30,15 @@ members:
   - id: semantic-artifact
     type: case
     path: ../cases/anatomist-semantic-artifact.yaml
+  - id: branch-work-impact
+    type: case
+    path: ../cases/anatomist-branch-work-impact.yaml
+  - id: branch-tip-impact
+    type: case
+    path: ../cases/anatomist-branch-tip-impact.yaml
+  - id: impact-boundary
+    type: case
+    path: ../cases/anatomist-impact-boundary.yaml
 metadata:
   owner: anatomist
   description: Real-Agent evidence smoke from focused boundaries through a multi-module code-change closure.
