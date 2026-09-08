@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 public abstract class QueryCommand implements Callable<Integer> {
+    @picocli.CommandLine.Mixin VersionSelection version = new VersionSelection();
 
     @Option(names = "--index") Path index;
     @Option(names = "--module", description = "Restrict symbol resolution to one module.") String module;
@@ -20,7 +21,7 @@ public abstract class QueryCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        Path db = IndexPath.resolve(index);
+        Path db = version.resolve(index);
         try {
             scope = CliValidation.scope(scope, true);
             try (QueryService q = new QueryService(db)) {

@@ -41,6 +41,7 @@ public class IndexDocsCommand implements Callable<Integer> {
                     ? DefaultIndexPath.forIndexWrite(projectRoot)
                     : output.toAbsolutePath().normalize();
             Files.createDirectories(dbPath.getParent());
+            com.anatomist.version.SnapshotFiles.requireMutable(dbPath);
 
             DocScanner scanner = new DocScanner();
             List<Document> docs = scanner.scan(projectRoot);

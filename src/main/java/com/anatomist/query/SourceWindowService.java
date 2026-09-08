@@ -49,6 +49,10 @@ public class SourceWindowService {
         if (line <= 0) return null;
 
         Path sourcePath = Path.of(sourceFile);
+        try {
+            Path frozen=SnapshotSource.path(conn,sourceFile);
+            if(frozen!=null) sourcePath=frozen;
+        } catch(SQLException failure) { throw rethrow(failure); }
         if (!sourcePath.isAbsolute()) {
             sourcePath = sourceRoot.resolve(sourceFile);
         }

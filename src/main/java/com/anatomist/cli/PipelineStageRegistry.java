@@ -56,6 +56,9 @@ final class PipelineStageRegistry {
     private static void rejectCommonOptions(List<String> argv, int position, String command) {
         for (String token : argv) {
             if (token.equals("--index") || token.startsWith("--index=")
+                    || token.equals("--ref") || token.startsWith("--ref=")
+                    || token.equals("--snapshot") || token.startsWith("--snapshot=")
+                    || token.equals("--project") || token.startsWith("--project=")
                     || token.equals("--module") || token.startsWith("--module=")
                     || token.equals("--scope") || token.startsWith("--scope=")
                     || token.equals("--language") || token.startsWith("--language=")

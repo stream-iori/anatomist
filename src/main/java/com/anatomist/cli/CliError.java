@@ -70,6 +70,7 @@ final class CliError {
     }
 
     static String code(RuntimeException failure) {
+        if (failure instanceof com.anatomist.version.SnapshotException snapshot) return snapshot.code();
         if (failure instanceof SemanticStreamException semantic) return semantic.code();
         if (failure instanceof SymbolResolutionException resolution) return resolution.code();
         if (failure instanceof UnsupportedCapabilityException) return "UNSUPPORTED_CAPABILITY";

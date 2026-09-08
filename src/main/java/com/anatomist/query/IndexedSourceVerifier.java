@@ -48,6 +48,12 @@ public final class IndexedSourceVerifier {
                 return error(null, null, "FILE_NOT_INDEXED",
                         "file is not present in the committed index: " + sourceFile);
             }
+            Path snapshotSource = SnapshotSource.path(connection,sourceFile);
+            if (snapshotSource != null) {
+                if (!Files.isRegularFile(snapshotSource) || !expectedHash.equals(FileCacheService.sha256(snapshotSource)))
+                    return stale(snapshotSource,expectedHash,"SNAPSHOT_SOURCE_CORRUPT","Frozen source is missing or changed: " + sourceFile);
+                return new Verification(Status.CURRENT,snapshotSource,expectedHash,null,null);
+            }
             String rootValue = scalar("SELECT value FROM project_meta WHERE key='source_root'");
             if (rootValue == null || rootValue.isBlank()) {
                 return error(null, expectedHash, "SOURCE_PROFILE_INCOMPLETE",

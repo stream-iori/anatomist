@@ -82,6 +82,7 @@ public class AnnotateCommand implements Callable<Integer> {
 
     private Integer execute() throws Exception {
         Path db = IndexPath.resolve(index);
+        com.anatomist.version.SnapshotFiles.requireMutable(db);
 
         List<SemanticAnnotation> batch;
         if (fromJson != null) {

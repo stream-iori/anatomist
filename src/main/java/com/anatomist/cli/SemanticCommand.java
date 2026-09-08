@@ -20,6 +20,7 @@ import java.util.function.Consumer;
 
 /** Common lifecycle and error contract for semantic-stream operations. */
 abstract class SemanticCommand implements Callable<Integer> {
+    @picocli.CommandLine.Mixin VersionSelection version = new VersionSelection();
     @Option(names = "--index", description = "Path to index.db.") Path index;
     @Option(names = "--module", description = "Restrict lookup to one module.") String module;
     @Option(names = "--scope", defaultValue = "MAIN",
@@ -37,7 +38,7 @@ abstract class SemanticCommand implements Callable<Integer> {
 
     @Override public Integer call() {
         try {
-            Path db = IndexPath.resolve(index);
+            Path db = version.resolve(index);
             scope = CliValidation.scope(scope, true);
             try (SemanticExecutionContext context = SemanticExecutionContext.open(db, module, scope);
                  SemanticStreamWriter writer = new SemanticStreamWriter(System.out, format)) {

@@ -40,6 +40,8 @@ import picocli.CommandLine.HelpCommand;
                 HelpCommand.class,
                 SkillCommand.class,
                 IndexCommand.class,
+                DiffCommand.class,
+                SnapshotsCommand.class,
                 IndexDocsCommand.class,
                 SearchCommand.class,
                 ResolveCommand.class,
@@ -126,6 +128,8 @@ public class AnatomistCli implements Runnable {
         return switch (name) {
             case "skill" -> new SkillCommand();
             case "index" -> new IndexCommand();
+            case "diff" -> new DiffCommand();
+            case "snapshots" -> new SnapshotsCommand();
             case "index-docs" -> new IndexDocsCommand();
             case "pipeline" -> new PipelineCommand();
             case "operations" -> new OperationsCommand();

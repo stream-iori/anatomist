@@ -35,6 +35,7 @@ import java.util.concurrent.Callable;
                 + "  anatomist pipeline --index index.db --file pipeline.json%n"
                 + "  {\"stages\":[[\"resolve\",\"p.Service#run()\",\"--kind\",\"callable\",\"--exact\",\"--unique\"],[\"calls\"],[\"dispatch\"]]}")
 public final class PipelineCommand implements Callable<Integer> {
+    @picocli.CommandLine.Mixin VersionSelection version = new VersionSelection();
     static final int MAX_STAGES = 16;
     static final int MAX_ARGS_PER_STAGE = 256;
     static final long MAX_SPEC_BYTES = SemanticRecords.MAX_LINE_BYTES;
@@ -88,7 +89,7 @@ public final class PipelineCommand implements Callable<Integer> {
             }
             Path db;
             try {
-                db = IndexPath.resolve(index);
+                db = version.resolve(index);
             } catch (RuntimeException failure) {
                 throw PipelineFailure.stage(1, stages.getFirst().name(), failure);
             }

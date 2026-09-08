@@ -57,6 +57,10 @@ import java.util.stream.Collectors;
         }
 )
 public class IndexCommand implements Callable<Integer> {
+    @Option(names="--ref", description="Build an immutable Git ref or WORKTREE snapshot.")
+    String ref;
+    private boolean suppressSummary;
+    private Map<String,Object> snapshotMetrics = new java.util.LinkedHashMap<>();
 
     private static final Set<Path> GIT_CACHE_ADVISED =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -204,6 +208,23 @@ public class IndexCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        if (ref != null) {
+            try {
+                if (output != null || changedFilesFrom != null || recreate)
+                    throw new IllegalArgumentException("--ref cannot be combined with --output, --recreate or --changed-files-from");
+                format = CliValidation.choice("--format", format, "text", "json");
+                var service = new com.anatomist.application.SnapshotService(projectPath);
+                List<String> options = snapshotOptions();
+                var built = service.build(ref, com.anatomist.json.Json.writeCompact(options), full,
+                        snapshotBuilder(options, projectPath.toAbsolutePath().normalize()));
+                System.out.println("json".equals(format) ? com.anatomist.json.Json.writePretty(built.json())
+                        : "Snapshot " + built.entry().id() + " (" + (built.reused()?"reused":"built")
+                        + ")\n  Commit: " + built.entry().commit() + "\n  Index: " + built.database());
+                return 0;
+            } catch (RuntimeException failure) {
+                int exit=CliError.exit(failure); CliError.emit(CliError.of("index",failure,exit)); return exit;
+            }
+        }
         try {
             format = CliValidation.choice("--format", format, "text", "json");
             com.anatomist.core.HealthPolicy.resolve(strictHealth, healthPolicy);
@@ -214,12 +235,51 @@ public class IndexCommand implements Callable<Integer> {
         return reportOutcome(executeOutcome());
     }
 
+    List<String> snapshotOptions() {
+        List<String> args = new ArrayList<>();
+        option(args,"--provider",providerId); option(args,"--java-version",javaVersion);
+        option(args,"--jdk-home",jdkHome); option(args,"--exclude",exclude);
+        option(args,"--classpath",classpath); option(args,"--project-source",projectSource);
+        sourceRootSpecs.forEach(v->option(args,"--source-root",v));
+        scanScopeSpecs.forEach(v->option(args,"--scan-scope",v));
+        scanIncludeSpecs.forEach(v->option(args,"--scan-include",v));
+        scanExcludeSpecs.forEach(v->option(args,"--scan-exclude",v));
+        if(includeTests) args.add("--include-tests"); if(noClasspath) args.add("--no-classpath");
+        option(args,"--vm-classpath",vmClasspath); option(args,"--max-realign-files",maxRealignFiles);
+        if(springXml!=null) args.add(springXml?"--spring-xml":"--no-spring-xml");
+        option(args,"--lombok",lombokMode); option(args,"--external-exclude",externalExclude);
+        if(strictHealth) args.add("--strict-health"); option(args,"--health-policy",healthPolicy);
+        if(debug) args.add("--debug");
+        return args;
+    }
+
+    private static void option(List<String> args,String name,Object value) {
+        if(value!=null) { args.add(name); args.add(value.toString()); }
+    }
+
+    static com.anatomist.application.SnapshotService.Builder snapshotBuilder(List<String> options,Path original) {
+        return (project, database, useIncremental) -> {
+            List<String> args=new ArrayList<>(List.of(project.toString()));
+            for(String arg:options) args.add(arg.replace(original.toString(),project.toString()));
+            args.addAll(List.of("--output",database.toString(),"--format","json","--timings"));
+            if(useIncremental) args.addAll(List.of("--incremental","--verify-content"));
+            IndexCommand command=new IndexCommand();
+            new picocli.CommandLine(command).parseArgs(args.toArray(String[]::new));
+            command.suppressSummary=true;
+            var outcome=command.executeOutcome();
+            if(outcome.exitCode()!=0) throw new com.anatomist.version.SnapshotException("SNAPSHOT_INDEX_FAILED",
+                    "Index failed (exit " + outcome.exitCode() + "): " + outcome.error(),outcome.cause());
+            return command.snapshotMetrics;
+        };
+    }
+
     com.anatomist.application.IndexOutcome executeOutcome() {
         return new com.anatomist.application.IndexApplicationService().execute(
                 new com.anatomist.application.IndexRequest(projectPath, projectSource, sourceRootSpecs),
                 root -> {
                     Path lockTarget = output == null ? DefaultIndexPath.forIndexWrite(root)
                             : output.toAbsolutePath().normalize();
+                    com.anatomist.version.SnapshotFiles.requireMutable(lockTarget);
                     try (IndexOperationLock ignored = IndexOperationLock.forWrite(lockTarget)) {
                         return execute(root);
                     }
@@ -483,7 +543,8 @@ public class IndexCommand implements Callable<Integer> {
                     com.anatomist.core.IndexHealthReport persistedHealth =
                             com.anatomist.application.IndexHealthService.read(store);
                     phaseTimings.stop("diagnostics_read", diagnosticsStarted);
-                    IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(cache),
+                    snapshotMetrics = new java.util.LinkedHashMap<>(Map.of("mode","noop","reparsed_files",0));
+                    if (!suppressSummary) IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(cache),
                             summary, cache.size(), elapsed,
                             timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
                             effectiveHealthPolicy, loadedConfig.sourceName(),
@@ -559,7 +620,10 @@ public class IndexCommand implements Callable<Integer> {
                 com.anatomist.core.IndexHealthReport persistedHealth =
                         com.anatomist.application.IndexHealthService.read(store);
                 phaseTimings.stop("diagnostics_read", diagnosticsStarted);
-                IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(after),
+                snapshotMetrics = new java.util.LinkedHashMap<>(Map.of("mode","incremental",
+                        "reparsed_files",summary.reparsedFiles,"realigned_files",summary.realignedDependents,
+                        "candidate_files",summary.candidateFiles,"change_detection",summary.changeDetectionMode));
+                if (!suppressSummary) IndexOutput.emitIncremental(format, projectRoot, dbPath, javaFileCount(after),
                         summary, after.size(), elapsed,
                         timings ? phaseTimings.millis() : java.util.Map.of(), persistedHealth,
                         effectiveHealthPolicy, loadedConfig.sourceName(),
@@ -763,8 +827,10 @@ public class IndexCommand implements Callable<Integer> {
     }
 
     private void emitCapturedFullResult(Path liveDb) {
+        snapshotMetrics = new java.util.LinkedHashMap<>(Map.of("mode","full","rebuild",capturedRebuild));
+        if (suppressSummary) return;
         com.anatomist.application.IndexConfig cfg = withDatabase(capturedFullConfig, liveDb);
-        if ("json".equalsIgnoreCase(format)) {
+                    if ("json".equalsIgnoreCase(format) && !suppressSummary) {
             IndexOutput.emitFullJson(capturedFullResult, cfg, capturedFullTimings,
                     effectiveHealthPolicy, capturedRebuild);
         } else {
