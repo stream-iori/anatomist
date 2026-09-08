@@ -20,6 +20,7 @@ import java.util.concurrent.Callable;
                 + "Without --index, availability is unchecked and no database is opened.%n"
                 + "This catalog exposes atomic operations; it intentionally contains no recipes.")
 public final class OperationsCommand implements Callable<Integer> {
+    @picocli.CommandLine.Mixin VersionSelection version = new VersionSelection();
     static final String CONTRACT = "anatomist-operation-catalog/v1";
 
     @Parameters(index = "0", arity = "0..1", paramLabel = "OPERATION",
@@ -52,10 +53,10 @@ public final class OperationsCommand implements Callable<Integer> {
                     ? "java" : language.trim().toLowerCase(java.util.Locale.ROOT);
             String selectedProvider = provider == null || provider.isBlank()
                     ? SemanticProviders.providerForLanguage(selectedLanguage) : provider.trim();
-            if (index == null) {
+            if (index == null && version.ref == null && version.snapshot == null) {
                 return emit(catalog(selected, selectedLanguage, selectedProvider, null, null));
             }
-            Path db = index.toAbsolutePath().normalize();
+            Path db = version.resolve(index);
             if (!Files.isRegularFile(db)) {
                 Map<String, Object> error = CliError.base("INDEX_MISSING", "index", 3,
                         "index db not found: " + db, "operations");

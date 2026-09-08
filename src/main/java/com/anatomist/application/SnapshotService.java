@@ -1,6 +1,5 @@
 package com.anatomist.application;
 
-import com.anatomist.cli.DefaultIndexPath;
 import com.anatomist.json.Json;
 import com.anatomist.query.semantic.SemanticIdentity;
 import com.anatomist.store.*;
@@ -10,7 +9,7 @@ import java.sql.*;
 import java.util.*;
 
 /** Coordinates immutable version builds outside the user's checkout. */
-public final class SnapshotService {
+public final class SnapshotService implements SnapshotAccess {
     public interface Builder {
         Map<String,Object> build(Path project, Path database, boolean incremental) throws Exception;
     }
@@ -18,8 +17,7 @@ public final class SnapshotService {
     private final Path directory;
     public SnapshotService(Path project) {
         git = GitRepository.open(project);
-        directory = DefaultIndexPath.resolveHome(System.getenv(DefaultIndexPath.ENV_HOME),
-                System.getProperty("user.home")).resolve("versions").resolve(git.key()).toAbsolutePath().normalize();
+        directory = com.anatomist.config.StoragePaths.home().resolve("versions").resolve(git.key()).toAbsolutePath().normalize();
     }
     public GitRepository git() { return git; }
     public Path directory() { return directory; }
@@ -29,7 +27,7 @@ public final class SnapshotService {
         return directory.resolve("snapshots").resolve(id);
     }
     private String selectorKey(String ref) {
-        return ref.equals("WORKTREE") ? "WORKTREE:"+git.checkoutKey() : ref;
+        return ref.equals("WORKTREE") || ref.equals("HEAD") ? ref+":"+git.checkoutKey() : ref;
     }
     public String commit(String ref) {
         if(ref.startsWith("snapshot:")) return entry(ref.substring(9)).commit();
@@ -108,17 +106,35 @@ public final class SnapshotService {
                     Path project=workspace.resolve(git.projectRelative());
                     if(!Files.isDirectory(project)) throw new SnapshotException("PROJECT_MISSING_AT_REF","Project does not exist at " + ref);
                     Map<String,String> before=SnapshotFiles.inventory(project);
-                    Map<String,Object> metrics=new LinkedHashMap<>(builder.build(project,db,false));
+                    SnapshotCatalog.Entry baseline=full?null:baseline(catalog,sha,working,requestHash);
+                    long copyStarted=System.nanoTime();
+                    if(baseline!=null) {
+                        try(IndexLock read=IndexLock.forRead(database(baseline.id()));
+                            Connection connection=DriverManager.getConnection("jdbc:sqlite:"+database(baseline.id()))) {
+                            int result=((org.sqlite.SQLiteConnection)connection).getDatabase().backup("main",db.toString(),null);
+                            if(result!=0) throw new SnapshotException("SNAPSHOT_COPY_FAILED","SQLite backup returned " + result);
+                        }
+                        // The private build root is canonical for every linked checkout of this project.
+                        // Historical source indirection must not leak into the unpublished build.
+                        try(SqliteStore store=new SqliteStore(db);Statement statement=store.connection().createStatement()) {
+                            statement.executeUpdate("DELETE FROM project_meta WHERE key LIKE 'snapshot_%'");
+                        }
+                    }
+                    long copyMs=(System.nanoTime()-copyStarted)/1_000_000;
+                    Map<String,Object> metrics=new LinkedHashMap<>(builder.build(project,db,baseline!=null));
+                    metrics.put("baseline",baseline==null?"":baseline.id()); metrics.put("backup_ms",copyMs);
                     Map<String,String> after=SnapshotFiles.inventory(project);
                     // Build tools may add generated inputs. Original source/configuration bytes must remain stable.
                     for(var file:before.entrySet()) if(!Objects.equals(file.getValue(),after.get(file.getKey())))
                         throw new SnapshotException("SNAPSHOT_INPUT_CHANGED","Build modified input: " + file.getKey());
-                    Path sources=owned.resolve("sources");
-                    SnapshotFiles.copy(project,sources,after);
+                    Path blobs=directory.resolve("blobs");
+                    SourceBlobStore.Stats cached=new SourceBlobStore(blobs).store(project,after);
+                    metrics.put("source_written_bytes",cached.writtenBytes());
+                    metrics.put("source_written_files",cached.writtenFiles());metrics.put("source_reused_files",cached.reusedFiles());
                     Files.writeString(owned.resolve("files.json"),Json.writeCompact(after));
                     String profile,source;
                     try(SqliteStore store=new SqliteStore(db)) {
-                        store.upsertProjectMeta(Map.of("snapshot_sources",sources.toString(),"snapshot_id",id,
+                        store.upsertProjectMeta(Map.of("snapshot_blob_root",blobs.toString(),"snapshot_id",id,
                                 "snapshot_kind",working?"WORKTREE":"COMMIT","source_git_commit",sha,
                                 "source_git_branch",working?"WORKTREE":ref,"source_git_dirty",String.valueOf(working)));
                         SemanticIdentity identity=SemanticIdentity.read(store);
@@ -154,10 +170,24 @@ public final class SnapshotService {
     }
     private String requestHash(String request) throws Exception {
         Path userConfig=Path.of(System.getProperty("user.home"),".anatomist","config.toml");
+        Properties build=new Properties();
+        try(var resource=SnapshotService.class.getResourceAsStream("/anatomist-version.properties")) { if(resource!=null) build.load(resource); }
         return FileCacheService.sha256OfString(request.replace(git.project().toString(),"$PROJECT")
                 + "\n" + System.getProperty("java.version") + "\n" + System.getProperty("java.home")
+                + "\n" + build.getProperty("version","") + "\n" + Objects.toString(System.getenv("ANATOMIST_JDK_HOME"),"")
+                + "\n" + com.anatomist.framework.spring.BuiltInExtensions.currentFingerprint()
                 + "\n" + IndexSchema.VERSION + "\n" + com.anatomist.core.GraphSemantics.VERSION
                 + "\n" + (Files.isRegularFile(userConfig)?FileCacheService.sha256(userConfig):""));
+    }
+    private SnapshotCatalog.Entry baseline(SnapshotCatalog catalog,String sha,boolean working,String requestHash) {
+        List<SnapshotCatalog.Entry> candidates=catalog.list().stream().filter(e->e.status().equals("READY")
+                && e.requestHash().equals(requestHash) && artifactsCurrent(database(e.id()))).toList();
+        if(working) for(var entry:candidates) if(entry.checkout().equals(git.checkoutKey())) return entry;
+        for(String ancestor:git.ancestors(sha)) {
+            Set<String> ids=catalog.idsForCommit(ancestor);
+            for(var entry:candidates) if(ids.contains(entry.id()) && entry.checkout().isEmpty()) return entry;
+        }
+        return null;
     }
     private void recover(SnapshotCatalog catalog,Path workspace) throws Exception {
         for(var entry:catalog.list()) if(entry.status().equals("BUILDING")) {

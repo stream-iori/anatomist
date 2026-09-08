@@ -1,4 +1,6 @@
-package com.anatomist.version;
+package com.anatomist.store;
+
+import com.anatomist.version.SnapshotException;
 
 import com.anatomist.json.Json;
 import java.nio.file.*;
@@ -74,12 +76,13 @@ public final class SnapshotCatalog implements AutoCloseable {
     public void origin(String selector, String commit, String id) {
         transaction(() -> {
             update("INSERT OR IGNORE INTO origins VALUES(?,?,?)", selector,commit,id);
-            update("INSERT INTO heads SELECT ?,request_hash,id FROM snapshots WHERE id=? "
-                    + "ON CONFLICT(selector,request_hash) DO UPDATE SET snapshot_id=excluded.snapshot_id", selector,id);
+            if(!selector.matches("[a-fA-F0-9]{40,64}"))
+                update("INSERT INTO heads SELECT ?,request_hash,id FROM snapshots WHERE id=? "
+                        + "ON CONFLICT(selector,request_hash) DO UPDATE SET snapshot_id=excluded.snapshot_id", selector,id);
         });
     }
     public Set<String> idsForCommit(String commit) {
-        return ids("SELECT snapshot_id FROM origins WHERE commit_sha=?", commit);
+        return ids("SELECT o.snapshot_id FROM origins o JOIN snapshots s ON s.id=o.snapshot_id WHERE o.commit_sha=? AND s.checkout=''", commit);
     }
     public Set<String> heads(String selector) {
         return ids("SELECT snapshot_id FROM heads WHERE selector=?", selector);

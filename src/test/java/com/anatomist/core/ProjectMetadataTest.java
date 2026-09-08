@@ -96,8 +96,8 @@ class ProjectMetadataTest {
         CliTestSupport.assertIndexOk(project,
                 "--no-classpath", "--incremental", "--output", db.toString());
         try (SqliteStore store = new SqliteStore(db)) {
-            assertEquals("false", store.readProjectMeta("source_git_dirty").orElseThrow(),
-                    "a graph no-op preserves committed Git metadata");
+            assertEquals("true", store.readProjectMeta("source_git_dirty").orElseThrow(),
+                    "Git provenance refreshes even when indexed source content is unchanged");
         }
         Files.delete(project.resolve("untracked-doc.txt"));
 

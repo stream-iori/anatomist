@@ -1,9 +1,9 @@
 package com.anatomist.query;
 
-import com.anatomist.application.SnapshotService;
 import com.anatomist.json.Json;
 import com.anatomist.version.*;
 import com.anatomist.store.FileCacheService;
+import com.anatomist.store.SnapshotCatalog;
 import com.github.javaparser.*;
 import com.github.javaparser.ast.*;
 import com.github.javaparser.ast.body.*;
@@ -17,7 +17,7 @@ public final class VersionDiffService {
     public record Result(Map<String,Object> header,List<Map<String,Object>> changes,Map<String,Object> evidence) {
         public Map<String,Object> json() { return Map.of("contract",CONTRACT,"comparison",header,"changes",changes,"evidence",evidence); }
     }
-    public Result compare(SnapshotService service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
+    public Result compare(SnapshotAccess service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
                           String scope,String module,boolean impact,int depth) {
         try(QueryService left=new QueryService(service.database(base.id()));
             QueryService right=new QueryService(service.database(target.id()))) {
@@ -32,8 +32,11 @@ public final class VersionDiffService {
             header.put("environment_differences",environment(left.connection(),right.connection()));
             List<Map<String,Object>> changes=new ArrayList<>();
             fileChanges(service,base,target,changes);
-            Map<String,Declaration> before=declarations(left.connection(),scope,module);
-            Map<String,Declaration> after=declarations(right.connection(),scope,module);
+            Map<String,String> oldFiles=files(service,base.id()),newFiles=files(service,target.id());
+            Set<String> changedFiles=new HashSet<>(oldFiles.keySet());changedFiles.addAll(newFiles.keySet());
+            changedFiles.removeIf(file->Objects.equals(oldFiles.get(file),newFiles.get(file)));
+            Map<String,Declaration> before=declarations(left.connection(),scope,module,changedFiles);
+            Map<String,Declaration> after=declarations(right.connection(),scope,module,changedFiles);
             Set<String> changed=new TreeSet<>();
             Set<String> ids=new TreeSet<>(before.keySet()); ids.addAll(after.keySet());
             for(String id:ids) {
@@ -47,11 +50,19 @@ public final class VersionDiffService {
                 change.put("content_changed",a==null||b==null||!a.content().equals(b.content()));
                 changes.add(change); changed.add(id);
             }
+            var oldRelations=VersionRelationships.read(left.connection(),scope,module);
+            var newRelations=VersionRelationships.read(right.connection(),scope,module);
+            VersionRelationships.changes(oldRelations,newRelations,changes,changed);
+            boolean truncated=false;
+            if(impact) {
+                truncated=VersionRelationships.impacts("base",oldRelations,changed,depth,changes);
+                truncated|=VersionRelationships.impacts("target",newRelations,changed,depth,changes);
+            }
             Map<String,Object> evidence=new LinkedHashMap<>();
             evidence.put("record","evidence"); evidence.put("scope","comparison");
             boolean complete=complete(left.connection()) && complete(right.connection());
-            evidence.put("complete",complete); evidence.put("truncated",false);
-            evidence.put("negative_conclusion_safe",complete && !profileChanged);
+            evidence.put("complete",complete && !truncated); evidence.put("truncated",truncated);
+            evidence.put("negative_conclusion_safe",complete && !profileChanged && !truncated);
             evidence.put("emitted",changes.size());
             return new Result(header,changes,evidence);
         } catch(Exception failure) {
@@ -82,10 +93,10 @@ public final class VersionDiffService {
         }
     }
     @SuppressWarnings("unchecked")
-    private static Map<String,String> files(SnapshotService service,String id) throws Exception {
+    private static Map<String,String> files(SnapshotAccess service,String id) throws Exception {
         return (Map<String,String>)Json.parseTree(Files.readString(service.snapshotDirectory(id).resolve("files.json")));
     }
-    private static void fileChanges(SnapshotService service,SnapshotCatalog.Entry a,SnapshotCatalog.Entry b,
+    private static void fileChanges(SnapshotAccess service,SnapshotCatalog.Entry a,SnapshotCatalog.Entry b,
                                     List<Map<String,Object>> changes) throws Exception {
         Map<String,String> before=files(service,a.id()),after=files(service,b.id());
         Set<String> paths=new TreeSet<>(before.keySet()); paths.addAll(after.keySet());
@@ -128,7 +139,7 @@ public final class VersionDiffService {
                     "start_line",beginLine,"start_column",beginColumn,"end_line",endLine,"end_column",endColumn);
         }
     }
-    private static Map<String,Declaration> declarations(Connection c,String scope,String module) throws Exception {
+    private static Map<String,Declaration> declarations(Connection c,String scope,String module,Set<String> changedFiles) throws Exception {
         Map<String,Declaration> out=new TreeMap<>(); Map<String,CompilationUnit> parsed=new HashMap<>();
         String sql="SELECT *,coalesce(declaration_begin_line,begin_line) bl,coalesce(declaration_begin_column,begin_column) bc,"
                 + "coalesce(declaration_end_line,end_line) el,coalesce(declaration_end_column,end_column) ec FROM nodes "
@@ -140,7 +151,7 @@ public final class VersionDiffService {
                 String structure=String.join("|",r.getString("symbol_id"),r.getString("kind"),
                         Objects.toString(r.getString("modifiers"),""),Objects.toString(r.getString("visibility"),""));
                 String content=structure,signature=structure;
-                if(bl>0 && bc>0 && el>0 && ec>0 && file.endsWith(".java")) {
+                if(changedFiles.contains(file) && bl>0 && bc>0 && el>0 && ec>0 && file.endsWith(".java")) {
                     CompilationUnit unit=parsed.get(file);
                     if(unit==null) {
                         Path path=SnapshotSource.path(c,file);

@@ -4,6 +4,7 @@ import com.anatomist.application.SnapshotService;
 import com.anatomist.json.Json;
 import com.anatomist.query.VersionDiffService;
 import com.anatomist.version.*;
+import com.anatomist.store.SnapshotCatalog;
 import picocli.CommandLine.*;
 import java.nio.file.Path;
 import java.util.*;

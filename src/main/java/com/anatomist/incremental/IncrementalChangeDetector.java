@@ -68,7 +68,7 @@ public final class IncrementalChangeDetector {
             String priorDirtyPaths = prior.get("source_git_dirty_paths");
             if (priorDirty && (priorDirtyPaths == null || priorDirtyPaths.isBlank())) return null;
             String head = gitText(root, List.of("rev-parse", "HEAD"));
-            if (!priorCommit.equals(head)) return null;
+            if (head == null || head.isBlank()) return null;
             LinkedHashSet<String> known = new LinkedHashSet<>(cache.keySet());
             for (Path path : inventory) known.add(relative(root, path));
             if (hasIgnoredFiles(root, known)) return null;
@@ -78,22 +78,31 @@ public final class IncrementalChangeDetector {
             if (raw == null) return null;
             List<String> records = splitZero(raw);
             LinkedHashSet<String> candidates = new LinkedHashSet<>();
+            if (!priorCommit.equals(head)) {
+                byte[] delta=gitBytes(root,List.of("diff","--name-only","--no-renames","--relative","-z",priorCommit,head,"--","."),null);
+                if(delta==null) return null;
+                for(String path:splitZero(delta)) candidates.add(validateRelative(root,path));
+            }
+            LinkedHashSet<String> currentDirtyPaths = new LinkedHashSet<>();
             for (int i = 0; i < records.size(); i++) {
                 String record = records.get(i);
                 if (record.length() < 4) continue;
                 String status = record.substring(0, 2);
-                candidates.add(validateRelative(root, record.substring(3)));
+                String dirtyPath=validateRelative(root,record.substring(3));
+                candidates.add(dirtyPath); currentDirtyPaths.add(dirtyPath);
                 if ((status.charAt(0) == 'R' || status.charAt(0) == 'C')
                         && i + 1 < records.size()) {
-                    candidates.add(validateRelative(root, records.get(++i)));
+                    String oldPath=validateRelative(root,records.get(++i));
+                    candidates.add(oldPath); currentDirtyPaths.add(oldPath);
                 }
             }
-            LinkedHashSet<String> currentDirtyPaths = new LinkedHashSet<>(candidates);
             Map<String, String> gitMetadata = new LinkedHashMap<>();
             gitMetadata.put("source_git_root", root.toString());
             gitMetadata.put("source_git_commit", head);
-            copy(prior, gitMetadata, "source_git_branch");
-            copy(prior, gitMetadata, "source_git_commit_time");
+            String branch=gitText(root,List.of("rev-parse","--abbrev-ref","HEAD"));
+            String time=gitText(root,List.of("show","-s","--format=%cI",head));
+            if(branch!=null) gitMetadata.put("source_git_branch",branch);
+            if(time!=null) gitMetadata.put("source_git_commit_time",time);
             copy(prior, gitMetadata, "source_git_remote_origin_url");
             gitMetadata.put("source_git_dirty", String.valueOf(!currentDirtyPaths.isEmpty()));
             gitMetadata.put("source_git_dirty_paths", String.join("\n", currentDirtyPaths));

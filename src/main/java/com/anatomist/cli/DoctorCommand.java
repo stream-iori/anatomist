@@ -22,6 +22,7 @@ import java.util.concurrent.Callable;
                 "JSON includes committed config_source, config_path, and scan_policy_hash."
         })
 public class DoctorCommand implements Callable<Integer> {
+    @picocli.CommandLine.Mixin VersionSelection version = new VersionSelection();
 
     @Option(names = "--format", description = "Output format: json | text.", defaultValue = "text")
     String format;
@@ -74,7 +75,13 @@ public class DoctorCommand implements Callable<Integer> {
             return 2;
         }
         Path defaultPath = DefaultIndexPath.forQueryRead(Path.of("").toAbsolutePath());
-        Path db = index == null ? defaultPath : index.toAbsolutePath().normalize();
+        Path db;
+        try {
+            db = version.ref != null || version.snapshot != null ? version.resolve(index)
+                    : index == null ? defaultPath : index.toAbsolutePath().normalize();
+        } catch(RuntimeException failure) {
+            int exit=CliError.exit(failure);CliError.emit(CliError.of("doctor",failure,exit));return exit;
+        }
         boolean exists = Files.isRegularFile(db);
 
         Map<String, Object> out = new java.util.LinkedHashMap<>();
@@ -102,7 +109,7 @@ public class DoctorCommand implements Callable<Integer> {
         if (freshness.reason() != null) out.put("rebuild_reason", freshness.reason());
         if (freshness.dirtyGeneration() > 0) out.put("dirty_generation", freshness.dirtyGeneration());
         out.put("commands", List.of(
-                "skill", "index", "index-docs", "search", "resolve", "describe", "members",
+                "skill", "index", "diff", "snapshots", "index-docs", "search", "resolve", "describe", "members",
                 "type-relations", "runtime-implementations", "callable-relations", "calls",
                 "dispatch", "bindings", "annotations", "related-docs", "references",
                 "accesses", "regions", "sites-in", "trace", "source",
@@ -215,7 +222,7 @@ public class DoctorCommand implements Callable<Integer> {
                             db, sourceRoot, semanticIdentity));
                     addCheckoutAndGit(out, store, sourceRoot);
                     addSnapshotStatus(out, store);
-                    if (store.readProjectMeta("source_git_commit").isPresent()
+                    if (store.readProjectMeta("snapshot_id").isEmpty() && store.readProjectMeta("source_git_commit").isPresent()
                             && out.get("source_root") instanceof String configuredSourceRoot) {
                         com.anatomist.application.ProjectMetadata.GitUntrackedCache cache =
                                 com.anatomist.application.ProjectMetadata.gitUntrackedCache(Path.of(configuredSourceRoot));
@@ -471,6 +478,15 @@ public class DoctorCommand implements Callable<Integer> {
     }
 
     private static void addSnapshotStatus(Map<String, Object> out, SqliteStore store) {
+        if(store.readProjectMeta("snapshot_id").isPresent()) {
+            try {
+                var verifier=new com.anatomist.query.IndexedSourceVerifier(store.connection(),store.dbPath());
+                boolean valid=store.readFileCache().keySet().stream().allMatch(file->verifier.verify(file).current());
+                out.put("source_snapshot",Map.of("mode","immutable","snapshot_id",store.readProjectMeta("snapshot_id").orElseThrow(),
+                        "indexed_git_commit",store.readProjectMeta("source_git_commit").orElse(""),"match",valid));
+            } catch(java.sql.SQLException failure) { throw new IllegalStateException("Cannot verify snapshot sources",failure); }
+            return;
+        }
         String root = store.readProjectMeta("source_root").orElse("");
         String indexed = store.readProjectMeta("source_git_commit").orElse("");
         String indexedAt = store.readProjectMeta("indexed_at").orElse("");

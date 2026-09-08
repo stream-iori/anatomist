@@ -67,13 +67,7 @@ public final class DefaultIndexPath {
     /** Resolve {@code ~/.anatomist} (or {@code $ANATOMIST_HOME} override).
      *  Both arguments may be {@code null} to read from system env. */
     public static Path resolveHome(String envOverride, String userHome) {
-        if (envOverride != null && !envOverride.isEmpty()) {
-            return Paths.get(envOverride);
-        }
-        String home = (userHome == null || userHome.isEmpty())
-                ? System.getProperty("user.home", ".")
-                : userHome;
-        return Paths.get(home, HOME_DIR);
+        return com.anatomist.config.StoragePaths.home(envOverride,userHome);
     }
 
     // ── internals ────────────────────────────────────────────────────────

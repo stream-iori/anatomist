@@ -51,7 +51,16 @@ public class SourceWindowService {
         Path sourcePath = Path.of(sourceFile);
         try {
             Path frozen=SnapshotSource.path(conn,sourceFile);
-            if(frozen!=null) sourcePath=frozen;
+            if(frozen!=null) {
+                try(PreparedStatement hash=conn.prepareStatement("SELECT hash FROM file_cache WHERE source_file=?")) {
+                    hash.setString(1,sourceFile);
+                    try(ResultSet row=hash.executeQuery()) {
+                        if(!row.next() || !Files.isRegularFile(frozen)
+                                || !row.getString(1).equals(com.anatomist.store.FileCacheService.sha256(frozen))) return null;
+                    }
+                }
+                sourcePath=frozen;
+            }
         } catch(SQLException failure) { throw rethrow(failure); }
         if (!sourcePath.isAbsolute()) {
             sourcePath = sourceRoot.resolve(sourceFile);

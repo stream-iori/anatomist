@@ -183,6 +183,15 @@ public final class ProjectMetadata {
                 () -> GitSnapshot.readIncremental(projectRoot, prior)));
     }
 
+    /** Refresh provenance without redefining the graph or source identities. */
+    public static Map<String,String> incrementalGitMetadata(Path root,Map<String,String> prior) {
+        GitRead read=startIncrementalGitRead(root,prior).await();
+        Map<String,String> values=new LinkedHashMap<>();
+        if(read!=null && read.snapshot()!=null) addGit(values,read.snapshot());
+        values.entrySet().removeIf(e->java.util.Objects.equals(e.getValue(),prior.get(e.getKey())));
+        return values;
+    }
+
     /** Reuse a Git observation already collected by incremental change detection. */
     public static GitSnapshotTask completedIncrementalGitRead(Map<String, String> values) {
         if (values == null || values.isEmpty()) return null;

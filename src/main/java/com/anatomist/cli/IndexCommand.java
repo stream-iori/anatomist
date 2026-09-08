@@ -262,7 +262,7 @@ public class IndexCommand implements Callable<Integer> {
             List<String> args=new ArrayList<>(List.of(project.toString()));
             for(String arg:options) args.add(arg.replace(original.toString(),project.toString()));
             args.addAll(List.of("--output",database.toString(),"--format","json","--timings"));
-            if(useIncremental) args.addAll(List.of("--incremental","--verify-content"));
+            if(useIncremental) args.add("--incremental");
             IndexCommand command=new IndexCommand();
             new picocli.CommandLine(command).parseArgs(args.toArray(String[]::new));
             command.suppressSummary=true;
@@ -528,6 +528,17 @@ public class IndexCommand implements Callable<Integer> {
                 ch = scan.changes();
                 phaseTimings.stop("change_detection", phaseStarted);
                 if (ch.isEmpty()) {
+                    // Git provenance is independent of source content (e.g. empty/document-only commits).
+                    Map<String,String> priorMetadata=store.readProjectMeta();
+                    Map<String,String> refreshedGit=detection != null && !detection.gitMetadata().isEmpty()
+                            ? new java.util.LinkedHashMap<>(detection.gitMetadata())
+                            : com.anatomist.application.ProjectMetadata.incrementalGitMetadata(projectRoot,priorMetadata);
+                    refreshedGit.entrySet().removeIf(e->java.util.Objects.equals(e.getValue(),priorMetadata.get(e.getKey())));
+                    if (!refreshedGit.isEmpty()) {
+                        try (IndexLock publication = IndexLock.forWrite(dbPath)) {
+                            store.upsertProjectMeta(refreshedGit);
+                        }
+                    }
                     IncrementalIndexer.Summary summary = new IncrementalIndexer.Summary();
                     summary.changeDetectionMode = changeDetectionMode;
                     summary.candidateFiles = candidateFiles;
@@ -693,7 +704,7 @@ public class IndexCommand implements Callable<Integer> {
                     rejected.put("published", false);
                     rejected.put("discarded_documents", 0);
                     rejected.put("discarded_semantic_annotations", 0);
-                    IndexOutput.emitStrictParseFailure(dbPath, capturedStrictParseFailure,
+                    if (!suppressSummary) IndexOutput.emitStrictParseFailure(dbPath, capturedStrictParseFailure,
                             effectiveHealthPolicy, rejected);
                 }
                 return exit == 0 ? 1 : exit;

@@ -52,7 +52,11 @@ public class SqliteStore implements IndexWriter {
                 st.execute("PRAGMA synchronous = NORMAL");
                 st.execute("PRAGMA cache_size = -64000");
                 st.execute("PRAGMA temp_store = MEMORY");
+                Path actual=dbPath.toRealPath();
+                if(java.nio.file.Files.exists(actual.resolveSibling(actual.getFileName()+".snapshot")))
+                    st.execute("PRAGMA query_only=ON");
             }
+            catch (java.io.IOException failure) { throw new SQLException("Cannot resolve index path",failure); }
         }
         return connection;
     }
