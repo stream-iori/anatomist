@@ -11,6 +11,19 @@ WORKTREE` captures current disk content and compares both versions using
 never feed records from one revision into another. Different environments and
 incomplete diff evidence prohibit source-only or negative conclusions.
 
+Ordinary indexing works without Git; version commands require Git and a valid
+repository. Version builds try compatible incremental reuse by default;
+`--full` forces reconstruction. Do not use `--recreate` on published snapshots.
+
+Backup diagnostics go to stderr as `[anatomist-progress]` followed by
+space-separated `key=value` fields. `phase=sqlite_backup` emits `status=started`,
+then `running` every two seconds, ending with `completed` or `failed`.
+`percent`, `copied_pages`, and `total_pages` appear when known; `elapsed_ms`
+continues during stalls. An unchanged percentage is a heartbeat, not proof of
+forward progress. `completed` means only the copy succeeded: require the command
+exit code and final stdout result to judge the build. Do not feed diagnostics
+into semantic pipelines. Fast copies have only start/end; cache hits have none.
+
 ```text
 direct call evidence   resolve exact callable → calls → source
 virtual candidates     resolve exact callable → calls → dispatch → source

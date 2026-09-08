@@ -16,6 +16,12 @@ stream evidence.
 Versioned queries accept `--snapshot <id>` or `--ref <Git-ref|WORKTREE>` at the
 pipeline level. WORKTREE queries read the last capture; diff refreshes WORKTREE
 unless `--no-build` is used. Use `snapshots list` to inspect capture identities.
+Compare branches without switching the user's checkout. Linked worktrees share
+committed snapshots when using the same storage and project-relative root;
+WORKTREE captures remain checkout-local. To preserve a fork point, record its
+SHA or snapshot ID instead of relying on a moving branch name. Use `--merge-base`
+for changes since the common ancestor. GC is a preview unless `--execute` is
+requested; pin versions that must be retained.
 Routes, annotations, names, and documents are
 technical signals; verify source/configuration before calling them business rules.
 Annotation search is direct by default. Add `--include-meta` only for composed

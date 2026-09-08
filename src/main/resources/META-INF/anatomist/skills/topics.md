@@ -4,7 +4,7 @@ Load `core` first, then exactly one matching scene:
 
 | User intent | Scene |
 |---|---|
-| Find entries, understand local code, map packages, use project docs | `explore` |
+| Find entries, understand local code, map packages, use project docs, compare Git versions | `explore` |
 | Follow calls forward/reverse or prove a focused call route | `trace` |
 | Explain conditional or loop-contained behavior | `branch` |
 | Inspect inheritance, implementations, composition, reads, or writes | `relations` |

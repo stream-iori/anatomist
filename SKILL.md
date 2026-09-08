@@ -9,11 +9,15 @@ Work from the exact checkout being analysed. Load `anatomist skill core`, then
 use `anatomist skill topics` to select only the relevant scene.
 
 Prefer `index --incremental`; clean Git worktrees use a candidate-only fast path.
-CI/editor integrations with an authoritative delta should add
-`--changed-files-from <file|->` using project-relative paths. After extractor or
-policy changes, recreate the index. Use `doctor --format json` only when index
-health or freshness is in doubt. Read command help or `operations <operation>`
-only when an option or capability is unclear.
+Use `--changed-files-from <file|->` only with an authoritative project-relative
+delta. Recreate after extractor/policy changes. Use `doctor --format json` only when
+health/freshness is in doubt; help or `operations <operation>` for unclear options.
+
+Git versions: `index . --ref HEAD` tries incremental reuse; query with `--ref`
+or `--snapshot <id>`. Use `diff --base HEAD --target WORKTREE` for disk changes.
+Ordinary indexing needs no Git. Load `core` for version and progress rules.
+`[anatomist-progress]` on stderr is diagnostic, not query evidence or command
+success; stdout retains the result contract.
 
 Configuration uses project config, then user config, then built-ins; files do
 not merge and CLI flags override. Inspect `doctor` `config_source` when needed.
@@ -39,11 +43,9 @@ ends with `evidence(scope=stream)`. Missing final evidence means failure. Never
 conclude absence unless coverage is complete and `negative_conclusion_safe` is
 true. Query errors use `anatomist-error/v1`; decide from `code`, not message.
 
-An index with `status=ok` and `index_state=committed` remains queryable when
-`health=degraded` or a resolution dimension is partial. Treat that as bounded
-evidence quality, not as a missing index: retain positive results, surface the
-degraded coverage, and do not derive negative conclusions from partial or
-unknown results.
+`status=ok` and `index_state=committed` remain queryable with `health=degraded`
+or partial resolution. Retain positive results, disclose degraded coverage,
+and do not derive negative conclusions from partial/unknown evidence.
 
 `calls` proves source call syntax and static targets. `dispatch` expands possible
 virtual targets; it does not prove runtime execution. Framework bindings do not

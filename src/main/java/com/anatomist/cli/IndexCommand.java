@@ -45,6 +45,17 @@ import java.util.stream.Collectors;
         description = "Index project sources with an installed language provider into SQLite. Use --format json for a stable Agent summary.",
         footer = {
                 "",
+                "Versions: index . --ref HEAD or --ref WORKTREE. Git and a valid repository",
+                "are required only for version indexing. WORKTREE captures final disk contents,",
+                "not a separate staging-area version; the user's checkout is not switched.",
+                "Without --ref: full indexing by default. With --ref: try incremental reuse;",
+                "use --full to force reconstruction. --ref excludes --output, --recreate",
+                "and --changed-files-from. Query captures with --ref or --snapshot <id>.",
+                "Backup progress: stderr lines start with [anatomist-progress], followed by",
+                "key=value fields (phase=sqlite_backup, status, elapsed_ms, and known page counts).",
+                "Running heartbeats appear every 2 seconds; fast copies emit only start/end.",
+                "Copy completion is not build success; check exit code and final stdout result.",
+                "",
                 "Configuration: select .anatomist/config.toml, then ~/.anatomist/config.toml,",
                 "otherwise built-in defaults. Files do not merge; missing keys use defaults,",
                 "and CLI options override the selected profile.",
@@ -57,7 +68,7 @@ import java.util.stream.Collectors;
         }
 )
 public class IndexCommand implements Callable<Integer> {
-    @Option(names="--ref", description="Build an immutable Git ref or WORKTREE snapshot.")
+    @Option(names="--ref", description="Build an immutable branch, HEAD, commit SHA or WORKTREE snapshot; tries incremental reuse by default.")
     String ref;
     private boolean suppressSummary;
     private Map<String,Object> snapshotMetrics = new java.util.LinkedHashMap<>();
@@ -142,7 +153,7 @@ public class IndexCommand implements Callable<Integer> {
                     + "Blank lines and # comments are ignored.")
     String changedFilesFrom;
 
-    @Option(names = "--full", description = "Force full re-index (default behavior).")
+    @Option(names = "--full", description = "Force full reconstruction. Standalone default; overrides version snapshot reuse.")
     boolean full;
 
     @Option(names = "--recreate",

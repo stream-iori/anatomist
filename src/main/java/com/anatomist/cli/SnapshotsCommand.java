@@ -8,13 +8,18 @@ import picocli.CommandLine.*;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
-@Command(name="snapshots",mixinStandardHelpOptions=true,description="List, inspect and pin immutable snapshots.")
+@Command(name="snapshots",mixinStandardHelpOptions=true,description="List, inspect, pin and garbage-collect immutable snapshots.",
+        footer={"", "Examples: snapshots list --format table",
+                "          snapshots pin <id>", "          snapshots gc --keep 20",
+                "          snapshots gc --keep 20 --execute",
+                "GC is a preview by default. Execution also protects pins, current entrypoints and active readers.",
+                "Deleted WORKTREE content cannot be recovered from Git. Unpinning does not itself delete data."})
 public final class SnapshotsCommand implements Callable<Integer> {
-    @Parameters(index="0",defaultValue="list") String action;
-    @Parameters(index="1",arity="0..1") String id;
-    @Option(names="--project") Path project=Path.of("").toAbsolutePath();
-    @Option(names="--format",defaultValue="json") String format;
-    @Option(names="--keep",defaultValue="20") int keep;
+    @Parameters(index="0",defaultValue="list",description="Action: list (default), show, pin, unpin or gc.") String action;
+    @Parameters(index="1",arity="0..1",description="Snapshot ID; required for show, pin and unpin.") String id;
+    @Option(names="--project",description="Project checkout (default current directory).") Path project=Path.of("").toAbsolutePath();
+    @Option(names="--format",defaultValue="json",description="List output: json (default) or table. Other actions emit JSON.") String format;
+    @Option(names="--keep",defaultValue="20",description="GC retains this many newest successful snapshots, plus protected versions (default 20).") int keep;
     @Option(names="--execute",description="Execute GC; without this flag GC is a preview.") boolean execute;
     @Override public Integer call() {
         try {

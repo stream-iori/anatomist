@@ -22,6 +22,8 @@ import picocli.CommandLine.HelpCommand;
                 "  anatomist doctor --format json            Check CLI/schema/index",
                 "  anatomist operations calls --index index.db  Inspect one operation",
                 "  anatomist index . --format json           Build index JSON summary",
+                "  anatomist index . --ref HEAD              Capture a Git version",
+                "  anatomist diff --base HEAD --target WORKTREE --impact",
                 "  anatomist overview                       Structural baseline",
                 "  anatomist search OrderService             Find entity candidates",
                 "  anatomist pipeline --index index.db -- resolve 'Class#method()'",
@@ -31,6 +33,8 @@ import picocli.CommandLine.HelpCommand;
                 "",
                 "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",
                 "@|bold Output:|@   Query commands emit semantic-stream/v1; NDJSON is the default.",
+                "@|bold Versions:|@ diff emits anatomist-diff/v1; see index/diff/snapshots --help.",
+                "@|bold Progress:|@ Backup diagnostics use [anatomist-progress] on stderr; stdout remains results.",
                 "@|bold Inspect:|@  Use help, operations <operation>, doctor, explain or check when needed.",
                 "@|bold Compose:|@  Prefer pipeline for linear multi-stage queries; use Shell for external tools or distinct scopes.",
                 ""

@@ -10,20 +10,27 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.Callable;
 
-@Command(name="diff",mixinStandardHelpOptions=true,description="Compare immutable Git/WORKTREE snapshots; build missing endpoints by default.")
+@Command(name="diff",mixinStandardHelpOptions=true,description="Compare immutable Git/WORKTREE snapshots; build missing endpoints by default.",
+        footer={"", "Examples: diff --base HEAD --target WORKTREE --impact",
+                "          diff --base main --target feature --merge-base",
+                "Requires Git; does not switch the user's checkout. Moving refs are resolved before building.",
+                "Output uses anatomist-diff/v1, not semantic-stream/v1; do not pipe diff into semantic queries.",
+                "Environment differences and incomplete/truncated evidence make negative conclusions unsafe.",
+                "Automatic builds may emit [anatomist-progress] key=value lines on stderr every 2 seconds",
+                "during SQLite backup. A completed copy is not command success; check exit code and final result."})
 public final class DiffCommand implements Callable<Integer> {
-    @Option(names="--base",required=true) String base;
-    @Option(names="--target",required=true) String target;
-    @Option(names="--project") Path project=Path.of("").toAbsolutePath();
-    @Option(names="--merge-base") boolean mergeBase;
-    @Option(names="--no-build") boolean noBuild;
-    @Option(names="--impact") boolean impact;
-    @Option(names="--impact-depth",defaultValue="3") int depth;
-    @Option(names="--format",defaultValue="ndjson") String format;
-    @Option(names="--scope",defaultValue="MAIN") String scope;
-    @Option(names="--module") String module;
-    @Option(names="--no-classpath") boolean noClasspath;
-    @Option(names="--java-version") Integer javaVersion;
+    @Option(names="--base",required=true,description="Base branch, HEAD, SHA, WORKTREE or snapshot:<id>.") String base;
+    @Option(names="--target",required=true,description="Target selector; WORKTREE captures current disk content unless --no-build.") String target;
+    @Option(names="--project",description="Project checkout (default current directory).") Path project=Path.of("").toAbsolutePath();
+    @Option(names="--merge-base",description="Replace base with the common ancestor of the endpoint commits.") boolean mergeBase;
+    @Option(names="--no-build",description="Only use existing snapshots; WORKTREE selects its last capture. Missing versions fail.") boolean noBuild;
+    @Option(names="--impact",description="Include reverse static-call impact on each side; not proof of runtime execution.") boolean impact;
+    @Option(names="--impact-depth",defaultValue="3",description="Maximum reverse-call depth: 0..100 (default 3).") int depth;
+    @Option(names="--format",defaultValue="ndjson",description="Output: ndjson (default), json or table.") String format;
+    @Option(names="--scope",defaultValue="MAIN",description="Declaration/relation scope: MAIN, TEST, GENERATED or ALL (default MAIN).") String scope;
+    @Option(names="--module",description="Filter declarations and relationships by module.") String module;
+    @Option(names="--no-classpath",description="Skip classpath detection for automatic builds; external resolution may be incomplete.") boolean noClasspath;
+    @Option(names="--java-version",description="Target Java language version for automatic builds.") Integer javaVersion;
     @Override public Integer call() {
         try {
             format=CliValidation.choice("--format",format,"json","ndjson","table");
