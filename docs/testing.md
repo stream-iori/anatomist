@@ -322,5 +322,21 @@ python3 scripts/snapshots-e2e.py --native target/anatomist --files 20 --repeats 
 重载歧义、TEST scope、XML 成员绑定和不兼容管道。双运行器模式在每个生成的索引上比较完整查询证据。
 快照脚本补充历史源码、WORKTREE、版本差异和生命周期验证。
 
+## Diff v2 验收
+
+`DiffNavigationTest` 验证文本区间、最内层声明、同行候选、字段/生成声明回退和 Git 返回码。
+`DiffCoverageTest` 验证扫描范围、旧元数据、缺失源文件和环境差异。
+`VersionRelationshipsTest` 验证多来源、环路、最短代表路径、跨模块/TEST 筛选、深度与数量上限。
+`GitSnapshotsIT` 用真实索引验证两端锚点接 source、声明增删、TEST 未索引、关系变化和版本隔离。
+
+```bash
+mvn -Dtest=DiffNavigationTest,DiffCoverageTest,VersionRelationshipsTest,GitSnapshotsIT test
+uv run --with jsonschema python scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --validate-schema --report target/agent-help-e2e.json
+```
+
+第二条在临时项目中验证 v2 JSON 与每条 NDJSON 均符合 schema，缺失实体 ID 的记录被拒绝；
+比较 JAR/native 完整输出并实际执行锚点导航。`--validate-schema` 依赖仅用于验收，不进入运行时。
+不要求注释/格式修改保持空声明输出，也不再断言签名/方法体分类字段。
+
 本地 macOS 构建使用 `.sdkmanrc` 中的 GraalVM：`mvn -Pnative clean package`。
 以原生程序 `--version`、`file target/anatomist` 和上述运行报告共同确认产物。

@@ -47,6 +47,10 @@ class GitSnapshotsIT {
     }
     @FunctionalInterface interface Checked { void run() throws Exception; }
 
+    private static Map<?,?> capability(VersionDiffService.Result result,String name) {
+        return (Map<?,?>)((Map<?,?>)result.evidence().get("capabilities")).get(name);
+    }
+
     @Test void capturesHistoryAndWorktreeWithoutTouchingHeadOrStage() throws Exception {
         isolated(()->{
             String head=service.git().commit("HEAD");
@@ -70,14 +74,14 @@ class GitSnapshotsIT {
         });
     }
 
-    @Test void ignoresLayoutAndCommentsInSemanticDiff() throws Exception {
+    @Test void navigatesLayoutAndCommentsAsTextChanges() throws Exception {
         isolated(()->{
             var a=build("HEAD");
             write("src/main/java/p/A.java","package p;\n// comment\npublic class A {\n public int value() {\n return 1;\n }\n}\n");
             var b=build("WORKTREE");
             var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
             assertTrue(diff.changes().stream().anyMatch(r->r.get("record").equals("file_change")));
-            assertFalse(diff.changes().stream().anyMatch(r->r.get("record").equals("declaration_change")),diff.json().toString());
+            assertTrue(diff.changes().stream().anyMatch(r->r.get("record").equals("declaration_change")),diff.json().toString());
         });
     }
 
@@ -136,7 +140,7 @@ class GitSnapshotsIT {
             assertEquals(canonical(full.database()),canonical(incremental.database()));
             var diff=new VersionDiffService().compare(service,a.entry(),incremental.entry(),"MAIN",null,true,0);
             assertTrue(diff.changes().stream().anyMatch(r->r.get("record").equals("relation_change")));
-            assertEquals(false,diff.evidence().get("negative_conclusion_safe"));
+            assertEquals(false,capability(diff,"impact").get("negative_conclusion_safe"));
         });
     }
 
@@ -187,7 +191,7 @@ class GitSnapshotsIT {
         isolated(()->{
             write("src/main/java/p/A.java","package p; public class A { public int value() { return 8; } }");
             String json=cli("diff","--project",project.toString(),"--base","HEAD","--target","WORKTREE","--no-classpath","--java-version","25","--format","json");
-            assertEquals("anatomist-diff/v1",((Map<?,?>)Json.parseTree(json)).get("contract"));
+            assertEquals("anatomist-diff/v2",((Map<?,?>)Json.parseTree(json)).get("contract"));
             String source=cli("pipeline","--project",project.toString(),"--ref","HEAD","--", "resolve","p.A#value()","--kind","callable","--exact","--unique","--then","source");
             assertTrue(source.contains("return 1"),source);
             assertTrue(source.lines().reduce((a,b)->b).orElseThrow().contains("evidence"));
@@ -236,12 +240,12 @@ class GitSnapshotsIT {
             assertEquals("SNAPSHOT_AMBIGUOUS",assertThrows(SnapshotException.class,()->service.resolve("HEAD")).code());
             var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
             assertEquals(true,diff.header().get("environment_changed"));
-            assertEquals(false,diff.evidence().get("negative_conclusion_safe"));
+            assertEquals(false,capability(diff,"relations").get("negative_conclusion_safe"));
             assertEquals(a.entry().id(),service.resolve("snapshot:"+a.entry().id()).id());
         });
     }
 
-    @Test void fieldInitializerAndTypeChangesAreCompared() throws Exception {
+    @Test void fieldChangesNavigateToOwnerWhenFieldRangeIsUnavailable() throws Exception {
         isolated(()->{
             write("src/main/java/p/A.java","package p; public class A { public int count=1; }");commit("field");
             var a=build("HEAD");
@@ -249,13 +253,15 @@ class GitSnapshotsIT {
             var b=build("WORKTREE");
             var body=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
             Map<String,Object> change=body.changes().stream().filter(r->r.get("record").equals("declaration_change")
-                    && r.get("entity").toString().endsWith("p.A#count")).findFirst().orElseThrow();
-            assertEquals(false,change.get("signature_changed"));assertEquals(true,change.get("content_changed"));
+                    && r.get("entity").toString().endsWith("p.A")).findFirst().orElseThrow();
+            assertFalse(change.containsKey("signature_changed"));assertFalse(change.containsKey("content_changed"));
+            assertEquals("owner",((Map<?,?>)change.get("after")).get("precision"));
+            assertEquals(false,capability(body,"declarations").get("negative_conclusion_safe"));
             write("src/main/java/p/A.java","package p; public class A { private long count=2; }");
             var c=build("WORKTREE");
             var type=new VersionDiffService().compare(service,b.entry(),c.entry(),"MAIN",null,false,3);
             assertTrue(type.changes().stream().anyMatch(r->r.get("record").equals("declaration_change")
-                    && r.get("entity").toString().endsWith("p.A#count") && Boolean.TRUE.equals(r.get("signature_changed"))));
+                    && r.get("entity").toString().endsWith("p.A")));
         });
     }
 
@@ -359,5 +365,112 @@ class GitSnapshotsIT {
             }
         }
         Collections.sort(result);return result;
+    }
+
+    @Test void unindexedTestChangesKeepFileEvidenceAndRejectNegativeDeclarationConclusion() throws Exception {
+        isolated(()->{
+            write("src/test/java/p/Check.java","package p; class Check { int check() { return 1; } }");commit("test source");
+            var a=build("HEAD");write("src/test/java/p/Check.java","package p; class Check { int check() { return 2; } }");var b=build("WORKTREE");
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"TEST",null,false,3);
+            assertTrue(diff.changes().stream().anyMatch(r->"src/test/java/p/Check.java".equals(r.get("path"))));
+            assertEquals(true,capability(diff,"files").get("complete"));
+            assertEquals(false,capability(diff,"declarations").get("negative_conclusion_safe"));
+            assertEquals("not_requested",capability(diff,"impact").get("status"));
+            assertFalse(diff.evidence().containsKey("negative_conclusion_safe"));
+        });
+    }
+
+    @Test void navigationAnchorsResolveBothFrozenMethodBodies() throws Exception {
+        isolated(()->{
+            var a=build("HEAD");write("src/main/java/p/A.java","package p; public class A { public int value() { return 2; } }");var b=build("WORKTREE");
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
+            var row=diff.changes().stream().filter(r->r.get("record").equals("declaration_change") && r.get("entity").toString().endsWith("#value()")).findFirst().orElseThrow();
+            for(String side:List.of("before","after")) {
+                var anchor=(Map<?,?>)row.get(side);
+                String source=cli("pipeline","--project",project.toString(),"--snapshot",anchor.get("snapshot_id").toString(),"--",
+                        "resolve",anchor.get("id").toString(),"--unique","--then","source");
+                assertTrue(source.contains(side.equals("before")?"return 1":"return 2"),source);
+            }
+            assertFalse(((Map<?,?>)diff.header().get("base")).containsKey("metrics"));
+        });
+    }
+
+    @Test void missingModulesAndUnrequestedImpactOptionsFailExplicitly() throws Exception {
+        isolated(()->{
+            var a=build("HEAD");
+            assertThrows(IllegalArgumentException.class,()->new VersionDiffService().compare(service,a.entry(),a.entry(),"MAIN","missing",false,3));
+            assertEquals(2,new picocli.CommandLine(new DiffCommand()).execute("--base","HEAD","--target","WORKTREE","--impact-scope","TEST"));
+        });
+    }
+
+    @Test void multipleOriginsAndTestCallersAreReturnedFromRealIndex() throws Exception {
+        isolated(()->{
+            write(".anatomist/config.toml","[scan]\nscopes = [\"MAIN\", \"TEST\"]\n");
+            write("src/main/java/p/A.java","package p;\npublic class A {\n public int a() { return 1; }\n public int b() { return 2; }\n}\n");
+            write("src/test/java/p/Check.java","package p; public class Check { public int check() { A a=new A(); return a.a()+a.b(); } }");
+            commit("two origins");var a=build("HEAD");
+            write("src/main/java/p/A.java","package p;\npublic class A {\n public int a() { return 3; }\n public int b() { return 4; }\n}\n");var b=build("WORKTREE");
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,true,3,"TEST",null);
+            var impacts=diff.changes().stream().filter(r->r.get("record").equals("impact")).toList();
+            assertEquals(4,impacts.size(),diff.json().toString());
+            assertTrue(impacts.stream().allMatch(r->r.get("entity").toString().endsWith("p.Check#check()")));
+            assertFalse(diff.changes().stream().anyMatch(r->r.get("record").equals("declaration_change") && r.get("entity").toString().endsWith("::p.A")));
+        });
+    }
+
+    @Test void deletedMethodKeepsOnlyOldAnchorAndNewMethodOnlyNewAnchor() throws Exception {
+        isolated(()->{
+            var a=build("HEAD");write("src/main/java/p/A.java","package p; public class A { public int renamed() { return 1; } }");var b=build("WORKTREE");
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
+            var rows=diff.changes().stream().filter(r->r.get("record").equals("declaration_change")).toList();
+            var deleted=rows.stream().filter(r->"deleted".equals(r.get("change"))).findFirst().orElseThrow();
+            var added=rows.stream().filter(r->"added".equals(r.get("change"))).findFirst().orElseThrow();
+            assertTrue(deleted.containsKey("before"));assertFalse(deleted.containsKey("after"));
+            assertFalse(added.containsKey("before"));assertTrue(added.containsKey("after"));
+        });
+    }
+
+    @Test void fileLevelCommentDoesNotInventMethodChanges() throws Exception {
+        isolated(()->{
+            var a=build("HEAD");write("src/main/java/p/A.java","// file comment\npackage p; public class A { public int value() { return 1; } }");var b=build("WORKTREE");
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
+            assertFalse(diff.changes().stream().anyMatch(r->r.get("record").equals("declaration_change")),diff.json().toString());
+            assertTrue(diff.changes().getFirst().containsKey("before"));assertTrue(diff.changes().getFirst().containsKey("after"));
+        });
+    }
+
+    @Test void modulePresentOnOnlyOneSideIsAValidAddition() throws Exception {
+        isolated(()->{
+            write(".anatomist/config.toml","[scan]\nsource_roots = [\"api@MAIN=src/main/java\"]\n");commit("api root");var a=build("HEAD");
+            write("extra/src/main/java/q/Added.java","package q; public class Added { public int value() { return 1; } }");
+            write(".anatomist/config.toml","[scan]\nsource_roots = [\"api@MAIN=src/main/java\", \"extra@MAIN=extra/src/main/java\"]\n");var b=build("WORKTREE");
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN","extra",false,3);
+            assertTrue(diff.changes().stream().anyMatch(r->r.get("record").equals("declaration_change") && "added".equals(r.get("change"))));
+        });
+    }
+
+    @Test void realCrossModuleTraversalKeepsFilteredIntermediate() throws Exception {
+        isolated(()->{
+            write(".anatomist/config.toml","[scan]\nsource_roots = [\"api@MAIN=src/main/java\", \"bridge@MAIN=bridge/src/main/java\", \"tests@TEST=tests/src/test/java\"]\n");
+            write("bridge/src/main/java/p/Bridge.java","package p; public class Bridge { public int call() { return new A().value(); } }");
+            write("tests/src/test/java/p/Check.java","package p; public class Check { public int check() { return new Bridge().call(); } }");commit("cross module");var a=build("HEAD");
+            write("src/main/java/p/A.java","package p; public class A { public int value() { return 2; } }");var b=build("WORKTREE");
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN","api",true,3,"TEST","tests");
+            var impacts=diff.changes().stream().filter(r->r.get("record").equals("impact")).toList();
+            assertEquals(2,impacts.size(),diff.json().toString());
+            assertTrue(impacts.stream().allMatch(r->((List<?>)r.get("path")).size()==3));
+        });
+    }
+
+    @Test void corruptFrozenSourceKeepsManifestButCannotClaimDeclarationCoverage() throws Exception {
+        isolated(()->{
+            var a=build("HEAD");write("src/main/java/p/A.java","package p; public class A { public int value() { return 2; } }");var b=build("WORKTREE");
+            try(var query=new QueryService(b.database())) { Files.writeString(com.anatomist.query.SnapshotSource.path(query.connection(),"src/main/java/p/A.java"),"corrupt"); }
+            var diff=new VersionDiffService().compare(service,a.entry(),b.entry(),"MAIN",null,false,3);
+            assertEquals(false,capability(diff,"declarations").get("complete"));
+            assertTrue(((List<?>)capability(diff,"declarations").get("target_reasons")).contains("SNAPSHOT_SOURCE_CORRUPT"));
+            assertEquals(true,capability(diff,"files").get("complete"));
+            assertFalse(diff.changes().stream().anyMatch(r->r.get("record").equals("declaration_change")));
+        });
     }
 }

@@ -4,81 +4,165 @@ import com.anatomist.json.Json;
 import com.anatomist.version.*;
 import com.anatomist.store.FileCacheService;
 import com.anatomist.store.SnapshotCatalog;
-import com.github.javaparser.*;
-import com.github.javaparser.ast.*;
-import com.github.javaparser.ast.body.*;
+import com.anatomist.store.SourceBlobStore;
 import java.nio.file.*;
 import java.sql.*;
 import java.util.*;
 
-/** Compares independently validated snapshots; never feeds one revision into another pipeline. */
+/** Frozen text changes lead to navigation; indexed relationships remain separate evidence. */
 public final class VersionDiffService {
-    public static final String CONTRACT="anatomist-diff/v1";
+    public static final String CONTRACT="anatomist-diff/v2";
     public record Result(Map<String,Object> header,List<Map<String,Object>> changes,Map<String,Object> evidence) {
         public Map<String,Object> json() { return Map.of("contract",CONTRACT,"comparison",header,"changes",changes,"evidence",evidence); }
     }
     public Result compare(SnapshotAccess service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
                           String scope,String module,boolean impact,int depth) {
+        return compare(service,base,target,scope,module,impact,depth,scope,null);
+    }
+    public Result compare(SnapshotAccess service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
+                          String scope,String module,boolean impact,int depth,String impactScope,String impactModule) {
         try(QueryService left=new QueryService(service.database(base.id()));
             QueryService right=new QueryService(service.database(target.id()))) {
+            Map<String,String> oldMeta=metadata(left.connection()),newMeta=metadata(right.connection());
+            Map<String,String> oldFiles=files(service,base.id()),newFiles=files(service,target.id());
+            var oldCoverage=new DiffCoverage(left.connection(),oldMeta,oldFiles.keySet());
+            var newCoverage=new DiffCoverage(right.connection(),newMeta,newFiles.keySet());
+            validateModule(module,oldCoverage,newCoverage);
+            if(impact) validateModule(impactModule,oldCoverage,newCoverage);
+            var environmentDifferences=environment(oldMeta,newMeta);
+            boolean environmentChanged=!base.profile().equals(target.profile()) || !environmentDifferences.isEmpty();
             Map<String,Object> header=new LinkedHashMap<>();
             header.put("contract",CONTRACT); header.put("record","diff_header");
-            Map<String,Object> baseIdentity=new LinkedHashMap<>(base.json()),targetIdentity=new LinkedHashMap<>(target.json());
-            baseIdentity.put("index_revision_id",com.anatomist.query.semantic.SemanticIdentity.read(left.connection()).indexRevisionId());
-            targetIdentity.put("index_revision_id",com.anatomist.query.semantic.SemanticIdentity.read(right.connection()).indexRevisionId());
-            header.put("base",baseIdentity); header.put("target",targetIdentity);
-            Map<String,Object> environmentDifferences=environment(left.connection(),right.connection());
-            boolean profileChanged=!base.profile().equals(target.profile()) || !environmentDifferences.isEmpty();
-            header.put("environment_changed",profileChanged);
-            header.put("environment_differences",environmentDifferences);
+            header.put("base",identity(base,left.connection())); header.put("target",identity(target,right.connection()));
+            header.put("environment_changed",environmentChanged); header.put("environment_differences",environmentDifferences);
+            header.put("selection",Map.of("files","project_manifest","scope",scope,"module",module==null?"*":module));
+            header.put("navigation_interpretation","text_touched_not_behavior_change");
+            header.put("impact",Map.of("requested",impact,"model","reverse_static_calls","scope",impactScope,
+                    "module",impactModule==null?"*":impactModule,"depth",depth,"entity_limit",10_000,"state_limit",100_000,
+                    "selection_applies_to","returned_callers","traversal","captured_call_graph"));
+
             List<Map<String,Object>> changes=new ArrayList<>();
-            fileChanges(service,base,target,changes);
-            Map<String,String> oldFiles=files(service,base.id()),newFiles=files(service,target.id());
-            Set<String> changedFiles=new HashSet<>(oldFiles.keySet());changedFiles.addAll(newFiles.keySet());
+            fileChanges(service,base,target,oldFiles,newFiles,changes);
+            var before=DiffNavigation.read(left.connection()); var after=DiffNavigation.read(right.connection());
+            Map<String,String> oldHits=new TreeMap<>(),newHits=new TreeMap<>();
+            Set<String> oldGaps=oldCoverage.reasons(scope,module,"declarations");
+            Set<String> newGaps=newCoverage.reasons(scope,module,"declarations");
+            Set<String> changedFiles=new TreeSet<>(oldFiles.keySet()); changedFiles.addAll(newFiles.keySet());
             changedFiles.removeIf(file->Objects.equals(oldFiles.get(file),newFiles.get(file)));
-            Map<String,Declaration> before=declarations(left.connection(),scope,module,changedFiles);
-            Map<String,Declaration> after=declarations(right.connection(),scope,module,changedFiles);
-            Set<String> changed=new TreeSet<>();
-            Set<String> ids=new TreeSet<>(before.keySet()); ids.addAll(after.keySet());
-            for(String id:ids) {
-                Declaration a=before.get(id),b=after.get(id);
-                if(a!=null && b!=null && a.content().equals(b.content()) && a.signature().equals(b.signature())) continue;
+            var oldSelected=before.values().stream().filter(d->d.selected(scope,module)).toList();
+            var newSelected=after.values().stream().filter(d->d.selected(scope,module)).toList();
+            for(String file:changedFiles) {
+                if(!file.endsWith(".java")) continue;
+                Path oldSource=verified(oldMeta,file,oldFiles.get(file),oldGaps);
+                Path newSource=verified(newMeta,file,newFiles.get(file),newGaps);
+                if((oldFiles.containsKey(file) && oldSource==null) || (newFiles.containsKey(file) && newSource==null)) continue;
+                if(oldSource==null || newSource==null) {
+                    markFile(oldSelected,file,oldHits); markFile(newSelected,file,newHits);
+                } else {
+                    var hunks=DiffTextChanges.compare(oldSource,newSource);
+                    oldHits.putAll(DiffNavigation.locate(oldSelected,file,hunks.stream().map(DiffTextChanges.Hunk::before).toList()));
+                    newHits.putAll(DiffNavigation.locate(newSelected,file,hunks.stream().map(DiffTextChanges.Hunk::after).toList()));
+                    oldSelected.stream().filter(d->d.file().equals(file) && !after.containsKey(d.id()))
+                            .forEach(d->oldHits.put(d.id(),precision(d)));
+                    newSelected.stream().filter(d->d.file().equals(file) && !before.containsKey(d.id()))
+                            .forEach(d->newHits.put(d.id(),precision(d)));
+                }
+                missingRanges(oldSelected,file,oldHits,oldGaps);
+                missingRanges(newSelected,file,newHits,newGaps);
+            }
+            Set<String> changed=new TreeSet<>(oldHits.keySet());changed.addAll(newHits.keySet());
+            for(String id:changed) {
+                var a=before.get(id);var b=after.get(id);
                 Map<String,Object> change=new LinkedHashMap<>();
                 change.put("record","declaration_change"); change.put("change",a==null?"added":b==null?"deleted":"modified");
                 change.put("entity",id);
-                if(a!=null) change.put("before",a.json()); if(b!=null) change.put("after",b.json());
-                change.put("signature_changed",a==null||b==null||!a.signature().equals(b.signature()));
-                change.put("content_changed",a==null||b==null||!a.content().equals(b.content()));
-                changes.add(change); changed.add(id);
+                if(a!=null) change.put("before",a.anchor(base.id(),oldHits.getOrDefault(id,precision(a))));
+                if(b!=null) change.put("after",b.anchor(target.id(),newHits.getOrDefault(id,precision(b))));
+                changes.add(change);
             }
             var oldRelations=VersionRelationships.read(left.connection(),scope,module);
             var newRelations=VersionRelationships.read(right.connection(),scope,module);
             VersionRelationships.changes(oldRelations,newRelations,changes,changed);
-            boolean truncated=false;
-            if(impact) {
-                truncated=VersionRelationships.impacts("base",oldRelations,changed,depth,changes);
-                truncated|=VersionRelationships.impacts("target",newRelations,changed,depth,changes);
+            for(var change:changes) if(change.get("record").equals("file_change")) {
+                String file=change.get("path").toString(), old=change.getOrDefault("before_path",file).toString();
+                if(oldFiles.containsKey(old)) change.put("before",Map.of("snapshot_id",base.id(),"file",old,"precision","file"));
+                if(newFiles.containsKey(file)) change.put("after",Map.of("snapshot_id",target.id(),"file",file,"precision","file"));
             }
+
+            Map<String,Object> capabilities=new LinkedHashMap<>();
+            capabilities.put("files",DiffCoverage.evidence(Set.of(),false,false));
+            capabilities.put("declarations",paired(oldGaps,newGaps,false,false));
+            capabilities.put("relations",paired(oldCoverage.reasons(scope,module,"relations"),
+                    newCoverage.reasons(scope,module,"relations"),environmentChanged,false));
+            if(impact) {
+                var oldCalls=VersionRelationships.read(left.connection(),"ALL",null);
+                var newCalls=VersionRelationships.read(right.connection(),"ALL",null);
+                var oldLimits=VersionRelationships.impacts("base",base.id(),oldCalls,changed,before,impactScope,impactModule,depth,changes);
+                var newLimits=VersionRelationships.impacts("target",target.id(),newCalls,changed,after,impactScope,impactModule,depth,changes);
+                var oldImpact=oldCoverage.reasons("ALL",null,"impact"); var newImpact=newCoverage.reasons("ALL",null,"impact");
+                oldImpact.addAll(oldCoverage.reasons(impactScope,impactModule,"impact"));
+                newImpact.addAll(newCoverage.reasons(impactScope,impactModule,"impact"));
+                oldImpact.addAll(oldGaps);newImpact.addAll(newGaps);
+                oldImpact.addAll(oldLimits);newImpact.addAll(newLimits);
+                Map<String,Object> impactEvidence=paired(oldImpact,newImpact,environmentChanged,!oldLimits.isEmpty()||!newLimits.isEmpty());
+                impactEvidence.put("model","reverse_static_calls");impactEvidence.put("paths","one_shortest_path_per_origin");
+                impactEvidence.put("entity_coverage",impactEvidence.get("status"));impactEvidence.put("origin_coverage",impactEvidence.get("status"));
+                impactEvidence.put("unsupported_seed_kinds",List.of("type","field"));
+                capabilities.put("impact",impactEvidence);
+            } else capabilities.put("impact",Map.of("status","not_requested","model","reverse_static_calls"));
             Map<String,Object> evidence=new LinkedHashMap<>();
-            evidence.put("record","evidence"); evidence.put("scope","comparison");
-            boolean complete=complete(left.connection()) && complete(right.connection());
-            evidence.put("complete",complete && !truncated); evidence.put("truncated",truncated);
-            evidence.put("negative_conclusion_safe",complete && !profileChanged && !truncated);
-            evidence.put("emitted",changes.size());
+            evidence.put("record","evidence");evidence.put("scope","comparison");
+            evidence.put("capabilities",capabilities);evidence.put("emitted",changes.size());
             return new Result(header,changes,evidence);
         } catch(Exception failure) {
             if(failure instanceof SnapshotException snapshot) throw snapshot;
+            if(failure instanceof IllegalArgumentException argument) throw argument;
             throw new SnapshotException("DIFF_FAILED",failure.getMessage(),failure);
         }
     }
-    private static Map<String,Object> environment(Connection a,Connection b) throws SQLException {
-        Map<String,String> before=metadata(a),after=metadata(b); Map<String,Object> changes=new TreeMap<>();
+
+    private static void validateModule(String module,DiffCoverage a,DiffCoverage b) {
+        if(module!=null && a.known() && b.known() && !a.hasModule(module) && !b.hasModule(module))
+            throw new IllegalArgumentException("Unknown module in both snapshots: "+module);
+    }
+    private static String precision(DiffNavigation.Declaration d) { return d.located()?"declaration":"unlocated"; }
+    private static void markFile(List<DiffNavigation.Declaration> declarations,String file,Map<String,String> hits) {
+        declarations.stream().filter(d->d.file().equals(file)).forEach(d->hits.put(d.id(),precision(d)));
+    }
+    private static void missingRanges(List<DiffNavigation.Declaration> declarations,String file,Map<String,String> hits,Set<String> gaps) {
+        var local=declarations.stream().filter(d->d.file().equals(file)).toList();
+        boolean fallback=local.stream().noneMatch(d->hits.containsKey(d.id()))
+                || local.stream().anyMatch(d->hits.containsKey(d.id()) && (d.type() || !d.located()));
+        if(fallback && local.stream().anyMatch(d->!d.synthetic() && !d.located())) gaps.add("DECLARATION_RANGE_UNAVAILABLE");
+    }
+    private static Map<String,Object> paired(Set<String> a,Set<String> b,boolean environment,boolean truncated) {
+        Set<String> reasons=new TreeSet<>(a);reasons.addAll(b);
+        var out=DiffCoverage.evidence(reasons,environment,truncated);
+        out.put("base_reasons",List.copyOf(new TreeSet<>(a)));out.put("target_reasons",List.copyOf(new TreeSet<>(b)));
+        return out;
+    }
+    private static Map<String,Object> identity(SnapshotCatalog.Entry entry,Connection c) {
+        Map<String,Object> out=new LinkedHashMap<>();
+        for(String key:List.of("id","commit","source_snapshot_id","semantic_profile_id")) out.put(key,entry.json().get(key));
+        out.put("index_revision_id",com.anatomist.query.semantic.SemanticIdentity.read(c).indexRevisionId());return out;
+    }
+    private static Path verified(Map<String,String> meta,String file,String hash,Set<String> gaps) {
+        if(hash==null) return null;
+        try {
+            Path path=meta.containsKey("snapshot_blob_root")?new SourceBlobStore(Path.of(meta.get("snapshot_blob_root"))).path(hash)
+                    :meta.containsKey("snapshot_sources")?SnapshotFiles.resolve(Path.of(meta.get("snapshot_sources")),file):null;
+            if(path==null || !Files.isRegularFile(path)) { gaps.add("SNAPSHOT_SOURCE_MISSING");return null; }
+            if(!hash.equals(FileCacheService.sha256(path))) { gaps.add("SNAPSHOT_SOURCE_CORRUPT");return null; }
+            return path;
+        } catch(RuntimeException failure) { gaps.add("SNAPSHOT_SOURCE_UNREADABLE");return null; }
+    }
+    private static Map<String,Object> environment(Map<String,String> before,Map<String,String> after) {
+        Map<String,Object> changes=new TreeMap<>();
         for(String key:List.of("java_version","classpath_mode","snapshot_artifacts","spring_xml",
                 "semantic_profile_inputs","extension_fingerprint","scan_policy_hash")) {
             if(!Objects.equals(before.get(key),after.get(key))) changes.put(key,Map.of(
                     "before",before.getOrDefault(key,""),"after",after.getOrDefault(key,"")));
-        }
-        return changes;
+        } return changes;
     }
     private static Map<String,String> metadata(Connection c) throws SQLException {
         Map<String,String> out=new HashMap<>();
@@ -86,20 +170,12 @@ public final class VersionDiffService {
             while(r.next()) out.put(r.getString(1),r.getString(2));
         } return out;
     }
-    private static boolean complete(Connection c) throws SQLException {
-        try(Statement s=c.createStatement();ResultSet r=s.executeQuery("SELECT "
-                + "(SELECT count(*) FROM analysis_coverage WHERE status<>'complete') + "
-                + "(SELECT count(*) FROM index_diagnostics WHERE severity IN ('warning','error'))")) {
-            return r.next() && r.getInt(1)==0;
-        }
-    }
     @SuppressWarnings("unchecked")
     private static Map<String,String> files(SnapshotAccess service,String id) throws Exception {
         return (Map<String,String>)Json.parseTree(Files.readString(service.snapshotDirectory(id).resolve("files.json")));
     }
     private static void fileChanges(SnapshotAccess service,SnapshotCatalog.Entry a,SnapshotCatalog.Entry b,
-                                    List<Map<String,Object>> changes) throws Exception {
-        Map<String,String> before=files(service,a.id()),after=files(service,b.id());
+                                    Map<String,String> before,Map<String,String> after,List<Map<String,Object>> changes) {
         Set<String> paths=new TreeSet<>(before.keySet()); paths.addAll(after.keySet());
         if(a.checkout().isEmpty() && b.checkout().isEmpty()) {
             String raw=new String(GitRepository.bytes(service.git().root(),"diff","--name-status","-z","-M",
@@ -110,118 +186,24 @@ public final class VersionDiffService {
                 String status=records[i++]; if(i>=records.length) break;
                 String old=records[i++];
                 if(status.startsWith("R") && i<records.length) {
-                    String now=records[i++];
-                    String prefix=service.git().projectRelative().toString().replace('\\','/');
+                    String now=records[i++];String prefix=service.git().projectRelative().toString().replace('\\','/');
                     if(!prefix.isEmpty()) {
                         if(!old.startsWith(prefix+"/") || !now.startsWith(prefix+"/")) continue;
                         old=old.substring(prefix.length()+1); now=now.substring(prefix.length()+1);
                     }
                     if(before.containsKey(old) && after.containsKey(now)) {
                         paths.remove(old); paths.remove(now);
-                        changes.add(Map.of("record","file_change","change","renamed","before_path",old,"path",now,
-                                "similarity",Integer.parseInt(status.substring(1)),"origin","git"));
+                        changes.add(new LinkedHashMap<>(Map.of("record","file_change","change","renamed","before_path",old,"path",now,
+                                "similarity",Integer.parseInt(status.substring(1)),"origin","git")));
                     }
                 }
             }
         }
         for(String path:paths) {
             String old=before.get(path),now=after.get(path); if(Objects.equals(old,now)) continue;
-            Map<String,Object> change=new LinkedHashMap<>();
-            change.put("record","file_change"); change.put("path",path);
+            Map<String,Object> change=new LinkedHashMap<>();change.put("record","file_change"); change.put("path",path);
             change.put("change",old==null?"added":now==null?"deleted":"modified");
-            if(old!=null) change.put("before_hash",old); if(now!=null) change.put("after_hash",now);
-            changes.add(change);
+            if(old!=null) change.put("before_hash",old); if(now!=null) change.put("after_hash",now);changes.add(change);
         }
-    }
-    private record Declaration(String id,String symbol,String kind,String file,int beginLine,int beginColumn,
-                               int endLine,int endColumn,String signature,String content) {
-        Map<String,Object> json() {
-            return Map.of("id",id,"symbol",symbol,"kind",kind,"file",file,
-                    "start_line",beginLine,"start_column",beginColumn,"end_line",endLine,"end_column",endColumn);
-        }
-    }
-    private static Map<String,Declaration> declarations(Connection c,String scope,String module,Set<String> changedFiles) throws Exception {
-        Map<String,Declaration> out=new TreeMap<>(); Map<String,CompilationUnit> parsed=new HashMap<>();
-        String sql="SELECT *,coalesce(declaration_begin_line,begin_line) bl,coalesce(declaration_begin_column,begin_column) bc,"
-                + "coalesce(declaration_end_line,end_line) el,coalesce(declaration_end_column,end_column) ec FROM nodes "
-                + "WHERE (declaration_kind IS NOT NULL OR kind='FIELD') AND (?='ALL' OR scope=?) AND (? IS NULL OR module=?)";
-        try(PreparedStatement s=c.prepareStatement(sql)) {
-            s.setString(1,scope); s.setString(2,scope); s.setString(3,module); s.setString(4,module);
-            try(ResultSet r=s.executeQuery()) { while(r.next()) {
-                String file=r.getString("source_file"); int bl=r.getInt("bl"),bc=r.getInt("bc"),el=r.getInt("el"),ec=r.getInt("ec");
-                String structure=String.join("|",r.getString("symbol_id"),r.getString("kind"),
-                        Objects.toString(r.getString("modifiers"),""),Objects.toString(r.getString("visibility"),""),
-                        declarationMetadata(r.getString("metadata")));
-                String content=structure,signature=structure;
-                if(changedFiles.contains(file) && file.endsWith(".java")) {
-                    CompilationUnit unit=parsed.get(file);
-                    if(unit==null) {
-                        Path path=SnapshotSource.path(c,file);
-                        if(path==null) throw new SnapshotException("SNAPSHOT_SOURCE_MISSING","No frozen source for " + file);
-                        String expected;
-                        try(PreparedStatement hash=c.prepareStatement("SELECT hash FROM file_cache WHERE source_file=?")) {
-                            hash.setString(1,file); try(ResultSet rows=hash.executeQuery()) { expected=rows.next()?rows.getString(1):null; }
-                        }
-                        if(expected==null || !expected.equals(FileCacheService.sha256(path)))
-                            throw new SnapshotException("SNAPSHOT_SOURCE_CORRUPT","Frozen source changed: " + file);
-                        var result=new JavaParser(new ParserConfiguration().setLanguageLevel(ParserConfiguration.LanguageLevel.BLEEDING_EDGE)).parse(path);
-                        unit=result.getResult().orElseThrow(()->new SnapshotException("SNAPSHOT_PARSE_FAILED","Cannot parse " + file));
-                        parsed.put(file,unit);
-                    }
-                    if(bl<=0 && "FIELD".equals(r.getString("kind"))) {
-                        String symbol=r.getString("symbol_id"),label=r.getString("label");
-                        Optional<VariableDeclarator> field=unit.findAll(VariableDeclarator.class).stream()
-                                .filter(v->v.getNameAsString().equals(label) && v.getParentNode().orElse(null) instanceof FieldDeclaration)
-                                .filter(v->{
-                                    TypeDeclaration<?> owner=v.findAncestor(TypeDeclaration.class).orElse(null);
-                                    return owner!=null && owner.getFullyQualifiedName()
-                                            .map(name->symbol.equals(name+"#"+label)).orElse(false);
-                                }).findFirst();
-                        if(field.isPresent() && field.get().getRange().isPresent()) {
-                            Range fieldRange=field.get().getRange().get();
-                            bl=fieldRange.begin.line;bc=fieldRange.begin.column;el=fieldRange.end.line;ec=fieldRange.end.column;
-                            structure+="|"+((FieldDeclaration)field.get().getParentNode().orElseThrow()).getModifiers();
-                        }
-                    }
-                    if(bl<=0 || bc<=0 || el<=0 || ec<=0) {
-                        String id=r.getString("id");out.put(id,new Declaration(id,r.getString("symbol_id"),r.getString("kind"),file,bl,bc,el,ec,signature,content));
-                        continue;
-                    }
-                    Range range=new Range(new Position(bl,bc),new Position(el,ec));
-                    StringBuilder tokens=new StringBuilder();
-                    for(JavaToken token:unit.getTokenRange().orElseThrow()) {
-                        if(!token.getCategory().isWhitespaceOrComment() && token.getRange().map(range::contains).orElse(false))
-                            tokens.append(token.getText()).append('\0');
-                    }
-                    content=FileCacheService.sha256OfString(tokens.toString());
-                    Optional<Node> declaration=unit.findAll(Node.class).stream()
-                            .filter(n->n instanceof BodyDeclaration<?> || n instanceof VariableDeclarator)
-                            .filter(n->n.getRange().map(range::equals).orElse(false)).findFirst();
-                    if(declaration.isPresent()) {
-                        Node copy=declaration.get().clone();
-                        copy.getAllContainedComments().forEach(com.github.javaparser.ast.comments.Comment::remove);
-                        copy.walk(n->n.setComment(null));
-                        if(copy instanceof TypeDeclaration<?> type) type.getMembers().clear();
-                        copy.findAll(MethodDeclaration.class).forEach(m->m.setBody(null));
-                        copy.findAll(ConstructorDeclaration.class).forEach(m->m.setBody(new com.github.javaparser.ast.stmt.BlockStmt()));
-                        copy.findAll(CompactConstructorDeclaration.class).forEach(m->m.setBody(new com.github.javaparser.ast.stmt.BlockStmt()));
-                        copy.findAll(VariableDeclarator.class).forEach(VariableDeclarator::removeInitializer);
-                        signature=structure+"|"+copy;
-                    }
-                }
-                String id=r.getString("id");
-                out.put(id,new Declaration(id,r.getString("symbol_id"),r.getString("kind"),file,bl,bc,el,ec,signature,content));
-            }}
-        } return out;
-    }
-    private static String declarationMetadata(String raw) {
-        if(raw==null || raw.isBlank()) return "";
-        Object parsed=Json.parseTree(raw);
-        Map<String,Object> result=new TreeMap<>();
-        if(parsed instanceof Map<?,?> fields) for(String key:List.of("type","returnType","isStatic","isFinal",
-                "isAbstract","isConstructor","parameters","signature","isRecordComponent")) {
-            if(fields.containsKey(key)) result.put(key,fields.get(key));
-        }
-        return Json.writeCompact(result);
     }
 }

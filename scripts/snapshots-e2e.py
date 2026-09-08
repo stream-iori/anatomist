@@ -118,7 +118,7 @@ def main():
         status_before = git("status", "--porcelain")
         comparison = json.loads(run(cli + ["diff", "--project", str(project), "--base", original_sha,
                                            "--target", sha, "--no-build", "--impact", "--format", "json"], env=env))
-        assert comparison["contract"] == "anatomist-diff/v1"
+        assert comparison["contract"] == "anatomist-diff/v2"
         assert any(row["record"] == "file_change" for row in comparison["changes"])
         if not args.fixture:
             assert any(row["record"] == "declaration_change" for row in comparison["changes"])

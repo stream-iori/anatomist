@@ -1,0 +1,743 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://antcodes.dev/anatomist/schema/diff-v2.schema.json",
+  "title": "Anatomist diff v2 JSON result or NDJSON record",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "contract",
+        "comparison",
+        "changes",
+        "evidence"
+      ],
+      "properties": {
+        "contract": {
+          "const": "anatomist-diff/v2"
+        },
+        "comparison": {
+          "$ref": "#/$defs/header"
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/change"
+          }
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        }
+      }
+    },
+    {
+      "$ref": "#/$defs/header"
+    },
+    {
+      "$ref": "#/$defs/change"
+    },
+    {
+      "$ref": "#/$defs/evidence"
+    }
+  ],
+  "$defs": {
+    "anchor": {
+      "type": "object",
+      "required": [
+        "snapshot_id",
+        "file",
+        "precision"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "file": {
+          "type": "string"
+        },
+        "precision": {
+          "enum": [
+            "file",
+            "declaration",
+            "candidate",
+            "owner",
+            "unlocated"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "MAIN",
+            "TEST",
+            "GENERATED",
+            "ALL"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "source",
+            "derived"
+          ]
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "entity": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/anchor"
+        },
+        {
+          "required": [
+            "id",
+            "symbol",
+            "kind",
+            "module",
+            "scope",
+            "origin"
+          ],
+          "properties": {
+            "precision": {
+              "enum": [
+                "declaration",
+                "candidate",
+                "owner",
+                "unlocated"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "capability": {
+      "type": "object",
+      "required": [
+        "status",
+        "complete",
+        "truncated",
+        "negative_conclusion_safe",
+        "reasons"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "partial"
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "negative_conclusion_safe": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "id",
+        "commit",
+        "source_snapshot_id",
+        "semantic_profile_id",
+        "index_revision_id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "source_snapshot_id": {
+          "type": "string"
+        },
+        "semantic_profile_id": {
+          "type": "string"
+        },
+        "index_revision_id": {
+          "type": "string"
+        },
+        "metrics": false
+      }
+    },
+    "header": {
+      "type": "object",
+      "required": [
+        "contract",
+        "record",
+        "base",
+        "target",
+        "selection",
+        "impact",
+        "navigation_interpretation",
+        "environment_changed",
+        "environment_differences"
+      ],
+      "properties": {
+        "contract": {
+          "const": "anatomist-diff/v2"
+        },
+        "record": {
+          "const": "diff_header"
+        },
+        "base": {
+          "$ref": "#/$defs/identity"
+        },
+        "target": {
+          "$ref": "#/$defs/identity"
+        },
+        "selection": {
+          "type": "object",
+          "required": [
+            "files",
+            "scope",
+            "module"
+          ],
+          "properties": {
+            "files": {
+              "const": "project_manifest"
+            },
+            "scope": {
+              "enum": [
+                "MAIN",
+                "TEST",
+                "GENERATED",
+                "ALL"
+              ]
+            },
+            "module": {
+              "type": "string"
+            }
+          }
+        },
+        "impact": {
+          "type": "object",
+          "required": [
+            "requested",
+            "model",
+            "scope",
+            "module",
+            "depth",
+            "entity_limit",
+            "state_limit",
+            "selection_applies_to",
+            "traversal"
+          ],
+          "properties": {
+            "requested": {
+              "type": "boolean"
+            },
+            "model": {
+              "const": "reverse_static_calls"
+            },
+            "scope": {
+              "enum": [
+                "MAIN",
+                "TEST",
+                "GENERATED",
+                "ALL"
+              ]
+            },
+            "module": {
+              "type": "string"
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "entity_limit": {
+              "const": 10000
+            },
+            "state_limit": {
+              "const": 100000
+            },
+            "selection_applies_to": {
+              "const": "returned_callers"
+            },
+            "traversal": {
+              "const": "captured_call_graph"
+            }
+          }
+        },
+        "navigation_interpretation": {
+          "const": "text_touched_not_behavior_change"
+        },
+        "environment_changed": {
+          "type": "boolean"
+        },
+        "environment_differences": {
+          "type": "object"
+        }
+      }
+    },
+    "change": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/file"
+        },
+        {
+          "$ref": "#/$defs/declaration"
+        },
+        {
+          "$ref": "#/$defs/relation"
+        },
+        {
+          "$ref": "#/$defs/impact"
+        }
+      ]
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "record",
+        "change",
+        "path"
+      ],
+      "properties": {
+        "record": {
+          "const": "file_change"
+        },
+        "change": {
+          "enum": [
+            "added",
+            "deleted",
+            "modified",
+            "renamed"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "before_path": {
+          "type": "string"
+        },
+        "before": {
+          "$ref": "#/$defs/anchor"
+        },
+        "after": {
+          "$ref": "#/$defs/anchor"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "const": "added"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "after"
+            ],
+            "properties": {
+              "before": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "const": "deleted"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "before"
+            ],
+            "properties": {
+              "after": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "enum": [
+                  "modified",
+                  "renamed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "before",
+              "after"
+            ]
+          }
+        }
+      ]
+    },
+    "declaration": {
+      "type": "object",
+      "required": [
+        "record",
+        "change",
+        "entity"
+      ],
+      "properties": {
+        "record": {
+          "const": "declaration_change"
+        },
+        "change": {
+          "enum": [
+            "added",
+            "deleted",
+            "modified"
+          ]
+        },
+        "entity": {
+          "type": "string"
+        },
+        "before": {
+          "$ref": "#/$defs/entity"
+        },
+        "after": {
+          "$ref": "#/$defs/entity"
+        },
+        "signature_changed": false,
+        "content_changed": false
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "const": "added"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "after"
+            ],
+            "properties": {
+              "before": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "const": "deleted"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "before"
+            ],
+            "properties": {
+              "after": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "enum": [
+                  "modified",
+                  "renamed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "before",
+              "after"
+            ]
+          }
+        }
+      ]
+    },
+    "relation": {
+      "type": "object",
+      "required": [
+        "record",
+        "id",
+        "change",
+        "relationship",
+        "before_count",
+        "after_count",
+        "before_sites",
+        "after_sites",
+        "sites_interpretation"
+      ],
+      "properties": {
+        "record": {
+          "const": "relation_change"
+        },
+        "id": {
+          "type": "string"
+        },
+        "change": {
+          "enum": [
+            "added",
+            "deleted",
+            "count_changed"
+          ]
+        },
+        "relationship": {
+          "type": "object",
+          "required": [
+            "source",
+            "target",
+            "relation"
+          ],
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            },
+            "relation": {
+              "type": "string"
+            }
+          }
+        },
+        "before_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "after_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "before_sites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/site"
+          },
+          "maxItems": 3
+        },
+        "after_sites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/site"
+          },
+          "maxItems": 3
+        },
+        "sites_interpretation": {
+          "const": "representative_samples"
+        }
+      }
+    },
+    "site": {
+      "type": "object",
+      "required": [
+        "file",
+        "line",
+        "column"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "impact": {
+      "type": "object",
+      "required": [
+        "record",
+        "side",
+        "entity",
+        "origin",
+        "caller",
+        "path",
+        "edges",
+        "path_interpretation",
+        "interpretation"
+      ],
+      "properties": {
+        "record": {
+          "const": "impact"
+        },
+        "side": {
+          "enum": [
+            "base",
+            "target"
+          ]
+        },
+        "entity": {
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/entity"
+        },
+        "caller": {
+          "$ref": "#/$defs/entity"
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        },
+        "edges": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "source",
+              "target",
+              "sites",
+              "sites_interpretation"
+            ],
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "sites": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/site"
+                },
+                "maxItems": 3
+              },
+              "sites_interpretation": {
+                "const": "representative_samples"
+              }
+            }
+          }
+        },
+        "path_interpretation": {
+          "const": "one_shortest_path_per_origin"
+        },
+        "interpretation": {
+          "const": "static_possible_impact"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "record",
+        "scope",
+        "capabilities",
+        "emitted"
+      ],
+      "properties": {
+        "record": {
+          "const": "evidence"
+        },
+        "scope": {
+          "const": "comparison"
+        },
+        "emitted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "negative_conclusion_safe": false,
+        "capabilities": {
+          "type": "object",
+          "required": [
+            "files",
+            "declarations",
+            "relations",
+            "impact"
+          ],
+          "properties": {
+            "files": {
+              "$ref": "#/$defs/capability"
+            },
+            "declarations": {
+              "$ref": "#/$defs/capability"
+            },
+            "relations": {
+              "$ref": "#/$defs/capability"
+            },
+            "impact": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/capability"
+                    },
+                    {
+                      "required": [
+                        "model",
+                        "paths",
+                        "entity_coverage",
+                        "origin_coverage",
+                        "unsupported_seed_kinds"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "model"
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": "not_requested"
+                    },
+                    "model": {
+                      "const": "reverse_static_calls"
+                    },
+                    "complete": false,
+                    "negative_conclusion_safe": false
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

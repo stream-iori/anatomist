@@ -38,7 +38,11 @@ final class VersionRelationships {
                     fields.put(field,Objects.toString(r.getString(field),""));
                 String key=RelationshipIdentity.of("version-relation",fields);
                 Relation prior=out.get(key); List<Map<String,Object>> sites=new ArrayList<>(prior==null?List.of():prior.sites());
-                if(sites.size()<3) sites.add(Map.of("file",Objects.toString(r.getString("file"),""),"line",r.getInt("line"),"column",r.getInt("col")));
+                sites.add(Map.of("file",Objects.toString(r.getString("file"),""),"line",r.getInt("line"),"column",r.getInt("col")));
+                sites.sort(Comparator.comparing((Map<String,Object> site)->site.get("file").toString())
+                        .thenComparingInt(site->((Number)site.get("line")).intValue())
+                        .thenComparingInt(site->((Number)site.get("column")).intValue()));
+                if(sites.size()>3) sites.removeLast();
                 out.put(key,new Relation(fields,prior==null?1:prior.count()+1,List.copyOf(sites)));
             }}
         }
@@ -54,31 +58,61 @@ final class VersionRelationships {
             change.put("change",a==null?"added":b==null?"deleted":"count_changed");
             change.put("relationship",relation.fields());change.put("before_count",a==null?0:a.count());change.put("after_count",b==null?0:b.count());
             change.put("before_sites",a==null?List.of():a.sites());change.put("after_sites",b==null?List.of():b.sites());
+            change.put("sites_interpretation","representative_samples");
             out.add(change);seeds.add(relation.source());
         }
     }
-    static boolean impacts(String side,Map<String,Relation> relations,Set<String> seeds,int depth,List<Map<String,Object>> out) {
+    static Set<String> impacts(String side, String snapshot, Map<String,Relation> relations, Set<String> seeds,
+                               Map<String,DiffNavigation.Declaration> declarations, String scope, String module,
+                               int depth, List<Map<String,Object>> out) {
+        return impacts(side,snapshot,relations,seeds,declarations,scope,module,depth,out,10_000,100_000);
+    }
+    static Set<String> impacts(String side, String snapshot, Map<String,Relation> relations, Set<String> seeds,
+                               Map<String,DiffNavigation.Declaration> declarations, String scope, String module,
+                               int depth, List<Map<String,Object>> out, int entityLimit, int stateLimit) {
         Map<String,List<Relation>> incoming=new HashMap<>();
         for(Relation r:relations.values()) if(r.kind().equals("CALLS")) incoming.computeIfAbsent(r.target(),k->new ArrayList<>()).add(r);
-        record Visit(String node,List<String> path) {}
-        ArrayDeque<Visit> queue=new ArrayDeque<>(); Set<String> visited=new HashSet<>(seeds);
-        seeds.forEach(seed->queue.add(new Visit(seed,List.of(seed)))); boolean truncated=false;
-        while(!queue.isEmpty()) {
-            Visit current=queue.removeFirst();
-            List<Relation> callers=incoming.getOrDefault(current.node(),List.of());
-            if(current.path().size()-1>=depth) {
-                if(callers.stream().anyMatch(r->!visited.contains(r.source()))) truncated=true;
-                continue;
+        incoming.values().forEach(list->list.sort(Comparator.comparing(Relation::source)
+                .thenComparing(r->RelationshipIdentity.of("version-relation",r.fields()))));
+        record Visit(String node,List<String> path,List<Map<String,Object>> edges) {}
+        Set<String> reasons=new TreeSet<>(), entities=new HashSet<>(); int states=0;
+        for(String seed:new TreeSet<>(seeds)) {
+            var origin=declarations.get(seed);
+            if(origin==null || !origin.callable()) continue;
+            if(!entities.contains(seed) && entities.size()>=entityLimit) { reasons.add("ENTITY_LIMIT"); return reasons; }
+            if(states>=stateLimit) { reasons.add("STATE_LIMIT"); return reasons; }
+            entities.add(seed); states++;
+            ArrayDeque<Visit> queue=new ArrayDeque<>(); Set<String> visited=new HashSet<>(); visited.add(seed);
+            queue.add(new Visit(seed,List.of(seed),List.of()));
+            while(!queue.isEmpty()) {
+                Visit current=queue.removeFirst();
+                List<Relation> callers=incoming.getOrDefault(current.node(),List.of());
+                if(current.path().size()-1>=depth) {
+                    if(callers.stream().anyMatch(r->!visited.contains(r.source()))) reasons.add("DEPTH_LIMIT");
+                    continue;
+                }
+                for(Relation relation:callers) {
+                    if(visited.contains(relation.source())) continue;
+                    if(!entities.contains(relation.source()) && entities.size()>=entityLimit) { reasons.add("ENTITY_LIMIT"); return reasons; }
+                    if(states>=stateLimit) { reasons.add("STATE_LIMIT"); return reasons; }
+                    entities.add(relation.source()); visited.add(relation.source()); states++;
+                    List<String> path=new ArrayList<>();path.add(relation.source());path.addAll(current.path());
+                    List<Map<String,Object>> edges=new ArrayList<>();
+                    edges.add(Map.of("source",relation.source(),"target",relation.target(),"sites",relation.sites(),
+                            "sites_interpretation","representative_samples")); edges.addAll(current.edges());
+                    var caller=declarations.get(relation.source());
+                    if(caller!=null && caller.selected(scope,module)) {
+                        Map<String,Object> row=new LinkedHashMap<>();
+                        row.put("record","impact"); row.put("side",side); row.put("entity",relation.source());
+                        row.put("origin",origin.anchor(snapshot,origin.located()?"declaration":"unlocated"));
+                        row.put("caller",caller.anchor(snapshot,caller.located()?"declaration":"unlocated"));
+                        row.put("path",List.copyOf(path)); row.put("edges",List.copyOf(edges));
+                        row.put("path_interpretation","one_shortest_path_per_origin");
+                        row.put("interpretation","static_possible_impact"); out.add(row);
+                    }
+                    queue.add(new Visit(relation.source(),List.copyOf(path),List.copyOf(edges)));
+                }
             }
-            for(Relation relation:callers) {
-                if(visited.contains(relation.source())) continue;
-                if(visited.size()>=10_000) return true;
-                visited.add(relation.source());
-                List<String> path=new ArrayList<>();path.add(relation.source());path.addAll(current.path());
-                out.add(Map.of("record","impact","side",side,"entity",relation.source(),"path",path,
-                        "sites",relation.sites(),"interpretation","static_possible_impact"));
-                queue.add(new Visit(relation.source(),List.copyOf(path)));
-            }
-        } return truncated;
+        } return reasons;
     }
 }

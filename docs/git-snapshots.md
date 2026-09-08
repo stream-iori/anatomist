@@ -1,4 +1,4 @@
-# Git snapshots (1.1.0)
+# Git snapshots and change navigation (1.2)
 
 Version indexing is opt-in. Existing commands without a version selector retain
 their per-checkout database behavior.
@@ -36,11 +36,60 @@ Queries read frozen source, so checkout changes do not invalidate historical
 source evidence. Ordinary `index`, `index-docs`, and `annotate` writes to published
 snapshots are rejected. Existing standalone databases are not moved or migrated.
 
-Diff uses [`anatomist-diff/v1`](schema/diff-v1.schema.json), independently identifies both endpoints, and emits
-file and declaration changes plus final comparison evidence. Different analysis
-profiles are disclosed; they do not silently establish source-caused changes.
-Comments and whitespace do not count as semantic declaration changes. Renamed
-methods are added/deleted symbols; file renames use Git's similarity signal.
+## Diff navigation v2
+
+Diff uses [`anatomist-diff/v2`](schema/diff-v2.schema.json). It locates text changes
+in frozen source and returns indexed declaration anchors for each side. Comments
+and formatting count as touched text, not behavior changes. Use Git diff for the
+edit itself, then existing queries for its meaning. Renamed methods remain
+added/deleted identities; committed file renames use Git's similarity signal.
+
+| Record | Meaning and next action |
+|---|---|
+| `file_change` | Project manifest entry changed; before/after gives snapshot and file. |
+| `declaration_change` | Text touched an indexed declaration or navigation fallback; select its before/after anchor. |
+| `relation_change` | Indexed relationship or count changed independently of text navigation; select endpoints in the corresponding snapshot. |
+| `impact` | One caller/change-origin pair on one side, with a shortest representative path and both navigation anchors. |
+
+Entity anchors contain `snapshot_id`, `id`, `symbol`, `kind`, `module`, `scope`,
+`file`, `origin`, `precision`, and available source coordinates. `precision` is
+`declaration`, `candidate` (including indistinguishable same-line declarations),
+`owner` (containing type), or `unlocated`. File anchors use `file`. Missing ranges
+are omitted, not invented. A generated identity can be resolved without having
+its own source range. Use the containing type/file when precise navigation is unavailable.
+
+```bash
+anatomist diff --base HEAD --target WORKTREE
+# Substitute an entity anchor from before (deleted code) or after (added code):
+anatomist pipeline --snapshot <anchor.snapshot_id> --scope <anchor.scope> -- resolve '<anchor.id>' --unique --then source
+# Select api changes, but return test callers across the project:
+anatomist diff --base HEAD --target WORKTREE --module api --impact --impact-scope TEST
+```
+
+Diff is not a semantic stream. Select an anchor and start a single-version query;
+do not pipe diff directly into source. Continue with calls, references, accesses
+or bindings when the entity kind supports the question. File-only entries can
+be inspected with Git, or enumerated using `declarations-of` if indexed.
+
+Header `selection.files` is `project_manifest`; `scope` and `module` select
+declarations and relationships. `impact.scope` and `impact.module` select returned
+callers, not traversal intermediates. Module defaults to the whole project for
+impact; impact scope inherits declaration scope. These two options require `--impact`.
+Unknown modules fail when both endpoints establish absence; a module present on
+only one side is a valid addition/deletion. Missing metadata remains unknown.
+
+Final `evidence.capabilities` separates `files`, `declarations`, `relations` and
+`impact`. Requested capabilities expose status, completeness, truncation and
+reasons; declaration/relationship/impact evidence also identifies reasons per side.
+Each `negative_conclusion_safe` applies only to that capability and its disclosed
+selection/model. Impact not requested has `status=not_requested`, without a safety flag.
+There is no global safety boolean. Different environments limit relationship and
+impact conclusions, while valid text navigation remains available.
+
+Query selection does not expand indexing. TEST missing from a capture is partial,
+not proof of no test changes. Configure scan scopes or build with existing index
+options such as `--include-tests`, then select the resulting snapshot IDs. Old
+snapshots lacking coverage metadata remain readable with unknown coverage.
 
 ## Incremental builds and impact
 
@@ -61,12 +110,18 @@ use sibling source directories, select their common project root; external
 source inputs are rejected before publication because they are not frozen.
 
 Diff compares relationship multisets, including normalized call sites, instead
-of database row IDs or location-bearing hashes. `--impact --impact-depth 3`
-reports reverse static-call paths separately for each endpoint. The depth may
-be set from 0 through 100; traversal is capped at 10,000 visited entities per
-endpoint and reports truncation. This is possible static impact, not runtime
-execution. Incomplete parsing/resolution or differing profiles make negative
-conclusions unsafe. Diff only reparses files whose content changed.
+of database row IDs or location-bearing hashes. It does not reparse declarations
+to classify signature/body changes. `--impact --impact-depth 3` follows static
+calls separately on each endpoint, retaining one shortest path per caller/origin
+pair, including when multiple changed methods share a caller. Paths are representative;
+relationship source locations are samples, not all occurrences.
+
+Traversal uses the captured call graph across modules and scopes, and filters
+returned callers afterwards. Depth is 0..100. Each endpoint is bounded at 10,000
+entities and 100,000 entity/origin states; depth/entity/state exhaustion is disclosed.
+Entity and origin coverage are reported independently of path enumeration.
+Field, type and configuration propagation are not modeled. This is possible
+static call impact, not runtime execution or proof that touched code changed behavior.
 
 ## Cache and lifecycle
 

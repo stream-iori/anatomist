@@ -8,7 +8,7 @@ anatomist skill core    # 首次读取最小规则
 anatomist skill topics  # 需要选路时读取
 ```
 
-Git／WORKTREE 索引与比较见 [Git 多版本索引](docs/git-snapshots.md)。
+Git／WORKTREE 变化导航见 [Git 多版本索引](docs/git-snapshots.md)：diff 提供双端声明入口，具体修改查看 Git diff，后续分析使用对应快照的源码和关系查询。
 
 ```text
 Java source ── index ──> SQLite snapshot ── semantic pipeline ──> evidence

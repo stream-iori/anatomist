@@ -1,6 +1,6 @@
 # Anatomist 1.2 命令参考
 
-单版本查询使用 `semantic-stream/v1`。多版本比较使用独立的 `anatomist-diff/v1`，不混合两版管道身份。
+单版本查询使用 `semantic-stream/v1`。多版本比较使用独立的 `anatomist-diff/v2`，选择输出锚点后固定快照继续查询。
 
 ## Agent 信息入口
 
@@ -23,7 +23,7 @@
 | `index . --ref HEAD` | 保存提交快照，默认尝试增量 |
 | `index . --ref WORKTREE` | 冻结当前磁盘内容 |
 | 查询／pipeline 的 `--ref`、`--snapshot` | 选择已建立的版本；与 `--index` 互斥 |
-| `diff --base main --target feature [--merge-base] [--impact]` | 自动补建缺失快照并比较；`--no-build` 禁止构建 |
+| `diff --base main --target feature [--merge-base] [--impact]` | 定位文本修改的双端声明；自动补建缺失快照，`--no-build` 禁止构建 |
 | `snapshots list/show/pin/unpin/gc` | 查询、固定和显式清理历史 |
 
 具体默认值、输出和生命周期见 [Git snapshots](git-snapshots.md)。
@@ -143,6 +143,20 @@ anatomist doctor --health-policy complete --format json --index <db>
 版本比较优先使用 `diff --base ... --target ...`。版本服务会管理临时 detached worktree，
 不切换用户当前分支；历史源码来自捕获内容。普通索引的 Doctor Git/快速脏检查仍只是提示，
 需要当前磁盘证据时先增量同步。
+
+`diff` 的声明命中包含注释和格式修改，不代表行为变化。每端锚点提供 snapshot ID、实体 ID、
+module、scope、文件和可用声明范围；先选锚点，再运行：
+
+```bash
+anatomist pipeline --snapshot <anchor.snapshot_id> --scope <anchor.scope> -- resolve '<anchor.id>' --unique --then source
+anatomist diff --base HEAD --target WORKTREE --module api --impact --impact-scope TEST
+```
+
+第二条选择 api 的修改，返回整个项目的 TEST 调用者；快照需先索引 TEST。
+`--impact-module` 只筛选返回的调用者，不切断中间路径。`--impact-scope` 默认继承 `--scope`。
+文件变化始终覆盖项目快照清单；`--scope/--module` 筛选声明和关系。
+读取 `evidence.capabilities` 判断各项覆盖；影响仅为静态调用图中的可能影响，路径是每个修改点的最短代表路径。
+完整字段和边界见 [diff v2](git-snapshots.md#diff-navigation-v2)。
 
 | exit | 含义 |
 |---:|---|

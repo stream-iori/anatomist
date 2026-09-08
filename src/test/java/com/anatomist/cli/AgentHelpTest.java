@@ -97,7 +97,8 @@ class AgentHelpTest {
             var blocks = Pattern.compile("(?s)```bash\\n(.*?)```").matcher(guide.stdout());
             while (blocks.find()) {
                 for (String line : blocks.group(1).lines().filter(l -> !l.isBlank()).toList()) {
-                    var args = words(line);
+                    var args = words(line.replace("<anchor.snapshot_id>", "a".repeat(32))
+                            .replace("<anchor.scope>", "MAIN").replace("<anchor.id>", "p.Service#run()"));
                     assertEquals("anatomist", args.removeFirst());
                     assertEquals("pipeline", args.getFirst());
                     args.add(1, "--explain");

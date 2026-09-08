@@ -18,7 +18,8 @@ selection between candidates is a decision before starting the next query.
 | Which methods override this method? | resolve callable → callable-relations --direction incoming | `skill relations` |
 | Who reads or writes this field? | resolve value → accesses | `skill relations` |
 | What annotations/configuration apply? | resolve → annotations or bindings | `skill spring` |
-| What changed and may be affected? | diff --base HEAD --target WORKTREE --impact | `skill versions` |
+| Where is changed code? | diff --base HEAD --target WORKTREE | `skill versions` |
+| Which callers may be affected? | diff --base HEAD --target WORKTREE --impact | `skill versions` |
 | Is the index usable/current? | doctor --format json | `skill maintenance` |
 
 For rules not yet loaded, read `skill core`. Load another scene only when the

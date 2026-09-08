@@ -73,7 +73,14 @@ def main():
     parser.add_argument("--native", type=Path)
     parser.add_argument("--java", default="java")
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--validate-schema", action="store_true", help="Validate diff v2 JSON/NDJSON (requires jsonschema).")
     args = parser.parse_args()
+    validator = None
+    if args.validate_schema:
+        from jsonschema import Draft202012Validator
+        schema = json.loads((Path(__file__).resolve().parents[1] / "docs/schema/diff-v2.schema.json").read_text())
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
     if not args.jar and not args.native:
         parser.error("provide --jar, --native, or both")
     runners = {}
@@ -237,6 +244,68 @@ def main():
                 ambiguous = run(mode, ["resolve", "p.Service#overload", "--kind", "callable", "--unique", "--index", db], 2)
                 assert json.loads(ambiguous.stderr)["contract"] == "anatomist-error/v1"
             check(builder + ": incompatible combinations and overload ambiguity fail explicitly")
+
+        print("[diff] frozen navigation, caller origins and v2 contracts", flush=True)
+        diff_project = root / "diff-project"
+        def write_diff(name, text):
+            path = diff_project / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+
+        def git_diff(*argv):
+            return subprocess.run(["git", "-C", str(diff_project), *argv], env=env,
+                                  capture_output=True, text=True, check=True).stdout.strip()
+
+        write_diff("pom.xml", "<project><modelVersion>4.0.0</modelVersion><groupId>p</groupId><artifactId>diff</artifactId><version>1</version></project>")
+        write_diff(".anatomist/config.toml", '[scan]\nscopes = ["MAIN", "TEST"]\n')
+        source = "package p;\npublic class A {\n public int a() { return 1; }\n public int b() { return 2; }\n}\n"
+        write_diff("src/main/java/p/A.java", source)
+        write_diff("src/test/java/p/Check.java", "package p; public class Check { public int check() { A a=new A(); return a.a()+a.b(); } }")
+        git_diff("init", "-q")
+        git_diff("add", ".")
+        git_diff("-c", "user.name=Diff Test", "-c", "user.email=diff@example.test", "commit", "-qm", "base")
+        first_mode = next(iter(runners))
+        base = json.loads(run(first_mode, ["index", diff_project, "--ref", "HEAD", "--no-classpath", "--java-version", "25", "--format", "json"]).stdout)
+        write_diff("src/main/java/p/A.java", source.replace("return 1", "return 3").replace("return 2", "return 4"))
+        last_mode = list(runners)[-1]
+        target = json.loads(run(last_mode, ["index", diff_project, "--ref", "WORKTREE", "--no-classpath", "--java-version", "25", "--format", "json"]).stdout)
+        selection = ["diff", "--project", diff_project, "--base", "snapshot:" + base["id"], "--target", "snapshot:" + target["id"],
+                     "--no-build", "--impact", "--impact-scope", "TEST"]
+        comparisons = []
+        for mode in runners:
+            result = json.loads(run(mode, [*selection, "--format", "json"]).stdout)
+            comparisons.append(result)
+            assert result["contract"] == "anatomist-diff/v2"
+            assert "negative_conclusion_safe" not in result["evidence"]
+            ndjson = [json.loads(line) for line in run(mode, [*selection, "--format", "ndjson"]).stdout.splitlines()]
+            assert ndjson == [result["comparison"], *result["changes"], result["evidence"]]
+            table = run(mode, [*selection, "--format", "table"]).stdout
+            assert "BASE " in table and "impact" in table and "null" not in table
+            impacts = records(result["changes"], "impact")
+            assert len(impacts) == 4, impacts
+            assert all(row["caller"]["scope"] == "TEST" for row in impacts)
+            changes = records(result["changes"], "declaration_change")
+            assert len(changes) == 2, changes
+            for row in changes:
+                for side in ("before", "after"):
+                    anchor = row[side]
+                    route = ["pipeline", "--project", diff_project, "--snapshot", anchor["snapshot_id"], "--scope", anchor["scope"],
+                             "--", "resolve", anchor["id"], "--unique", "--then", "source"]
+                    slices = records(stream(run(mode, route).stdout), "source_slice")
+                    assert slices and "return " in slices[0]["snippet"]
+            if validator:
+                validator.validate(result)
+                for row in ndjson:
+                    validator.validate(row)
+                invalid = json.loads(json.dumps(changes[0]))
+                del invalid["after"]["id"]
+                assert not validator.is_valid(invalid), "schema accepted an unnavigable entity anchor"
+            error = run(mode, ["diff", "--base", "HEAD", "--target", "WORKTREE", "--impact-scope", "TEST"], 2)
+            assert json.loads(error.stderr)["code"] == "INVALID_ARGUMENT"
+        assert all(value == comparisons[0] for value in comparisons)
+        report["diff_comparisons"] = len(comparisons)
+        report["diff_schema_validated"] = bool(validator)
+        check("diff v2: two origins per caller, both snapshots navigable, JSON/NDJSON/table, JAR/native equality")
 
     for mode, path in (("jar", args.jar), ("native", args.native)):
         if path:
