@@ -15,8 +15,10 @@ import tempfile
 import time
 
 
-def run(command, cwd=None, env=None):
+def run(command, cwd=None, env=None, stderr_lines=None):
     result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True, timeout=300)
+    if stderr_lines is not None:
+        stderr_lines.extend(result.stderr.splitlines())
     if result.returncode:
         raise RuntimeError(f"Command failed ({result.returncode}): {command}\n{result.stdout}\n{result.stderr}")
     return result.stdout.strip()
@@ -74,7 +76,21 @@ def main():
             if full:
                 command.append("--full")
             started = time.perf_counter()
-            result = json.loads(run(command, env=env))
+            diagnostics = []
+            result = json.loads(run(command, env=env, stderr_lines=diagnostics))
+            progress = [dict(field.split("=", 1) for field in line.split()[1:])
+                        for line in diagnostics if line.startswith("[anatomist-progress] ")]
+            if result["metrics"].get("baseline") and not result["reused"]:
+                assert len(progress) >= 2, diagnostics
+                assert progress[0]["status"] == "started" and progress[-1]["status"] == "completed", progress
+                assert progress[-1]["percent"] == "100", progress
+                assert int(progress[-1]["total_pages"]) > 0, progress
+                assert progress[-1]["copied_pages"] == progress[-1]["total_pages"], progress
+                assert all(row["phase"] == "sqlite_backup" for row in progress), progress
+                assert all(row["status"] == "running" for row in progress[1:-1]), progress
+                report["backup_progress_checked"] = report.get("backup_progress_checked", 0) + 1
+            else:
+                assert not progress, progress
             return result, round((time.perf_counter() - started) * 1000, 3)
 
         first, full_ms = index("HEAD")

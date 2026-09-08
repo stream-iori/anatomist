@@ -117,9 +117,11 @@ public final class SnapshotService implements SnapshotAccess {
                     long copyStarted=System.nanoTime();
                     if(baseline!=null) {
                         try(IndexLock read=IndexLock.forRead(database(baseline.id()));
-                            Connection connection=DriverManager.getConnection("jdbc:sqlite:"+database(baseline.id()))) {
-                            int result=((org.sqlite.SQLiteConnection)connection).getDatabase().backup("main",db.toString(),null);
+                            Connection connection=DriverManager.getConnection("jdbc:sqlite:"+database(baseline.id()));
+                            BackupProgress progress=new BackupProgress(System.err)) {
+                            int result=((org.sqlite.SQLiteConnection)connection).getDatabase().backup("main",db.toString(),progress);
                             if(result!=0) throw new SnapshotException("SNAPSHOT_COPY_FAILED","SQLite backup returned " + result);
+                            progress.complete();
                         }
                         // The private build root is canonical for every linked checkout of this project.
                         // Historical source indirection must not leak into the unpublished build.

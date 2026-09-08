@@ -12,8 +12,9 @@
 
 | 检查 | 结果 |
 |---|---|
-| `mvn -q test`、最终 `mvn -q package` | 807 项，0 失败，0 错误，5 跳过 |
+| `mvn -q test`、最终 `mvn -q package` | 813 项，0 失败，0 错误，5 跳过 |
 | `GitSnapshotsIT` | 18 项：历史源码、暂存／磁盘隔离、linked worktree、空提交、增删／重命名、merge-base、字段 diff、全量一致性、并发、失败隔离、环境标注、GC、外部源码拒绝发布 |
+| `BackupProgressTest` | 6 项：快速复制、未知／停顿进度、无回调心跳、结束状态、真实 SQLite 复制及失败返回码 |
 | `just golden-update` | 通过；已有场景输出无变化 |
 | GraalVM native 构建 | macOS arm64，`anatomist 1.1.0` |
 | `just smoke`、`just --no-deps native-smoke` | 通过；JAR／native 查询输出一致 |

@@ -70,6 +70,23 @@ conclusions unsafe. Diff only reparses files whose content changed.
 
 ## Cache and lifecycle
 
+SQLite backup reports newline-delimited progress on stderr. Filter the fixed
+`[anatomist-progress]` prefix and parse space-separated `key=value` fields:
+
+```text
+[anatomist-progress] phase=sqlite_backup status=started elapsed_ms=0
+[anatomist-progress] phase=sqlite_backup status=running percent=42 copied_pages=4200 total_pages=10000 elapsed_ms=2000
+[anatomist-progress] phase=sqlite_backup status=completed percent=100 copied_pages=10000 total_pages=10000 elapsed_ms=3100
+```
+
+Start/end are always emitted for an actual backup; running updates appear every
+two seconds, even without new SQLite callbacks. Unknown page counts/percentages
+are omitted. Unchanged percentages are valid heartbeats, not evidence of forward
+progress. `completed` means the backup API returned successfully, not that the
+entire index build succeeded. Failure emits `status=failed` and preserves the
+existing command error. Fast backups have only start/end lines; cache hits and
+builds without a baseline emit none. stdout JSON/NDJSON remains unchanged.
+
 Source content is stored once per SHA-256 under the repository's `blobs/`
 directory. Snapshot manifests preserve paths; published databases point to the
 content cache. Managed detached worktrees are released after capture. Identical
