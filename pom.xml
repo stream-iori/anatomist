@@ -15,8 +15,8 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
-        <revision>1.1.0</revision>
-        <changelist></changelist>
+        <revision>1.2.0</revision>
+        <changelist>-SNAPSHOT</changelist>
 
         <javaparser.version>3.28.2</javaparser.version>
         <sqlite.version>3.47.0.0</sqlite.version>

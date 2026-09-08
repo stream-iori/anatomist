@@ -12,11 +12,10 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Callable;
 
-@Command(
+@Command(modelTransformer = AgentHelp.class,
         name = "index-docs",
         mixinStandardHelpOptions = true,
-        description = "Scan project markdown documents into SQLite documents + doc_content FTS5; "
-                    + "the project must match an existing index."
+        description = "Index project Markdown for related-docs queries."
 )
 public class IndexDocsCommand implements Callable<Integer> {
 

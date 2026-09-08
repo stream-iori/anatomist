@@ -39,34 +39,23 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
-@Command(
+@Command(modelTransformer = AgentHelp.class,
         name = "index",
         mixinStandardHelpOptions = true,
-        description = "Index project sources with an installed language provider into SQLite. Use --format json for a stable Agent summary.",
+        description = "Build or refresh a Java source index. Use --format json for build results.",
         footer = {
                 "",
-                "Versions: index . --ref HEAD or --ref WORKTREE. Git and a valid repository",
-                "are required only for version indexing. WORKTREE captures final disk contents,",
-                "not a separate staging-area version; the user's checkout is not switched.",
-                "Without --ref: full indexing by default. With --ref: try incremental reuse;",
-                "use --full to force reconstruction. --ref excludes --output, --recreate",
-                "and --changed-files-from. Query captures with --ref or --snapshot <id>.",
-                "Backup progress: stderr lines start with [anatomist-progress], followed by",
-                "key=value fields (phase=sqlite_backup, status, elapsed_ms, and known page counts).",
-                "Running heartbeats appear every 2 seconds; fast copies emit only start/end.",
-                "Copy completion is not build success; check exit code and final stdout result.",
+                "Defaults: standalone builds are full; --ref builds attempt incremental reuse.",
+                "Built-in scan: MAIN + GENERATED. Query scope defaults to MAIN.",
+                "--ref requires Git and excludes --output, --recreate and --changed-files-from.",
+                "Configuration selects project .anatomist/config.toml, then user config, then built-ins.",
+                "Files do not merge; CLI flags override. Lombok is off by default.",
+                "Read skill maintenance for configuration/recovery; skill versions for captures.",
                 "",
-                "Configuration: select .anatomist/config.toml, then ~/.anatomist/config.toml,",
-                "otherwise built-in defaults. Files do not merge; missing keys use defaults,",
-                "and CLI options override the selected profile.",
-                "Lombok is off by default. Enable it per project in .anatomist/config.toml:",
-                "  [extensions.lombok]",
-                "  mode = \"ast\"",
-                "Built-in scan: MAIN + GENERATED, include **, no scan exclude.",
-                "Use doctor --format json --index <db> to inspect committed config_source,",
-                "config_path, and scan_policy_hash."
+                "Example: anatomist index . --incremental --format json"
         }
 )
+
 public class IndexCommand implements Callable<Integer> {
     @Option(names="--ref", description="Build an immutable branch, HEAD, commit SHA or WORKTREE snapshot; tries incremental reuse by default.")
     String ref;
@@ -133,10 +122,8 @@ public class IndexCommand implements Callable<Integer> {
     boolean noClasspath;
 
     @Option(names = "--vm-classpath",
-            description = "Add ReflectionTypeSolver so JDK types resolve. "
-                    + "Defaults to true so java.lang.* / java.util.* are visible "
-                    + "without an explicit classpath. Turn off when analysing a "
-                    + "much older target than the running JDK.",
+            description = "Resolve types from the running JDK (default true). "
+                    + "Use false when the target JDK must be isolated.",
             arity = "1")
     Boolean vmClasspath;
 
@@ -157,8 +144,7 @@ public class IndexCommand implements Callable<Integer> {
     boolean full;
 
     @Option(names = "--recreate",
-            description = "Delete the existing SQLite index and sidecar files before full indexing. "
-                    + "Useful when schema or stale-table state is suspect. Disables incremental mode.")
+            description = "Replace an incompatible or damaged standalone index with a full rebuild. Disables incremental mode.")
     boolean recreate;
 
     @Option(names = "--max-realign-files",
@@ -167,11 +153,10 @@ public class IndexCommand implements Callable<Integer> {
     int maxRealignFiles;
 
     @Option(names = "--spring-xml", negatable = true,
-            description = "Also parse Spring bean XML (<beans>) configs into BEAN nodes "
-                    + "+ DEFINED_BY / WIRES edges. Off by default.")
+            description = "Index Spring bean XML declarations and configuration bindings (default off).")
     Boolean springXml;
 
-    @Option(names = "--lombok", description = "Lombok structural model: off | ast. AST mode adds signature evidence and structured edge lombok_usage; it does not run Lombok or read bytecode. Off by default; project config key: [extensions.lombok] mode.")
+    @Option(names = "--lombok", description = "Lombok evidence: off | ast (default off). AST models declarations and source usage; it does not prove generated execution. Config: [extensions.lombok] mode.")
     String lombokMode;
 
     @Option(names = "--debug",

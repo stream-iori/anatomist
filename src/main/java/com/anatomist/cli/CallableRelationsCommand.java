@@ -10,14 +10,14 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="callable-relations", mixinStandardHelpOptions=true,
-        description="Return override and interface-contract callable facts.",
-        footer="%nAccepts: entity(callable)%nEmits: callable_relation + evidence%nOperation: callable-relations; inspect with: anatomist operations callable-relations")
+@Command(modelTransformer = AgentHelp.class, name="callable-relations", mixinStandardHelpOptions=true,
+        description = "Find overridden contracts or overriding methods.",
+        footer = "%nBoundary: Method override and interface-contract facts, not call sites.%n%nExample:%n  anatomist pipeline -- resolve 'p.Api#run()' --kind callable --exact --unique --then callable-relations --direction incoming")
 public final class CallableRelationsCommand extends TransformSemanticCommand {
-    @Option(names="--direction", defaultValue="outgoing") String direction;
-    @Option(names="--transitive") boolean transitive;
-    @Option(names="--max-depth", defaultValue="20") int maxDepth;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--direction", defaultValue="outgoing", description="outgoing: overridden methods/contracts; incoming: overriding methods (default outgoing).") String direction;
+    @Option(names="--transitive", description="Include indirect overrides/contracts (default false).") boolean transitive;
+    @Option(names="--max-depth", defaultValue="20", description="Maximum override traversal depth; >=1 (default 20).") int maxDepth;
+    @Option(names="--limit", defaultValue="50", description="Maximum relations per entity; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords() { return Set.of("entity"); }
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer) {
         direction = CliValidation.choice("--direction", direction, "outgoing", "incoming");

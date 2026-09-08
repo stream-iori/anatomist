@@ -23,12 +23,12 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name = "calls", mixinStandardHelpOptions = true,
-        description = "Return direct source call sites; dispatch/override expansion is not included.",
-        footer = "%nAccepts: callable entity%nEmits: call_site + evidence%nOperation: calls; inspect with: anatomist operations calls%nDefault limits: 50 sites/entity; hard max 100000%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist calls --direction outgoing")
+@Command(modelTransformer = AgentHelp.class, name = "calls", mixinStandardHelpOptions = true,
+        description = "Find direct callers or call sites in a method.",
+        footer = "%nBoundary: Static call sites, not observed execution. Source on a site reads the call location, not the target body.%n%nExample:%n  anatomist pipeline -- resolve 'p.Service#run()' --kind callable --exact --unique --then calls")
 public final class CallsCommand extends TransformSemanticCommand {
     @Option(names = "--direction", defaultValue = "outgoing",
-            description = "Direction: outgoing | incoming (default outgoing).")
+            description = "outgoing: calls made by the method; incoming: calls to it (default outgoing).")
     String direction;
 
     @Option(names = "--limit", defaultValue = "50",

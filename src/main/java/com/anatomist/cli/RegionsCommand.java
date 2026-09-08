@@ -12,12 +12,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="regions", mixinStandardHelpOptions=true,
-        description="Return indexed control regions owned by a callable.",
-        footer="%nAccepts: entity(callable)%nEmits: control_region + evidence%n%nExample:%n  anatomist resolve 'p.Type#run()' --kind callable --unique | anatomist regions | anatomist sites-in")
+@Command(modelTransformer = AgentHelp.class, name="regions", mixinStandardHelpOptions=true,
+        description = "Find branch/loop contexts observed on indexed calls and accesses.",
+        footer = "%nBoundary: Only contexts observed on indexed calls/reads/writes; empty results do not prove absence of syntax branches.%n%nExample:%n  anatomist pipeline -- resolve 'p.Service#run()' --kind callable --exact --unique --then regions --kind all")
 public final class RegionsCommand extends TransformSemanticCommand {
-    @Option(names="--kind", defaultValue="branch") String kind;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--kind", defaultValue="branch", description="Observed context kind: branch | loop | all (default branch).") String kind;
+    @Option(names="--limit", defaultValue="50", description="Maximum contexts per seed; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}
     @Override protected Result execute(QueryService query,SemanticIdentity identity,SemanticStreamWriter writer){
         kind=CliValidation.choice("--kind",kind,"branch","loop","all");CliValidation.positive("--limit",limit);

@@ -10,14 +10,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="runtime-implementations", mixinStandardHelpOptions=true,
-        description="Derive instantiable Java implementations with an explicit proof and world assumption.",
-        footer="%nAccepts: entity(type)%nEmits: entity + evidence%nOperation: runtime-implementations; inspect with: anatomist operations runtime-implementations%n%nExample:%n  anatomist resolve p.Api --kind type --exact --unique | anatomist runtime-implementations --instantiability yes")
+@Command(modelTransformer = AgentHelp.class, name="runtime-implementations", mixinStandardHelpOptions=true,
+        description = "Find statically instantiable implementation candidates.",
+        footer = "%nBoundary: Static candidates, not live objects. Open-world evidence may remain partial.%n%nExample:%n  anatomist pipeline -- resolve p.Api --kind type --unique --then runtime-implementations")
 public final class RuntimeImplementationsCommand extends TransformSemanticCommand {
-    @Option(names="--instantiability", defaultValue="yes") String instantiability;
-    @Option(names="--world", defaultValue="workspace-open") String world;
-    @Option(names="--max-depth", defaultValue="20") int maxDepth;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--instantiability", defaultValue="yes", description="Candidate instantiability: yes | unknown | all (default yes).") String instantiability;
+    @Option(names="--world", defaultValue="workspace-open", description="Evidence scope: workspace-open | workspace-closed | classpath-open (default workspace-open). Closed assumes the workspace is exhaustive.") String world;
+    @Option(names="--max-depth", defaultValue="20", description="Maximum inheritance traversal depth; >=1 (default 20).") int maxDepth;
+    @Option(names="--limit", defaultValue="50", description="Maximum candidates per entity; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords() { return Set.of("entity"); }
 
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer) {

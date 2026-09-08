@@ -10,9 +10,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="describe", mixinStandardHelpOptions=true,
-        description="Return facts about the input entity without relation traversal.",
-        footer="%nAccepts: entity%nEmits: declaration + evidence%n%nExample:%n  anatomist resolve p.Type --kind type --unique | anatomist describe | anatomist source")
+@Command(modelTransformer = AgentHelp.class, name="describe", mixinStandardHelpOptions=true,
+        description = "Read declaration metadata for an entity.",
+        footer = "%nBoundary: Declaration metadata only. Source accepts this output; members requires the original entity.%n%nExample:%n  anatomist pipeline -- resolve p.Service --kind type --unique --then describe")
 public final class DescribeCommand extends TransformSemanticCommand {
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}
     @Override protected Result execute(QueryService query,SemanticIdentity identity,SemanticStreamWriter writer){

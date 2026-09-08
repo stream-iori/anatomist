@@ -4,40 +4,24 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.HelpCommand;
 
-@Command(
+@Command(modelTransformer = AgentHelp.class,
         name = "anatomist",
         mixinStandardHelpOptions = true,
         versionProvider = BuildVersionProvider.class,
-        description = "Provider-aware code intelligence with a semantic-stream/v1 query contract.",
+        description = "Locate Java source, inspect relationships and compare versions.",
         header = {
                 "",
-                "@|bold anatomist|@ — Java code intelligence for Agent LLMs",
+                "@|bold anatomist|@ — Java source evidence for agents",
                 ""
         },
         footer = {
                 "",
-                "@|bold Quick Start:|@",
-                "  anatomist index /path/to/project          Index a Java project",
-                "  anatomist skill topics                   Choose Agent task guidance",
-                "  anatomist doctor --format json            Check CLI/schema/index",
-                "  anatomist operations calls --index index.db  Inspect one operation",
-                "  anatomist index . --format json           Build index JSON summary",
-                "  anatomist index . --ref HEAD              Capture a Git version",
-                "  anatomist diff --base HEAD --target WORKTREE --impact",
-                "  anatomist overview                       Structural baseline",
-                "  anatomist search OrderService             Find entity candidates",
-                "  anatomist pipeline --index index.db -- resolve 'Class#method()'",
-                "    --kind callable --exact --unique --then calls --then source",
-                "  anatomist pipeline --help                 Learn fused pipeline rules",
-                "  anatomist declarations-of --file src/main/java/com/example/MyClass.java",
+                "Read a method:",
+                "  anatomist pipeline -- resolve 'p.Service#run()' --kind callable --exact --unique --then source",
                 "",
-                "@|bold Workflow:|@ index → query (index is slow, queries are ms-level)",
-                "@|bold Output:|@   Query commands emit semantic-stream/v1; NDJSON is the default.",
-                "@|bold Versions:|@ diff emits anatomist-diff/v1; see index/diff/snapshots --help.",
-                "@|bold Progress:|@ Backup diagnostics use [anatomist-progress] on stderr; stdout remains results.",
-                "@|bold Inspect:|@  Use help, operations <operation>, doctor, explain or check when needed.",
-                "@|bold Compose:|@  Prefer pipeline for linear multi-stage queries; use Shell for external tools or distinct scopes.",
-                ""
+                "Start: anatomist skill core       Task routes: anatomist skill topics",
+                "Arguments: <command> --help       Contracts: operations <command>",
+                "Index setup/recovery: skill maintenance; version questions: skill versions."
         },
         commandListHeading = "%n@|bold Commands:|@%n",
         subcommands = {
@@ -101,6 +85,7 @@ public class AnatomistCli implements Runnable {
             if (command != null) {
                 CommandLine line = new CommandLine(new RuntimeRoot())
                         .addSubcommand(args[0], command);
+                AgentHelp.configure(line.getCommandSpec());
                 if (command instanceof SemanticCommand
                         || command instanceof PipelineCommand
                         || command instanceof OperationsCommand
@@ -144,9 +129,9 @@ public class AnatomistCli implements Runnable {
         };
     }
 
-    @Command(name = "anatomist", mixinStandardHelpOptions = true,
+    @Command(modelTransformer = AgentHelp.class, name = "anatomist", mixinStandardHelpOptions = true,
             versionProvider = BuildVersionProvider.class,
-            description = "Provider-aware code intelligence with a semantic-stream/v1 query contract.")
+            description = "Locate Java source, inspect relationships and compare versions.")
     private static final class RuntimeRoot implements Runnable {
         @Override public void run() { }
     }

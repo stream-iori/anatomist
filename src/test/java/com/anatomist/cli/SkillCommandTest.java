@@ -28,7 +28,12 @@ class SkillCommandTest {
         CliTestSupport.RunResult unknown = run("skill", "unknown");
         assertEquals(2, unknown.exitCode());
         assertTrue(unknown.stderr().contains("unknown skill scene"), unknown.stderr());
-        assertTrue(unknown.stderr().contains("core, explore, trace"), unknown.stderr());
+        for (String scene : SkillCommand.SCENES) assertTrue(unknown.stderr().contains(scene));
+        for (String old : java.util.List.of("branch", "flow")) {
+            var removedScene = run("skill", old);
+            assertEquals(2, removedScene.exitCode());
+            assertTrue(removedScene.stderr().contains("anatomist skill source"));
+        }
 
         CliTestSupport.RunResult removed = run("--skill", "flow");
         assertEquals(2, removed.exitCode());
@@ -57,22 +62,15 @@ class SkillCommandTest {
     }
 
     @Test
-    void indexAndDoctorHelpExposeConfigurationContracts() throws Exception {
-        CliTestSupport.RunResult index = run("index", "--help");
-        assertEquals(0, index.exitCode(), index.stderr());
-        assertTrue(index.stdout().contains("otherwise built-in defaults"), index.stdout());
-        assertTrue(index.stdout().contains("Built-in scan: MAIN + GENERATED"), index.stdout());
-        assertTrue(index.stdout().contains("Precedence: CLI,"), index.stdout());
-        assertTrue(index.stdout().contains("Maven/Gradle, then Java 8."), index.stdout());
-        assertTrue(index.stdout().contains("Add TEST to effective scan scopes"), index.stdout());
-        assertTrue(index.stdout().contains("Lombok is off by default"), index.stdout());
-        assertTrue(index.stdout().contains("[extensions.lombok]"), index.stdout());
-
-        CliTestSupport.RunResult doctor = run("doctor", "--help");
-        assertEquals(0, doctor.exitCode(), doctor.stderr());
-        assertTrue(doctor.stdout().contains("config_source"), doctor.stdout());
-        assertTrue(doctor.stdout().contains("config_path"), doctor.stdout());
-        assertTrue(doctor.stdout().contains("scan_policy_hash"), doctor.stdout());
+    void allSceneLinksResolve() throws Exception {
+        var texts = new java.util.ArrayList<String>();
+        texts.add(java.nio.file.Files.readString(java.nio.file.Path.of("SKILL.md")));
+        for (String scene : SkillCommand.SCENES) texts.add(run("skill", scene).stdout());
+        var links = java.util.regex.Pattern.compile("skill ([a-z]+)");
+        for (String content : texts) {
+            var matcher = links.matcher(content);
+            while (matcher.find()) assertEquals(0, run("skill", matcher.group(1)).exitCode(), matcher.group());
+        }
     }
 
     private static CliTestSupport.RunResult run(String... args) throws Exception {

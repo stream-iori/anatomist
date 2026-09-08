@@ -11,20 +11,24 @@ import java.util.Locale;
 import java.util.concurrent.Callable;
 
 /** Emits small, task-oriented decision guides for Agent callers. */
-@Command(name = "skill", mixinStandardHelpOptions = true,
-        description = "Show Agent decision guidance for one structural-analysis scene.")
+@Command(modelTransformer = AgentHelp.class, name = "skill", mixinStandardHelpOptions = true,
+        description = "Choose queries and interpret evidence for one task.")
 public final class SkillCommand implements Callable<Integer> {
 
     static final List<String> SCENES = List.of(
-            "core", "explore", "trace", "branch", "relations", "spring", "flow", "topics");
+            "core", "topics", "explore", "source", "trace", "relations", "spring", "versions", "maintenance");
 
     @Parameters(index = "0", arity = "0..1", defaultValue = "core",
-            description = "Scene: core | explore | trace | branch | relations | spring | flow | topics.")
+            description = "Guide: core (default) | topics | explore | source | trace | relations | spring | versions | maintenance.")
     String scene;
 
     @Override
     public Integer call() {
         String selected = scene == null ? "core" : scene.trim().toLowerCase(Locale.ROOT);
+        if ("branch".equals(selected) || "flow".equals(selected)) {
+            System.err.println("ERROR: skill " + selected + " was removed; use anatomist skill source");
+            return 2;
+        }
         if (!SCENES.contains(selected)) {
             System.err.println("ERROR: unknown skill scene '" + scene + "'; use one of: "
                     + String.join(", ", SCENES));

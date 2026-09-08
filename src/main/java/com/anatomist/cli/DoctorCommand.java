@@ -14,9 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 
-@Command(name = "doctor",
+@Command(modelTransformer = AgentHelp.class, name = "doctor",
         mixinStandardHelpOptions = true,
-        description = "Report anatomist runtime, index, schema, and Agent-facing capabilities.",
+        description = "Inspect index identity, freshness, health and capabilities.",
         footer = {
                 "",
                 "JSON includes committed config_source, config_path, and scan_policy_hash."

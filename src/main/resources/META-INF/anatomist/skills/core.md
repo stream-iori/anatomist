@@ -1,48 +1,27 @@
-# Core workflow
+# Query and evidence rules
 
-Use the index belonging to the exact checkout under analysis. Prefer
-`index --incremental`; recreate after extractor or semantic policy changes.
+Use an index for the intended checkout or captured version. Query scope defaults
+to MAIN; select TEST, GENERATED or ALL when needed and ensure those sources were indexed.
 
-For Git history, build `index . --ref <Git-ref|WORKTREE>` and query with
-`--snapshot <id>` (or `--ref` for an already indexed version). Historical source
-is frozen; do not refresh it from the live checkout. `diff --base HEAD --target
-WORKTREE` captures current disk content and compares both versions using
-`anatomist-diff/v1`. Keep each ordinary semantic pipeline on one snapshot;
-never feed records from one revision into another. Different environments and
-incomplete diff evidence prohibit source-only or negative conclusions.
+For one known method, read its source directly:
 
-Ordinary indexing works without Git; version commands require Git and a valid
-repository. Version builds try compatible incremental reuse by default;
-`--full` forces reconstruction. Do not use `--recreate` on published snapshots.
-
-Backup diagnostics go to stderr as `[anatomist-progress]` followed by
-space-separated `key=value` fields. `phase=sqlite_backup` emits `status=started`,
-then `running` every two seconds, ending with `completed` or `failed`.
-`percent`, `copied_pages`, and `total_pages` appear when known; `elapsed_ms`
-continues during stalls. An unchanged percentage is a heartbeat, not proof of
-forward progress. `completed` means only the copy succeeded: require the command
-exit code and final stdout result to judge the build. Do not feed diagnostics
-into semantic pipelines. Fast copies have only start/end; cache hits have none.
-
-```text
-direct call evidence   resolve exact callable → calls → source
-virtual candidates     resolve exact callable → calls → dispatch → source
-changed file           declarations-of --file <project-relative.java>
+```bash
+anatomist pipeline -- resolve 'p.Service#run()' --kind callable --exact --unique --then source
 ```
 
-Use command `--help`, `operations <operation>`, `pipeline --explain`,
-`pipeline --check`, and `doctor` only when their information is needed. They are
-diagnostic tools, not mandatory setup steps.
+| Decision | Rule |
+|---|---|
+| Locate a target | Known ID/signature: resolve directly. Otherwise search, inspect candidates, then select an exact target. |
+| Combine queries | Use pipeline for linear stages on one index, module and scope. Put shared options before `--`; separate stages with `--then`. |
+| Read evidence | NDJSON starts with stream_header and ends with evidence(scope=stream). Missing final evidence makes the stream unusable. |
+| Conclude absence | Require complete coverage and negative_conclusion_safe=true for the question's selected scope. |
+| Incomplete results | Retain positive facts, disclose missing coverage, and follow pagination or obtain further evidence where the conclusion requires it. |
+| Interpret execution | Calls, dispatch candidates and configuration bindings are static evidence; actual execution requires runtime evidence. |
+| Handle failure | Use the structured error code. Query success, coverage and negative-conclusion safety are separate judgments. |
 
-For configuration failures, inspect `doctor --format json` fields
-`config_source`, `config_path`, and `scan_policy_hash`; the profile committed into the index
-changes when policy changes and then requires re-indexing.
+Stop when the evidence answers the question. Read `skill topics` only to choose
+another task route. Read command help for unclear arguments, `operations <command>`
+for contracts/support, `pipeline --explain` for composition, and `pipeline --check`
+for index availability. These are optional inspections, not setup steps.
 
-Prefer fused `pipeline` for two or more linear stages. A valid NDJSON stream
-starts with `stream_header`, has one evidence record per logical seed, and ends
-with `evidence(scope=stream)`. Missing final evidence is failure. Absence is safe
-only with complete coverage and `negative_conclusion_safe=true`.
-
-`calls` reports source syntax and static targets. `dispatch` reports possible
-virtual targets, never observed runtime execution. Query failures use structured
-`anatomist-error/v1` codes.
+For missing/stale indexes or degraded health, read `skill maintenance`.

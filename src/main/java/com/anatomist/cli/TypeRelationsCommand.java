@@ -11,15 +11,15 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name = "type-relations", mixinStandardHelpOptions = true,
-        description = "Return Java type facts without mixing subtype and conformance closure.",
-        footer = "%nAccepts: entity(type)%nEmits: type_relation + evidence%nOperation: type-relations; inspect with: anatomist operations type-relations%n%nExample:%n  anatomist resolve p.Api --kind type --exact --unique | anatomist type-relations --direction incoming")
+@Command(modelTransformer = AgentHelp.class, name = "type-relations", mixinStandardHelpOptions = true,
+        description = "Inspect parent types, subtypes and interface conformance.",
+        footer = "%nBoundary: Inheritance and interface conformance are separate relations; external types can leave coverage partial.%n%nExample:%n  anatomist pipeline -- resolve p.Api --kind type --unique --then type-relations --direction incoming")
 public final class TypeRelationsCommand extends TransformSemanticCommand {
-    @Option(names="--direction", defaultValue="outgoing") String direction;
-    @Option(names="--semantic", defaultValue="any") String semantic;
-    @Option(names="--transitive") boolean transitive;
-    @Option(names="--max-depth", defaultValue="20") int maxDepth;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--direction", defaultValue="outgoing", description="outgoing: parents/contracts; incoming: subtypes/implementations (default outgoing).") String direction;
+    @Option(names="--semantic", defaultValue="any", description="Relation: any | subtype-of | conforms-to (default any).") String semantic;
+    @Option(names="--transitive", description="Include indirect relations (default false).") boolean transitive;
+    @Option(names="--max-depth", defaultValue="20", description="Maximum relation traversal depth; >=1 (default 20).") int maxDepth;
+    @Option(names="--limit", defaultValue="50", description="Maximum relations per entity; 1..100000 (default 50).") int limit;
 
     @Override protected Set<String> acceptedInputRecords() { return Set.of("entity"); }
 

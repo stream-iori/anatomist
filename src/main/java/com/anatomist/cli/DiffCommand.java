@@ -10,14 +10,13 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.Callable;
 
-@Command(name="diff",mixinStandardHelpOptions=true,description="Compare immutable Git/WORKTREE snapshots; build missing endpoints by default.",
+@Command(modelTransformer = AgentHelp.class, name="diff",mixinStandardHelpOptions=true,description="Compare immutable Git/WORKTREE snapshots; build missing endpoints by default.",
         footer={"", "Examples: diff --base HEAD --target WORKTREE --impact",
                 "          diff --base main --target feature --merge-base",
                 "Requires Git; does not switch the user's checkout. Moving refs are resolved before building.",
                 "Output uses anatomist-diff/v1, not semantic-stream/v1; do not pipe diff into semantic queries.",
                 "Environment differences and incomplete/truncated evidence make negative conclusions unsafe.",
-                "Automatic builds may emit [anatomist-progress] key=value lines on stderr every 2 seconds",
-                "during SQLite backup. A completed copy is not command success; check exit code and final result."})
+                "Read skill versions for capture selection and skill maintenance for index recovery."})
 public final class DiffCommand implements Callable<Integer> {
     @Option(names="--base",required=true,description="Base branch, HEAD, SHA, WORKTREE or snapshot:<id>.") String base;
     @Option(names="--target",required=true,description="Target selector; WORKTREE captures current disk content unless --no-build.") String target;

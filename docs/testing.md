@@ -306,3 +306,21 @@ jobs:
 
 **触发约定**：Surefire 默认同时包含 `*Test` 和 `*IT`；使用
 `mvn test -Dtest=<ClassName>` 只是在本地缩小回归范围。
+
+## Agent 帮助与场景验收（1.2）
+
+`AgentHelpTest` 检查公开参数说明、根命令分组、三种 help 入口的一致性、真实输入输出契约和示例组合。
+`SkillCommandTest` 检查所有场景及导航引用，并验证已删除场景的替代提示。
+
+```bash
+python3 scripts/agent-help-e2e.py --jar target/anatomist.jar --native target/anatomist --report target/agent-help-e2e.json
+python3 scripts/snapshots-e2e.py --native target/anatomist --files 20 --repeats 1 --report target/snapshots-native.json
+```
+
+第一条可只传 `--jar` 或 `--native`；JAR 使用 `--java` 指定 Java 25。
+验收脚本在临时项目中实际执行 20 个语义命令的帮助示例，并覆盖分派现场、声明源码、分页、
+重载歧义、TEST scope、XML 成员绑定和不兼容管道。双运行器模式在每个生成的索引上比较完整查询证据。
+快照脚本补充历史源码、WORKTREE、版本差异和生命周期验证。
+
+本地 macOS 构建使用 `.sdkmanrc` 中的 GraalVM：`mvn -Pnative clean package`。
+以原生程序 `--version`、`file target/anatomist` 和上述运行报告共同确认产物。

@@ -9,12 +9,12 @@ import picocli.CommandLine.Option;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="sites-in", mixinStandardHelpOptions=true,
-        description="Enumerate indexed call/access sites inside one control region.",
-        footer="%nAccepts: control_region%nEmits: call_site | access_site + evidence%n%nExample:%n  anatomist resolve 'p.Type#run()' --kind callable --unique | anatomist regions | anatomist sites-in --record call_site")
+@Command(modelTransformer = AgentHelp.class, name="sites-in", mixinStandardHelpOptions=true,
+        description = "List calls and accesses with a matching recorded context.",
+        footer = "%nBoundary: Matches the exact recorded context; nested contexts may be separate. Read owner source to explain conditions.%n%nExample:%n  anatomist pipeline -- resolve 'p.Service#run()' --kind callable --exact --unique --then regions --kind all --then sites-in")
 public final class SitesInCommand extends TransformSemanticCommand {
-    @Option(names="--record", defaultValue="all") String recordType;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--record", defaultValue="all", description="Site kind: call_site | access_site | all (default all).") String recordType;
+    @Option(names="--limit", defaultValue="50", description="Maximum sites per seed; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("control_region");}
     @Override protected Result execute(QueryService query,SemanticIdentity identity,SemanticStreamWriter writer){
         recordType=CliValidation.choice("--record",recordType,"call_site","access_site","all");CliValidation.positive("--limit",limit);

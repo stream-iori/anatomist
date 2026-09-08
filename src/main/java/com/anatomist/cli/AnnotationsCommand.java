@@ -12,9 +12,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="annotations", mixinStandardHelpOptions=true,
-        description="Return direct source annotations; optionally expand bounded meta-annotations.",
-        footer="%nAccepts: entity%nEmits: annotation + evidence%nOperation: annotations; inspect with: anatomist operations annotations%n%nExample:%n  anatomist search Checkout --kind type --format ndjson | anatomist resolve --unique | anatomist annotations --include-meta")
+@Command(modelTransformer = AgentHelp.class, name="annotations", mixinStandardHelpOptions=true,
+        description = "Read direct or composed annotations on a declaration.",
+        footer = "%nBoundary: Direct by default. Meta expansion does not rewrite @AliasFor attributes.%n%nExample:%n  anatomist pipeline -- resolve p.Service --kind type --unique --then annotations")
 public final class AnnotationsCommand extends TransformSemanticCommand {
     @Option(names="--include-meta", description="Include cycle-safe meta-annotation closure (max depth 16); direct annotations remain marked direct=true.")
     boolean includeMeta;

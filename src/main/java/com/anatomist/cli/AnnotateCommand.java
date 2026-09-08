@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
-@Command(name = "annotate",
+@Command(modelTransformer = AgentHelp.class, name = "annotate",
         mixinStandardHelpOptions = true,
         description = "Write user-supplied semantic annotations to the index.")
 public class AnnotateCommand implements Callable<Integer> {

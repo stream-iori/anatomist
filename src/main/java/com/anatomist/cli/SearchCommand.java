@@ -14,22 +14,22 @@ import picocli.CommandLine.Parameters;
 import java.util.List;
 import java.util.Locale;
 
-@Command(name = "search",
+@Command(modelTransformer = AgentHelp.class, name = "search",
         mixinStandardHelpOptions = true,
-        description = "Find indexed entities using the semantic-stream/v1 contract.",
-        footer = "%nAccepts: CLI selector%nEmits: entity_candidate | result_count + evidence%nOperation: search; inspect with: anatomist operations search%n%nExamples:%n  search OrderService%n  search PaymentGateway --kind type --format ndjson%n  search --name '*Plugin' --kind type%n  search Facade --count%n  search @Deprecated --by-annotation")
+        description = "Find declaration candidates by name or annotation.",
+        footer = "%nBoundary: Inspect candidates before resolve --unique; count output cannot feed resolve.%n%nExample:%n  anatomist search Service --kind type")
 public class SearchCommand extends SemanticCommand {
 
     @Parameters(index = "0", arity = "0..1", description = "Search term (e.g. OrderService, @Deprecated). Omit when using --name.")
     String term;
 
-    @Option(names = "--kind", description = "Filter by node kind (CLASS, METHOD, ..., EXTERNAL_CLASS for virtual classpath targets).")
+    @Option(names = "--kind", description = "Entity kind: type | callable | value | artifact | component | config_entity | entity, or uppercase storage kind (e.g. METHOD).")
     String kind;
 
-    @Option(names = "--limit", description = "Max results. Default 20.")
+    @Option(names = "--limit", description = "Maximum candidates; 1..100000 (default 20).")
     int limit = 20;
 
-    @Option(names = "--offset", description = "Skip N results for pagination. Default 0.")
+    @Option(names = "--offset", description = "Rows to skip; >=0 (default 0).")
     int offset = 0;
 
     @Option(names = "--name", description = "Precise simple-name match against label (glob: * ?, e.g. '*Plugin'); includes virtual external types unless another kind is selected.")

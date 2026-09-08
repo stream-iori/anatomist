@@ -1,20 +1,20 @@
-# Call-trace decision guide
+# Calls and focused routes
 
-| Question | Stages |
-|---|---|
-| Direct source calls | `resolve callable --exact --unique → calls` |
-| Possible virtual targets | `... → calls → dispatch` |
-| Direct callers | `resolve callable --exact --unique → calls --direction incoming` |
-| Focused route A → B | `resolve A --kind callable --exact --unique → trace --to B` |
-| Source proof for a site | `... → calls [→ dispatch] → source` |
+| Question | First query | Continue when |
+|---|---|---|
+| Direct callers | resolve callable → calls --direction incoming | The calling arguments or condition matter: source on the returned site. |
+| Direct calls | resolve callable → calls | The call syntax matters: source on the returned site. |
+| Possible virtual targets | resolve callable → calls → dispatch | Behavior matters: select a candidate's exact callable and resolve → source. |
+| Route A to B | resolve A → trace --to B | Read selected hop methods in separate resolve → source queries. |
 
-Arrows are stage boundaries. Execute linear stages with
-`pipeline --index <db> -- <stage> --then <stage>`.
+Use full method signatures for both endpoints. Select overloads before tracing.
+`calls` reports source call sites and static resolution. `dispatch` adds possible
+virtual targets. Configuration bindings can constrain possibilities, not create calls.
 
-Use full signatures for single endpoints. Partial names may resolve several overloads;
-pick one entity before tracing. `calls` proves source syntax plus static resolution.
-`dispatch` and `trace --dispatch possible` add static candidates, never runtime proof.
+`trace` returns one path within --max-depth, not all paths. An empty bounded search
+cannot rule out longer routes or unresolved calls. Trace records cannot be piped to
+source; select and resolve the relevant endpoint/hop instead.
 
-Limits and open-world evidence are independent. An empty bounded trace is not absence
-proof unless final evidence is complete and negative-safe. Reflection is evidence only
-when the output identifies a concrete inferred target.
+Use `trace --dispatch possible` only when virtual candidates are relevant. Neither
+that mode nor dispatch proves execution. Reflection evidence requires a concrete
+inferred target in the result.

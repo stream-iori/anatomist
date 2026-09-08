@@ -10,14 +10,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="members", mixinStandardHelpOptions=true,
-        description="Enumerate direct or recursive contained entities.",
-        footer="%nAccepts: entity container%nEmits: entity + evidence%n%nExample:%n  anatomist search application-context.xml --kind artifact --format ndjson | anatomist resolve --unique | anatomist members --recursive")
+@Command(modelTransformer = AgentHelp.class, name="members", mixinStandardHelpOptions=true,
+        description = "List members of a type or configuration container.",
+        footer = "%nBoundary: Containment only; use type-relations for inheritance.%n%nExample:%n  anatomist pipeline -- resolve p.Service --kind type --unique --then members")
 public final class MembersCommand extends TransformSemanticCommand {
-    @Option(names="--recursive") boolean recursive;
-    @Option(names="--kind") String kind;
-    @Option(names="--max-depth", defaultValue="20") int maxDepth;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--recursive", description="Include nested members (default false).") boolean recursive;
+    @Option(names="--kind", description="Filter one semantic entity kind, e.g. type, callable or value.") String kind;
+    @Option(names="--max-depth", defaultValue="20", description="Containment depth with --recursive; >=1 (default 20).") int maxDepth;
+    @Option(names="--limit", defaultValue="50", description="Maximum members per seed; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords(){ return Set.of("entity"); }
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer){
         CliValidation.positive("--max-depth", maxDepth); CliValidation.positive("--limit", limit);

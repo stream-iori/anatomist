@@ -1,14 +1,14 @@
 # anatomist
 
-Java 代码结构索引与查询工具。源码事实写入 SQLite，单版本查询使用 `semantic-stream/v1` NDJSON 管道。1.1.0 新增 Git／WORKTREE 增量多版本索引与语义 diff。
+Java 源码定位、关系查询和版本比较工具。单版本查询返回 `semantic-stream/v1` 证据。
+1.2.0-SNAPSHOT 重整 Agent 帮助与场景入口，见 [1.2 迁移说明](docs/migration-1.2.md)。
 
 ```bash
-anatomist index . --ref HEAD
-anatomist diff --base HEAD --target WORKTREE --impact
-anatomist snapshots list
+anatomist skill core    # 首次读取最小规则
+anatomist skill topics  # 需要选路时读取
 ```
 
-详见 [Git 多版本索引](docs/git-snapshots.md) 和 [1.1.0 迁移说明](docs/migration-1.1.md)。不指定版本时保留原有命令行为。
+Git／WORKTREE 索引与比较见 [Git 多版本索引](docs/git-snapshots.md)。
 
 ```text
 Java source ── index ──> SQLite snapshot ── semantic pipeline ──> evidence
@@ -33,18 +33,16 @@ java -jar target/anatomist.jar pipeline --index /tmp/shop.db -- \
   --then members --recursive
 ```
 
-调用与源码证据：
+读取精确方法源码：
 
 ```bash
 java -jar target/anatomist.jar pipeline --index /tmp/shop.db -- \
   resolve 'com.example.shop.service.OrderService#createOrder(com.example.shop.domain.dto.CreateOrderRequest)' \
     --kind callable --exact --unique \
-  --then calls \
-  --then dispatch \
   --then source
 ```
 
-`pipeline` 在一个进程、一条只读 SQLite 连接中执行所有段。原 Shell 管道仍可用；两种方式输出相同的 `semantic-stream/v1` 字节。最终 `evidence` 不是 `complete` 时，不能据此断言“没有结果”。
+同一索引和范围的多段查询使用 `pipeline`。需要调用关系时再接 `calls`，需要虚调用候选时再接 `dispatch`。最终证据不完整时，不能据此断言不存在。
 
 ## 1.0 查询模型
 

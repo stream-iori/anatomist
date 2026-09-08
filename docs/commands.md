@@ -1,8 +1,24 @@
-# Anatomist 1.1 命令参考
+# Anatomist 1.2 命令参考
 
 单版本查询使用 `semantic-stream/v1`。多版本比较使用独立的 `anatomist-diff/v1`，不混合两版管道身份。
 
-| 1.1 新接口 | 用途 |
+## Agent 信息入口
+
+| 需要的信息 | 入口 |
+|---|---|
+| 最小查询与证据规则 | `anatomist skill core`，首次使用时读取 |
+| 常见问题的直接查询 | `anatomist skill topics`，选路不清楚时读取 |
+| 具体任务的继续条件与边界 | `skill explore/source/trace/relations/spring/versions/maintenance`，选择其中一个 |
+| 参数、默认值、输入输出 | `<command> --help` |
+| 机器可读契约与支持状态 | `operations <command>` |
+| 组合是否合法 | `pipeline --explain` |
+| 索引能力是否可用 | `pipeline --check`；健康/新鲜度问题使用 `doctor` |
+
+已知完整方法签名时直接 `resolve --kind callable --exact --unique → source`。
+`search` 用于发现候选；选择目标后再查询，不把歧义候选强行接入 `resolve --unique`。
+方法逻辑、分支和值传播统一使用 `skill source`；`skill branch` 和 `skill flow` 已删除。
+
+| 版本接口 | 用途 |
 |---|---|
 | `index . --ref HEAD` | 保存提交快照，默认尝试增量 |
 | `index . --ref WORKTREE` | 冻结当前磁盘内容 |
@@ -71,7 +87,7 @@ anatomist pipeline --check --index <db> -- resolve p.A --kind type --unique --th
 
 | 规则 | 结果 |
 |---|---|
-| `--index/--module/--scope/--language/--provider/--format` | 只放在 `pipeline` 全局，stage 内会拒绝 |
+| `--index/--ref/--snapshot/--project/--module/--scope/--language/--provider/--format` | 只放在 `pipeline` 全局，stage 内会拒绝 |
 | stage | 只允许 20 个只读 semantic-stream 查询命令 |
 | 资源上限 | 16 stages、每段 256 argv、spec 1 MiB；typed 中间流沿用协议上限 |
 | 执行 | 一个进程、一个只读 SQLite 连接；中间传 typed seed frame |
@@ -110,7 +126,7 @@ anatomist index <project> --recreate --output <db>
 | `--timings` | 输出各阶段耗时 |
 | `--format json` | 机器可读构建结果 |
 
-当前 schema 24 / graph semantics 6 不兼容旧索引。已有数据库不兼容时命令会失败并报告将丢弃的数据量；只有显式 `--recreate` 才会删除并重建，不会静默覆盖。
+当前 schema / graph semantics 版本由 `doctor` 报告；不兼容的旧索引需要显式重建。已有数据库不兼容时命令会失败并报告将丢弃的数据量；只有显式 `--recreate` 才会删除并重建，不会静默覆盖。
 
 ### `doctor`
 
@@ -124,10 +140,9 @@ anatomist doctor --health-policy complete --format json --index <db>
 | `index_identity` | 当前已提交索引的 revision、构建时源码快照、语义 profile；查询可以固定它 |
 | `checkout` / `git` | worktree 路径、名字和 Git 辅助信息；只用于说明 |
 
-Review 时由外部建立 base/head worktree，并在查询前分别执行增量同步。
-Anatomist 不创建、不保留、不清理 worktree，也不提供索引与当前工作区的
-精确一致性证明；Doctor 的 Git/快速脏检查只作提示。两边 profile 相同后，
-可按关系记录的 `relationship_id` 做集合差。
+版本比较优先使用 `diff --base ... --target ...`。版本服务会管理临时 detached worktree，
+不切换用户当前分支；历史源码来自捕获内容。普通索引的 Doctor Git/快速脏检查仍只是提示，
+需要当前磁盘证据时先增量同步。
 
 | exit | 含义 |
 |---:|---|
@@ -167,7 +182,7 @@ anatomist resolve 'p.A#run(java.lang.String)' --kind callable --exact --unique -
 
 | 命令 | 输入 | 输出 | 关键参数/边界 |
 |---|---|---|---|
-| `describe` | entity | entity description | 单实体结构摘要 |
+| `describe` | entity | declaration | 单实体结构摘要 |
 | `members` | container entity | entity | `--recursive --kind --max-depth --limit` |
 | `annotations` | entity | annotation | 默认直接注解；`--include-meta` 输出 `direct/meta_depth/via` |
 | `related-docs` | entity | document_relation | `--limit`，启发式关联 |
@@ -177,12 +192,12 @@ anatomist resolve 'p.A#run(java.lang.String)' --kind callable --exact --unique -
 | `calls` | callable entity | call_site | `--direction outgoing\|incoming --limit`；直接源码调用点 |
 | `dispatch` | call_site | dispatch_target | `--algorithm --world`；静态候选，不是运行观察 |
 | `references` | entity | reference_site | `--direction incoming\|outgoing --limit` |
-| `accesses` | value/entity | access_site | `--mode reads\|writes\|all --limit` |
+| `accesses` | value entity | access_site | `--mode reads\|writes\|all --limit` |
 | `bindings` | entity | binding_relation | `--semantic member` 查询 XML factory/constructor/setter/init/destroy；保留 exact/ambiguous/unresolved |
 | `regions` | callable entity | control_region | `--kind branch --limit` |
 | `sites-in` | control_region | site records | `--record all\|... --limit` |
-| `trace` | entity | trace | `--to --max-depth --dispatch resolved\|possible` |
-| `source` | entity/site/dispatch | source_slice | `--limit 1..1000 --offset`，校验源码快照 |
+| `trace` | callable entity | trace | `--to --max-depth --dispatch resolved\|possible` |
+| `source` | entity/declaration/site/control_region/dispatch_target | source_slice | `--limit 1..1000 --offset`，校验源码快照 |
 
 ## 独立查询
 
@@ -208,34 +223,34 @@ anatomist overview --deps-only --depth 2 --limit 50 --index <db>
 
 `index-docs` 建立可再生文档索引；`annotate` 写人工语义注记。旧库 `--recreate` 会丢弃它们，因此重建前必须按命令提示确认可再生性或备份来源。
 
-## 非规范组合示例
+## 常见组合
 
-以下只是示例，不属于 catalog，也不限制 Agent 选择其他合法组合。线性组合优先改写成单进程 `pipeline -- ... --then ...`。
+以下箭头对应 `--then`，以查询范围内的实际 evidence 判断是否足够。
 
 ```bash
 # 精确读方法
-anatomist resolve 'p.A#run()' --kind callable --exact --unique --index <db> |
-  anatomist source --index <db>
+anatomist pipeline --index <db> -- \
+  resolve 'p.A#run()' --kind callable --exact --unique --then source
 
-# 直接调用 + 可能派发目标 + 对应源码
-anatomist resolve 'p.A#run()' --kind callable --exact --unique --index <db> |
-  anatomist calls --index <db> |
-  anatomist dispatch --index <db> |
-  anatomist source --index <db>
+# 直接调用、可能派发目标及调用现场源码
+anatomist pipeline --index <db> -- \
+  resolve 'p.A#run()' --kind callable --exact --unique \
+  --then calls --then dispatch --then source
 
-# 反向调用影响
-anatomist resolve 'p.Target#go()' --kind callable --exact --unique --index <db> |
-  anatomist calls --direction incoming --index <db>
+# 直接调用者
+anatomist pipeline --index <db> -- \
+  resolve 'p.Target#go()' --kind callable --exact --unique \
+  --then calls --direction incoming
 
-# 类型的所有成员引用
-anatomist resolve p.A --kind type --unique --index <db> |
-  anatomist members --recursive --index <db> |
-  anatomist references --direction outgoing --index <db>
+# 类型成员的引用
+anatomist pipeline --index <db> -- \
+  resolve p.A --kind type --unique --then members --recursive \
+  --then references --direction outgoing
 
-# 分支中的调用/访问点
-anatomist resolve 'p.A#run()' --kind callable --exact --unique --index <db> |
-  anatomist regions --kind branch --index <db> |
-  anatomist sites-in --record all --index <db>
+# 已索引分支上下文中的调用/访问点
+anatomist pipeline --index <db> -- \
+  resolve 'p.A#run()' --kind callable --exact --unique \
+  --then regions --kind branch --then sites-in --record all
 ```
 
 ## 已删除的 0.1x 命令
@@ -243,3 +258,28 @@ anatomist resolve 'p.A#run()' --kind callable --exact --unique --index <db> |
 `context`、`callees-of`、`callers-of`、`branches-of`、`bean-config`、`hierarchy`、`implementors-of`、`deps-of`、`used-by`、`field-access`、`call-path`、`survey-baseline`。
 
 没有 alias。等价组合见 [迁移指南](migration-1.0.md)。
+
+## 查询结果的阅读边界
+
+| 结果 | 含义 |
+|---|---|
+| `resolve → source` / `describe → source` | 读取所选声明；按需要分页 |
+| `calls → source` / `dispatch → source` | 读取记录携带的调用现场；目标方法体需单独 resolve |
+| `trace` | 深度范围内的一条调用路径；不能直接接 source |
+| `regions` | 已索引调用/读写记录上的上下文，不是完整语法分支清单 |
+| `sites-in` | 精确匹配记录中的上下文，嵌套上下文可能单列 |
+| `runtime-implementations` | 静态可实例化候选，不是运行中的对象 |
+
+源码的 `--offset` 为所选声明或现场范围内从零开始的行偏移；默认页长 200，最大 1000。
+整个声明的结论需要在同一身份下覆盖全部页面；局部问题只读取足够回答的范围。
+
+帮助的 Accepts/Emits 与 operations 使用同一操作契约。参数说明来自命令模型；
+完整示例同时接受组合检查和 JVM/native 实际查询验证。
+
+## Spring 解析参考
+
+此处为实现边界参考；常见任务只需 `skill spring`。Meta 注解展开防环并限制为 16 层，
+Spring 识别以解析后的框架 FQN 及同一闭包为依据，`@AliasFor` 不做属性重写。
+XML 成员解析优先采用配置所属 module/scope，结合参数个数、显式 type/ref 提示、
+静态/实例要求和继承成员寻找候选；普通字符串值不用于凭空推断参数类型。
+成员输出保留 role、mechanism、symbol_ref、候选数量/序号和 resolution_status。

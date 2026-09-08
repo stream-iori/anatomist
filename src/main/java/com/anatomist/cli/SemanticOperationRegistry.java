@@ -62,7 +62,7 @@ final class SemanticOperationRegistry {
             case "hybrid" -> List.of("cli", "stream");
             default -> List.of("stream");
         });
-        input.put("records", List.copyOf(command.acceptedInputRecords()));
+        input.put("records", command.acceptedInputRecords().stream().sorted().toList());
         if (!entry.entityKinds().isEmpty()) input.put("entity_kinds", entry.entityKinds());
         out.put("input", input);
         out.put("output", Map.of("variants", outputVariants(entry, command)));
@@ -95,8 +95,8 @@ final class SemanticOperationRegistry {
         return out;
     }
 
-    private static List<Map<String, Object>> outputVariants(Entry entry,
-                                                             SemanticCommand command) {
+    static List<Map<String, Object>> outputVariants(Entry entry,
+                                                     SemanticCommand command) {
         if (command instanceof SearchCommand) {
             return List.of(
                     variant(List.of("entity_candidate"), "--count", false),
@@ -108,12 +108,12 @@ final class SemanticOperationRegistry {
                     variant(List.of("access_site"), "--record", "access_site"),
                     variant(List.of("call_site", "access_site"), "--record", "all"));
         }
-        return List.of(Map.of("records", List.copyOf(entry.emitted().apply(command))));
+        return List.of(Map.of("records", entry.emitted().apply(command).stream().sorted().toList()));
     }
 
     private static Map<String, Object> variant(List<String> records, String option,
                                                 Object equals) {
-        return Map.of("records", records,
+        return Map.of("records", records.stream().sorted().toList(),
                 "when", Map.of("option", option, "equals", equals));
     }
 
@@ -292,7 +292,7 @@ final class SemanticOperationRegistry {
         entries.add(transform("references", ReferencesCommand.class, ReferencesCommand::new,
                 Set.of("reference_site"), List.of(), List.of("UNRESOLVED_CLASSPATH")));
         entries.add(transform("accesses", AccessesCommand.class, AccessesCommand::new,
-                Set.of("access_site"), List.of("value", "entity"), List.of()));
+                Set.of("access_site"), List.of("value"), List.of()));
         entries.add(transform("regions", RegionsCommand.class, RegionsCommand::new,
                 Set.of("control_region"), List.of("callable"), List.of()));
         entries.add(entry("sites-in", "transform", SitesInCommand.class, SitesInCommand::new,

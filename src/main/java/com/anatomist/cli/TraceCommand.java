@@ -12,13 +12,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="trace", mixinStandardHelpOptions=true,
-        description="Find one bounded call path from an input callable to an explicit end selector.",
-        footer="%nAccepts: entity(callable)%nEmits: trace + evidence%n%nExample:%n  anatomist resolve 'p.A#start()' --kind callable --unique | anatomist trace --to 'p.B#end()'")
+@Command(modelTransformer = AgentHelp.class, name="trace", mixinStandardHelpOptions=true,
+        description = "Find one bounded call path between methods.",
+        footer = "%nBoundary: One path within the depth bound, not all paths. Empty results cannot rule out longer paths. Resolve selected hops to read source; trace cannot feed source.%n%nExample:%n  anatomist pipeline -- resolve 'p.Service#run()' --kind callable --exact --unique --then trace --to 'p.Helper#work()'")
 public final class TraceCommand extends TransformSemanticCommand {
-    @Option(names="--to", required=true) String to;
-    @Option(names="--max-depth", defaultValue="10") int maxDepth;
-    @Option(names="--dispatch", defaultValue="resolved") String dispatch;
+    @Option(names="--to", required=true, description="Required end callable selector; use a full signature to select an overload.") String to;
+    @Option(names="--max-depth", defaultValue="10", description="Maximum call-path depth; >=1 (default 10). Longer paths are not searched.") int maxDepth;
+    @Option(names="--dispatch", defaultValue="resolved", description="Targets: resolved | possible (includes virtual candidates); default resolved.") String dispatch;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}
     @Override protected Result execute(QueryService query,SemanticIdentity identity,SemanticStreamWriter writer){
         CliValidation.positive("--max-depth",maxDepth);dispatch=CliValidation.choice("--dispatch",dispatch,"resolved","possible");

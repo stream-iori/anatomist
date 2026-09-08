@@ -10,13 +10,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="bindings", mixinStandardHelpOptions=true,
-        description="Return cross-domain configuration/language bindings, including configured member references.",
-        footer="%nAccepts: entity%nEmits: binding_relation + evidence%nOperation: bindings; inspect with: anatomist operations bindings%n%nExamples:%n  anatomist search OrderService --kind type --format ndjson | anatomist resolve --unique | anatomist bindings --direction incoming --semantic realizes%n  anatomist search CheckoutBean --kind component --format ndjson | anatomist resolve --unique | anatomist bindings --semantic member")
+@Command(modelTransformer = AgentHelp.class, name="bindings", mixinStandardHelpOptions=true,
+        description = "Inspect configuration bindings to types and members.",
+        footer = "%nBoundary: Static configuration facts, not source calls. Preserve ambiguous/unresolved member candidates.%n%nExample:%n  anatomist pipeline -- resolve p.Service --kind type --unique --then bindings --direction incoming")
 public final class BindingsCommand extends TransformSemanticCommand {
-    @Option(names="--direction", defaultValue="outgoing") String direction;
-    @Option(names="--semantic", defaultValue="any") String semantic;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--direction", defaultValue="outgoing", description="outgoing: bindings from the entity; incoming: bindings to it (default outgoing).") String direction;
+    @Option(names="--semantic", defaultValue="any", description="Binding: any | realizes | wires | parent | factory | member (default any).") String semantic;
+    @Option(names="--limit", defaultValue="50", description="Maximum bindings per entity; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords(){ return Set.of("entity"); }
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer){
         direction=CliValidation.choice("--direction", direction, "outgoing", "incoming");

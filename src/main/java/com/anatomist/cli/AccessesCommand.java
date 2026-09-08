@@ -9,12 +9,12 @@ import picocli.CommandLine.Option;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="accesses", mixinStandardHelpOptions=true,
-        description="Return source read/write sites for a value entity.",
-        footer="%nAccepts: entity(value)%nEmits: access_site + evidence%n%nExample:%n  anatomist resolve 'p.Type#field' --kind value --unique | anatomist accesses --mode all")
+@Command(modelTransformer = AgentHelp.class, name="accesses", mixinStandardHelpOptions=true,
+        description = "Find source locations that read or write a field.",
+        footer = "%nBoundary: Source read/write locations, not ownership or runtime values.%n%nExample:%n  anatomist pipeline -- resolve 'p.Service#value' --kind value --unique --then accesses --mode all")
 public final class AccessesCommand extends TransformSemanticCommand {
-    @Option(names="--mode", defaultValue="all") String mode;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--mode", defaultValue="all", description="Access kind: reads | writes | all (default all).") String mode;
+    @Option(names="--limit", defaultValue="50", description="Maximum access sites per seed; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}
     @Override protected Result execute(QueryService query,SemanticIdentity identity,SemanticStreamWriter writer){
         mode=CliValidation.choice("--mode",mode,"reads","writes","all");CliValidation.positive("--limit",limit);

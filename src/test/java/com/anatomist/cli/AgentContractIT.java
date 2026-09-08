@@ -75,32 +75,15 @@ class AgentContractIT {
     }
 
     @Test
-    void helpMakesFusedPipelineTheDefaultLinearComposition() {
-        RunResult root = runCli("--help");
-        assertEquals(0, root.exitCode, root.stderr);
-        String rootHelp = root.stdout.replaceAll("\\s+", " ");
-        assertTrue(rootHelp.contains("Prefer pipeline for linear multi-stage queries"),
-                root.stdout);
-        assertTrue(rootHelp.contains("pipeline --help"), root.stdout);
-        assertTrue(rootHelp.contains("operations <operation>"), root.stdout);
-        assertFalse(rootHelp.contains("--then calls --then dispatch --then source"), root.stdout);
-
-        RunResult pipeline = runCli("pipeline", "--help");
-        assertEquals(0, pipeline.exitCode, pipeline.stderr);
-        String pipelineHelp = pipeline.stdout.replaceAll("\\s+", " ");
-        for (String requirement : List.of(
-                "same index, module, scope and format",
-                "do not repeat them in stages",
-                "Accepts/Emits",
-                "evidence(scope=stream)",
-                "exit 5",
-                "one-line JSON",
-                "--explain/--check",
-                "--then",
-                "--file")) {
-            assertTrue(pipelineHelp.contains(requirement),
-                    "pipeline help missing: " + requirement + "\n" + pipeline.stdout);
+    void helpExposesCompositionAndEvidenceInspection() {
+        var pipeline = new CommandLine(new PipelineCommand());
+        for (String option : List.of("--explain", "--check", "--file", "--index", "--ref", "--snapshot", "--scope")) {
+            assertNotNull(pipeline.getCommandSpec().findOption(option));
+            assertFalse(String.join(" ", pipeline.getCommandSpec().findOption(option).description()).isBlank());
         }
+        var help = runCli("pipeline", "--help");
+        assertEquals(0, help.exitCode);
+        assertTrue(help.stdout.contains("evidence(scope=stream)"));
     }
 
     @Test

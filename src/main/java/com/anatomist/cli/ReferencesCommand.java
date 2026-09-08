@@ -9,12 +9,12 @@ import picocli.CommandLine.Option;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="references", mixinStandardHelpOptions=true,
-        description="Return source or configuration reference sites.",
-        footer="%nAccepts: entity%nEmits: reference_site + evidence%n%nExample:%n  anatomist resolve p.Type --kind type --unique | anatomist references --direction incoming")
+@Command(modelTransformer = AgentHelp.class, name="references", mixinStandardHelpOptions=true,
+        description = "Find source or configuration references to or from an entity.",
+        footer = "%nBoundary: References do not prove runtime dependency or execution.%n%nExample:%n  anatomist pipeline -- resolve p.Service --kind type --unique --then references --direction incoming")
 public final class ReferencesCommand extends TransformSemanticCommand {
-    @Option(names="--direction", defaultValue="incoming") String direction;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--direction", defaultValue="incoming", description="incoming: uses of the entity; outgoing: references made by it (default incoming).") String direction;
+    @Option(names="--limit", defaultValue="50", description="Maximum reference sites per entity; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords(){return Set.of("entity");}
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer){
         direction=CliValidation.choice("--direction",direction,"outgoing","incoming"); CliValidation.positive("--limit",limit);

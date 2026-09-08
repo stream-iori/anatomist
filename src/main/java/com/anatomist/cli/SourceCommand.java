@@ -17,16 +17,16 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name = "source", mixinStandardHelpOptions = true,
-        description = "Project snapshot-verified source for an entity or source-backed site.",
-        footer = "%nAccepts: entity | call_site | reference_site | access_site | control_region | dispatch_target%nEmits: source_slice + evidence%nOperation: source; inspect with: anatomist operations source%nDefault limits: 200 source lines; max 1000%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist source")
+@Command(modelTransformer = AgentHelp.class, name = "source", mixinStandardHelpOptions = true,
+        description = "Read verified declaration source or a recorded source location.",
+        footer = "%nBoundary: Entities/declarations select declaration source; sites/dispatch targets select their recorded range. Follow pages for the required range; resolve targets separately for method bodies.%n%nExample:%n  anatomist pipeline -- resolve 'p.Service#run()' --kind callable --exact --unique --then source")
 public final class SourceCommand extends TransformSemanticCommand {
     @Option(names = "--limit", defaultValue = "200",
             description = "Source lines per subject (default 200, max 1000).")
     int limit;
 
     @Option(names = "--offset", defaultValue = "0",
-            description = "Declaration-relative source line offset.")
+            description = "Zero-based line offset within the selected declaration or site range (default 0).")
     int offset;
 
     @Override protected Set<String> acceptedInputRecords() {

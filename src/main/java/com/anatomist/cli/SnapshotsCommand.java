@@ -8,7 +8,7 @@ import picocli.CommandLine.*;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
-@Command(name="snapshots",mixinStandardHelpOptions=true,description="List, inspect, pin and garbage-collect immutable snapshots.",
+@Command(modelTransformer = AgentHelp.class, name="snapshots",mixinStandardHelpOptions=true,description="List, inspect, pin and garbage-collect immutable snapshots.",
         footer={"", "Examples: snapshots list --format table",
                 "          snapshots pin <id>", "          snapshots gc --keep 20",
                 "          snapshots gc --keep 20 --execute",

@@ -586,6 +586,15 @@
     },
     {
       "type": "sun.util.resources.cldr.CalendarData"
+    },
+    {
+      "type": "com.anatomist.cli.AgentHelp",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
     }
   ],
   "resources": [

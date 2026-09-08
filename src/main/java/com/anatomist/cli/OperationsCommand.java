@@ -14,8 +14,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 
-@Command(name = "operations", mixinStandardHelpOptions = true,
-        description = "Describe semantic operations, constraints, and provider support for Agents.",
+@Command(modelTransformer = AgentHelp.class, name = "operations", mixinStandardHelpOptions = true,
+        description = "Inspect query input/output contracts and index support.",
         footer = "%nJSON contract: anatomist-operation-catalog/v1%n"
                 + "Without --index, availability is unchecked and no database is opened.%n"
                 + "This catalog exposes atomic operations; it intentionally contains no recipes.")
@@ -101,7 +101,7 @@ public final class OperationsCommand implements Callable<Integer> {
                 "argv_per_stage", PipelineCommand.MAX_ARGS_PER_STAGE,
                 "spec_bytes", PipelineCommand.MAX_SPEC_BYTES));
         root.put("global_options", List.of("--index", "--module", "--scope", "--language",
-                "--provider", "--format"));
+                "--provider", "--format", "--ref", "--snapshot", "--project"));
 
         List<Map<String, Object>> operations = new ArrayList<>();
         for (SemanticOperationRegistry.Entry entry : SemanticOperationRegistry.entriesView()) {

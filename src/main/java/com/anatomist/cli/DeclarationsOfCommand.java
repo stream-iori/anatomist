@@ -17,9 +17,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-@Command(name = "declarations-of", mixinStandardHelpOptions = true,
-        description = "Enumerate declarations in one indexed source file.",
-        footer = "%nAccepts: CLI file selector%nEmits: entity + evidence%n%nExample:%n  anatomist declarations-of --file src/main/java/com/example/AuthenticationService.java --visibility public,protected --kind type,method --format ndjson")
+@Command(modelTransformer = AgentHelp.class, name = "declarations-of", mixinStandardHelpOptions = true,
+        description = "List declarations in an indexed Java file.",
+        footer = "%nBoundary: Select relevant declarations before reading source; follow pages to enumerate the complete file.%n%nExample:%n  anatomist declarations-of --file src/main/java/p/Service.java")
 public final class DeclarationsOfCommand extends SemanticCommand {
     private static final Set<String> VISIBILITIES = Set.of("public", "protected", "private", "package");
     private static final Set<String> KINDS = Set.of("type", "method", "constructor");

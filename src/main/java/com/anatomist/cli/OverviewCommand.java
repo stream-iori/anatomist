@@ -15,10 +15,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-@Command(name = "overview",
+@Command(modelTransformer = AgentHelp.class, name = "overview",
         mixinStandardHelpOptions = true,
-        description = "Emit project, package, and package-dependency semantic summaries.",
-        footer = "%nAccepts: CLI index selector%nEmits: project_summary | package_summary | package_dependency + evidence%n%nExample:%n  anatomist overview --format ndjson")
+        description = "Summarize the project, packages and package dependencies.",
+        footer = "%nBoundary: Package dependencies are static references. --limit/--offset page dependency edges only.%n%nExample:%n  anatomist overview")
 public class OverviewCommand extends SemanticCommand {
 
     @Option(names = "--depth",

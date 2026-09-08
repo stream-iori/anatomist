@@ -10,14 +10,14 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Command(name="dispatch", mixinStandardHelpOptions=true,
-        description="Expand static call targets into possible Java dispatch candidates.",
-        footer="%nAccepts: call_site%nEmits: dispatch_target + evidence%nOperation: dispatch; inspect with: anatomist operations dispatch%nNote: candidates are static possibilities, not observed runtime calls.%n%nExample:%n  anatomist resolve 'p.Service#run()' --kind callable --exact --unique | anatomist calls | anatomist dispatch")
+@Command(modelTransformer = AgentHelp.class, name="dispatch", mixinStandardHelpOptions=true,
+        description = "Expand a call site into possible virtual targets.",
+        footer = "%nBoundary: Candidates are static possibilities. Source reads the recorded call location; resolve a target separately for its body.%n%nExample:%n  anatomist pipeline -- resolve 'p.Service#run()' --kind callable --exact --unique --then calls --then dispatch")
 public final class DispatchCommand extends TransformSemanticCommand {
-    @Option(names="--algorithm", defaultValue="auto") String algorithm;
-    @Option(names="--world", defaultValue="workspace-open") String world;
-    @Option(names="--max-depth", defaultValue="20") int maxDepth;
-    @Option(names="--limit", defaultValue="50") int limit;
+    @Option(names="--algorithm", defaultValue="auto", description="auto: exact for nonvirtual calls, hierarchy candidates otherwise; exact: resolved targets only; cha: hierarchy candidates (default auto).") String algorithm;
+    @Option(names="--world", defaultValue="workspace-open", description="Evidence scope: workspace-open | workspace-closed | classpath-open (default workspace-open). Closed assumes the workspace is exhaustive.") String world;
+    @Option(names="--max-depth", defaultValue="20", description="Maximum inheritance traversal depth; >=1 (default 20).") int maxDepth;
+    @Option(names="--limit", defaultValue="50", description="Maximum targets per call site; >=1 (default 50).") int limit;
     @Override protected Set<String> acceptedInputRecords(){ return Set.of("call_site"); }
     @Override protected Result execute(QueryService query, SemanticIdentity identity, SemanticStreamWriter writer){
         algorithm=CliValidation.choice("--algorithm", algorithm, "auto", "exact", "cha");

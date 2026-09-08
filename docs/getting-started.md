@@ -1,14 +1,14 @@
 # Getting Started
 
-Agent 查询方式：
+首次读取 `anatomist skill core`，随后直接执行能回答问题的查询。
+选路不清楚时读取 `skill topics`；具体参数不清楚时读取命令 help。
 
 ```text
-execute + verify evidence(scope=stream)
-        │
-        └─ 异常或不确定时：doctor / operations <operation> / explain / check
+明确的问题 → 最短查询 → 判断证据是否足够
+                            └─ 不足时加载相关场景并继续
 ```
 
-`operations <operation>` 是按需能力事实源；pipeline 由 Agent 自行组合。
+`operations <operation>` 提供机器可读输入输出和能力信息；doctor、explain、check 均按需使用。
 
 ## 安装
 
@@ -42,8 +42,6 @@ just native    # target/anatomist
 anatomist index fixtures/mini-spring-shop \
   --project-source api/src/main/java:domain/src/main/java:service/src/main/java \
   --no-classpath --output /tmp/shop.db
-
-anatomist doctor --agent-preflight --format json --index /tmp/shop.db
 ```
 
 常用参数：
