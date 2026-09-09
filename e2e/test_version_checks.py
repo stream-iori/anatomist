@@ -1,6 +1,6 @@
 import copy
 import unittest
-from version_checks import validate_diff, navigation_sides
+from version_checks import validate_diff, navigation_sides, validate_capture, validate_storage
 
 
 class VersionChecksTest(unittest.TestCase):
@@ -48,3 +48,23 @@ class VersionChecksTest(unittest.TestCase):
         self.assertEqual({"base"}, navigation_sides(document, streams))
         streams[0][0]["identity"]["source_snapshot_id"] = "current checkout"
         self.assertEqual(set(), navigation_sides(document, streams))
+
+
+class LifecycleChecksTest(unittest.TestCase):
+    def test_ignored_file_requires_unfiltered_evidence(self):
+        facts = {"ignored_report": "target/report.txt"}
+        doc = {"comparison": {"output": {"view": "all"}, "capture": {"target": "git-inputs-v2"}}, "changes": []}
+        validate_capture(doc, facts)
+        doc["changes"] = [{"path": "target/report.txt"}]
+        with self.assertRaises(RuntimeError): validate_capture(doc, facts)
+        doc["changes"] = []
+        doc["comparison"]["output"]["view"] = "calls"
+        with self.assertRaises(RuntimeError): validate_capture(doc, facts)
+
+    def test_gc_claims_require_preview_execution_and_protection(self):
+        facts = {"stale_id": "old"}
+        docs = [{"command": "snapshots stats"}, {"command": "snapshots gc", "execute": False},
+                {"command": "snapshots gc", "execute": True, "candidates": [{"id": "old"}], "protected": [{"reason": "pin"}]}]
+        validate_storage(docs, facts)
+        with self.assertRaises(RuntimeError): validate_storage(docs[1:], facts)
+        with self.assertRaises(RuntimeError): validate_storage([docs[0], docs[2]], facts)

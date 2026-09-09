@@ -291,9 +291,10 @@ class GitSnapshotsIT {
         });
     }
 
-    @Test void worktreeUsesDiskNotStageAndCapturesUntrackedAndIgnoredFiles() throws Exception {
+    @Test void worktreeUsesDiskNotStageAndCapturesUntrackedAndExplicitIgnoredFiles() throws Exception {
         isolated(()->{
-            write(".gitignore","ignored.txt\n");commit("ignore");
+            write(".gitignore","ignored.txt\n");
+            write(".anatomist/config.toml","[versions.capture]\ninclude_ignored = [\"ignored.txt\"]\n");commit("ignore");
             var head=build("HEAD");
             write("src/main/java/p/A.java","package p; public class A { public int value() { return 2; } }");
             GitRepository.text(project,"add","src/main/java/p/A.java");

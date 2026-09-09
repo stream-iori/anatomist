@@ -366,6 +366,53 @@
               "minimum": 0
             }
           }
+        },
+        "capture": {
+          "type": "object",
+          "required": [
+            "base",
+            "target",
+            "files"
+          ],
+          "properties": {
+            "base": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            },
+            "files": {
+              "const": "captured_project_inputs"
+            }
+          }
+        },
+        "timings": {
+          "type": "object",
+          "properties": {
+            "prepare_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "compare_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "git_processes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "result_spilled_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preparation": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
         }
       }
     },

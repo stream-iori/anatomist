@@ -30,9 +30,27 @@ final class VersionRelationships {
                 + "FROM annotations a JOIN nodes n ON n.id=a.node_id WHERE (?='ALL' OR n.scope=?) AND (? IS NULL OR n.module=?)",scope,module,out);
         return out;
     }
+    static List<Relation> incoming(Connection c,String target) throws SQLException {
+        Map<String,Relation> out=new TreeMap<>();
+        read(c,"SELECT e.source_id source,coalesce(e.target_id,e.external_target_fqn) target,e.relation,"
+                + "e.semantic,e.mechanism,e.call_kind,e.resolution,e.confidence,e.provider_id,e.producer_id,"
+                + "e.source_file file,e.begin_line line,e.begin_column col FROM edges e JOIN nodes n ON n.id=e.source_id "
+                + "WHERE (?='ALL' OR n.scope=?) AND (? IS NULL OR n.module=?) AND e.relation='CALLS' AND e.target_id=?","ALL",null,out,target);
+        read(c,"SELECT o.caller_id source,coalesce(t.target_id,t.external_target_fqn) target,'CALLS' relation,"
+                + "cs.receiver_static_type semantic,cs.syntax_target mechanism,cs.dispatch_kind call_kind,"
+                + "t.resolution_status resolution,t.confidence,cs.provider_id,cs.producer_id,"
+                + "o.source_file file,cs.begin_line line,cs.begin_column col FROM call_sites cs "
+                + "JOIN call_site_owners o ON o.owner_pk=cs.owner_pk JOIN call_site_targets t ON t.call_site_pk=cs.site_pk "
+                + "JOIN nodes n ON n.id=o.caller_id WHERE (?='ALL' OR n.scope=?) AND (? IS NULL OR n.module=?) AND t.target_id=?","ALL",null,out,target);
+        return List.copyOf(out.values());
+    }
     private static void read(Connection c,String sql,String scope,String module,Map<String,Relation> out) throws SQLException {
+        read(c,sql,scope,module,out,null);
+    }
+    private static void read(Connection c,String sql,String scope,String module,Map<String,Relation> out,String target) throws SQLException {
         try(PreparedStatement s=c.prepareStatement(sql)) {
             s.setString(1,scope);s.setString(2,scope);s.setString(3,module);s.setString(4,module);
+            if(target!=null) s.setString(5,target);
             try(ResultSet r=s.executeQuery()) { while(r.next()) {
                 Map<String,Object> fields=new TreeMap<>();
                 for(String field:List.of("source","target","relation","semantic","mechanism","call_kind","resolution","confidence","provider_id","producer_id"))

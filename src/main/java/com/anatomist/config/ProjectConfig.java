@@ -6,6 +6,23 @@ import java.util.*;
 
 public class ProjectConfig {
 
+    private List<String> captureIncludeIgnored = List.of();
+    private boolean versionsAutoGc, versionsIncludeCaches;
+    private int versionsKeep = 20, versionsMaxAgeDays = 30;
+    private long versionsMaxBytes;
+    public List<String> captureIncludeIgnored() { return captureIncludeIgnored; }
+    public void setCaptureIncludeIgnored(List<String> value) { captureIncludeIgnored=List.copyOf(value); }
+    public boolean versionsAutoGc() { return versionsAutoGc; }
+    public void setVersionsAutoGc(boolean value) { versionsAutoGc=value; }
+    public boolean versionsIncludeCaches() { return versionsIncludeCaches; }
+    public void setVersionsIncludeCaches(boolean value) { versionsIncludeCaches=value; }
+    public int versionsKeep() { return versionsKeep; }
+    public void setVersionsKeep(int value) { if(value<0) throw new IllegalArgumentException("keep must be >= 0"); versionsKeep=value; }
+    public int versionsMaxAgeDays() { return versionsMaxAgeDays; }
+    public void setVersionsMaxAgeDays(int value) { if(value<0) throw new IllegalArgumentException("max_age_days must be >= 0"); versionsMaxAgeDays=value; }
+    public long versionsMaxBytes() { return versionsMaxBytes; }
+    public void setVersionsMaxBytes(long value) { if(value<0) throw new IllegalArgumentException("max_bytes must be >= 0"); versionsMaxBytes=value; }
+
     private Integer javaVersion;
     private boolean springXml = false;
     private boolean vmClasspath = true;

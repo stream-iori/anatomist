@@ -705,7 +705,7 @@ clean:
 clean-all: clean
     rm -rf .m2-cache target/native-agent-config dist/anatomist-*
 
-# Run the three natural-language version cases.
+# Run the five natural-language version cases.
 agent-e2e-versions: agent-e2e-contract
     #!/usr/bin/env bash
     set -euo pipefail
@@ -721,3 +721,15 @@ diff-e2e-jvm:
 # Full JAR/native comparison, using explicit instances for runtime equality.
 diff-e2e-native:
     uv run --with-requirements e2e/requirements.txt python scripts/diff-e2e.py --jar target/anatomist.jar --native target/anatomist --report target/diff-native-e2e.json
+
+# Process crash/recovery and concurrent frozen reads; fixtures own their stores.
+diff-lifecycle-e2e:
+    python3 scripts/diff-lifecycle-e2e.py --jar target/anatomist.jar --native target/anatomist --report target/diff-lifecycle-e2e.json
+
+# Large output, slow reader, concurrent GC and broken pipe.
+diff-stress-e2e:
+    python3 scripts/diff-stress-e2e.py --native target/anatomist --report target/diff-stress-e2e.json
+
+# Repeatable 1k/10k source and 100-snapshot performance measurements.
+diff-performance:
+    python3 scripts/diff-performance.py --native target/anatomist --report target/diff-performance.json

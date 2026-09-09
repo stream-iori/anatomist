@@ -15,4 +15,5 @@ query that answers the question. If the task route is unclear, read
 `anatomist skill topics` and only the relevant scene.
 
 Use command `--help` for unfamiliar arguments, `operations <command>` for typed
-input/output or capability questions, and `skill maintenance` for index problems.
+input/output or capability questions, and `skill maintenance` for readiness,
+storage usage and snapshot recovery.

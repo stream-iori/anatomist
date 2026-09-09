@@ -110,7 +110,7 @@ class AutoSnapshotPreparationIT {
             assertFalse(Files.exists(service.directory().resolve("workspace")));
             try(var catalog=new SnapshotCatalog(service.directory())) {
                 assertTrue(catalog.list().stream().allMatch(e->e.status().equals("FAILED")));
-                for(var entry:catalog.list()) assertFalse(Files.exists(service.snapshotDirectory(entry.id())));
+                for(var entry:catalog.list()) assertFalse(Files.exists(service.database(entry.id())));
             }
             assertEquals(1,git("worktree","list","--porcelain").lines().filter(s->s.startsWith("worktree ")).count());
         });
@@ -222,4 +222,156 @@ class AutoSnapshotPreparationIT {
             assertEquals(first.entry().id(),((Map<?,?>)Json.parseTree(second.entry().metrics())).get("baseline"));
         });
     }
+    @Test void ignoredReportsReuseCaptureButRequiredIgnoredSourcesInvalidateIt() throws Exception {
+        isolated(()->{
+            write(".gitignore","target/\nsrc/main/java/p/Ignored.java\n.anatomist/index.db*\n");commit();
+            write("src/main/java/p/Ignored.java","package p; class Ignored { int value() { return 1; } }");
+            target="WORKTREE";
+            var first=comparison(diff("--timings"));String id=(String)((Map<?,?>)first.get("target")).get("id");
+            write("target/report.txt","not a source input");write(".anatomist/index.db","local index bytes");
+            var repeat=comparison(diff("--timings"));assertEquals(id,((Map<?,?>)repeat.get("target")).get("id"));
+            var files=(Map<?,?>)Json.parseTree(Files.readString(service.snapshotDirectory(id).resolve("files.json")));
+            assertTrue(files.containsKey("src/main/java/p/Ignored.java"));assertFalse(files.containsKey("target/report.txt"));
+            assertFalse(files.containsKey(".anatomist/index.db"));
+            write("src/main/java/p/Ignored.java","package p; class Ignored { int value() { return 2; } }");
+            assertNotEquals(id,((Map<?,?>)comparison(diff()).get("target")).get("id"));
+        });
+    }
+    @Test void ignoredGeneratedSourcesAndXmlRemainAvailable() throws Exception {
+        isolated(()->{
+            write(".gitignore","target/\nsrc/main/resources/\n");
+            write(".anatomist/config.toml","[index]\nspring_xml = true\n");commit();
+            write("target/generated-sources/probe/p/Generated.java","package p; class Generated {}");
+            write("src/main/resources/beans.xml","<beans xmlns=\"http://www.springframework.org/schema/beans\"><bean id=\"a\" class=\"p.A\"/></beans>");
+            target="WORKTREE";
+            String id=(String)((Map<?,?>)comparison(diff()).get("target")).get("id");
+            var files=(Map<?,?>)Json.parseTree(Files.readString(service.snapshotDirectory(id).resolve("files.json")));
+            assertTrue(files.containsKey("target/generated-sources/probe/p/Generated.java"));
+            assertTrue(files.containsKey("src/main/resources/beans.xml"));
+        });
+    }
+    @Test void gcRecoversInterruptedBuildAndMissingRegisteredWorkspace() throws Exception {
+        isolated(()->{
+            comparison(diff());
+            String id="f".repeat(32);Path work=service.directory().resolve("workspace");
+            com.anatomist.application.SnapshotRecovery.claim(service);git("worktree","add","--detach",work.toString(),target);
+            try(var catalog=new SnapshotCatalog(service.directory())) { catalog.begin(id,target,"","broken","broken"); }
+            Files.createDirectories(service.snapshotDirectory(id));Files.writeString(service.database(id),"partial");
+            var preview=com.anatomist.application.SnapshotMaintenance.collect(service,20,false);
+            assertFalse(((List<?>)preview.get("recovery")).isEmpty());assertTrue(Files.exists(work));assertTrue(Files.exists(service.database(id)));
+            // The directory vanished but its Git administrative registration survived.
+            com.anatomist.version.SnapshotFiles.deleteOwned(service.directory(),work);
+            var executed=com.anatomist.application.SnapshotMaintenance.collect(service,20,true);
+            assertFalse(((List<?>)executed.get("recovery")).isEmpty());assertFalse(Files.exists(service.database(id)));
+            assertEquals(1,git("worktree","list","--porcelain").lines().filter(line->line.startsWith("worktree ")).count());
+            target="WORKTREE";write("src/main/java/p/A.java","package p; public class A { public static int value() { return 9; } }");
+            comparison(diff());
+            assertTrue(((List<?>)com.anatomist.application.SnapshotMaintenance.collect(service,20,true).get("recovery")).isEmpty());
+        });
+    }
+    @Test void gcDoesNotClaimUnknownWorkspaceAndReportsBudgetProtection() throws Exception {
+        isolated(()->{
+            String id=(String)((Map<?,?>)comparison(diff()).get("base")).get("id");
+            try(var catalog=new SnapshotCatalog(service.directory())) { catalog.pin(id,true); }
+            Path work=Files.createDirectories(service.directory().resolve("workspace"));Files.deleteIfExists(service.directory().resolve("workspace.owner"));
+            Files.writeString(work.resolve("unknown.txt"),"preserve");
+            var result=com.anatomist.application.SnapshotMaintenance.collect(service,0,1,30,false,true,Set.of());
+            assertEquals(false,result.get("budget_met"));assertTrue(Files.exists(service.database(id)));assertTrue(Files.exists(work.resolve("unknown.txt")));
+            assertThrows(SnapshotException.class,()->com.anatomist.application.SnapshotRecovery.claim(service));
+        });
+    }
+    @Test void automaticGcIsOptInAndProtectsBothEndpoints() throws Exception {
+        isolated(()->{
+            comparison(diff());
+            write(".anatomist/config.toml","[versions.gc]\nauto = true\nkeep = 0\nmax_bytes = 1\n");commit();
+            base=target;target=git("rev-parse","HEAD");
+            var header=comparison(diff());
+            for(String side:List.of("base","target")) assertTrue(Files.exists(service.database((String)((Map<?,?>)header.get(side)).get("id"))));
+            try(var catalog=SnapshotCatalog.read(service.directory())) { assertEquals(2,catalog.list().size()); }
+        });
+    }
+    @Test void warmNoBuildDoesNotWaitForRepositoryWriter() throws Exception {
+        isolated(()->{
+            comparison(diff());
+            try(var executor=java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+                var locked=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+                var holder=executor.submit(()->{
+                    try(var lock=com.anatomist.store.IndexOperationLock.forWrite(service.directory().resolve("catalog.db"))) {
+                        locked.countDown();release.await();
+                    }return null;
+                });
+                assertTrue(locked.await(5,java.util.concurrent.TimeUnit.SECONDS));
+                try { org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10),()->comparison(diff("--no-build"))); }
+                finally { release.countDown();holder.get(); }
+            }
+        });
+    }
+
+    @Test void gcExpiresMovedAndUnusedEntrypointsAndMigratesOldCatalog() throws Exception {
+        isolated(()->{
+            git("branch","retained",base);
+            String id=snapshot("retained");
+            try(var connection=java.sql.DriverManager.getConnection("jdbc:sqlite:"+service.directory().resolve("catalog.db"));var statement=connection.createStatement()) {
+                statement.execute("DROP TABLE head_usage");statement.execute("DROP TABLE repository_meta");statement.execute("PRAGMA user_version=1");
+            }
+            assertEquals(id,service.resolve("snapshot:"+id).id());
+            var retained=com.anatomist.application.SnapshotMaintenance.collect(service,0,true);
+            assertEquals(0,retained.get("deleted"));assertTrue(Files.exists(service.database(id)));
+            git("branch","-f","retained",target);
+            var removed=com.anatomist.application.SnapshotMaintenance.collect(service,0,true);
+            assertEquals(1,removed.get("deleted"));assertFalse(Files.exists(service.database(id)));
+            String current=snapshot("retained");
+            try(var connection=java.sql.DriverManager.getConnection("jdbc:sqlite:"+service.directory().resolve("catalog.db"));var statement=connection.createStatement()) {
+                statement.execute("UPDATE head_usage SET selected='2000-01-01T00:00:00Z'");
+            }
+            assertEquals(1,com.anatomist.application.SnapshotMaintenance.collect(service,0,true).get("deleted"));
+            assertFalse(Files.exists(service.database(current)));
+        });
+    }
+
+    @Test void stagedDeletionDoesNotHideTrackedDiskBytes() throws Exception {
+        isolated(()->{
+            write("tracked.txt","disk content");commit();write(".gitignore","tracked.txt\n");
+            git("rm","--cached","tracked.txt");
+            String id=snapshot("WORKTREE");
+            var manifest=(Map<?,?>)Json.parseTree(Files.readString(service.snapshotDirectory(id).resolve("files.json")));
+            assertTrue(manifest.containsKey("tracked.txt"));
+            assertEquals("disk content",Files.readString(project.resolve("tracked.txt")));
+            assertTrue(git("diff","--cached","--name-only").contains("tracked.txt"));
+        });
+    }
+
+    @Test void requiredInputsCannotEscapeThroughSymbolicParent() throws Exception {
+        isolated(()->{
+            Path outside=Files.createDirectories(temporary.resolve("outside"));
+            Files.writeString(outside.resolve("Generated.java"),"class Generated {}");
+            write(".gitignore","generated/\n");
+            Files.createSymbolicLink(project.resolve("generated"),outside);
+            var failure=assertThrows(SnapshotException.class,()->com.anatomist.version.SnapshotCapture.inventory(
+                    project,List.of(project.resolve("generated/Generated.java"))));
+            assertEquals("SNAPSHOT_SYMLINK_UNSUPPORTED",failure.code());
+        });
+    }
+
+    @Test void requiredBuildArtifactsAreFrozenWithoutBecomingSourceBlobs() throws Exception {
+        isolated(()->{
+            Path classes=project.resolve("target/classes");write("target/classes/A.class","artifact one");
+            var command=new DiffCommand();command.project=project;command.noClasspath=true;command.javaVersion=25;
+            var options=command.snapshotOptions();var delegate=IndexCommand.snapshotBuilder(options,project);
+            SnapshotService.Builder builder=new SnapshotService.Builder() {
+                public Collection<Path> inputs(Path root) throws Exception { return delegate.inputs(root); }
+                public Collection<Path> artifacts(Path root) { return List.of(root.resolve("target/classes")); }
+                public Map<String,Object> build(Path root,Path db,boolean incremental) throws Exception {
+                    assertEquals(Files.readString(classes.resolve("A.class")),Files.readString(root.resolve("target/classes/A.class")));
+                    return delegate.build(root,db,incremental);
+                }
+            };
+            var first=service.build("WORKTREE",Json.writeCompact(options),false,builder);
+            var manifest=(Map<?,?>)Json.parseTree(Files.readString(service.snapshotDirectory(first.entry().id()).resolve("files.json")));
+            assertFalse(manifest.containsKey("target/classes/A.class"));
+            write("target/classes/A.class","artifact two");
+            assertNotEquals(first.entry().id(),service.build("WORKTREE",Json.writeCompact(options),false,builder).entry().id());
+        });
+    }
+
 }

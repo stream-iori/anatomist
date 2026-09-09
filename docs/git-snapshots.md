@@ -22,7 +22,13 @@ selectors are mutually exclusive with `--index`. Read commands never build;
 analysis without Maven use `--no-classpath` on both indexing and diff commands.
 
 WORKTREE captures final disk contents (staged and unstaged together), including
-untracked and ignored source inputs, without modifying the Git index or HEAD.
+untracked Git-visible files and required ignored source inputs, without modifying
+Git index or HEAD. Unrelated ignored files are excluded by default. Add
+`[versions.capture] include_ignored = ["path/**"]` for additional ignored inputs.
+Ignored generated sources and Spring XML required by the indexing configuration
+remain captured. Local index/cache/lock files are excluded; project configuration
+is retained. Build outputs needed by resolution are frozen separately and are
+not automatically stored as source blobs or file changes.
 Unresolved merge conflicts and symbolic-link inputs are rejected explicitly.
 Submodule recursion and separate Git staging-area versions are not supported.
 
@@ -246,23 +252,63 @@ proportional to retained versions.
 `snapshots list --format table` lists versions; `show`, `pin`, and `unpin` take
 an ID. `gc` is a preview unless `--execute` is supplied. It retains the newest
 20 successful snapshots by default, pinned versions, current named entrypoints,
-and active readers/builds. Commit SHA lookups do not permanently pin history.
+and active readers/builds. Entrypoints expire after 30 days without selection,
+or when their branch moves/disappears or checkout is removed. Pin snapshots for
+long-term retention. Commit SHA lookups do not permanently pin history.
 Only unreferenced source blobs are collected. Executed cleanup is not an undoable
 operation: deleted WORKTREE contents cannot be reconstructed from Git. Small
 lock-file tombstones are retained to prevent races with waiting readers.
 
-Build and GC operations are serialized per repository/project. Failure never
-publishes a partial database. Subsequent builds recover cataloged interrupted
-attempts. Source reads check frozen content hashes; `doctor --snapshot <id>`
+Build and GC operations are serialized per repository/project. Cached diff reads
+and comparisons use snapshot read locks and can run concurrently with another
+build. GC skips active readers. Failure never publishes a partial database.
+Subsequent builds and executed GC recover cataloged interrupted attempts and
+owned worktree registrations, including missing directories. Private Maven
+process receipts include PID and start time, allowing recovery to stop an
+orphaned build child without terminating unrelated processes. Preview reports
+recovery without executing it. Unowned directories are preserved and reported.
+A cleanup failure after publication produces SNAPSHOT_CLEANUP_PENDING on stderr
+without changing the successful exit or READY snapshot; GC retries cleanup. Source reads check frozen content hashes; `doctor --snapshot <id>`
 also verifies source-cache integrity.
 
+### Capacity and diagnostics
+
+`snapshots stats` reports bytes and file counts for snapshots, blobs, workspaces,
+result spools, catalog and locks. `snapshots gc --max-bytes <bytes>` applies a
+per-project budget, reducing `--keep` if necessary. Pins, valid entrypoints and
+readers are never overridden: `budget_met=false` reports that limit. GC returns
+`recovery`, `protected`, `expired_entrypoints` and post-operation `storage`.
+
+`--include-caches` also collects expired Anatomist classpath lists and interrupted
+cache-write files. Maven repositories, JDKs and unrelated caches are not deleted.
+Use `[versions.gc]` for `auto`, `keep`, `max_bytes`, `max_age_days` and
+`include_caches`; defaults are false, 20, 0 (unlimited), 30, false. Automatic GC
+runs only after a new capture and protects the current operation's endpoints.
+It never runs for `--no-build`. Failed automatic GC reports SNAPSHOT_GC_PENDING.
+
+`diff --timings` adds preparation/comparison milliseconds, preparation counters,
+Git process count and result spool bytes to the header. More than 8 MiB of result
+rows spills into an owned, reader-protected result file; normal exits remove it,
+and executed GC recovers interrupted spools. JSON and NDJSON keep the same v2
+records and counts. Storage/output failures never establish complete evidence.
+
+The capture policy is `git-inputs-v2`; historical captures remain addressable by
+exact ID. Automatic selection uses the new policy fingerprint. Header `capture`
+discloses both policies and file evidence reports CAPTURE_POLICY_MISMATCH across
+different policies. File completeness always refers to captured project inputs.
+Catalog migration is transactional and separate from the unchanged graph schema.
+
 ## Verification
+
+See [diff lifecycle verification](verification-diff-lifecycle.md) for capture,
+recovery, concurrency, output stress and retention acceptance.
 
 See [1.1.0 verification and measurements](verification-1.1.0.md) for measured
 costs, test coverage, and the three-stage delivery summary.
 
 ```bash
 mvn -Dtest=GitSnapshotsIT test
+python3 scripts/diff-lifecycle-e2e.py --jar target/anatomist.jar --native target/anatomist
 python3 scripts/snapshots-e2e.py --jar target/anatomist.jar
 python3 scripts/snapshots-e2e.py --native target/anatomist
 python3 scripts/snapshots-e2e.py --native target/anatomist --files 1000 --repeats 3 --report target/snapshot-benchmark.json

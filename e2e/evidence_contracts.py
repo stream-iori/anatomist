@@ -75,6 +75,29 @@ def semantic_frames(output):
     return [rows for contract, rows in frames(output) if contract == "semantic-stream/v1"]
 
 
+def version_source_frames(output):
+    """Version navigation accepts the CLI's complete JSON or NDJSON source envelope."""
+    try:
+        document = json.loads(output)
+    except ValueError:
+        return semantic_frames(output)
+    if not isinstance(document, dict) or document.get('contract') != 'semantic-stream/v1':
+        return semantic_frames(output)
+    if not isinstance(document.get('results'), list) or not isinstance(document.get('identity'), dict):
+        raise RuntimeError('invalid source JSON envelope')
+    identity = document['identity']
+    if not all(isinstance(identity.get(key), str) and identity[key] for key in
+               ('index_revision_id', 'source_snapshot_id', 'semantic_profile_id')):
+        raise RuntimeError('missing source identity')
+    evidence = document.get('evidence', {})
+    footer = evidence.get('stream') if isinstance(evidence, dict) else None
+    if not isinstance(footer, dict) or footer.get('record') != 'evidence' or footer.get('scope') != 'stream':
+        raise RuntimeError('missing source stream evidence')
+    rows = [{'record': 'stream_header', 'contract': 'semantic-stream/v1', 'identity': identity},
+            *document['results'], footer]
+    return semantic_frames('\n'.join(json.dumps(row) for row in rows))
+
+
 def embedded_semantic_frames(output):
     """Complete NDJSON streams among Python labels and separate summaries.
 

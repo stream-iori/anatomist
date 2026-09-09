@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace as S
 from unittest.mock import patch
-from evidence_contracts import semantic_frames, embedded_semantic_frames, frames
+from evidence_contracts import semantic_frames, embedded_semantic_frames, frames, version_source_frames
 from anatomist_jury_adapter import _resolve_binary, _semantic_records, _record_types
 from anatomist_jury_adapter import consumed_evidence_files, redirected_evidence
 from anatomist_jury_adapter import AnatomistJuryAdapter
@@ -16,6 +16,46 @@ def lines(*rows):
     return "\n".join(json.dumps(row) for row in rows)
 
 class EvidenceContractsTest(unittest.TestCase):
+    def test_version_source_json_requires_complete_identity_and_terminal_evidence(self):
+        identity = {'index_revision_id': 'rev', 'source_snapshot_id': 'source', 'semantic_profile_id': 'profile'}
+        row = {'record': 'source_slice', 'subject': {'id': 'A'}, 'snippet': 'return 1;', 'resolution_status': 'exact'}
+        doc = {'contract': 'semantic-stream/v1', 'identity': identity, 'results': [row], 'evidence': {'stream': FOOTER}}
+        self.assertEqual([[{**HEADER, 'identity': identity}, row, FOOTER]], version_source_frames(json.dumps(doc)))
+        doc['evidence'] = {}
+        with self.assertRaises(RuntimeError): version_source_frames(json.dumps(doc))
+        doc['evidence'] = {'stream': FOOTER}
+        del identity['source_snapshot_id']
+        with self.assertRaises(RuntimeError): version_source_frames(json.dumps(doc))
+        self.assertEqual([], version_source_frames(json.dumps({'summary': {'results': [row]}})))
+
+    def test_capture_check_accepts_refinement_after_a_filtered_diff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'version-oracle.json').write_text(json.dumps({'ignored_report': 'target/report.txt'}))
+            event = lambda output: S(arguments={'cmd': 'anatomist diff --base main --target HEAD'},
+                                     raw_input={'exit_code': 0}, raw_output=output)
+            trace = S(tool_events=[event('calls'), event('all')])
+            provider = AnatomistJuryAdapter().extension_check_providers()['anatomist']
+            def documents(output):
+                return [{'comparison': {'output': {'view': output}, 'capture': {'target': 'git-inputs-v2'}}, 'changes': []}]
+            with patch('anatomist_jury_adapter.diff_documents', side_effect=documents):
+                provider._execute({'check': 'capture_policy'}, S(trace=trace), {'workspace': root, 'project': root})
+                trace.tool_events.pop()
+                with self.assertRaises(RuntimeError):
+                    provider._execute({'check': 'capture_policy'}, S(trace=trace), {'workspace': root, 'project': root})
+
+    def test_structured_and_paged_reads_count_but_metadata_commands_do_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'evidence').mkdir()
+            (root / 'evidence/diff.ndjson').write_text('{}')
+            for command, expected in (("jq -c 'select(.record)' ../evidence/diff.ndjson", 1),
+                                      ("sed -n '1,120p' ../evidence/diff.ndjson", 1),
+                                      ("wc -l ../evidence/diff.ndjson", 0),
+                                      ("shasum -a 256 ../evidence/diff.ndjson", 0)):
+                trace = S(tool_events=[S(arguments={'cmd': command}, raw_input={'exit_code': 0})])
+                self.assertEqual(expected, len(consumed_evidence_files(trace, root)), command)
+
     def test_semantic_pipeline_accepts_its_later_consumed_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp).resolve()

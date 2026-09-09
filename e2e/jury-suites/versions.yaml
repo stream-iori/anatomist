@@ -12,3 +12,9 @@ members:
   - id: impact-boundary
     type: case
     path: ../cases/anatomist-impact-boundary.yaml
+  - id: ignored-lifecycle
+    type: case
+    path: ../cases/anatomist-ignored-lifecycle.yaml
+  - id: storage-lifecycle
+    type: case
+    path: ../cases/anatomist-storage-lifecycle.yaml

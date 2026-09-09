@@ -15,31 +15,35 @@ final class DiffTextChanges {
     record Hunk(Lines before, Lines after) {}
     private static final Pattern HUNK = Pattern.compile("^@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@.*$");
 
+    static Hunk hunk(String line) {
+        var m=HUNK.matcher(line);if(!m.matches()) return null;
+        return new Hunk(new Lines(Integer.parseInt(m.group(1)),m.group(2)==null?1:Integer.parseInt(m.group(2))),
+                new Lines(Integer.parseInt(m.group(3)),m.group(4)==null?1:Integer.parseInt(m.group(4))));
+    }
     static List<Hunk> compare(Path before, Path after) {
         List<String> command = List.of("git", "-c", "core.safecrlf=false", "diff", "--no-index",
                 "--no-ext-diff", "--no-textconv", "--no-color", "--text", "--unified=0",
                 "--diff-algorithm=myers", "--", before.toString(), after.toString());
         try {
+            com.anatomist.version.GitRepository.countInvocation();
             Process process = new ProcessBuilder(command).start();
             process.getOutputStream().close();
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-                var stdout = executor.submit(() -> process.getInputStream().readAllBytes());
+                var stdout = executor.submit(() -> {
+                    List<Hunk> result=new ArrayList<>();
+                    try(var reader=new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream(),StandardCharsets.UTF_8))) {
+                        String line;while((line=reader.readLine())!=null) { Hunk hunk=hunk(line);if(hunk!=null) result.add(hunk); }
+                    }return result;
+                });
                 var stderr = executor.submit(() -> process.getErrorStream().readAllBytes());
                 if (!process.waitFor(60, TimeUnit.SECONDS)) {
                     process.destroyForcibly();
                     throw new SnapshotException("DIFF_TEXT_TIMEOUT", "Frozen source comparison timed out");
                 }
-                String output = new String(stdout.get(), StandardCharsets.UTF_8);
                 String error = new String(stderr.get(), StandardCharsets.UTF_8);
                 if (process.exitValue() > 1)
                     throw new SnapshotException("DIFF_TEXT_FAILED", error.strip());
-                List<Hunk> hunks = new ArrayList<>();
-                for (String line : output.lines().toList()) {
-                    var m = HUNK.matcher(line);
-                    if (m.matches()) hunks.add(new Hunk(new Lines(Integer.parseInt(m.group(1)),
-                            m.group(2) == null ? 1 : Integer.parseInt(m.group(2))),
-                            new Lines(Integer.parseInt(m.group(3)), m.group(4) == null ? 1 : Integer.parseInt(m.group(4)))));
-                }
+                List<Hunk> hunks = stdout.get();
                 if (process.exitValue() == 1 && hunks.isEmpty())
                     throw new SnapshotException("DIFF_TEXT_FAILED", "Text difference has no navigable ranges");
                 return List.copyOf(hunks);

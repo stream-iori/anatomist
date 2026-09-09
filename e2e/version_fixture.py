@@ -93,7 +93,7 @@ def create(project, *, maven=False, executor=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, required=True)
-    parser.add_argument("--scenario", choices=["work", "tips", "boundary"], required=True)
+    parser.add_argument("--scenario", choices=["work", "tips", "boundary", "ignored", "storage"], required=True)
     args = parser.parse_args()
     facts = create(args.project, maven=True)
     binary = os.environ["ANATOMIST_E2E_BIN"]
@@ -104,10 +104,20 @@ def main():
             ids.append(captured["id"])
             if args.scenario == "tips":
                 run([binary, "index", ".", "--ref", ref, "--java-version", "17", "--format", "json"], args.project)
+    if args.scenario == "ignored":
+        report = args.project / "app/target/report.txt"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("ignored diagnostic report; no Java source changes\n")
+        facts["ignored_report"] = "app/target/report.txt"
+    if args.scenario == "storage":
+        stale = json.loads(run([binary,"index",".","--ref",facts["ancestor"],"--format","json"],args.project))
+        facts["stale_id"] = stale["id"]
     facts.update({"scenario": args.scenario, "fixed_ids": ids if args.scenario == "boundary" else []})
     request = {
         "work": "分析 feature 从 base-tip 分出后的开发影响，包含生产和测试调用方。请用 Anatomist diff 自动准备所需快照，定位直接与可能调用方，并用对应版本的源码验证关键结论。Base 分支后来也有开发，请只归因本分支的工作。",
         "tips": "比较当前 feature 分支与 base-tip 当前端点的调用关系差异，包含生产和测试调用方。请用 Anatomist diff 自动准备所需快照，说明调用目标变化和双方影响，并查看对应版本的源码。已有缓存可能不覆盖测试。",
+        "ignored": "比较 base-tip 与当前 WORKTREE 的调用影响，包含测试。app/target/report.txt 是被 Git 忽略的构建报告，请检查 diff --view all 的文件证据，说明它是否属于捕获范围，不要把报告变化解释成代码影响。请自动准备快照并读取两侧源码。",
+        "storage": "比较 base-tip 与 feature 的调用影响，包含测试，并读取两侧源码。然后查看 snapshots stats，把本次比较的两个快照 pin；先预览 snapshots gc --keep 0，再执行相同 GC。解释回收了什么、为何两个快照仍能导航。此临时项目的其它旧快照允许回收。保留清理前后的结构化证据。",
         "boundary": "仅基于这两个固定快照分析调用影响：base=snapshot:" + (ids[0] if ids else "") + "，target=snapshot:" + (ids[1] if ids else "") + "。不要重新构建快照。请判断这些证据能否证明没有其他生产或测试调用方；说明已经发现的调用方与覆盖限制，并查看对应版本的源码。",
     }[args.scenario]
     request += " 两侧各选一个 diff 返回的变化实体 ID，在其快照中读取源码，保留完整的结构化 diff 与源码证据。临时证据放在 ../evidence/，不修改或复制项目。"

@@ -1,0 +1,28 @@
+schema_version: jury.case/v2
+extends: ../templates/anatomist-versions-codex-sdk.yaml
+merge: {checks: append}
+id: anatomist-ignored-lifecycle
+name: 忽略构建报告并分析调用影响
+category: e2e
+scenario:
+  given: 用户提出版本比较与存储边界问题。
+  when: Agent 通过当前 Anatomist 能力取证。
+  then: Agent 明确捕获范围，不将 ignored 报告解释为代码变化。
+setup:
+  env:
+    ANATOMIST_E2E_SCENARIO: ignored
+prompt:
+  language: zh-CN
+  text: |
+    完成 ../version-request.md 中的任务，使用本次提供的 Anatomist skill。
+    保留源码和 checkout 状态，结论以结构化输出为依据。
+checks:
+  - id: lifecycle-evidence
+    type: extension
+    provider: anatomist
+    severity: hard
+    config: {check: capture_policy}
+    covers: [source-integrity, coverage-boundary]
+metadata: {owner: anatomist, source: versions-agent-e2e}
+tags: [anatomist, e2e, versions, lifecycle]
+priority: P1

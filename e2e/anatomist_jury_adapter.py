@@ -13,7 +13,7 @@ import sqlite3
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from evidence_contracts import semantic_frames, embedded_semantic_frames, diff_documents
+from evidence_contracts import semantic_frames, embedded_semantic_frames, diff_documents, version_source_frames
 from version_checks import validate_diff, navigation_sides
 
 
@@ -377,7 +377,7 @@ def consumed_evidence_files(trace, workspace):
         if raw.get("exit_code") not in (0, None):
             continue
         for command in _event_commands(event):
-            if not re.search(r"\bcat\s|read_text\s*\(|json\.load\s*\(|\bopen\s*\(", command):
+            if not re.search(r"\b(?:cat|jq|sed)\s|read_text\s*\(|json\.load\s*\(|\bopen\s*\(", command):
                 continue
             patterns = re.findall(r"[\"']([^\"']*\*[^\"']*)[\"']", command)
             for path in files:
@@ -573,6 +573,43 @@ class _AnatomistCheckProvider:
         check = config.get("check")
         executions = executed_anatomist_invocations(context.trace)
         observed = [str(item["subcommand"]) for item in executions]
+        if check in ("capture_policy", "snapshot_storage"):
+            from version_checks import validate_capture, validate_storage
+            facts = json.loads((Path(state["workspace"]) / "version-oracle.json").read_text())
+            consumed = consumed_evidence_files(context.trace, state["workspace"])
+            if check == "capture_policy":
+                errors = []
+                for execution in executions:
+                    if execution["subcommand"] == "diff" and execution["exit_code"] in (0, None):
+                        try:
+                            for document in diff_documents(redirected_evidence(execution, state["project"], consumed)):
+                                try:
+                                    return validate_capture(document, facts)
+                                except RuntimeError as failure:
+                                    errors.append(str(failure))
+                        except (ValueError, RuntimeError) as failure:
+                            errors.append(str(failure))
+                raise RuntimeError("capture evidence missing: " + "; ".join(errors))
+            documents = []
+            for execution in executions:
+                if execution["subcommand"] != "snapshots" or execution["exit_code"] not in (0, None):
+                    continue
+                raw = redirected_evidence(execution, state["project"], consumed)
+                try:
+                    value = json.JSONDecoder().raw_decode(raw[raw.index("{"):])[0]
+                    if isinstance(value, dict):
+                        documents.append(value)
+                except (ValueError, TypeError):
+                    continue
+            result = validate_storage(documents, facts)
+            # Verify every snapshot retained by a pin still has its database.
+            for item in documents:
+                for row in item.get("protected", []):
+                    if row.get("reason") == "pin":
+                        storage = Path(item["storage"]["directory"])
+                        if not (storage / "snapshots" / row["id"] / "index.db").is_file():
+                            raise RuntimeError("pinned snapshot was removed")
+            return result
         if check in ("diff_evidence", "snapshot_navigation", "version_checkout_unchanged"):
             facts = json.loads((Path(state["workspace"]) / "version-oracle.json").read_text())
             if check == "version_checkout_unchanged":
@@ -609,7 +646,7 @@ class _AnatomistCheckProvider:
                 for item in consumed:
                     if item["event_index"] >= execution["event_index"]:
                         try:
-                            streams.extend(semantic_frames(item["output"]))
+                            streams.extend(version_source_frames(item["output"]))
                         except RuntimeError:
                             pass
                 # Python subprocess loops can emit complete source frames too.
@@ -627,7 +664,7 @@ class _AnatomistCheckProvider:
                     if query["subcommand"] not in ("source", "pipeline"):
                         continue
                     try:
-                        streams.extend(semantic_frames(query["output"]))
+                        streams.extend(version_source_frames(query["output"]))
                     except RuntimeError:
                         continue
                 if navigation_sides(document, streams) == {"base", "target"}:

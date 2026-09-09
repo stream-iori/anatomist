@@ -9,7 +9,7 @@
 | Configuration unexpected | doctor --format json | config_source, config_path and scan_policy_hash. |
 | Incompatible standalone index | index <project> --recreate | Rebuild only the intended mutable index. |
 
-Ordinary indexing does not require Git. Prefer incremental refresh; full indexing
+Indexing does not require Git. Prefer incremental refresh; full indexing
 is the standalone default without --incremental. Version builds attempt reuse by
 default; --full forces reconstruction. Do not recreate published snapshots.
 Extractor/policy changes require re-indexing; incompatible old indexes require
@@ -27,5 +27,23 @@ solely to force healthy status. Follow concrete diagnostics for missing dependen
 or partial Lombok coverage.
 
 stderr progress is diagnostic. A backup completion/heartbeat does not establish
-command success; use the exit code and final stdout result. Detailed progress and
-snapshot lifecycle reference: docs/git-snapshots.md in the source distribution.
+command success; use the exit code and final stdout result. Details: docs/git-snapshots.md in the source distribution.
+
+| Version storage situation | Action |
+|---|---|
+| Inspect disk use | snapshots stats |
+| Preview recovery and old snapshot removal | snapshots gc --keep 20 |
+| Perform reviewed cleanup | snapshots gc --keep 20 --execute |
+| Apply a byte budget | snapshots gc --max-bytes <bytes> --execute |
+| Include expired classpath lists | Add --include-caches |
+
+GC defaults to preview. Inspect recovery, protected reasons and budget_met.
+Pins, valid entrypoints and active readers can exceed the budget. Use pin for
+long-term historical navigation; unused entrypoints expire after 30 days by
+default. Small lock files remain intentionally. GC recovers interrupted builds
+and owned worktree registrations; never manually prune unrelated worktrees.
+
+Automatic GC is off unless [versions.gc] auto is enabled. A successful capture
+may report SNAPSHOT_CLEANUP_PENDING or SNAPSHOT_GC_PENDING on stderr: the published
+snapshot remains usable, and snapshots gc --execute retries cleanup. Unowned
+paths are reported and preserved. --no-build does not trigger automatic cleanup.

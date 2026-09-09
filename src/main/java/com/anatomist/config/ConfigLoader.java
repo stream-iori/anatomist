@@ -77,7 +77,7 @@ public final class ConfigLoader {
                     throw error(file, lineNumber, "malformed section header");
                 }
                 section = line.substring(1, line.length() - 1).strip();
-                if (!Set.of("index", "scan", "external", "extensions.lombok").contains(section)) {
+                if (!Set.of("index", "scan", "external", "extensions.lombok", "versions.capture", "versions.gc").contains(section)) {
                     throw error(file, lineNumber, "unknown section [" + section + "]");
                 }
                 continue;
@@ -98,6 +98,25 @@ public final class ConfigLoader {
     private static void applyKeyValue(ProjectConfig config, String section, String key,
                                       String value, Path file, int line) {
         switch (section) {
+            case "versions.capture" -> {
+                if(!key.equals("include_ignored")) throw unknown(file,line,section,key);
+                var patterns=parseStringArray(value,file,line);
+                for(String pattern:patterns) if(Path.of(pattern).isAbsolute() || java.util.Arrays.asList(pattern.replace('\\','/').split("/")).contains(".."))
+                    throw error(file,line,"capture globs must stay inside the project");
+                config.setCaptureIncludeIgnored(patterns);
+            }
+            case "versions.gc" -> {
+                try {
+                    switch(key) {
+                        case "auto" -> config.setVersionsAutoGc(parseBool(value,file,line));
+                        case "include_caches" -> config.setVersionsIncludeCaches(parseBool(value,file,line));
+                        case "keep" -> config.setVersionsKeep(parseInt(value,file,line));
+                        case "max_age_days" -> config.setVersionsMaxAgeDays(parseInt(value,file,line));
+                        case "max_bytes" -> config.setVersionsMaxBytes(Long.parseLong(value));
+                        default -> throw unknown(file,line,section,key);
+                    }
+                } catch(IllegalArgumentException failure) { throw error(file,line,failure.getMessage()); }
+            }
             case "index" -> applyIndex(config, key, value, file, line);
             case "scan" -> applyScan(config, key, value, file, line);
             case "external" -> {

@@ -58,3 +58,23 @@ def navigation_sides(document, streams):
                    and row.get("snippet") and row.get("resolution_status") == "exact" for row in rows):
                 observed.add(side)
     return observed
+
+
+def validate_capture(document, facts):
+    header = document["comparison"]
+    require(header.get("output", {}).get("view") == "all", "capture check requires visible file evidence")
+    require(header.get("capture", {}).get("target") == "git-inputs-v2", "capture policy not disclosed")
+    require(not any(row.get("path") == facts["ignored_report"] for row in document["changes"]), "ignored report appeared as a file change")
+    return {"capture_policy": header["capture"]["target"], "excluded_report": facts["ignored_report"]}
+
+
+def validate_storage(documents, facts):
+    stats = [item for item in documents if item.get("command") == "snapshots stats"]
+    gc = [item for item in documents if item.get("command") == "snapshots gc"]
+    require(stats, "storage statistics not consumed")
+    require(any(item.get("execute") is False for item in gc), "GC preview not consumed")
+    executed = [item for item in gc if item.get("execute") is True]
+    require(executed, "executed GC evidence missing")
+    require(any(row.get("id") == facts["stale_id"] for item in executed for row in item.get("candidates", [])), "unused snapshot was not collected")
+    require(any(row.get("reason") == "pin" for item in executed for row in item.get("protected", [])), "pin protection not established")
+    return {"gc_executions": len(executed), "statistics": len(stats)}

@@ -8,6 +8,7 @@ import java.util.function.Function;
 final class VersionCallGraph implements Function<String,List<VersionRelationships.Relation>> {
     private final QueryService query;
     private final boolean dispatch;
+    private boolean lazyRecorded;
     private final int maxDepth,limit,budget;
     private int states;
     private boolean truncated;
@@ -15,6 +16,9 @@ final class VersionCallGraph implements Function<String,List<VersionRelationship
     private final Map<String,DispatchResult> sites=new HashMap<>();
     private final Set<String> reasons=new TreeSet<>();
 
+    VersionCallGraph(QueryService query,boolean dispatch) {
+        this(query,Map.of(),dispatch);lazyRecorded=true;
+    }
     VersionCallGraph(QueryService query,Map<String,VersionRelationships.Relation> relations,boolean dispatch) {
         this(query,relations,dispatch,20,50,100_000);
     }
@@ -30,7 +34,9 @@ final class VersionCallGraph implements Function<String,List<VersionRelationship
         return incoming.computeIfAbsent(target,this::readIncoming);
     }
     private List<VersionRelationships.Relation> readIncoming(String target) {
-        List<VersionRelationships.Relation> out=new ArrayList<>(recorded.getOrDefault(target,List.of()));
+        List<VersionRelationships.Relation> out;
+        try { out=new ArrayList<>(lazyRecorded?VersionRelationships.incoming(query.connection(),target):recorded.getOrDefault(target,List.of())); }
+        catch(java.sql.SQLException failure) { throw new com.anatomist.version.SnapshotException("DIFF_FAILED",failure.getMessage(),failure); }
         if(!dispatch) return out;
         try(var cursor=query.dispatchCallSites(target)) {
             while(cursor.hasNext()) {

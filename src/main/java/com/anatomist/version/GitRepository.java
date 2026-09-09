@@ -9,6 +9,9 @@ import java.util.concurrent.*;
 
 /** Git plumbing. Never checks out or resets the caller's working tree. */
 public record GitRepository(Path project, Path root, Path commonDirectory, Path projectRelative) {
+    private static final ThreadLocal<long[]> CALLS=ThreadLocal.withInitial(()->new long[1]);
+    public static long invocations() { return CALLS.get()[0]; }
+    public static void countInvocation() { CALLS.get()[0]++; }
     public static GitRepository open(Path project) {
         try {
             Path actual = project.toRealPath();
@@ -44,6 +47,7 @@ public record GitRepository(Path project, Path root, Path commonDirectory, Path 
         return new String(bytes(directory, args), StandardCharsets.UTF_8).strip();
     }
     public static byte[] bytes(Path directory, String... args) {
+        countInvocation();
         List<String> command = new ArrayList<>(List.of("git", "-C", directory.toString()));
         command.addAll(List.of(args));
         try {

@@ -67,7 +67,7 @@ just agent-e2e-smoke
 |---|---|---|
 | `just agent-e2e-unit` | 每次修改校验器 | 默认 CI；无需 Jury、模型或 native |
 | `just agent-e2e-contract` | 每次修改 E2E 资产 | 单测及 Jury 严格配置校验，不调用模型 |
-| `just agent-e2e-versions` | 版本能力变更 | 3 条真实 Agent 用例 |
+| `just agent-e2e-versions` | 版本能力变更 | 5 条真实 Agent 用例（含捕获边界、GC 预览与回收） |
 | `just agent-e2e-smoke` | 手工或 nightly | 不进入默认 Maven 测试 |
 
 当前不启用额外 LLM Judge。adapter 从 Jury normalized trace 中检查真实 Anatomist
@@ -93,12 +93,23 @@ just agent-e2e-smoke
 `snapshot_navigation` 将 Agent 获取的 source_slice 实体及三个语义身份关联到对应侧；
 历史快照不按当前 checkout 做 freshness 校验。semantic stream 必须有正确头尾，只认顶层记录，
 不能用混合 diff 输出、嵌套对象或失败命令补齐证据。独立复查不替代 Agent 实际取证。
+版本导航同时接受完整 NDJSON 和 JSON envelope；JSON 必须含三个身份字段、results 和 stream evidence。
 NDJSON 是语义命令的默认输出；`tee` 可保留完整证据流，`jq`、`head` 等过滤器不能代替完整证据。
 大输出可保存到自有 `../evidence/`。校验器将 diff 重定向与后续实际读取关联，验证文件的完整协议，
 并按快照身份和实体 ID 验证源码；未读取文件、越界路径和符号链接不作为证据。
+`cat`、`jq`、`sed` 和 Python 读取均可建立消费关联，但仍校验保留文件的完整协议；
+`wc`、`ls`、哈希命令只证明文件存在，不能代替读取。
 已消费文件及哈希随 Jury 报告归档，fixture 清理后仍可复查。
 
 真实模型故障、准备失败和检查失败分别记录，不能算成通过。不使用额外 LLM Judge。
 完整 suite 使用 `--continue-on-failure` 保留全部用例结果；需要单例定位时使用 `--member`。
 若服务端拒绝 Jury 内置 Codex 版本，可用 `JURY_CODEX_BIN=/path/to/codex` 指定兼容的本机 CLI，
 保留原失败记录后重跑受影响用例；不要通过放宽业务检查掩盖运行器故障。
+
+版本生命周期进程验收：`just diff-lifecycle-e2e`。测试使用自有 Git 仓库和
+ANATOMIST_HOME，验证强杀恢复、worktree 注册残留、缓存读取并发及清理诊断。
+性能与快照回收报告保存在 target/；默认回收 fixture，--keep-on-failure 才保留。
+`just diff-stress-e2e` 验证超过 8 MiB 的真实 diff、慢读者保护、断管诊断与暂存清理。
+`just diff-performance` 测量 1k/10k Java 文件及 100 份历史快照；与旧版本对照时使用
+`scripts/diff-performance.py --native <new> --baseline <old>`，避免与编译或其他负载同时运行。
+有 baseline 时，缓存比较或单文件增量的中位数回退超过 10% 会使命令失败并保留报告。

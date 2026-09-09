@@ -53,3 +53,21 @@ mode = "off"
 # true: promote Lombok coverage diagnostics to the complete health gate; an
 # incomplete Lombok model can make strict indexing fail with exit code 3.
 strict = false
+
+[versions.capture]
+# Git-visible files and required analysis inputs are captured by default.
+# Add project-relative globs for other ignored inputs required by your project.
+include_ignored = []
+
+[versions.gc]
+# Default: explicit snapshots gc --execute only. Auto runs after new captures.
+auto = false
+# Target retained snapshot count. A byte budget may reduce this further.
+keep = 20
+# Per-project version storage budget in bytes; 0 disables the budget.
+# Pins, valid entrypoints and active readers can prevent meeting this budget.
+max_bytes = 0
+# Expire unused entrypoints and optional classpath lists after this many days.
+max_age_days = 30
+# Also collect Anatomist classpath lists; never Maven dependencies or JDKs.
+include_caches = false

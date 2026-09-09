@@ -216,7 +216,7 @@ public class ClasspathDetector {
     private List<String> readClasspathCache(Path projectRoot) {
         Path file = classpathCacheFile(projectRoot);
         if (file == null || !Files.isRegularFile(file)) return List.of();
-        try {
+        try (var lock=com.anatomist.store.IndexLock.forRead(file.getParent().resolve("maintenance"))) {
             List<String> entries = Files.readAllLines(file, StandardCharsets.UTF_8).stream()
                     .map(String::trim)
                     .filter(value -> !value.isEmpty())
@@ -236,19 +236,16 @@ public class ClasspathDetector {
     private void writeClasspathCache(Path projectRoot, java.util.Set<String> entries) {
         Path file = classpathCacheFile(projectRoot);
         if (file == null) return;
-        try {
-            Files.createDirectories(file.getParent());
-            Path temporary = Files.createTempFile(file.getParent(), "classpath-", ".tmp");
-            Files.write(temporary, entries, StandardCharsets.UTF_8);
+        Path temporary=null;
+        try (var lock=com.anatomist.store.IndexLock.forRead(file.getParent().resolve("maintenance"))) {
             try {
-                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
-            AnatomistLog.debug("classpath: failed to write cache: " + e.getMessage());
-        }
+                Files.createDirectories(file.getParent());
+                temporary=Files.createTempFile(file.getParent(),"classpath-",".tmp");
+                Files.write(temporary,entries,StandardCharsets.UTF_8);
+                try { Files.move(temporary,file,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING); }
+                catch(java.nio.file.AtomicMoveNotSupportedException e) { Files.move(temporary,file,StandardCopyOption.REPLACE_EXISTING); }
+            } finally { if(temporary!=null) Files.deleteIfExists(temporary); }
+        } catch(IOException | RuntimeException e) { AnatomistLog.debug("classpath: failed to write cache: "+e.getMessage()); }
     }
 
     private Path classpathCacheFile(Path projectRoot) {
@@ -572,6 +569,7 @@ public class ClasspathDetector {
             AnatomistLog.debug("classpath: Maven JAVA_HOME=" + javaHome);
         }
         Process p = pb.start();
+        try(var registration=com.anatomist.application.SnapshotProcesses.watch(p)) {
         TailOutputStream tail = new TailOutputStream(MAVEN_OUTPUT_TAIL_BYTES);
         Thread drain = Thread.ofVirtual().name("anatomist-maven-output").start(() -> {
             try (InputStream in = p.getInputStream()) {
@@ -589,6 +587,11 @@ public class ClasspathDetector {
         drain.join(5_000);
         setLastMavenOutput(tail.asString());
         return p.exitValue();
+        } catch(IOException | InterruptedException failure) { throw failure; }
+        catch(Exception failure) { throw new IOException("Maven process cleanup failed",failure); }
+        finally {
+            if(p.isAlive()) { p.descendants().forEach(ProcessHandle::destroyForcibly);p.destroyForcibly(); }
+        }
     }
 
     protected void setLastMavenOutput(String output) {

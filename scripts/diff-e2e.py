@@ -147,7 +147,7 @@ def main():
                 assert failed
                 assert not db.execute("SELECT id FROM snapshots WHERE status='BUILDING'").fetchall()
             for (snapshot,) in failed:
-                assert not (catalogs[0].parent / "snapshots" / snapshot).exists()
+                assert not (catalogs[0].parent / "snapshots" / snapshot / "index.db").exists()
             assert not (catalogs[0].parent / "workspace").exists()
             if not args.no_maven:
                 detections = []

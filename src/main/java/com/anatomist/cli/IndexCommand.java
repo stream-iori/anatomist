@@ -213,6 +213,7 @@ public class IndexCommand implements Callable<Integer> {
                 List<String> options = snapshotOptions();
                 var built = service.build(ref, com.anatomist.json.Json.writeCompact(options), full,
                         snapshotBuilder(options, projectPath.toAbsolutePath().normalize()));
+                if(!built.reused()) com.anatomist.application.SnapshotMaintenance.autoCollect(service,Set.of(built.entry().id()));
                 System.out.println("json".equals(format) ? com.anatomist.json.Json.writePretty(built.json())
                         : "Snapshot " + built.entry().id() + " (" + (built.reused()?"reused":"built")
                         + ")\n  Commit: " + built.entry().commit() + "\n  Index: " + built.database());
@@ -254,7 +255,37 @@ public class IndexCommand implements Callable<Integer> {
     }
 
     static com.anatomist.application.SnapshotService.Builder snapshotBuilder(List<String> options,Path original) {
-        return (project, database, useIncremental) -> {
+        return new com.anatomist.application.SnapshotService.Builder() {
+            public java.util.Collection<Path> inputs(Path root) {
+                IndexCommand command=new IndexCommand();
+                List<String> args=new ArrayList<>(List.of(root.toString()));
+                for(String arg:options) args.add(arg.replace(original.toString(),root.toString()));
+                new picocli.CommandLine(command).parseArgs(args.toArray(String[]::new));
+                command.loadedConfig=ConfigLoader.loadResolved(root);
+                var config=command.loadedConfig.config();
+                command.configureEffectiveOptions(root,config);
+                var roots=command.resolveSourceRoots(root,command.resolveSourcePaths(new ClasspathDetector(),root));
+                Set<String> excluded=command.exclude==null?Set.of():new HashSet<>(Arrays.asList(command.exclude.split(",")));
+                var policy=new ScanPolicy(root,command.scanIncludeSpecs.isEmpty()?config.scanIncludes():command.scanIncludeSpecs,
+                        command.scanExcludeSpecs.isEmpty()?config.scanExcludes():command.scanExcludeSpecs,excluded);
+                var scanner=new ProjectScanner(excluded,policy);
+                List<Path> files=new ArrayList<>(com.anatomist.provider.LanguageProviderRegistry.builtIns()
+                        .requireProvider(command.providerId).discover(scanner,roots).files());
+                if(Boolean.TRUE.equals(command.springXml)) files.addAll(scanner.scanSpringXml(root));
+                return files;
+            }
+            public java.util.Collection<Path> artifacts(Path root) {
+                IndexCommand command=new IndexCommand();List<String> args=new ArrayList<>(List.of(root.toString()));
+                for(String arg:options) args.add(arg.replace(original.toString(),root.toString()));
+                new picocli.CommandLine(command).parseArgs(args.toArray(String[]::new));
+                if(command.noClasspath) return List.of();
+                List<Path> result=new ArrayList<>(new ClasspathDetector().detectBuildOutputClasspath(root));
+                if(command.classpath!=null) for(String entry:command.classpath.split(File.pathSeparator)) {
+                    Path path=Path.of(entry);result.add(path.isAbsolute()?path:root.resolve(path));
+                }
+                return result;
+            }
+            public Map<String,Object> build(Path project, Path database, boolean useIncremental) {
             List<String> args=new ArrayList<>(List.of(project.toString()));
             for(String arg:options) args.add(arg.replace(original.toString(),project.toString()));
             args.addAll(List.of("--output",database.toString(),"--format","json","--timings"));
@@ -268,6 +299,7 @@ public class IndexCommand implements Callable<Integer> {
             if(outcome.exitCode()!=0) throw new com.anatomist.version.SnapshotException("SNAPSHOT_INDEX_FAILED",
                     "Index failed (exit " + outcome.exitCode() + "): " + outcome.error(),outcome.cause());
             return command.snapshotMetrics;
+            }
         };
     }
 

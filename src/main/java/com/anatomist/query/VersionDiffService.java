@@ -12,16 +12,19 @@ import java.util.*;
 /** Frozen text changes lead to navigation; indexed relationships remain separate evidence. */
 public final class VersionDiffService {
     public static final String CONTRACT="anatomist-diff/v2";
-    public record Result(Map<String,Object> header,List<Map<String,Object>> changes,Map<String,Object> evidence) {
+    public record Result(Map<String,Object> header,List<Map<String,Object>> changes,Map<String,Object> evidence) implements AutoCloseable {
+        public void close() { if(changes instanceof DiffRows rows) rows.close(); }
+        public long spilledBytes() { return changes instanceof DiffRows rows?rows.spilledBytes():0; }
         public Map<String,Object> json() { return Map.of("contract",CONTRACT,"comparison",header,"changes",changes,"evidence",evidence); }
         public Result present(String view,Map<String,Object> request) {
             if(!Set.of("all","calls").contains(view)) throw new IllegalArgumentException("Unknown diff view: "+view);
-            var visible=changes.stream().filter(row->view.equals("all") || row.get("record").equals("declaration_change")
+            java.util.function.Predicate<Map<String,Object>> selected=row->view.equals("all") || row.get("record").equals("declaration_change")
                     || row.get("record").equals("impact") || row.get("record").equals("relation_change")
-                    && ((Map<?,?>)row.get("relationship")).get("relation").equals("CALLS")).toList();
+                    && ((Map<?,?>)row.get("relationship")).get("relation").equals("CALLS");
+            List<Map<String,Object>> visible=view.equals("all")?changes:changes instanceof DiffRows rows?rows.filtered(selected):changes.stream().filter(selected).toList();
             Map<String,Object> h=new LinkedHashMap<>(header),e=new LinkedHashMap<>(evidence);
             h.put("request",request);h.put("output",Map.of("view",view,"analyzed",changes.size(),"emitted",visible.size(),"hidden",changes.size()-visible.size()));
-            e.put("emitted",visible.size());return new Result(h,visible,e);
+            e.put("emitted",visible.size());if(visible!=changes) close();return new Result(h,visible,e);
         }
     }
     public Result compare(SnapshotAccess service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
@@ -35,6 +38,7 @@ public final class VersionDiffService {
     public Result compare(SnapshotAccess service,SnapshotCatalog.Entry base,SnapshotCatalog.Entry target,
                           String scope,String module,boolean impact,int depth,String impactScope,String impactModule,String dispatch) {
         if(!Set.of("auto","resolved").contains(dispatch)) throw new IllegalArgumentException("Unknown impact dispatch: "+dispatch);
+        DiffRows changes=new DiffRows(service.snapshotDirectory(base.id()).getParent().getParent().resolve("results"));
         try(QueryService left=new QueryService(service.database(base.id()));
             QueryService right=new QueryService(service.database(target.id()))) {
             Map<String,String> oldMeta=metadata(left.connection()),newMeta=metadata(right.connection());
@@ -58,7 +62,6 @@ public final class VersionDiffService {
             if(dispatch.equals("auto")) impactHeader.putAll(Map.of("world","workspace-open","dispatch_max_depth",20,"dispatch_limit",50,"dispatch_state_limit",100_000));
             header.put("impact",impactHeader);
 
-            List<Map<String,Object>> changes=new ArrayList<>();
             fileChanges(service,base,target,oldFiles,newFiles,changes);
             var before=DiffNavigation.read(left.connection()); var after=DiffNavigation.read(right.connection());
             Map<String,String> oldHits=new TreeMap<>(),newHits=new TreeMap<>();
@@ -66,26 +69,31 @@ public final class VersionDiffService {
             Set<String> newGaps=newCoverage.reasons(scope,module,"declarations");
             Set<String> changedFiles=new TreeSet<>(oldFiles.keySet()); changedFiles.addAll(newFiles.keySet());
             changedFiles.removeIf(file->Objects.equals(oldFiles.get(file),newFiles.get(file)));
+            var committedHunks=base.checkout().isEmpty() && target.checkout().isEmpty()
+                    ?CommittedTextChanges.compare(service.git(),base.commit(),target.commit(),changedFiles,oldFiles,newFiles):Map.<String,List<DiffTextChanges.Hunk>>of();
             var oldSelected=before.values().stream().filter(d->d.selected(scope,module)).toList();
             var newSelected=after.values().stream().filter(d->d.selected(scope,module)).toList();
+            var oldByFile=oldSelected.stream().collect(java.util.stream.Collectors.groupingBy(DiffNavigation.Declaration::file));
+            var newByFile=newSelected.stream().collect(java.util.stream.Collectors.groupingBy(DiffNavigation.Declaration::file));
             for(String file:changedFiles) {
+                var oldLocal=oldByFile.getOrDefault(file,List.of());var newLocal=newByFile.getOrDefault(file,List.of());
                 if(!file.endsWith(".java")) continue;
                 Path oldSource=verified(oldMeta,file,oldFiles.get(file),oldGaps);
                 Path newSource=verified(newMeta,file,newFiles.get(file),newGaps);
                 if((oldFiles.containsKey(file) && oldSource==null) || (newFiles.containsKey(file) && newSource==null)) continue;
                 if(oldSource==null || newSource==null) {
-                    markFile(oldSelected,file,oldHits); markFile(newSelected,file,newHits);
+                    markFile(oldLocal,file,oldHits); markFile(newLocal,file,newHits);
                 } else {
-                    var hunks=DiffTextChanges.compare(oldSource,newSource);
-                    oldHits.putAll(DiffNavigation.locate(oldSelected,file,hunks.stream().map(DiffTextChanges.Hunk::before).toList()));
-                    newHits.putAll(DiffNavigation.locate(newSelected,file,hunks.stream().map(DiffTextChanges.Hunk::after).toList()));
-                    oldSelected.stream().filter(d->d.file().equals(file) && !after.containsKey(d.id()))
+                    var hunks=committedHunks.containsKey(file)?committedHunks.get(file):DiffTextChanges.compare(oldSource,newSource);
+                    oldHits.putAll(DiffNavigation.locate(oldLocal,file,hunks.stream().map(DiffTextChanges.Hunk::before).toList()));
+                    newHits.putAll(DiffNavigation.locate(newLocal,file,hunks.stream().map(DiffTextChanges.Hunk::after).toList()));
+                    oldLocal.stream().filter(d->d.file().equals(file) && !after.containsKey(d.id()))
                             .forEach(d->oldHits.put(d.id(),precision(d)));
-                    newSelected.stream().filter(d->d.file().equals(file) && !before.containsKey(d.id()))
+                    newLocal.stream().filter(d->d.file().equals(file) && !before.containsKey(d.id()))
                             .forEach(d->newHits.put(d.id(),precision(d)));
                 }
-                missingRanges(oldSelected,file,oldHits,oldGaps);
-                missingRanges(newSelected,file,newHits,newGaps);
+                missingRanges(oldLocal,file,oldHits,oldGaps);
+                missingRanges(newLocal,file,newHits,newGaps);
             }
             Set<String> changed=new TreeSet<>(oldHits.keySet());changed.addAll(newHits.keySet());
             for(String id:changed) {
@@ -97,25 +105,18 @@ public final class VersionDiffService {
                 if(b!=null) change.put("after",b.anchor(target.id(),newHits.getOrDefault(id,precision(b))));
                 changes.add(change);
             }
-            var oldRelations=VersionRelationships.read(left.connection(),scope,module);
-            var newRelations=VersionRelationships.read(right.connection(),scope,module);
-            VersionRelationships.changes(oldRelations,newRelations,changes,changed);
-            for(var change:changes) if(change.get("record").equals("file_change")) {
-                String file=change.get("path").toString(), old=change.getOrDefault("before_path",file).toString();
-                if(oldFiles.containsKey(old)) change.put("before",Map.of("snapshot_id",base.id(),"file",old,"precision","file"));
-                if(newFiles.containsKey(file)) change.put("after",Map.of("snapshot_id",target.id(),"file",file,"precision","file"));
-            }
+            VersionRelationCursor.changes(left.connection(),right.connection(),scope,module,changes,changed);
 
             Map<String,Object> capabilities=new LinkedHashMap<>();
-            capabilities.put("files",DiffCoverage.evidence(Set.of(),false,false));
+            String oldPolicy=oldMeta.getOrDefault("snapshot_capture_policy","legacy-all-files"),newPolicy=newMeta.getOrDefault("snapshot_capture_policy","legacy-all-files");
+            header.put("capture",Map.of("base",oldPolicy,"target",newPolicy,"files","captured_project_inputs"));
+            capabilities.put("files",DiffCoverage.evidence(oldPolicy.equals(newPolicy)?Set.of():Set.of("CAPTURE_POLICY_MISMATCH"),false,false));
             capabilities.put("declarations",paired(oldGaps,newGaps,false,false));
             capabilities.put("relations",paired(oldCoverage.reasons(scope,module,"relations"),
                     newCoverage.reasons(scope,module,"relations"),environmentChanged,false));
             if(impact) {
-                var oldCalls=VersionRelationships.read(left.connection(),"ALL",null);
-                var newCalls=VersionRelationships.read(right.connection(),"ALL",null);
-                var oldGraph=new VersionCallGraph(left,oldCalls,dispatch.equals("auto"));
-                var newGraph=new VersionCallGraph(right,newCalls,dispatch.equals("auto"));
+                var oldGraph=new VersionCallGraph(left,dispatch.equals("auto"));
+                var newGraph=new VersionCallGraph(right,dispatch.equals("auto"));
                 var oldLimits=VersionRelationships.impacts("base",base.id(),oldGraph,changed,before,impactScope,impactModule,depth,changes,10_000,100_000);
                 var newLimits=VersionRelationships.impacts("target",target.id(),newGraph,changed,after,impactScope,impactModule,depth,changes,10_000,100_000);
                 var oldImpact=oldCoverage.reasons("ALL",null,"impact"); var newImpact=newCoverage.reasons("ALL",null,"impact");
@@ -137,6 +138,7 @@ public final class VersionDiffService {
             evidence.put("capabilities",capabilities);evidence.put("emitted",changes.size());
             return new Result(header,changes,evidence);
         } catch(Exception failure) {
+            changes.close();
             if(failure instanceof SnapshotException snapshot) throw snapshot;
             if(failure instanceof IllegalArgumentException argument) throw argument;
             throw new SnapshotException("DIFF_FAILED",failure.getMessage(),failure);
@@ -216,7 +218,9 @@ public final class VersionDiffService {
                     if(before.containsKey(old) && after.containsKey(now)) {
                         paths.remove(old); paths.remove(now);
                         changes.add(new LinkedHashMap<>(Map.of("record","file_change","change","renamed","before_path",old,"path",now,
-                                "similarity",Integer.parseInt(status.substring(1)),"origin","git")));
+                                "similarity",Integer.parseInt(status.substring(1)),"origin","git",
+                                "before",Map.of("snapshot_id",a.id(),"file",old,"precision","file"),
+                                "after",Map.of("snapshot_id",b.id(),"file",now,"precision","file"))));
                     }
                 }
             }
@@ -225,7 +229,8 @@ public final class VersionDiffService {
             String old=before.get(path),now=after.get(path); if(Objects.equals(old,now)) continue;
             Map<String,Object> change=new LinkedHashMap<>();change.put("record","file_change"); change.put("path",path);
             change.put("change",old==null?"added":now==null?"deleted":"modified");
-            if(old!=null) change.put("before_hash",old); if(now!=null) change.put("after_hash",now);changes.add(change);
+            if(old!=null) { change.put("before_hash",old);change.put("before",Map.of("snapshot_id",a.id(),"file",path,"precision","file")); }
+            if(now!=null) { change.put("after_hash",now);change.put("after",Map.of("snapshot_id",b.id(),"file",path,"precision","file")); }changes.add(change);
         }
     }
 }
